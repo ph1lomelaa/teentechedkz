@@ -52,6 +52,12 @@ export const telegramApi = {
     const response = await apiClient.get<TelegramMessage[]>(`/telegram-chats/${chatId}/messages`)
     return response.data
   },
+  downloadAttachment: async (attachmentId: string): Promise<Blob> => {
+    const response = await apiClient.get(`/telegram-chats/attachments/${attachmentId}/download`, {
+      responseType: 'blob',
+    })
+    return response.data
+  },
   createPairingCode: async (studentId: string): Promise<TelegramPairingCode> => {
     const response = await apiClient.post<TelegramPairingCode>('/telegram-chats/pairing-code', {
       student_id: studentId,

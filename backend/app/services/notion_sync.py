@@ -1,0 +1,177 @@
+"""Синк Notion-базы «Весь пайплайн клиентов» в notion_snapshots (read-only зеркало).
+
+В карточки студентов ничего не пишется автоматически. Каждая строка Notion
+целиком обновляет свой снапшот; привязка к студенту:
+- точный матч по телефону или ФИО (confidence 1.0) — привязывается сразу;
+- нечёткий матч — только предложение, решение за менеджером;
+- нет матча — остаётся в «Notion без привязки».
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import sys
+from datetime import datetime, timezone
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models import NotionSnapshot, NotionMatchStatus, Student
+
+# migration/ монтируется в контейнер как /app/migration — переиспользуем читалку
+sys.path.insert(0, "/app") if "/app" not in sys.path else None
+
+logger = logging.getLogger(__name__)
+
+_sync_lock = asyncio.Lock()
+
+# Последний запуск (в памяти процесса) — для GET /notion/status
+last_run: dict = {
+    "at": None,       # ISO datetime
+    "ok": None,       # bool
+    "error": None,    # str | None
+    "counters": None, # {"total": n, "created": n, "updated": n, "auto_linked": n, "needs_review": n}
+}
+
+
+def is_configured() -> bool:
+    return bool(settings.NOTION_API_KEY.strip() and settings.NOTION_DATABASE_ID.strip())
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def _load_students_index(db: AsyncSession) -> list[dict]:
+    result = await db.execute(
+        select(Student.id, Student.full_name, Student.phone, Student.intake_year).where(
+            Student.is_archived == False  # noqa: E712
+        )
+    )
+    return [
+        {"id": r.id, "full_name": r.full_name or "", "phone": r.phone or "", "intake_year": r.intake_year}
+        for r in result.all()
+    ]
+
+
+async def run_sync(db: AsyncSession) -> dict:
+    """Полный проход: чтение Notion → upsert снапшотов → матчинг непривязанных."""
+    if not is_configured():
+        raise RuntimeError("Notion не настроен — задай NOTION_API_KEY и NOTION_DATABASE_ID в .env")
+
+    async with _sync_lock:
+        from migration.sources.notion import fetch_all_pages, transform_notion_records
+        from migration.transformers.normalize import normalize_phone
+        from migration.transformers.match import fuzzy_match
+
+        loop = asyncio.get_event_loop()
+
+        def _fetch() -> list[dict]:
+            """Блокирующий requests — уводим в thread pool."""
+            pages = fetch_all_pages(settings.NOTION_API_KEY, settings.NOTION_DATABASE_ID)
+            return transform_notion_records(pages)
+
+        try:
+            rows = await loop.run_in_executor(None, _fetch)
+
+            existing_result = await db.execute(select(NotionSnapshot))
+            existing = {s.notion_page_id: s for s in existing_result.scalars().all()}
+            students_index = await _load_students_index(db)
+
+            now = datetime.now(timezone.utc)
+            created = updated = auto_linked = 0
+
+            for row in rows:
+                raw_properties = row.pop("raw_properties")
+                snapshot = existing.get(row["notion_page_id"])
+                phone_norm = normalize_phone(row.get("phone", "")) or None
+
+                if snapshot is None:
+                    snapshot = NotionSnapshot(
+                        notion_page_id=row["notion_page_id"],
+                        raw_properties={},
+                        normalized_data={},
+                        status=NotionMatchStatus.new,
+                        first_seen_at=now,
+                    )
+                    db.add(snapshot)
+                    created += 1
+                else:
+                    updated += 1
+
+                snapshot.notion_url = row.get("notion_url")
+                snapshot.full_name = (row.get("full_name") or "")[:500] or None
+                snapshot.phone_normalized = phone_norm
+                snapshot.raw_properties = raw_properties
+                snapshot.normalized_data = row
+                snapshot.notion_last_edited_at = _parse_iso(row.get("last_edited_time"))
+                snapshot.synced_at = now
+
+                # Матчинг — только для непривязанных и неигнорированных
+                if snapshot.status == NotionMatchStatus.new:
+                    match = fuzzy_match(row.get("full_name", ""), row.get("phone", ""), students_index)
+                    # После ручной отвязки автопривязка запрещена — только предложение
+                    if match.student_id and match.confidence >= 1.0 and not snapshot.manual_unlink:
+                        snapshot.student_id = match.student_id
+                        snapshot.status = NotionMatchStatus.linked
+                        snapshot.linked_at = now
+                        snapshot.suggested_student_id = match.student_id
+                        snapshot.suggested_confidence = 1.0
+                        auto_linked += 1
+                    else:
+                        snapshot.suggested_student_id = match.student_id
+                        snapshot.suggested_confidence = (
+                            round(match.confidence, 3) if match.student_id else None
+                        )
+
+            await db.commit()
+
+            needs_review = await unmatched_count(db)
+            counters = {
+                "total": len(rows),
+                "created": created,
+                "updated": updated,
+                "auto_linked": auto_linked,
+                "needs_review": needs_review,
+            }
+            last_run.update(at=now.isoformat(), ok=True, error=None, counters=counters)
+            logger.info(f"Notion sync done: {counters}")
+            return counters
+        except Exception as e:
+            last_run.update(
+                at=datetime.now(timezone.utc).isoformat(), ok=False, error=str(e), counters=None
+            )
+            raise
+
+
+async def unmatched_count(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(NotionSnapshot).where(
+            NotionSnapshot.status == NotionMatchStatus.new
+        )
+    )
+    return result.scalar() or 0
+
+
+async def sync_loop() -> None:
+    """Фоновый цикл: каждые NOTION_SYNC_INTERVAL_SECONDS. Запускается из lifespan."""
+    from app.core.database import AsyncSessionLocal
+
+    interval = max(300, settings.NOTION_SYNC_INTERVAL_SECONDS)
+    logger.info(f"Notion sync loop started (every {interval}s)")
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_sync(db)
+        except asyncio.CancelledError:
+            logger.info("Notion sync loop cancelled")
+            return
+        except Exception as e:
+            logger.error(f"Notion sync failed: {e}")
+        await asyncio.sleep(interval)

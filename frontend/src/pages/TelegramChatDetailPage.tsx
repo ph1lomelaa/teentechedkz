@@ -30,6 +30,8 @@ import {
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { toast } from '@/hooks/use-toast'
+import { downloadBlob } from '@/lib/utils'
+import type { TelegramAttachment } from '@/types'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -128,6 +130,15 @@ export default function TelegramChatDetailPage() {
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось сохранить файл', variant: 'destructive' }),
   })
 
+  const handleDownloadAttachment = async (a: TelegramAttachment) => {
+    try {
+      const blob = await telegramApi.downloadAttachment(a.id)
+      downloadBlob(blob, a.file_name || 'file')
+    } catch {
+      toast({ title: 'Ошибка', description: 'Не удалось скачать файл', variant: 'destructive' })
+    }
+  }
+
   if (!chat) {
     return <p className="text-sm text-gray-500">Загрузка…</p>
   }
@@ -197,19 +208,19 @@ export default function TelegramChatDetailPage() {
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {m.attachments.map((a) => (
                       <span key={a.id} className="inline-flex items-center gap-1">
-                        <a
-                          href={a.download_url ?? undefined}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          disabled={!a.can_download}
+                          onClick={() => void handleDownloadAttachment(a)}
                           className={`inline-flex items-center gap-1 px-2 py-1 rounded-[2px] text-xs border ${
-                            a.download_url
+                            a.can_download
                               ? 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                              : 'border-gray-100 text-gray-400 pointer-events-none'
+                              : 'border-gray-100 text-gray-400 cursor-not-allowed'
                           }`}
                         >
                           <Paperclip className="w-3 h-3" />
-                          {a.mime_type || 'файл'}
-                        </a>
+                          {a.file_name || 'файл'}
+                        </button>
                         {chat.student_id && (a.status === 'downloaded' || a.status === 'parsed') && (
                           <button
                             title="В документы"

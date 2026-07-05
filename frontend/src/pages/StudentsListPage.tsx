@@ -5,6 +5,7 @@ import { Plus, Download, Search, RefreshCw, Inbox, EyeOff, Eye, CheckCheck } fro
 import { studentsApi } from '@/api/students'
 import { mentorAssignmentsApi } from '@/api/index'
 import { syncApi, IntakeSubmission } from '@/api/sync'
+import { notionApi, NotionSnapshotItem } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   PipelineStatus,
@@ -40,6 +41,7 @@ import {
 } from '@/components/ui/select'
 import { downloadBlob } from '@/lib/utils'
 import { debounce } from '@/lib/utils'
+import { fuzzyStudentMatch } from '@/lib/fuzzyName'
 import { toast } from '@/hooks/use-toast'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -65,10 +67,15 @@ function LinkDialog({
   })
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return allStudents.slice(0, 30)
-    return allStudents.filter((s) => s.full_name.toLowerCase().includes(q)).slice(0, 30)
-  }, [allStudents, query])
+    const q = query.trim()
+    const base = q ? allStudents.filter((s) => fuzzyStudentMatch(q, s.full_name, s.phone)) : allStudents
+    // Предложенный кандидат — всегда первым в списке
+    const suggested = submission.suggested_student_id
+      ? allStudents.find((s) => s.id === submission.suggested_student_id)
+      : undefined
+    const rest = suggested ? base.filter((s) => s.id !== suggested.id) : base
+    return (suggested ? [suggested, ...rest] : rest).slice(0, 30)
+  }, [allStudents, query, submission.suggested_student_id])
 
   const linkMutation = useMutation({
     mutationFn: () => syncApi.link(submission.id, selectedId),
@@ -141,10 +148,10 @@ function LinkDialog({
 /** Панель входящих анкет (status=new) */
 function IntakeInbox() {
   const qc = useQueryClient()
-  const navigate = useNavigate()
   const [linkTarget, setLinkTarget] = useState<IntakeSubmission | null>(null)
   const [ignoreTarget, setIgnoreTarget] = useState<IntakeSubmission | null>(null)
   const [intakeView, setIntakeView] = useState<'new' | 'hidden' | 'all'>('new')
+  const [confirmCreateAll, setConfirmCreateAll] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['intake', 'inbox', intakeView],
@@ -179,17 +186,35 @@ function IntakeInbox() {
 
   const createMutation = useMutation({
     mutationFn: (id: string) => syncApi.createStudent(id),
-    onSuccess: (res) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['intake'] })
       qc.invalidateQueries({ queryKey: ['students'] })
       toast({ title: 'Студент создан из анкеты' })
-      navigate(`/students/${res.student_id}`)
     },
-    onError: () => toast({ title: 'Ошибка создания', variant: 'destructive' }),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Студент не создан', description: detail ?? 'Ошибка создания', variant: 'destructive' })
+      qc.invalidateQueries({ queryKey: ['intake'] })
+    },
+  })
+
+  const createMissingMutation = useMutation({
+    mutationFn: () => syncApi.createMissing(),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['intake'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      setConfirmCreateAll(false)
+      toast({
+        title: 'Студенты созданы',
+        description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
+      })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось создать студентов', variant: 'destructive' }),
   })
 
   const items = data?.items ?? []
   const linkableCount = items.filter((item) => item.status === 'new' && item.suggested_student_id).length
+  const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
     <div className="border border-gray-200 rounded-[2px]">
@@ -224,6 +249,16 @@ function IntakeInbox() {
           >
             <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
             Привязать все{linkableCount ? ` · ${linkableCount}` : ''}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setConfirmCreateAll(true)}
+            disabled={createMissingMutation.isPending || creatableCount === 0}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Создать всех{creatableCount ? ` · ${creatableCount}` : ''}
           </Button>
         </div>
       </div>
@@ -323,7 +358,331 @@ function IntakeInbox() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={confirmCreateAll} onOpenChange={(open) => !open && setConfirmCreateAll(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Создать студентов из анкет?</DialogTitle>
+            <DialogDescription>
+              Будет создано {creatableCount} студентов из новых анкет без кандидата на привязку.
+              Анкеты с кандидатом останутся на ручное решение. Суммы и договорённости
+              не переносятся — их менеджер вносит вручную.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCreateAll(false)}>Отмена</Button>
+            <Button
+              onClick={() => createMissingMutation.mutate()}
+              disabled={createMissingMutation.isPending}
+            >
+              {createMissingMutation.isPending ? 'Создаём…' : `Создать · ${creatableCount}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {linkTarget && <LinkDialog submission={linkTarget} onClose={() => setLinkTarget(null)} />}
+    </div>
+  )
+}
+
+/** Диалог привязки Notion-записи к студенту */
+function NotionLinkDialog({
+  snapshot,
+  onClose,
+}: {
+  snapshot: NotionSnapshotItem
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string>(snapshot.suggested_student_id ?? '')
+
+  const { data: allStudents = [] } = useQuery({
+    queryKey: ['students', 'all'],
+    queryFn: () => studentsApi.getAll({ size: 500 }),
+  })
+
+  const filtered = useMemo(() => {
+    const q = query.trim()
+    const base = q ? allStudents.filter((s) => fuzzyStudentMatch(q, s.full_name, s.phone)) : allStudents
+    // Предложенный кандидат — всегда первым в списке
+    const suggested = snapshot.suggested_student_id
+      ? allStudents.find((s) => s.id === snapshot.suggested_student_id)
+      : undefined
+    const rest = suggested ? base.filter((s) => s.id !== suggested.id) : base
+    return (suggested ? [suggested, ...rest] : rest).slice(0, 30)
+  }, [allStudents, query, snapshot.suggested_student_id])
+
+  const linkMutation = useMutation({
+    mutationFn: () => notionApi.link(snapshot.id, selectedId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      toast({ title: 'Запись Notion привязана' })
+      onClose()
+    },
+    onError: () => toast({ title: 'Ошибка привязки', variant: 'destructive' }),
+  })
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Привязать запись Notion</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Notion · <span className="text-gray-900">{snapshot.full_name}</span>
+          </p>
+          {snapshot.suggested_student_name && (
+            <p className="text-xs text-emerald-700">
+              Предложение: {snapshot.suggested_student_name}
+              {snapshot.suggested_confidence != null &&
+                ` (${Math.round(snapshot.suggested_confidence * 100)}%)`}
+            </p>
+          )}
+          <Input
+            placeholder="Поиск студента..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-[2px] divide-y divide-gray-100">
+            {filtered.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setSelectedId(s.id)}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                  selectedId === s.id
+                    ? 'bg-black text-white'
+                    : 'text-gray-800 hover:bg-gray-50'
+                }`}
+              >
+                {s.full_name}
+                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-gray-500 text-xs ml-2'}>
+                  {s.intake_year}
+                </span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-3 py-4 text-sm text-gray-500">Не найдено</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button
+            onClick={() => linkMutation.mutate()}
+            disabled={!selectedId || linkMutation.isPending}
+          >
+            {linkMutation.isPending ? 'Привязываем…' : 'Привязать'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Панель непривязанных записей Notion (status=new) */
+function NotionInbox() {
+  const qc = useQueryClient()
+  const [linkTarget, setLinkTarget] = useState<NotionSnapshotItem | null>(null)
+  const [view, setView] = useState<'new' | 'ignored' | 'all'>('new')
+  const [confirmCreateAll, setConfirmCreateAll] = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['notion', 'inbox', view],
+    queryFn: () => notionApi.snapshots(view),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (id: string) => notionApi.createStudent(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      toast({ title: 'Студент создан из Notion' })
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Студент не создан', description: detail ?? 'Ошибка', variant: 'destructive' })
+      qc.invalidateQueries({ queryKey: ['notion'] })
+    },
+  })
+
+  const createMissingMutation = useMutation({
+    mutationFn: () => notionApi.createMissing(),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      setConfirmCreateAll(false)
+      toast({
+        title: 'Студенты созданы',
+        description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
+      })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось создать студентов', variant: 'destructive' }),
+  })
+
+  const bulkLinkMutation = useMutation({
+    mutationFn: () => notionApi.linkAll(),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}` })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось привязать совпадения', variant: 'destructive' }),
+  })
+
+  const ignoreMutation = useMutation({
+    mutationFn: (id: string) => notionApi.ignore(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      toast({ title: 'Запись скрыта' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось скрыть запись', variant: 'destructive' }),
+  })
+
+  const items = data?.items ?? []
+  const linkableCount = items.filter((item) => item.status === 'new' && item.suggested_student_id).length
+  const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
+
+  return (
+    <div className="border border-gray-200 rounded-[2px]">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3">
+        <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+            {[
+              { value: 'new', label: 'Новые' },
+              { value: 'ignored', label: 'Скрытые' },
+              { value: 'all', label: 'Все' },
+            ].map((item) => (
+              <button
+                key={item.value}
+                onClick={() => setView(item.value as typeof view)}
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                  view === item.value
+                    ? 'bg-white text-black'
+                    : 'text-gray-600 hover:text-black hover:bg-gray-50'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => bulkLinkMutation.mutate()}
+            disabled={bulkLinkMutation.isPending || linkableCount === 0}
+          >
+            <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
+            Привязать все{linkableCount ? ` · ${linkableCount}` : ''}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setConfirmCreateAll(true)}
+            disabled={createMissingMutation.isPending || creatableCount === 0}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Создать всех{creatableCount ? ` · ${creatableCount}` : ''}
+          </Button>
+        </div>
+      </div>
+      {isLoading ? (
+        <p className="text-center py-8 text-gray-500 text-sm">Загрузка...</p>
+      ) : items.length === 0 ? (
+        <p className="text-center py-8 text-gray-500 text-sm">
+          {view === 'ignored' ? 'Скрытых записей нет' : 'Все записи Notion привязаны'}
+        </p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow className="border-gray-200 hover:bg-transparent">
+              <TableHead>ФИО в Notion</TableHead>
+              <TableHead>Статус выплат</TableHead>
+              <TableHead>Intake</TableHead>
+              <TableHead>Кандидат</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((snap) => (
+              <TableRow key={snap.id} className="border-gray-100 hover:bg-gray-50">
+                <TableCell className="text-sm text-gray-900 font-medium">
+                  {snap.notion_url ? (
+                    <a href={snap.notion_url} target="_blank" rel="noreferrer" className="hover:underline">
+                      {snap.full_name}
+                    </a>
+                  ) : (
+                    snap.full_name
+                  )}
+                </TableCell>
+                <TableCell className="text-sm text-gray-600">{snap.payment_status ?? '—'}</TableCell>
+                <TableCell className="text-sm text-gray-600">{snap.intake ?? '—'}</TableCell>
+                <TableCell className="text-sm">
+                  {snap.suggested_student_name ? (
+                    <span className="text-emerald-700 inline-flex items-center gap-1">
+                      <Eye className="w-3.5 h-3.5" />
+                      {snap.suggested_student_name}
+                      {snap.suggested_confidence != null && (
+                        <span className="text-gray-500 text-xs ml-1">
+                          {Math.round(snap.suggested_confidence * 100)}%
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">нет</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <Button variant="outline" size="sm" className="h-7 text-xs"
+                      onClick={() => setLinkTarget(snap)}>
+                      Привязать
+                    </Button>
+                    {snap.status === 'new' && (
+                      <>
+                        <Button variant="outline" size="sm" className="h-7 text-xs"
+                          disabled={createMutation.isPending}
+                          onClick={() => createMutation.mutate(snap.id)}>
+                          Создать
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500"
+                          disabled={ignoreMutation.isPending}
+                          onClick={() => ignoreMutation.mutate(snap.id)}>
+                          <EyeOff className="w-3.5 h-3.5 mr-1" />
+                          Скрыть
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      <Dialog open={confirmCreateAll} onOpenChange={(open) => !open && setConfirmCreateAll(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Создать студентов из Notion?</DialogTitle>
+            <DialogDescription>
+              Будет создано {creatableCount} студентов с договором и странами из Notion —
+              только записи без кандидата на привязку. Записи с кандидатом останутся на ручное решение.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCreateAll(false)}>Отмена</Button>
+            <Button
+              onClick={() => createMissingMutation.mutate()}
+              disabled={createMissingMutation.isPending}
+            >
+              {createMissingMutation.isPending ? 'Создаём…' : `Создать · ${creatableCount}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {linkTarget && <NotionLinkDialog snapshot={linkTarget} onClose={() => setLinkTarget(null)} />}
     </div>
   )
 }
@@ -337,9 +696,9 @@ export const StudentsListPage: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
-  const [page, setPage] = useState(1)
   const [searchParams, setSearchParams] = useSearchParams()
   const showInbox = searchParams.get('inbox') === '1'
+  const showNotion = searchParams.get('notion') === '1'
 
   const debouncedSetSearch = useMemo(
     () => debounce((value: string) => setDebouncedSearch(value), 300),
@@ -353,21 +712,28 @@ export const StudentsListPage: React.FC = () => {
     setSearchParams(params, { replace: true })
   }
 
+  const setShowNotion = (next: boolean) => {
+    const params = new URLSearchParams(searchParams)
+    if (next) params.set('notion', '1')
+    else params.delete('notion')
+    setSearchParams(params, { replace: true })
+  }
+
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value)
     debouncedSetSearch(e.target.value)
-    setPage(1)
   }
 
+  // Список загружается целиком, поиск — на клиенте: терпит пробелы,
+  // опечатки и кириллицу↔латиницу (см. fuzzyStudentMatch)
   const { data, isLoading } = useQuery({
-    queryKey: ['students', debouncedSearch, statusFilter, scope, page],
+    queryKey: ['students', statusFilter, scope],
     queryFn: () =>
       studentsApi.list({
-        search: debouncedSearch || undefined,
         pipeline_status: (statusFilter as PipelineStatus) || undefined,
         scope,
-        page,
-        size: 20,
+        page: 1,
+        size: 500,
       }),
   })
 
@@ -404,6 +770,29 @@ export const StudentsListPage: React.FC = () => {
     enabled: isManager,
   })
 
+  const { data: notionStatus } = useQuery({
+    queryKey: ['notion', 'status'],
+    queryFn: notionApi.status,
+    enabled: isManager,
+    refetchInterval: 60_000,
+  })
+
+  const notionSyncMutation = useMutation({
+    mutationFn: notionApi.run,
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['notion'] })
+      const c = res.counters
+      toast({
+        title: 'Notion синхронизирован',
+        description: `Записей: ${c.total} · новых: ${c.created} · автопривязано: ${c.auto_linked}${c.needs_review ? ` · требуют привязки: ${c.needs_review}` : ''}`,
+      })
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Синк Notion не выполнен', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
+
   const syncMutation = useMutation({
     mutationFn: syncApi.run,
     onSuccess: (res) => {
@@ -419,9 +808,15 @@ export const StudentsListPage: React.FC = () => {
     },
   })
 
-  const students = data?.items ?? []
-  const total = data?.total ?? 0
-  const totalPages = data?.pages ?? 1
+  const allStudents = data?.items ?? []
+  const students = useMemo(
+    () =>
+      debouncedSearch.trim()
+        ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
+        : allStudents,
+    [allStudents, debouncedSearch]
+  )
+  const total = students.length
   const newCount = syncStatus?.new_submissions ?? 0
 
   const handleExport = async () => {
@@ -462,6 +857,23 @@ export const StudentsListPage: React.FC = () => {
                 <Inbox className="w-3.5 h-3.5 mr-1.5" />
                 {showInbox ? 'Все студенты' : 'Входящие'}{newCount > 0 && !showInbox ? ` · ${newCount}` : ''}
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => notionSyncMutation.mutate()}
+                disabled={notionSyncMutation.isPending}
+                title={notionStatus?.configured === false ? 'Notion не настроен' : 'Обновить зеркало Notion'}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${notionSyncMutation.isPending ? 'animate-spin' : ''}`} />
+                Синк Notion
+              </Button>
+              <Button
+                variant={showNotion ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setShowNotion(!showNotion)}
+              >
+                Notion{(notionStatus?.needs_review ?? 0) > 0 && !showNotion ? ` · ${notionStatus?.needs_review}` : ''}
+              </Button>
             </>
           )}
           <Button variant="outline" size="sm" onClick={handleExport}>
@@ -486,6 +898,9 @@ export const StudentsListPage: React.FC = () => {
       {/* Inbox */}
       {isManager && showInbox && <IntakeInbox />}
 
+      {/* Notion без привязки */}
+      {isManager && showNotion && <NotionInbox />}
+
       {/* Filters */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
@@ -496,10 +911,7 @@ export const StudentsListPage: React.FC = () => {
           ].map((item) => (
             <button
               key={item.value}
-              onClick={() => {
-                setScope(item.value as typeof scope)
-                setPage(1)
-              }}
+              onClick={() => setScope(item.value as typeof scope)}
               className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
                 scope === item.value
                   ? 'bg-white text-black shadow-sm'
@@ -521,7 +933,7 @@ export const StudentsListPage: React.FC = () => {
         </div>
         <Select
           value={statusFilter}
-          onValueChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1) }}
+          onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
         >
           <SelectTrigger className="w-48 h-9 text-sm">
             <SelectValue placeholder="Все статусы" />
@@ -661,25 +1073,11 @@ export const StudentsListPage: React.FC = () => {
         </Table>
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            {students.length} из {total} студентов
-          </p>
-          <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}
-              className="h-7 text-xs">
-              Назад
-            </Button>
-            <span className="px-2 text-sm text-gray-600 font-medium">{page} / {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}
-              className="h-7 text-xs">
-              Вперёд
-            </Button>
-          </div>
-        </div>
-      )}
+      <p className="text-sm text-gray-500">
+        {debouncedSearch.trim()
+          ? `Найдено: ${students.length} из ${allStudents.length}`
+          : `Всего студентов: ${students.length}`}
+      </p>
     </div>
   )
 }

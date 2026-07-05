@@ -34,6 +34,10 @@ export interface ComparisonRow {
   mismatch: boolean | null
   human_only: boolean
   crm_matches: boolean | null
+  ai_same_meaning: boolean | null
+  ai_note: string | null
+  crm_ai_same_meaning: boolean | null
+  crm_ai_note: string | null
 }
 
 export interface StudentIntake {
@@ -84,6 +88,10 @@ export const syncApi = {
   createStudent: async (submissionId: string) => {
     const res = await apiClient.post(`/sync/submissions/${submissionId}/create-student`)
     return res.data as { student_id: string; submission: IntakeSubmission }
+  },
+  createMissing: async () => {
+    const res = await apiClient.post('/sync/submissions/create-missing')
+    return res.data as { ok: boolean; created: number; skipped: number }
   },
   studentIntake: async (studentId: string) => {
     const res = await apiClient.get(`/sync/students/${studentId}/intake`)

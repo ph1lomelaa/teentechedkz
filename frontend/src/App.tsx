@@ -29,11 +29,8 @@ const FinancesPage = React.lazy(() =>
 const SettingsUsersPage = React.lazy(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
 )
-const TasksPage = React.lazy(() =>
-  import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage }))
-)
-const MigrationConflictsPage = React.lazy(() =>
-  import('@/pages/MigrationConflictsPage').then((m) => ({ default: m.MigrationConflictsPage }))
+const AtRiskStudentsPage = React.lazy(() =>
+  import('@/pages/AtRiskStudentsPage').then((m) => ({ default: m.AtRiskStudentsPage }))
 )
 const TelegramInboxPage = React.lazy(() => import('@/pages/TelegramInboxPage'))
 const TelegramChatDetailPage = React.lazy(() => import('@/pages/TelegramChatDetailPage'))
@@ -208,31 +205,22 @@ function AppRoutes() {
         }
       />
 
-      <Route
-        path="/tasks"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <TasksPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/migration-conflicts"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <MigrationConflictsPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* /migration-conflicts — старый адрес этой же страницы, оставлен для закладок */}
+      {['/at-risk', '/migration-conflicts'].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                  <AtRiskStudentsPage />
+                </React.Suspense>
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+      ))}
 
       <Route
         path="/telegram-inbox"

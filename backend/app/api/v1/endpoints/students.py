@@ -66,6 +66,40 @@ async def _student_responsibles(
     return responsibles, is_mine
 
 
+@router.get("/duplicates")
+async def find_duplicates(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Возможные дубли: совпадение телефона или транслит-совпадение ФИО.
+    «Асель Иванова» и «Assel Ivanova» — скорее всего один человек."""
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    import sys
+    sys.path.insert(0, "/app") if "/app" not in sys.path else None
+    from migration.transformers.normalize import names_probably_same, normalize_phone
+
+    result = await db.execute(
+        select(Student).where(Student.is_archived == False)  # noqa: E712
+    )
+    students = result.scalars().all()
+
+    pairs = []
+    for i, a in enumerate(students):
+        phone_a = normalize_phone(a.phone or "")
+        for b in students[i + 1:]:
+            phone_b = normalize_phone(b.phone or "")
+            phone_match = bool(phone_a) and len(phone_a) >= 10 and phone_a == phone_b
+            if phone_match or names_probably_same(a.full_name, b.full_name):
+                pairs.append({
+                    "reason": "phone" if phone_match else "name",
+                    "a": {"id": str(a.id), "full_name": a.full_name, "phone": a.phone, "intake_year": a.intake_year},
+                    "b": {"id": str(b.id), "full_name": b.full_name, "phone": b.phone, "intake_year": b.intake_year},
+                })
+    return {"pairs": pairs, "total": len(pairs)}
+
+
 @router.get("")
 async def list_students(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -360,8 +394,25 @@ async def update_student(
 
     student.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(student)
-    return _student_to_dict(student)
+
+    # _student_to_dict обходит relationships — перечитываем с eager-load,
+    # иначе async lazy-load падает с MissingGreenlet
+    result = await db.execute(
+        select(Student)
+        .options(
+            selectinload(Student.applications),
+            selectinload(Student.services),
+            selectinload(Student.portfolio_progress),
+            selectinload(Student.documents),
+            selectinload(Student.student_tasks),
+            selectinload(Student.mentor_assignments),
+            selectinload(Student.communication_logs),
+            selectinload(Student.pending_insights),
+            selectinload(Student.notes),
+        )
+        .where(Student.id == student_id)
+    )
+    return _student_to_dict(result.scalar_one())
 
 
 @router.delete("/{student_id}")

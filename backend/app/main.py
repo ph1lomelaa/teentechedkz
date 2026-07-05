@@ -42,9 +42,20 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Sheets sync disabled: service account key is not configured")
 
+    # Автосинк Notion-зеркала (если задан NOTION_API_KEY)
+    notion_task = None
+    from app.services import notion_sync
+    if notion_sync.is_configured():
+        import asyncio
+        notion_task = asyncio.create_task(notion_sync.sync_loop())
+    else:
+        logger.info("Notion sync disabled: NOTION_API_KEY / NOTION_DATABASE_ID not configured")
+
     yield
     if sheets_task:
         sheets_task.cancel()
+    if notion_task:
+        notion_task.cancel()
     if webhook_health_task:
         webhook_health_task.cancel()
     logger.info("TeenTechEd CRM shutting down...")

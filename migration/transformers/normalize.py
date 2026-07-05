@@ -29,6 +29,9 @@ DEGREE_MAP: dict[str, str] = {
     "магистратура": "masters",
     "мага": "masters",
     "foundation": "foundation",
+    "internship": "foundation",
+    "klp": "foundation",
+    "phd": "masters",
     "found + ug": "found_ug",
     "found+ug": "found_ug",
     "found_ug": "found_ug",
@@ -36,6 +39,66 @@ DEGREE_MAP: dict[str, str] = {
 }
 
 SERVICE_STATUS_MAP: dict[str, tuple[str, str | None]] = {}
+
+
+# --- Имена: сравнение кириллица ↔ латиница -----------------------------------
+# «Сыбан Еркенур Даниярқызы» и «Syban Yerkenur» — один человек. Точное
+# посимвольное сравнение это не ловит, поэтому: транслитерация + фонетическое
+# «сжатие» (y/h/двойные буквы — главные источники вариативности транслита).
+
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "ғ": "g", "д": "d", "е": "e", "ё": "e",
+    "ж": "zh", "з": "z", "и": "i", "і": "i", "й": "i", "к": "k", "қ": "k", "л": "l",
+    "м": "m", "н": "n", "ң": "n", "о": "o", "ө": "o", "п": "p", "р": "r", "с": "s",
+    "т": "t", "у": "u", "ұ": "u", "ү": "u", "ф": "f", "х": "h", "һ": "h", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "", "ы": "y", "ь": "", "э": "e",
+    "ю": "yu", "я": "ya", "ә": "a",
+}
+
+
+def transliterate(text: str) -> str:
+    return "".join(_TRANSLIT.get(ch, ch) for ch in str(text or "").lower())
+
+
+def squash_name(text: str) -> str:
+    """Фонетическая нормализация имени: транслит → только буквы → q/w → k/v →
+    убрать y/h → схлопнуть двойные. 'Еркенур' и 'Yerkenur' дают одно и то же."""
+    s = transliterate(text)
+    s = re.sub(r"[^a-z\s]", "", s)
+    s = s.replace("q", "k").replace("w", "v")
+    s = re.sub(r"[yh]", "", s)
+    s = re.sub(r"(.)\1+", r"\1", s)
+    return " ".join(s.split())
+
+
+def names_probably_same(a: str, b: str) -> bool:
+    """Одно ли это имя, с учётом транслитерации и отброшенного отчества:
+    каждое слово короткого имени находится в длинном (точно, по префиксу или
+    с одной опечаткой). Минимум два слова — по одному имени не матчим."""
+    from Levenshtein import distance as levenshtein_distance
+
+    wa, wb = squash_name(a).split(), squash_name(b).split()
+    if not wa or not wb:
+        return False
+    short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    if len(short) < 2:
+        return False
+    matched = sum(
+        1 for sw in short
+        if any(sw == lw or lw.startswith(sw) or levenshtein_distance(sw, lw) <= 1 for lw in long_)
+    )
+    return matched == len(short)
+
+
+def countries_set(raw: str) -> set[str]:
+    """'Корея 4, США (3) и Италия' / 'Korea (1)' → канонические названия стран."""
+    out: set[str] = set()
+    for part in re.split(r"[,;/]|\bи\b|\band\b", str(raw or "")):
+        p = re.sub(r"[\d()\[\]]", "", part).strip().lower()
+        if not p:
+            continue
+        out.add(COUNTRY_ALIASES.get(p, p))
+    return out
 
 
 def normalize_phone(phone: str) -> str:
@@ -79,11 +142,42 @@ def normalize_amount(s: str) -> Decimal | None:
     return None
 
 
-def parse_degree(raw: str) -> str:
-    if not raw:
+# Свободный текст про ступень: «Фаудшейшн+ бакалавр», «Бакалавриат, Магистратура,
+# Foundation» — ловим упоминания токенами с типичными опечатками
+_DEGREE_TOKEN_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("foundation", re.compile(r"found|фаунд|фаудш|фаундей|klp|internship")),
+    ("undergraduate", re.compile(r"бакалавр|undergrad|\bug\b")),
+    ("masters", re.compile(r"магист|\bмага\b|master|phd")),
+]
+
+
+def degree_tokens(raw: str) -> set[str]:
+    """Какие ступени упомянуты в тексте: {'foundation', 'undergraduate', ...}."""
+    t = str(raw or "").lower()
+    return {name for name, pat in _DEGREE_TOKEN_PATTERNS if pat.search(t)}
+
+
+def parse_degree_or_none(raw: str) -> str | None:
+    """Ступень из свободного текста; None, если ничего не распознано."""
+    key = str(raw or "").strip().lower()
+    if key in DEGREE_MAP:
+        return DEGREE_MAP[key]
+    toks = degree_tokens(key)
+    if "foundation" in toks and "undergraduate" in toks:
+        return "found_ug"
+    if toks == {"foundation"}:
+        return "foundation"
+    if "undergraduate" in toks:
         return "undergraduate"
-    key = raw.strip().lower()
-    return DEGREE_MAP.get(key, "undergraduate")
+    if "masters" in toks:
+        return "masters"
+    if "foundation" in toks:
+        return "foundation"
+    return None
+
+
+def parse_degree(raw: str) -> str:
+    return parse_degree_or_none(raw) or "undergraduate"
 
 
 def parse_pipeline_status(raw: str) -> str:
@@ -99,6 +193,9 @@ def parse_pipeline_status(raw: str) -> str:
         "пересдача ielts": "ielts_retake",
         "пересдача айлтс": "ielts_retake",
         "подвешено": "suspended",
+        "работа окончена": "no_status",
+        "пропал абитуриент": "suspended",
+        "перевели на другой продукт": "transferred_pipeline",
         "no статус выплат": "no_status",
         "no статус": "no_status",
     }

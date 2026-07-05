@@ -17,6 +17,7 @@ from app.core.audit import log_change
 from app.models import IntakeSubmission, IntakeSource, IntakeStatus, Student
 from app.models.user import UserRole
 from app.services import sheets_sync
+from app.services.intake_ai_check import check_same_meaning
 from app.services.sheets_sync import map_row, PACKAGE_FIELD_PATTERNS, CASES_FIELD_PATTERNS  # noqa: F401
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -229,6 +230,32 @@ async def create_student_from_submission(
     if submission.status != IntakeStatus.new:
         raise HTTPException(status_code=400, detail="Анкета уже обработана")
 
+    # Защита от дублей: имя могло быть написано на другом языке — проверяем
+    # транслит-матчем по свежему списку студентов, а не только по кандидату синка
+    from migration.transformers.match import fuzzy_match
+    from app.services.sheets_sync import _load_students_index
+
+    students_index = await _load_students_index(db)
+    raw_phone = ""
+    for key, value in submission.raw_data.items():
+        if "телефон" in str(key).lower():
+            raw_phone = str(value)
+            break
+    match = fuzzy_match(submission.full_name or "", raw_phone, students_index)
+    if match.student_id and match.confidence >= 0.9:
+        existing = next((s for s in students_index if s["id"] == match.student_id), None)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Похоже, студент уже есть в CRM: «{existing['full_name'] if existing else ''}». "
+                   f"Используй «Привязать» вместо создания, чтобы не было дубля.",
+        )
+
+    student = await _create_student_from_intake(db, submission, current_user.id)
+    await db.commit()
+    return {"student_id": str(student.id), "submission": _submission_to_dict(submission)}
+
+
+async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmission, user_id: uuid.UUID) -> Student:
     from migration.transformers.normalize import parse_degree
 
     source = submission.source
@@ -265,15 +292,58 @@ async def create_student_from_submission(
 
     submission.student_id = student.id
     submission.status = IntakeStatus.linked
-    submission.linked_by = current_user.id
+    submission.linked_by = user_id
     submission.linked_at = datetime.now(timezone.utc)
 
     await log_change(
         db, "student", student.id, "created_from_intake",
-        None, f"{source.value}:{submission.id}", str(current_user.id), "sheets_sync",
+        None, f"{source.value}:{submission.id}", str(user_id), "sheets_sync",
     )
+    return student
+
+
+@router.post("/submissions/create-missing")
+async def create_missing_from_intake(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Создать студентов из всех новых анкет БЕЗ кандидата на привязку.
+    Каждая анкета перепроверяется транслит-матчем — при найденном похожем
+    студенте запись пропускается и получает кандидата вместо дубля."""
+    _require_manager(current_user)
+
+    from migration.transformers.match import fuzzy_match
+    from app.services.sheets_sync import _load_students_index
+
+    result = await db.execute(
+        select(IntakeSubmission).where(
+            IntakeSubmission.status == IntakeStatus.new,
+            IntakeSubmission.suggested_student_id.is_(None),
+        )
+    )
+    submissions = result.scalars().all()
+    students_index = await _load_students_index(db)
+
+    created = skipped = 0
+    for submission in submissions:
+        match = fuzzy_match(
+            submission.full_name or "", submission.phone_normalized or "", students_index
+        )
+        if match.student_id and match.confidence >= 0.9:
+            submission.suggested_student_id = match.student_id
+            submission.suggested_confidence = round(match.confidence, 3)
+            skipped += 1
+            continue
+        student = await _create_student_from_intake(db, submission, current_user.id)
+        # вторая анкета того же человека в этом прогоне не должна создать дубль
+        students_index.append({
+            "id": student.id, "full_name": student.full_name,
+            "phone": student.phone, "intake_year": student.intake_year,
+        })
+        created += 1
+
     await db.commit()
-    return {"student_id": str(student.id), "submission": _submission_to_dict(submission)}
+    return {"ok": True, "created": created, "skipped": skipped}
 
 
 # --- Сверка анкет по студенту ------------------------------------------------
@@ -302,16 +372,16 @@ _FIELD_NORMALIZERS: dict = {}
 
 
 def _norm_degree_for_compare(v: str | None) -> str:
-    """Like parse_degree, but for comparison only: parse_degree defaults any
-    unrecognized text to "undergraduate", which is the right call when
-    creating a student (has to pick something) but wrong here — two
-    different unrecognized spellings ("фаундейшн", "магистратура, foundation")
-    would both silently fall back to the same default and look like a match
-    even though neither was actually understood."""
-    from migration.transformers.normalize import DEGREE_MAP
+    """Токены ступеней вместо посимвольного сравнения: «Фаудшейшн+ бакалавр» и
+    «Foundation + Бакалавриат» дают одинаковый набор {foundation, undergraduate}.
+    Нераспознанный текст возвращается как есть — две разные непонятные строки
+    не должны случайно «совпасть»."""
+    from migration.transformers.normalize import degree_tokens
 
-    key = str(v or "").strip().lower()
-    return DEGREE_MAP.get(key, key)
+    toks = degree_tokens(v or "")
+    if toks:
+        return " ".join(sorted(toks))
+    return str(v or "").strip().lower()
 
 
 def _get_normalizers() -> dict:
@@ -325,6 +395,35 @@ def _get_normalizers() -> dict:
             "intake_year": _norm_year,
         })
     return _FIELD_NORMALIZERS
+
+
+def _svc_truthy(v) -> bool:
+    """Значение услуги → есть/нет: «Нет, будут покупать тоефл» → нет,
+    «Есть, по англ» / «Медицина» → есть."""
+    t = _norm_cmp(v)
+    if not t or t in ("не включена", "-", "нет"):
+        return False
+    if t == "включена":
+        return True
+    return not t.startswith(("нет", "no", "не "))
+
+
+def _values_same(field: str, a, b) -> bool:
+    """Совпадают ли значения поля. ФИО — транслит-сравнение («Сыбан Еркенур
+    Даниярқызы» ↔ «Syban Yerkenur»); страны — по множеству с допуском на
+    подмножество («Италия» ↔ «Италия (1), Корея (1)» — анкета может называть
+    не все страны); услуги — по смыслу «есть/нет»; остальное — нормализатор поля."""
+    from migration.transformers.normalize import names_probably_same, countries_set
+
+    if field == "full_name":
+        return names_probably_same(str(a), str(b)) or _norm_cmp(a) == _norm_cmp(b)
+    if field == "countries":
+        sa, sb = countries_set(str(a)), countries_set(str(b))
+        return bool(sa) and bool(sb) and (sa <= sb or sb <= sa)
+    if field.startswith("svc_"):
+        return _svc_truthy(a) == _svc_truthy(b)
+    norm = _get_normalizers().get(field, _norm_cmp)
+    return norm(a) == norm(b)
 
 
 @router.get("/students/{student_id}/intake")
@@ -392,26 +491,37 @@ async def student_intake(
         "found_ug": "Foundation + Бакалавриат",
     }
 
-    def row(field: str, label: str, pkg_v, cs_v, crm_v, comparable: bool = False, human_only: bool = False) -> dict:
-        norm = _get_normalizers().get(field, _norm_cmp)
+    async def row(field: str, label: str, pkg_v, cs_v, crm_v, comparable: bool = False, human_only: bool = False) -> dict:
         mismatch = None
         if comparable and pkg_v and cs_v:
-            mismatch = norm(pkg_v) != norm(cs_v)
+            mismatch = not _values_same(field, pkg_v, cs_v)
 
         # Whether the CRM value matches what's in the forms — must use the
-        # same field-aware normalizer as above (phone/year/degree), not a
-        # raw string compare: "+7 (925) 916-11-05" and "79259161105" are the
-        # same number, but look different letter-for-letter. The frontend
-        # used to do a naive .toLowerCase() compare here and flagged
-        # correctly-matching phones as discrepancies.
+        # same field-aware comparison as above (phone/year/degree/имена/страны),
+        # not a raw string compare: "+7 (925) 916-11-05" and "79259161105" are
+        # the same number, but look different letter-for-letter.
         form_v = pkg_v or cs_v
-        crm_matches = norm(form_v) == norm(crm_v) if (form_v and crm_v) else None
+        crm_matches = _values_same(field, form_v, crm_v) if (form_v and crm_v) else None
+
+        ai_same_meaning = None
+        ai_note = None
+        if mismatch and pkg_v and cs_v:
+            ai_same_meaning, ai_note = await check_same_meaning(db, student.id, field, label, str(pkg_v), str(cs_v))
+
+        crm_ai_same_meaning = None
+        crm_ai_note = None
+        if crm_matches is False:
+            crm_ai_same_meaning, crm_ai_note = await check_same_meaning(
+                db, student.id, field, label, str(form_v), str(crm_v)
+            )
 
         return {
             "field": field, "label": label,
             "package": clean(pkg_v), "cases": clean(cs_v), "crm": clean(crm_v),
             "mismatch": mismatch, "human_only": human_only,
             "crm_matches": crm_matches,
+            "crm_ai_same_meaning": crm_ai_same_meaning, "crm_ai_note": crm_ai_note,
+            "ai_same_meaning": ai_same_meaning, "ai_note": ai_note,
         }
 
     crm_degree = _DEGREE_RU.get(
@@ -419,39 +529,46 @@ async def student_intake(
     )
 
     comparison = [
-        row("full_name", "ФИО", pkg.get("full_name"), cs.get("full_name"), student.full_name, comparable=True),
-        row("phone", "Телефон", pkg.get("phone"), cs.get("phone"), student.phone, comparable=True),
-        row("intake_year", "Год поступления", pkg.get("intake_year"), cs.get("intake_year"), str(student.intake_year), comparable=True),
-        row("degree_level", "Ступень", pkg.get("degree_level"), cs.get("degree_level"), crm_degree, comparable=True),
-        row("city", "Город", None, cs.get("city"), student.city),
-        row("age", "Возраст", None, cs.get("age"), str(student.age) if student.age else None),
-        row("specialty", "Специальность", None, cs.get("specialty"), student.specialty),
-        row("gpa", "GPA", None, cs.get("gpa"), student.gpa),
-        row("budget", "Бюджет (в год)", None, cs.get("budget"), student.budget_per_year),
-        row("english_level", "IELTS / английский", None, cs.get("english_level"), None),
-        row("sat_level", "SAT / GMAT / GRE", None, cs.get("sat_level"), None),
-        row("achievements", "Достижения", None, cs.get("achievements"), student.achievements_text),
-        row("countries", "Страны поступления", pkg.get("countries"), cs.get("countries"), crm_countries, comparable=True),
+        await row("full_name", "ФИО", pkg.get("full_name"), cs.get("full_name"), student.full_name, comparable=True),
+        await row("phone", "Телефон", pkg.get("phone"), cs.get("phone"), student.phone, comparable=True),
+        await row("intake_year", "Год поступления", pkg.get("intake_year"), cs.get("intake_year"), str(student.intake_year), comparable=True),
+        await row("degree_level", "Ступень", pkg.get("degree_level"), cs.get("degree_level"), crm_degree, comparable=True),
+        await row("city", "Город", None, cs.get("city"), student.city),
+        await row("age", "Возраст", None, cs.get("age"), str(student.age) if student.age else None),
+        await row("specialty", "Специальность", None, cs.get("specialty"), student.specialty),
+        await row("gpa", "GPA", None, cs.get("gpa"), student.gpa),
+        await row("budget", "Бюджет (в год)", None, cs.get("budget"), student.budget_per_year),
+        await row("english_level", "IELTS / английский", None, cs.get("english_level"), None),
+        await row("sat_level", "SAT / GMAT / GRE", None, cs.get("sat_level"), None),
+        await row("achievements", "Достижения", None, cs.get("achievements"), student.achievements_text),
+        await row("countries", "Страны поступления", pkg.get("countries"), cs.get("countries"), crm_countries, comparable=True),
     ]
 
     # Услуги приходят только из анкеты менеджера — без неё эти строки лишние
     if package:
+        from app.models.service import ServiceStatus
+
         for key, label in _SERVICE_ROWS:
             service_type = key.removeprefix("svc_").replace("portfolio", "portfolio_improvement")
             crm_svc = crm_services.get(service_type)
             crm_v = None
             if crm_svc is not None:
-                crm_v = "включена" if crm_svc.included else "не включена"
-            comparison.append(row(key, label, pkg.get(key), None, crm_v))
+                # Услуга «есть», если стоит галочка ИЛИ по ней уже идёт работа —
+                # в старых данных флаг included часто не проставлен
+                active = crm_svc.included or crm_svc.status not in (
+                    ServiceStatus.not_started, ServiceStatus.not_applicable
+                ) or bool(crm_svc.result)
+                crm_v = "включена" if active else "не включена"
+            comparison.append(await row(key, label, pkg.get(key), None, crm_v))
 
         # Human-only: показываем, но никогда не применяем автоматически
         comparison.append(
-            row("contract_amount", "Стоимость сопровождения", pkg.get("contract_amount"), None, None, human_only=True)
+            await row("contract_amount", "Стоимость сопровождения", pkg.get("contract_amount"), None, None, human_only=True)
         )
 
     if pkg.get("agreements") or cs.get("agreements"):
         comparison.append(
-            row("agreements", "Договорённости", pkg.get("agreements"), cs.get("agreements"),
+            await row("agreements", "Договорённости", pkg.get("agreements"), cs.get("agreements"),
                 "см. конфиденциальные заметки", comparable=True, human_only=True)
         )
 

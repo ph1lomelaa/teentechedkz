@@ -1,6 +1,8 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { paymentsApi } from '@/api/index'
+import { notionApi } from '@/api/notion'
 import {
   DEGREE_LEVEL_LABELS,
   PIPELINE_STATUS_LABELS,
@@ -64,6 +66,127 @@ const formatCompactMoney = (value?: string | number, currency = moneyCurrency) =
   }).format(numeric)} ${currency}`
 }
 
+function NotionMoneyTile({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string
+  value: number
+  tone?: 'default' | 'positive' | 'negative'
+}) {
+  const valueColor =
+    tone === 'positive'
+      ? 'text-emerald-700'
+      : tone === 'negative'
+        ? 'text-red-600'
+        : 'text-gray-900'
+  return (
+    <div className="bg-white px-3 py-2.5 min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-gray-400 truncate">{label}</p>
+      <p
+        className={`text-sm font-semibold mt-0.5 truncate ${value ? valueColor : 'text-gray-300'}`}
+        title={value ? formatMoney(value) : undefined}
+      >
+        {value ? formatCompactMoney(value) : '—'}
+      </p>
+    </div>
+  )
+}
+
+function NotionFinanceSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['notion', 'finance-summary'],
+    queryFn: notionApi.financeSummary,
+  })
+
+  if (isLoading || !data || data.records === 0) return null
+  const t = data.totals
+
+  const groups: { title: string; tiles: { label: string; value: number; tone?: 'positive' | 'negative' }[] }[] = [
+    {
+      title: 'Клиенты',
+      tiles: [
+        { label: 'Client fee', value: t.client_fee },
+        { label: 'Остаток клиентов', value: t.client_remaining, tone: 'negative' },
+        { label: 'TOTAL (Company)', value: t.total_company, tone: 'positive' },
+      ],
+    },
+    {
+      title: 'Менторы',
+      tiles: [
+        { label: 'TOTAL', value: t.mentor_total },
+        { label: 'Выплачено', value: t.mentor_paid, tone: 'positive' },
+        { label: 'К выплате (TBP)', value: t.mentor_tbp, tone: 'negative' },
+      ],
+    },
+    {
+      title: 'Английский',
+      tiles: [
+        { label: 'Сумма', value: t.english_sum },
+        { label: 'Выплачено', value: t.english_paid, tone: 'positive' },
+        { label: 'К выплате (TBP)', value: t.english_tbp, tone: 'negative' },
+      ],
+    },
+    {
+      title: 'УП',
+      tiles: [
+        { label: 'Сумма', value: t.up_sum },
+        { label: 'Выплачено', value: t.up_paid, tone: 'positive' },
+        { label: 'К выплате (TBP)', value: t.up_tbp, tone: 'negative' },
+      ],
+    },
+    {
+      title: 'Прочее',
+      tiles: [
+        { label: 'Профориентация', value: t.proforientation_sum },
+        { label: 'IELTS exam fee', value: t.ielts_exam_fee },
+      ],
+    },
+  ]
+
+  return (
+    <div className="mb-10">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="label-caps">Из Notion · {data.records} клиентов</p>
+        <p className="text-xs text-gray-400">
+          только просмотр
+          {data.synced_at &&
+            ` · синхронизировано ${new Date(data.synced_at).toLocaleString('ru-RU', {
+              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+            })}`}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        {groups.map((group) => (
+          <div key={group.title} className="border border-gray-200 rounded-[2px] overflow-hidden">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 px-3 py-2 border-b border-gray-200 bg-gray-50">
+              {group.title}
+            </p>
+            <div className="divide-y divide-gray-100">
+              {group.tiles.map((tile) => (
+                <NotionMoneyTile key={tile.label} label={tile.label} value={tile.value} tone={tile.tone} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {data.by_status.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
+          {data.by_status.map((s) => (
+            <span
+              key={s.status}
+              className="text-[11px] px-2 py-0.5 rounded-[2px] border border-gray-200 bg-gray-50 text-gray-600"
+            >
+              {s.status} · {s.count}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const FinancesPage: React.FC = () => {
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['finance-summary'],
@@ -84,6 +207,10 @@ export const FinancesPage: React.FC = () => {
     <div>
       <div className="mb-6 pb-5 border-b border-gray-200">
         <h1 className="text-xl font-bold text-gray-900 tracking-tight">Финансы</h1>
+        <p className="text-xs text-gray-500 mt-1.5">
+          Верхний блок — договоры и платежи, внесённые в CRM. Блок «Из Notion» — живое зеркало
+          Notion-таблицы, обновляется автоматически раз в час и кнопкой «Синк Notion».
+        </p>
       </div>
 
       {/* Summary */}
@@ -91,29 +218,32 @@ export const FinancesPage: React.FC = () => {
         <StatBlock
           label="Договоров"
           value={summaryLoading ? '…' : summary?.total_contracts ?? 0}
-          hint="активных контрактов"
+          hint="договоры в CRM"
         />
         <StatBlock
           label="Общая сумма"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_amount, summary?.currency ?? moneyCurrency)}
           fullValue={formatMoney(summary?.total_amount, summary?.currency ?? moneyCurrency)}
-          hint="по всем договорам"
+          hint="суммы договоров CRM"
         />
         <StatBlock
           label="Оплачено"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_paid, summary?.currency ?? moneyCurrency)}
           fullValue={formatMoney(summary?.total_paid, summary?.currency ?? moneyCurrency)}
-          hint="получено всего"
+          hint="платежи, внесённые в CRM"
           tone="positive"
         />
         <StatBlock
           label="Остаток"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_remaining, summary?.currency ?? moneyCurrency)}
           fullValue={formatMoney(summary?.total_remaining, summary?.currency ?? moneyCurrency)}
-          hint="к получению"
+          hint="остатки из договоров CRM"
           tone="negative"
         />
       </div>
+
+      {/* Живые суммы из Notion-зеркала */}
+      <NotionFinanceSection />
 
       {/* Students with remaining balances */}
       <div className="mb-10">
@@ -145,7 +275,11 @@ export const FinancesPage: React.FC = () => {
               ) : (
                 studentsWithBalance.map((student) => (
                   <TableRow key={student.student_id} className="border-gray-100 hover:bg-gray-50">
-                    <TableCell className="font-medium text-gray-900">{student.full_name}</TableCell>
+                    <TableCell className="font-medium text-gray-900">
+                      <Link to={`/students/${student.student_id}`} className="hover:underline">
+                        {student.full_name}
+                      </Link>
+                    </TableCell>
                     <TableCell className="text-gray-600">{student.intake_year}</TableCell>
                     <TableCell className="text-gray-600">
                       {DEGREE_LEVEL_LABELS[student.degree_level] ?? student.degree_level}
@@ -193,7 +327,8 @@ export const FinancesPage: React.FC = () => {
               ) : mentorPayouts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8 text-gray-500">
-                    Нет данных о выплатах
+                    В CRM платежи менторам не вносились — фактические выплаты смотри
+                    в блоке «Из Notion» выше (TOTAL / Выплачено / TBP)
                   </TableCell>
                 </TableRow>
               ) : (

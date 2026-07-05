@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Notion
     NOTION_API_KEY: str = ""
     NOTION_DATABASE_ID: str = ""
+    NOTION_SYNC_INTERVAL_SECONDS: int = 3600
 
     # Google Sheets — автосинк анкет: либо JSON одной строкой, либо путь к файлу ключа
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""

@@ -75,6 +75,7 @@ async def ingest_message(
         attachment = TelegramAttachment(
             message_id=row.id,
             telegram_file_id=file_ref.file_id,
+            file_name=filename,
             mime_type=mime_type,
             file_size=getattr(file_ref, "file_size", None),
         )

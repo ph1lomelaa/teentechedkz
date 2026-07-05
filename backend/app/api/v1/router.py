@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     telegram_webhook,
     telegram_chats,
     sync,
+    notion,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -51,3 +52,4 @@ api_router.include_router(export.router)
 api_router.include_router(telegram_webhook.router)
 api_router.include_router(telegram_chats.router)
 api_router.include_router(sync.router)
+api_router.include_router(notion.router)

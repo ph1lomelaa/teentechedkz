@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from Levenshtein import distance as levenshtein_distance
 
-from migration.transformers.normalize import normalize_phone
+from migration.transformers.normalize import normalize_phone, names_probably_same
 
 
 @dataclass
@@ -45,6 +45,12 @@ def fuzzy_match(
     for student in db_students:
         if student.get("full_name", "").strip().lower() == name_clean:
             return MatchResult(student_id=student["id"], confidence=1.0, method="name_exact")
+
+    # 2.5 Транслит-совпадение: «Сыбан Еркенур» ↔ «Syban Yerkenur».
+    # 0.95, а не 1.0 — кросс-язычный матч показываем как кандидата, решает человек.
+    for student in db_students:
+        if names_probably_same(name_clean, student.get("full_name", "")):
+            return MatchResult(student_id=student["id"], confidence=0.95, method="name_translit")
 
     # 3. Fuzzy full name (Levenshtein ≤ 2)
     best_score = float("inf")

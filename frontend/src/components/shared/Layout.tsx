@@ -8,7 +8,6 @@ import {
   Settings,
   BookOpen,
   BookText,
-  CheckSquare,
   AlertTriangle,
   MessageCircle,
   ClipboardList,
@@ -27,10 +26,9 @@ const adminNavItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Задачи', path: '/tasks', icon: <CheckSquare className="w-4 h-4" /> },
   { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
   { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'Конфликты', path: '/migration-conflicts', icon: <AlertTriangle className="w-4 h-4" /> },
+  { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
   { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
   { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
   { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
@@ -40,10 +38,9 @@ const mzkManagerNavItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Задачи', path: '/tasks', icon: <CheckSquare className="w-4 h-4" /> },
   { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
   { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'Конфликты', path: '/migration-conflicts', icon: <AlertTriangle className="w-4 h-4" /> },
+  { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
   { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
   { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
 ]
@@ -51,7 +48,6 @@ const mzkManagerNavItems: NavItem[] = [
 const leadMentorNavItems: NavItem[] = [
   { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Задачи', path: '/tasks', icon: <CheckSquare className="w-4 h-4" /> },
   { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
 ]
 
@@ -84,8 +80,8 @@ function getBreadcrumb(pathname: string): string {
     '/countries': 'Справочник стран',
     '/finances': 'Финансы',
     '/settings/users': 'Пользователи',
-    '/tasks': 'Задачи',
-    '/migration-conflicts': 'Конфликты миграции',
+    '/at-risk': 'Зона риска',
+    '/migration-conflicts': 'Зона риска',
     '/telegram-inbox': 'Telegram',
     '/status-inbox': 'Статус',
   }

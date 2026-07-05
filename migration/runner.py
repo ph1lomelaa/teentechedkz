@@ -106,9 +106,9 @@ async def run_notion(db: AsyncSession, all_students: list[dict]):
     for rec in records:
         try:
             intake_year = None
-            if rec.get("intake_year_raw"):
+            if rec.get("intake_raw"):
                 try:
-                    intake_year = int(rec["intake_year_raw"])
+                    intake_year = int(rec["intake_raw"])
                 except (ValueError, TypeError):
                     pass
 
@@ -117,7 +117,7 @@ async def run_notion(db: AsyncSession, all_students: list[dict]):
                 full_name=rec["full_name"],
                 phone=rec.get("phone", ""),
                 intake_year=intake_year,
-                extra_fields={"degree_level_raw": rec.get("degree_level_raw")},
+                extra_fields={"degree_level_raw": rec.get("degree_raw")},
                 source="notion",
             )
 
@@ -127,22 +127,22 @@ async def run_notion(db: AsyncSession, all_students: list[dict]):
             )
             contract = existing_contract.scalar_one_or_none()
 
-            pipeline_status = PipelineStatus(parse_pipeline_status(rec.get("pipeline_status_raw", "")))
-            mzk_id = _match_user(rec.get("mzk_name"), all_users)
-            lead_mentor_id = _match_user(rec.get("lead_mentor_name"), all_users)
+            pipeline_status = PipelineStatus(parse_pipeline_status(rec.get("payment_status_raw", "")))
+            mzk_id = _match_user(rec.get("mzk"), all_users)
+            lead_mentor_id = _match_user(rec.get("lead_mentor"), all_users)
 
             if not contract:
                 contract = Contract(
                     student_id=student_id,
                     pipeline_status=pipeline_status,
                     mzk_manager_id=mzk_id,
-                    amount=Decimal(str(rec["amount"])) if rec.get("amount") else None,
+                    amount=Decimal(str(rec["client_fee"])) if rec.get("client_fee") else None,
                     english_sum=Decimal(str(rec["english_sum"])) if rec.get("english_sum") else None,
                     english_paid=Decimal(str(rec["english_paid"])) if rec.get("english_paid") else None,
-                    client_remaining_amount=Decimal(str(rec["client_remaining_amount"])) if rec.get("client_remaining_amount") else None,
-                    mentor_total_owed=Decimal(str(rec["mentor_total_owed"])) if rec.get("mentor_total_owed") else None,
+                    client_remaining_amount=Decimal(str(rec["client_remaining"])) if rec.get("client_remaining") else None,
+                    mentor_total_owed=Decimal(str(rec["mentor_total"])) if rec.get("mentor_total") else None,
                     client_remaining_date=_parse_date(rec.get("client_remaining_date")),
-                    signed_date=_parse_date(rec.get("signed_date")),
+                    signed_date=_parse_date(rec.get("date_of_agreement")),
                 )
                 db.add(contract)
                 await db.flush()
@@ -158,7 +158,7 @@ async def run_notion(db: AsyncSession, all_students: list[dict]):
                                    recorded_by=mzk_id or student_id))
 
             # Applications
-            main_country = rec.get("main_country")
+            main_country = (rec.get("main_countries") or [None])[0]
             if main_country:
                 exists = await db.execute(
                     select(Application).where(

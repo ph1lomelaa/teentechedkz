@@ -57,6 +57,22 @@ export const studentsApi = {
     return response.data
   },
 
+  archive: async (id: string): Promise<void> => {
+    await apiClient.delete(`/students/${id}`)
+  },
+
+  duplicates: async (): Promise<{
+    pairs: {
+      reason: 'phone' | 'name'
+      a: { id: string; full_name: string; phone?: string; intake_year: number }
+      b: { id: string; full_name: string; phone?: string; intake_year: number }
+    }[]
+    total: number
+  }> => {
+    const response = await apiClient.get('/students/duplicates')
+    return response.data
+  },
+
   exportAll: async (): Promise<Blob> => {
     const response = await apiClient.get('/export/students', {
       responseType: 'blob',

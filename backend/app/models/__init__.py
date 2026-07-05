@@ -20,11 +20,13 @@ from .note_session import NoteSession, NoteSessionStatus
 from .note_transcript import NoteTranscript
 from .note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from .intake_submission import IntakeSubmission, IntakeSource, IntakeStatus
+from .intake_ai_check import IntakeAiCheck
 from .telegram_chat import TelegramChat, TelegramChatType, TelegramChatStatus
 from .telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from .telegram_message import TelegramMessage, TelegramMessageType
 from .telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from .telegram_pairing_code import TelegramPairingCode
+from .notion_snapshot import NotionSnapshot, NotionMatchStatus
 
 __all__ = [
     "User", "RefreshToken",
@@ -41,4 +43,5 @@ __all__ = [
     "TelegramMessage", "TelegramMessageType",
     "TelegramAttachment", "TelegramAttachmentStatus",
     "TelegramPairingCode",
+    "NotionSnapshot", "NotionMatchStatus",
 ]

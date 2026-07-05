@@ -25,6 +25,7 @@ class TelegramAttachment(Base):
         ForeignKey("telegram_messages.id", ondelete="CASCADE"), nullable=False, index=True
     )
     telegram_file_id: Mapped[str] = mapped_column(String(500))
+    file_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     storage_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)

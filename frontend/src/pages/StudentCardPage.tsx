@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft,
@@ -29,8 +29,10 @@ import {
   servicesApi,
   telegramApi,
   mentorAssignmentsApi,
+  contractsApi,
 } from '@/api/index'
 import { syncApi } from '@/api/sync'
+import { notionApi } from '@/api/notion'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -93,6 +95,123 @@ function InfoRow({ label, value }: { label: string; value?: string | number | nu
       <span className="text-sm text-gray-900 font-medium mt-0.5 sm:mt-0">
         {value ?? '—'}
       </span>
+    </div>
+  )
+}
+
+/** Строка «поле: значение» с редактированием по двойному клику.
+ * Enter/blur — сохранить, Esc — отмена; select сохраняет при выборе. */
+function EditableInfoRow({
+  label,
+  display,
+  editValue,
+  canEdit,
+  onSave,
+  type = 'text',
+  options,
+}: {
+  label: string
+  display?: string | number | null
+  editValue?: string | number | null
+  canEdit: boolean
+  onSave: (value: string) => void
+  type?: 'text' | 'textarea' | 'number' | 'date' | 'select'
+  options?: { value: string; label: string }[]
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const committedRef = React.useRef(false)
+
+  const initial = String(editValue ?? display ?? '')
+
+  const start = () => {
+    if (!canEdit) return
+    committedRef.current = false
+    setDraft(initial)
+    setEditing(true)
+  }
+  const cancel = () => {
+    committedRef.current = true // blur при размонтировании не должен сохранить
+    setEditing(false)
+  }
+  const commit = (value?: string) => {
+    if (committedRef.current) return
+    committedRef.current = true
+    setEditing(false)
+    const v = (value ?? draft).trim()
+    if (v === initial.trim()) return
+    onSave(v)
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500 sm:w-48 shrink-0">{label}</span>
+      {!editing ? (
+        <span
+          className={`text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 min-w-0 ${
+            canEdit ? 'cursor-text rounded-[2px] -mx-1 px-1 hover:bg-amber-50/70' : ''
+          }`}
+          title={canEdit ? 'Двойной клик — редактировать' : undefined}
+          onDoubleClick={start}
+        >
+          {display ?? '—'}
+        </span>
+      ) : type === 'select' ? (
+        <Select
+          defaultOpen
+          value={draft || undefined}
+          onValueChange={(v) => commit(v)}
+          onOpenChange={(open) => {
+            if (!open && !committedRef.current) cancel()
+          }}
+        >
+          <SelectTrigger className="h-8 w-full sm:w-64 text-sm">
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent>
+            {(options ?? []).map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : type === 'textarea' ? (
+        <div className="flex-1 min-w-0">
+          <Textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={4}
+            className="text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') cancel()
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit()
+            }}
+          />
+          <div className="flex gap-1.5 mt-1.5">
+            <Button size="sm" className="h-7 text-xs" onClick={() => commit()}>
+              Сохранить
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={cancel}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Input
+          autoFocus
+          type={type}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => commit()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancel()
+            if (e.key === 'Enter') commit()
+          }}
+          className="h-8 w-full sm:w-64 text-sm"
+        />
+      )}
     </div>
   )
 }
@@ -270,7 +389,12 @@ function ServiceEditModal({
 export const StudentCardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const { canAccess, hasRole } = useAuth()
+  const canEditProfile = canAccess('all_students')
+  const canEditContract = hasRole('admin', 'mzk_manager')
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [archiveName, setArchiveName] = useState('')
 
   const [editOpen, setEditOpen] = useState(false)
   const [editService, setEditService] = useState<Service | null>(null)
@@ -306,6 +430,79 @@ export const StudentCardPage: React.FC = () => {
     queryKey: ['intake', 'student', id],
     queryFn: () => syncApi.studentIntake(id!),
     enabled: !!id && hasRole('admin', 'mzk_manager'),
+  })
+
+  const { data: notion } = useQuery({
+    queryKey: ['notion', 'student', id],
+    queryFn: () => notionApi.studentNotion(id!),
+    enabled: !!id && hasRole('admin', 'mzk_manager'),
+  })
+
+  const updateStudentFieldMutation = useMutation({
+    // Record<string, unknown>: для очистки поля бэкенду нужен явный null,
+    // которого нет в типах StudentFull (там поля string | undefined)
+    mutationFn: (patch: Record<string, unknown>) =>
+      studentsApi.update(id!, patch as Partial<StudentFull>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      toast({ title: 'Сохранено' })
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось сохранить', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
+
+  const updateContractFieldMutation = useMutation({
+    mutationFn: (patch: Record<string, unknown>) =>
+      contractsApi.update(student!.contracts![0].id, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      toast({ title: 'Сохранено' })
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось сохранить', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
+
+  const unlinkNotionMutation = useMutation({
+    mutationFn: (snapshotId: string) => notionApi.unlink(snapshotId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notion'] })
+      toast({
+        title: 'Привязка к Notion снята',
+        description: 'Запись вернулась в «Notion без привязки». Автосинк не привяжет её обратно.',
+      })
+    },
+    onError: () => toast({ title: 'Не удалось отвязать', variant: 'destructive' }),
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: () => studentsApi.archive(id!),
+    onSuccess: () => {
+      toast({ title: 'Студент архивирован' })
+      navigate('/students')
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось архивировать', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
+
+  const applyNotionFieldMutation = useMutation({
+    mutationFn: (field: string) => notionApi.applyField(id!, field),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['history', 'student', id] })
+      toast({ title: 'Значение принято из Notion' })
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось применить', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
   })
 
   const [attachChatOpen, setAttachChatOpen] = useState(false)
@@ -617,11 +814,13 @@ export const StudentCardPage: React.FC = () => {
                   <tbody>
                     {intake.comparison.map((row) => {
                       const crmMatches = row.crm_matches ?? false
+                      const aiSuggestsSame = row.mismatch && row.ai_same_meaning === true
+                      const realMismatch = row.mismatch && !aiSuggestsSame
                       return (
                         <tr
                           key={row.field}
                           className={`border-b border-gray-100 last:border-0 ${
-                            row.mismatch ? 'bg-amber-50' : ''
+                            realMismatch ? 'bg-amber-50' : ''
                           }`}
                         >
                           <td className="px-3 py-2 text-gray-500 align-top whitespace-nowrap">
@@ -631,9 +830,14 @@ export const StudentCardPage: React.FC = () => {
                                 🔒 вносится вручную
                               </span>
                             )}
-                            {row.mismatch && (
+                            {realMismatch && (
                               <span className="block text-[10px] text-amber-600 mt-0.5">
                                 расхождение
+                              </span>
+                            )}
+                            {aiSuggestsSame && (
+                              <span className="block text-[10px] text-sky-600 mt-0.5" title={row.ai_note ?? undefined}>
+                                вероятно совпадает{row.ai_note ? ` · ${row.ai_note}` : ''}
                               </span>
                             )}
                           </td>
@@ -650,6 +854,10 @@ export const StudentCardPage: React.FC = () => {
                           <td className="px-3 py-2 text-gray-500 align-top">
                             {crmMatches ? (
                               <span className="text-emerald-600/80 text-xs">✓ совпадает</span>
+                            ) : row.crm_ai_same_meaning ? (
+                              <span className="text-sky-600 text-xs" title={row.crm_ai_note ?? undefined}>
+                                ✓ вероятно совпадает{row.crm_ai_note ? ` · ${row.crm_ai_note}` : ''}
+                              </span>
                             ) : (
                               row.crm ?? <span className="text-gray-400">—</span>
                             )}
@@ -668,13 +876,149 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
+        {/* 0.5 Notion: сверка «Notion | CRM» + финансы из Notion */}
+        {notion?.snapshot && (
+          <AccordionItem value="notion" className="border border-gray-200 rounded-[2px] px-4">
+            <AccordionTrigger className="text-base font-semibold">
+              <span className="flex items-center gap-2.5">
+                Notion
+                {notion.comparison.some((r) => r.matches === false) && (
+                  <span className="text-[10px] font-medium normal-case tracking-normal px-1.5 py-0.5 rounded-[2px] bg-amber-50 text-amber-700 border border-amber-200">
+                    есть расхождения
+                  </span>
+                )}
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-xs text-gray-500">
+                  Синхронизировано:{' '}
+                  {notion.snapshot.synced_at
+                    ? new Date(notion.snapshot.synced_at).toLocaleString('ru-RU', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                      })
+                    : '—'}
+                  {notion.snapshot.notion_last_edited_at &&
+                    ` · изменено в Notion: ${new Date(notion.snapshot.notion_last_edited_at).toLocaleDateString('ru-RU')}`}
+                </p>
+                <div className="flex items-center gap-3">
+                  {notion.snapshot.notion_url && (
+                    <a
+                      href={notion.snapshot.notion_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-gray-500 underline hover:text-black"
+                    >
+                      Открыть в Notion
+                    </a>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[11px] text-gray-500"
+                    disabled={unlinkNotionMutation.isPending}
+                    title="Если запись Notion привязана не к тому студенту"
+                    onClick={() => unlinkNotionMutation.mutate(notion.snapshot!.id)}
+                  >
+                    <Link2Off className="w-3 h-3 mr-1" />
+                    Отвязать
+                  </Button>
+                </div>
+              </div>
+              <div className="border border-gray-200 rounded-[2px] overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left px-3 py-2 label-caps font-medium w-44">Поле</th>
+                      <th className="text-left px-3 py-2 label-caps font-medium">Notion</th>
+                      <th className="text-left px-3 py-2 label-caps font-medium">CRM</th>
+                      <th className="w-32" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notion.comparison.map((row) => (
+                      <tr
+                        key={row.field}
+                        className={`border-b border-gray-100 last:border-0 ${
+                          row.matches === false ? 'bg-amber-50' : ''
+                        }`}
+                      >
+                        <td className="px-3 py-2 text-gray-500 align-top whitespace-nowrap">
+                          {row.label}
+                          {row.matches === false && (
+                            <span className="block text-[10px] text-amber-600 mt-0.5">расхождение</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-gray-800 align-top">
+                          {row.notion ?? <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          {row.matches ? (
+                            <span className="text-emerald-600/80 text-xs">✓ совпадает</span>
+                          ) : (
+                            <span className="text-gray-500">{row.crm ?? <span className="text-gray-400">—</span>}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-top text-right">
+                          {row.matches === false && row.can_apply && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[11px]"
+                              disabled={applyNotionFieldMutation.isPending}
+                              onClick={() => applyNotionFieldMutation.mutate(row.field)}
+                            >
+                              Принять из Notion
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {notion.finance.length > 0 && (
+                <div className="mt-4">
+                  <p className="label-caps mb-2">Финансы из Notion · только просмотр</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border border-gray-200 rounded-[2px] overflow-hidden">
+                    {notion.finance.map((f) => (
+                      <div key={f.label} className="bg-white px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400">{f.label}</p>
+                        <p className="text-sm text-gray-900 font-medium mt-0.5">{f.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-2.5">
+                Notion — источник по финансам, CRM назад в Notion не пишет. Кнопка «Принять из Notion»
+                переносит значение в карточку вручную, каждое изменение попадает в историю.
+              </p>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
         {/* 1. Profile */}
         <AccordionItem value="profile" className="border border-gray-200 rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Профиль студента
           </AccordionTrigger>
           <AccordionContent>
-            <div className="flex justify-end mb-2">
+            <div className="flex justify-end gap-2 mb-2">
+              {hasRole('admin') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                  onClick={() => {
+                    setArchiveName('')
+                    setArchiveOpen(true)
+                  }}
+                >
+                  <Trash2 className="w-3 h-3 mr-2" />
+                  Архивировать
+                </Button>
+              )}
               {canAccess('all_students') && (
                 <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                   <Edit2 className="w-3 h-3 mr-2" />
@@ -682,15 +1026,33 @@ export const StudentCardPage: React.FC = () => {
                 </Button>
               )}
             </div>
-            <InfoRow label="ФИО" value={student.full_name} />
-            <InfoRow label="Телефон" value={student.phone} />
-            <InfoRow label="Город" value={student.city} />
-            <InfoRow label="Уровень" value={DEGREE_LEVEL_LABELS[student.degree_level]} />
-            <InfoRow label="Год поступления" value={student.intake_year} />
-            <InfoRow label="Специальность" value={student.specialty} />
-            <InfoRow label="GPA" value={student.gpa} />
-            <InfoRow label="Бюджет/год" value={student.budget_per_year} />
-            <InfoRow label="Достижения" value={student.achievements_text} />
+            <EditableInfoRow label="ФИО" display={student.full_name} canEdit={canEditProfile}
+              onSave={(v) => v && updateStudentFieldMutation.mutate({ full_name: v })} />
+            <EditableInfoRow label="Телефон" display={student.phone} canEdit={canEditProfile}
+              onSave={(v) => updateStudentFieldMutation.mutate({ phone: v })} />
+            <EditableInfoRow label="Город" display={student.city} canEdit={canEditProfile}
+              onSave={(v) => updateStudentFieldMutation.mutate({ city: v || null })} />
+            <EditableInfoRow label="Уровень" display={DEGREE_LEVEL_LABELS[student.degree_level]}
+              editValue={student.degree_level} canEdit={canEditProfile} type="select"
+              options={Object.entries(DEGREE_LEVEL_LABELS).map(([value, label]) => ({ value, label }))}
+              onSave={(v) => updateStudentFieldMutation.mutate({ degree_level: v as StudentFull['degree_level'] })} />
+            <EditableInfoRow label="Год поступления" display={student.intake_year} canEdit={canEditProfile} type="number"
+              onSave={(v) => {
+                const year = Number.parseInt(v, 10)
+                if (!year || year < 2000 || year > 2100) {
+                  toast({ title: 'Некорректный год', description: v, variant: 'destructive' })
+                  return
+                }
+                updateStudentFieldMutation.mutate({ intake_year: year })
+              }} />
+            <EditableInfoRow label="Специальность" display={student.specialty} canEdit={canEditProfile}
+              onSave={(v) => updateStudentFieldMutation.mutate({ specialty: v || null })} />
+            <EditableInfoRow label="GPA" display={student.gpa} canEdit={canEditProfile}
+              onSave={(v) => updateStudentFieldMutation.mutate({ gpa: v || null })} />
+            <EditableInfoRow label="Бюджет/год" display={student.budget_per_year} canEdit={canEditProfile}
+              onSave={(v) => updateStudentFieldMutation.mutate({ budget_per_year: v || null })} />
+            <EditableInfoRow label="Достижения" display={student.achievements_text} canEdit={canEditProfile} type="textarea"
+              onSave={(v) => updateStudentFieldMutation.mutate({ achievements_text: v || null })} />
             <InfoRow label="Дней в работе" value={student.days_in_work} />
 
             {canAccess('guardians') && (
@@ -751,17 +1113,42 @@ export const StudentCardPage: React.FC = () => {
               Договор
             </AccordionTrigger>
             <AccordionContent>
-              <InfoRow label="Дата подписания" value={formatDate(contract.signed_date)} />
-              <InfoRow label="Сумма" value={formatCurrency(contract.amount, contract.currency)} />
-              <InfoRow label="Валюта" value={contract.currency} />
-              <InfoRow label="Статус" value={contract.pipeline_status ? PIPELINE_STATUS_LABELS[contract.pipeline_status] : '—'} />
-              <InfoRow label="IELTS включён" value={contract.ielts_payment_included ? 'Да' : 'Нет'} />
-              <InfoRow label="Сумма англ." value={contract.english_sum} />
-              <InfoRow label="Оплачено англ." value={contract.english_paid} />
-              <InfoRow label="Остаток клиент" value={contract.client_remaining_amount} />
-              <InfoRow label="Дата остатка" value={formatDate(contract.client_remaining_date)} />
-              <InfoRow label="Ментору итого" value={contract.mentor_total_owed} />
-              {contract.notes && <InfoRow label="Примечания" value={contract.notes} />}
+              <EditableInfoRow label="Дата подписания" display={formatDate(contract.signed_date)}
+                editValue={contract.signed_date ? String(contract.signed_date).slice(0, 10) : ''}
+                canEdit={canEditContract} type="date"
+                onSave={(v) => updateContractFieldMutation.mutate({ signed_date: v || null })} />
+              <EditableInfoRow label="Сумма" display={formatCurrency(contract.amount, contract.currency)}
+                editValue={contract.amount ?? ''} canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ amount: v || null })} />
+              <EditableInfoRow label="Валюта" display={contract.currency} canEdit={canEditContract}
+                onSave={(v) => v && updateContractFieldMutation.mutate({ currency: v.toUpperCase() })} />
+              <EditableInfoRow label="Статус"
+                display={contract.pipeline_status ? PIPELINE_STATUS_LABELS[contract.pipeline_status] : '—'}
+                editValue={contract.pipeline_status ?? ''} canEdit={canEditContract} type="select"
+                options={Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+                onSave={(v) => updateContractFieldMutation.mutate({ pipeline_status: v })} />
+              <EditableInfoRow label="IELTS включён" display={contract.ielts_payment_included ? 'Да' : 'Нет'}
+                editValue={contract.ielts_payment_included ? 'true' : 'false'} canEdit={canEditContract} type="select"
+                options={[{ value: 'true', label: 'Да' }, { value: 'false', label: 'Нет' }]}
+                onSave={(v) => updateContractFieldMutation.mutate({ ielts_payment_included: v === 'true' })} />
+              <EditableInfoRow label="Сумма англ." display={contract.english_sum}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ english_sum: v || null })} />
+              <EditableInfoRow label="Оплачено англ." display={contract.english_paid}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ english_paid: v || null })} />
+              <EditableInfoRow label="Остаток клиент" display={contract.client_remaining_amount}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ client_remaining_amount: v || null })} />
+              <EditableInfoRow label="Дата остатка" display={formatDate(contract.client_remaining_date)}
+                editValue={contract.client_remaining_date ? String(contract.client_remaining_date).slice(0, 10) : ''}
+                canEdit={canEditContract} type="date"
+                onSave={(v) => updateContractFieldMutation.mutate({ client_remaining_date: v || null })} />
+              <EditableInfoRow label="Ментору итого" display={contract.mentor_total_owed}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ mentor_total_owed: v || null })} />
+              <EditableInfoRow label="Примечания" display={contract.notes} canEdit={canEditContract} type="textarea"
+                onSave={(v) => updateContractFieldMutation.mutate({ notes: v || null })} />
             </AccordionContent>
           </AccordionItem>
         )}
@@ -1392,6 +1779,38 @@ export const StudentCardPage: React.FC = () => {
           onClose={() => setEditOpen(false)}
         />
       )}
+
+      {/* Archive confirm: требуется ввести полное имя */}
+      <Dialog open={archiveOpen} onOpenChange={(open) => !open && setArchiveOpen(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Архивировать студента?</DialogTitle>
+            <DialogDescription>
+              Студент исчезнет из списков, но данные сохранятся. Чтобы подтвердить,
+              введи полное имя: <span className="font-semibold text-gray-900">{student.full_name}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            placeholder="Полное имя студента"
+            value={archiveName}
+            onChange={(e) => setArchiveName(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setArchiveOpen(false)}>Отмена</Button>
+            <Button
+              variant="destructive"
+              disabled={
+                archiveName.trim().toLowerCase() !== student.full_name.trim().toLowerCase() ||
+                archiveMutation.isPending
+              }
+              onClick={() => archiveMutation.mutate()}
+            >
+              {archiveMutation.isPending ? 'Архивируем…' : 'Архивировать'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit service modal */}
       {editService && (

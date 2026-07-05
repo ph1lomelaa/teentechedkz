@@ -4,11 +4,14 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -23,7 +26,7 @@ from app.models.telegram_pairing_code import TelegramPairingCode
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User
 from app.services.mentor_scope import mentor_assigned_student_ids
-from app.services.minio_service import minio_url
+from app.services.minio_service import close_minio_object, get_minio
 from app.services.student_notes import build_profile_diff, snapshot_student
 
 router = APIRouter(prefix="/telegram-chats", tags=["telegram-chats"])
@@ -305,6 +308,48 @@ async def list_chat_messages(
     return [await _message_to_dict(m) for m in messages]
 
 
+@router.get("/attachments/{attachment_id}/download")
+async def download_attachment(
+    attachment_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Streams the file through our backend instead of handing out a
+    presigned MinIO URL — presigned URLs sign the Host header, and the dev
+    hostname rewrite (minio -> localhost) done for browser access breaks
+    that signature (SignatureDoesNotMatch)."""
+    attachment = await db.get(TelegramAttachment, attachment_id)
+    if not attachment or not attachment.storage_path:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    message = await db.get(TelegramMessage, attachment.message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    await _require_chat_access(db, message.chat_id, current_user)
+
+    client = get_minio()
+    obj = client.get_object(
+        bucket_name=settings.MINIO_BUCKET_NAME,
+        object_name=attachment.storage_path,
+    )
+
+    filename = attachment.file_name or "file"
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii") or "file"
+    headers = {
+        "Content-Disposition": (
+            f'inline; filename="{ascii_fallback}"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        ),
+        "X-Content-Type-Options": "nosniff",
+    }
+    return StreamingResponse(
+        obj,
+        media_type=attachment.mime_type or "application/octet-stream",
+        headers=headers,
+        background=BackgroundTask(close_minio_object, obj),
+    )
+
+
 @router.get("/{chat_id}/insights")
 async def list_chat_insights(
     chat_id: uuid.UUID,
@@ -456,10 +501,11 @@ async def _message_to_dict(m: TelegramMessage) -> dict:
         attachments.append(
             {
                 "id": str(a.id),
+                "file_name": a.file_name,
                 "mime_type": a.mime_type,
                 "file_size": a.file_size,
                 "status": a.status.value,
-                "download_url": await minio_url(a.storage_path) if a.storage_path else None,
+                "can_download": bool(a.storage_path),
             }
         )
     return {

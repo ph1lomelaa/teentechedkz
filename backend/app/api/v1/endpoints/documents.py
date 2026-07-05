@@ -18,7 +18,13 @@ from app.models.telegram_chat_session import TelegramChatSession, TelegramSessio
 from app.models.telegram_message import TelegramMessage
 from app.models.user import UserRole
 from app.services.mentor_scope import require_student_access
-from app.services.minio_service import get_minio, minio_copy_to_student, minio_delete, minio_upload, minio_url
+from app.services.minio_service import (
+    close_minio_object,
+    get_minio,
+    minio_copy_to_student,
+    minio_delete,
+    minio_upload,
+)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -165,21 +171,6 @@ async def verify_document(
     return _doc_to_dict(doc)
 
 
-@router.get("/{doc_id}/download-url")
-async def get_download_url(
-    doc_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
-):
-    result = await db.execute(select(Document).where(Document.id == doc_id))
-    doc = result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Документ не найден")
-
-    url = await minio_url(doc.storage_path)
-    return {"url": url}
-
-
 @router.get("/{doc_id}/download")
 async def download_document(
     doc_id: uuid.UUID,
@@ -213,7 +204,7 @@ async def download_document(
         obj,
         media_type=doc.mime_type or "application/octet-stream",
         headers=headers,
-        background=BackgroundTask(_close_minio_object, obj),
+        background=BackgroundTask(close_minio_object, obj),
     )
 
 
@@ -258,10 +249,3 @@ def _doc_to_dict(d: Document) -> dict:
         "is_verified": d.is_verified,
         "uploaded_at": d.uploaded_at.isoformat(),
     }
-
-
-def _close_minio_object(obj) -> None:
-    try:
-        obj.close()
-    finally:
-        obj.release_conn()

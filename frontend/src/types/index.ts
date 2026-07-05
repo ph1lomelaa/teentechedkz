@@ -359,10 +359,11 @@ export interface TelegramChat {
 
 export interface TelegramAttachment {
   id: string
+  file_name: string | null
   mime_type: string | null
   file_size: number | null
   status: 'pending' | 'downloaded' | 'parsed' | 'failed'
-  download_url: string | null
+  can_download: boolean
 }
 
 export interface TelegramMessage {

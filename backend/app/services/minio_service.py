@@ -151,3 +151,16 @@ async def minio_delete(storage_path: str) -> None:
         bucket_name=settings.MINIO_BUCKET_NAME,
         object_name=storage_path,
     )
+
+
+def close_minio_object(obj) -> None:
+    """For use as a StreamingResponse `background=BackgroundTask(...)` — the
+    proxy-download pattern (stream the file through our backend rather than
+    handing the browser a presigned URL) is what documents/telegram
+    attachments use, since `minio_url()`'s dev hostname rewrite
+    (minio -> localhost) invalidates the SigV4 signature (the Host is part
+    of what's signed) and breaks presigned URLs for direct browser use."""
+    try:
+        obj.close()
+    finally:
+        obj.release_conn()
