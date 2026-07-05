@@ -59,18 +59,22 @@ def _stamp_head(head: str) -> None:
     )
 
 
-def bootstrap() -> None:
-    has_students = asyncio.run(_table_exists("students"))
-    has_alembic_version = asyncio.run(_table_exists("alembic_version"))
+async def _bootstrap_async() -> None:
+    has_students = await _table_exists("students")
+    has_alembic_version = await _table_exists("alembic_version")
 
     if has_students and has_alembic_version:
         return
 
     if not has_students:
-        asyncio.run(_create_all())
+        await _create_all()
 
     head = _alembic_head()
     _stamp_head(head)
+
+
+def bootstrap() -> None:
+    asyncio.run(_bootstrap_async())
 
 
 if __name__ == "__main__":
