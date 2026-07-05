@@ -17,14 +17,14 @@ from sqlalchemy import text
 import app.models  # noqa: F401 - register metadata
 from app.core.database import Base, engine
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 ALEMBIC_DIR = PROJECT_ROOT / "alembic"
 
 
 def _alembic_cfg() -> Config:
     cfg = Config(str(ALEMBIC_INI))
-    cfg.set_main_option("script_location", str(ALEMBIC_DIR))
+    cfg.set_main_option("script_location", str(ALEMBIC_DIR.resolve()))
     return cfg
 
 
