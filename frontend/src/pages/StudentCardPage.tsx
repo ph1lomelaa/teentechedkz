@@ -146,16 +146,21 @@ function EditableInfoRow({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-gray-100 last:border-0">
       <span className="text-sm text-gray-500 sm:w-48 shrink-0">{label}</span>
-      {!editing ? (
-        <span
-          className={`text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 min-w-0 ${
-            canEdit ? 'cursor-text rounded-[2px] -mx-1 px-1 hover:bg-amber-50/70' : ''
-          }`}
-          title={canEdit ? 'Двойной клик — редактировать' : undefined}
-          onDoubleClick={start}
-        >
+      {!editing && !canEdit ? (
+        <span className="text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 min-w-0 break-words">
           {display ?? '—'}
         </span>
+      ) : !editing ? (
+        <button
+          type="button"
+          className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[2px] -mx-1 px-1 text-left text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 hover:bg-amber-50/70"
+          title="Редактировать"
+          onClick={start}
+          onDoubleClick={start}
+        >
+          <span className="min-w-0 break-words">{display ?? '—'}</span>
+          <Edit2 className="h-3.5 w-3.5 shrink-0 text-gray-300 group-hover:text-amber-600" />
+        </button>
       ) : type === 'select' ? (
         <Select
           defaultOpen
@@ -199,18 +204,27 @@ function EditableInfoRow({
           </div>
         </div>
       ) : (
-        <Input
-          autoFocus
-          type={type}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => commit()}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') cancel()
-            if (e.key === 'Enter') commit()
-          }}
-          className="h-8 w-full sm:w-64 text-sm"
-        />
+        <div className="flex flex-1 flex-col gap-1.5 sm:max-w-sm">
+          <Input
+            autoFocus
+            type={type}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') cancel()
+              if (e.key === 'Enter') commit()
+            }}
+            className="h-8 w-full text-sm"
+          />
+          <div className="flex gap-1.5">
+            <Button size="sm" className="h-7 text-xs" onClick={() => commit()}>
+              Сохранить
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={cancel}>
+              Отмена
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -688,6 +702,11 @@ export const StudentCardPage: React.FC = () => {
 
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
+  const openTasks = (student.student_tasks || []).filter((task) => task.status === 'open')
+  const intakeMismatchCount = intake?.comparison?.filter((row) => row.mismatch && row.ai_same_meaning !== true).length ?? 0
+  const notionMismatchCount = notion?.comparison?.filter((row) => row.matches === false).length ?? 0
+  const latestTelegramMessage = telegramMessages[telegramMessages.length - 1]
+  const latestHistoryEntry = history[0]
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -700,6 +719,11 @@ export const StudentCardPage: React.FC = () => {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="font-serif text-3xl text-gray-900 tracking-tight">{student.full_name}</h1>
+            {student.is_archived && (
+              <span className="text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-gray-100 text-gray-500 border border-gray-200">
+                Архивирован
+              </span>
+            )}
             <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
               {DEGREE_LEVEL_LABELS[student.degree_level]}
             </span>
@@ -731,6 +755,35 @@ export const StudentCardPage: React.FC = () => {
             Конспекты
           </Link>
         </Button>
+      </div>
+
+      <div className="mb-4 grid gap-2 md:grid-cols-4">
+        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Следующее действие</p>
+          <p className="mt-1 text-sm font-semibold text-gray-900">
+            {openTasks[0]?.task_text || (student.is_mine ? 'Открытых задач нет' : 'Назначьте ответственного')}
+          </p>
+        </div>
+        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Риски данных</p>
+          <p className={`mt-1 text-sm font-semibold ${intakeMismatchCount + notionMismatchCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {intakeMismatchCount + notionMismatchCount > 0
+              ? `${intakeMismatchCount + notionMismatchCount} расхожд.`
+              : 'Расхождений нет'}
+          </p>
+        </div>
+        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Последний контакт</p>
+          <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+            {latestTelegramMessage?.raw_text || latestTelegramMessage?.message_type || 'Нет сообщений'}
+          </p>
+        </div>
+        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Последнее изменение</p>
+          <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+            {latestHistoryEntry ? `${latestHistoryEntry.field_changed}: ${formatDate(latestHistoryEntry.changed_at)}` : 'История пуста'}
+          </p>
+        </div>
       </div>
 
       <Accordion type="multiple" defaultValue={['profile', 'applications', 'services', 'tasks']} className="space-y-2">
@@ -1537,6 +1590,9 @@ export const StudentCardPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
+                  <p className="text-sm text-gray-500">
+                    Подключите чат, чтобы сообщения, файлы и AI-разбор попадали в эту карточку студента.
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => setAttachChatOpen(true)}>
                       Привязать существующий чат
@@ -1556,6 +1612,9 @@ export const StudentCardPage: React.FC = () => {
                       <p className="text-gray-700 break-all">{pairingResult.deep_link}</p>
                       <p className="text-xs text-gray-500 mt-1">
                         Действует до {new Date(pairingResult.expires_at).toLocaleString('ru-RU')}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Отправьте эту ссылку студенту или родителю: после перехода чат привяжется к карточке автоматически.
                       </p>
                     </div>
                   )}

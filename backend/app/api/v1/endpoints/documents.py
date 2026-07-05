@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import uuid
 from typing import Annotated
 from urllib.parse import quote
@@ -13,6 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.document import Document, DocType, DocSource
+from app.models.student import Student
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_message import TelegramMessage
@@ -27,6 +29,7 @@ from app.services.minio_service import (
 )
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
 
 ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
@@ -40,6 +43,10 @@ async def upload_document(
     doc_type: str = Form(...),
     file: UploadFile = File(...),
 ):
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
@@ -76,7 +83,15 @@ async def upload_document(
         source=DocSource.manual_upload,
     )
     db.add(doc)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            await minio_delete(storage_path)
+        except Exception:
+            logger.exception("Failed to clean up uploaded document object %s after DB error", storage_path)
+        raise
     await db.refresh(doc)
     return _doc_to_dict(doc)
 
@@ -229,7 +244,7 @@ async def delete_document(
         try:
             await minio_delete(storage_path)
         except Exception:
-            pass
+            logger.exception("Failed to delete MinIO object for document %s: %s", doc_id, storage_path)
     return {"ok": True}
 
 

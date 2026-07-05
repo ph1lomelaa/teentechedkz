@@ -23,7 +23,7 @@ interface NavItem {
 }
 
 const adminNavItems: NavItem[] = [
-  { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+  { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
   { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
@@ -35,7 +35,7 @@ const adminNavItems: NavItem[] = [
 ]
 
 const mzkManagerNavItems: NavItem[] = [
-  { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+  { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
   { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
@@ -72,7 +72,7 @@ function getNavItems(role: string): NavItem[] {
 
 function getBreadcrumb(pathname: string): string {
   const map: Record<string, string> = {
-    '/dashboard': 'Dashboard',
+    '/dashboard': 'Обзор',
     '/students': 'Все студенты',
     '/students/new': 'Новый студент',
     '/my-students': 'Мои студенты',

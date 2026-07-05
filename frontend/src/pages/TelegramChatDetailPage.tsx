@@ -30,7 +30,9 @@ import {
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { toast } from '@/hooks/use-toast'
+import { ToastAction } from '@/components/ui/toast'
 import { downloadBlob } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errorMessage'
 import type { TelegramAttachment } from '@/types'
 
 function formatDate(iso: string) {
@@ -78,25 +80,41 @@ export default function TelegramChatDetailPage() {
       setReassignOpen(false)
       toast({ title: 'Студент изменён' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось сменить студента', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось сменить студента', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const pauseMutation = useMutation({
     mutationFn: () => telegramApi.pause(chatId!),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       invalidateChat()
-      toast({ title: 'Чат поставлен на паузу' })
+      toast({
+        title: 'AI-разбор поставлен на паузу',
+        description: updated.title || `Чат ${updated.chat_id}`,
+        action: (
+          <ToastAction altText="Возобновить" onClick={() => resumeMutation.mutate()}>
+            Отменить
+          </ToastAction>
+        ),
+      })
     },
-    onError: () => toast({ title: 'Ошибка', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось поставить на паузу', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const resumeMutation = useMutation({
     mutationFn: () => telegramApi.resume(chatId!),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       invalidateChat()
-      toast({ title: 'Чат возобновлён' })
+      toast({
+        title: 'AI-разбор возобновлён',
+        description: updated.title || `Чат ${updated.chat_id}`,
+        action: (
+          <ToastAction altText="Поставить на паузу" onClick={() => pauseMutation.mutate()}>
+            Отменить
+          </ToastAction>
+        ),
+      })
     },
-    onError: () => toast({ title: 'Ошибка', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось возобновить чат', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const closeMutation = useMutation({
@@ -106,7 +124,7 @@ export default function TelegramChatDetailPage() {
       setCloseConfirmOpen(false)
       toast({ title: 'Сессия завершена' })
     },
-    onError: () => toast({ title: 'Ошибка', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось завершить сессию', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const reviewMutation = useMutation({
@@ -117,7 +135,7 @@ export default function TelegramChatDetailPage() {
       qc.invalidateQueries({ queryKey: ['telegram-chats'] })
       toast({ title: 'Инсайт обработан' })
     },
-    onError: () => toast({ title: 'Ошибка', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось обработать инсайт', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const saveAsDocMutation = useMutation({
@@ -127,15 +145,15 @@ export default function TelegramChatDetailPage() {
       setSaveAsDocType('')
       toast({ title: 'Файл добавлен в документы студента' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось сохранить файл', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось сохранить файл', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const handleDownloadAttachment = async (a: TelegramAttachment) => {
     try {
       const blob = await telegramApi.downloadAttachment(a.id)
       downloadBlob(blob, a.file_name || 'file')
-    } catch {
-      toast({ title: 'Ошибка', description: 'Не удалось скачать файл', variant: 'destructive' })
+    } catch (err) {
+      toast({ title: 'Не удалось скачать файл', description: getErrorMessage(err), variant: 'destructive' })
     }
   }
 
@@ -168,22 +186,22 @@ export default function TelegramChatDetailPage() {
           <div className="flex gap-2">
             {chat.student_id && (
               <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
-                Сменить студента
+                Сменить привязку
               </Button>
             )}
             {chat.status === 'active' && (
               <Button variant="outline" size="sm" disabled={pauseMutation.isPending} onClick={() => pauseMutation.mutate()}>
-                Пауза
+                Пауза AI
               </Button>
             )}
             {chat.status === 'paused' && (
               <Button variant="outline" size="sm" disabled={resumeMutation.isPending} onClick={() => resumeMutation.mutate()}>
-                Возобновить
+                Возобновить AI
               </Button>
             )}
             {(chat.status === 'active' || chat.status === 'paused') && (
               <Button variant="outline" size="sm" onClick={() => setCloseConfirmOpen(true)}>
-                Завершить
+                Закрыть чат
               </Button>
             )}
           </div>
@@ -260,11 +278,14 @@ export default function TelegramChatDetailPage() {
 
       <StudentPickerDialog
         open={reassignOpen}
-        title="Сменить студента"
+        title="Сменить привязку"
+        description="Проверьте текущую и новую привязку перед сохранением."
         onClose={() => setReassignOpen(false)}
         onSelect={(studentId) => reassignMutation.mutate(studentId)}
         isPending={reassignMutation.isPending}
         excludeStudentId={chat.student_id}
+        currentStudentLabel={chat.student_name}
+        confirmBeforeSelect
       />
 
       <Dialog open={closeConfirmOpen} onOpenChange={setCloseConfirmOpen}>

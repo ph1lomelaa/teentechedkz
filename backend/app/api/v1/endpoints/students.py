@@ -1,12 +1,14 @@
 from __future__ import annotations
 import uuid
 import math
+from collections import Counter
 from datetime import date, datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -18,10 +20,28 @@ from app.models.contract import Contract
 from app.models.mentor_assignment import MentorAssignment
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote
+from app.models.application import Application
+from app.models.service import Service
+from app.models.document import Document
+from app.models.communication_log import CommunicationLog
+from app.models.pending_insight import PendingInsight
+from app.models.student_task import StudentTask
+from app.models.note_session import NoteSession
+from app.models.student_note import StudentNote
+from app.models.portfolio_progress import PortfolioProgress
+from app.models.sync_status import SyncStatus
+from app.models.telegram_chat_session import TelegramChatSession
+from app.models.telegram_pairing_code import TelegramPairingCode
+from app.models.intake_submission import IntakeSubmission
+from app.models.notion_snapshot import NotionSnapshot
 from app.models.user import UserRole
 from app.schemas.student import StudentCreate, StudentUpdate
 
 router = APIRouter(prefix="/students", tags=["students"])
+
+
+class MergeStudentBody(BaseModel):
+    target_student_id: uuid.UUID
 
 
 def _can_see_student(current_user, student_id: uuid.UUID, mentor_student_ids: set[uuid.UUID]) -> bool:
@@ -98,6 +118,168 @@ async def find_duplicates(
                     "b": {"id": str(b.id), "full_name": b.full_name, "phone": b.phone, "intake_year": b.intake_year},
                 })
     return {"pairs": pairs, "total": len(pairs)}
+
+
+@router.post("/{student_id}/merge")
+async def merge_student(
+    student_id: uuid.UUID,
+    body: MergeStudentBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Только администратор может соединять студентов")
+
+    if student_id == body.target_student_id:
+        raise HTTPException(status_code=400, detail="Нельзя соединить студента сам с собой")
+
+    source = await db.get(Student, student_id)
+    target = await db.get(Student, body.target_student_id)
+    if not source or not target:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    if source.is_archived:
+        raise HTTPException(status_code=400, detail="Источник уже архивирован")
+    if target.is_archived:
+        raise HTTPException(status_code=400, detail="Нельзя соединять в архивированного студента")
+
+    now = datetime.now(timezone.utc)
+
+    def norm(value: str | None) -> str:
+        return " ".join(str(value or "").strip().lower().split())
+
+    def copy_if_empty(field: str) -> None:
+        source_val = getattr(source, field)
+        target_val = getattr(target, field)
+        if (target_val is None or target_val == "" or target_val == 0) and source_val not in (None, "", 0):
+            setattr(target, field, source_val)
+
+    copy_if_empty("city")
+    copy_if_empty("age")
+    copy_if_empty("specialty")
+    copy_if_empty("group_direction")
+    copy_if_empty("additional_sphere")
+    copy_if_empty("gpa")
+    copy_if_empty("achievements_text")
+    copy_if_empty("budget_per_year")
+    copy_if_empty("transcript_resume_url")
+    copy_if_empty("intake_season")
+
+    # Keep the main card stable: only backfill obvious gaps from the duplicate.
+    if not target.full_name.strip():
+        target.full_name = source.full_name
+    if not target.phone.strip():
+        target.phone = source.phone
+    if target.intake_year is None:
+        target.intake_year = source.intake_year
+    if target.degree_level is None:
+        target.degree_level = source.degree_level
+
+    moved_counts: Counter[str] = Counter()
+
+    # Move one-to-many operational links.
+    for model, label in [
+        (Contract, "contracts"),
+        (Guardian, "guardians"),
+        (Service, "services"),
+        (ConfidentialNote, "confidential_notes"),
+        (StudentTask, "student_tasks"),
+        (Document, "documents"),
+        (CommunicationLog, "communication_logs"),
+        (PendingInsight, "pending_insights"),
+        (NoteSession, "note_sessions"),
+        (StudentNote, "notes"),
+        (SyncStatus, "sync_status"),
+        (TelegramChatSession, "telegram_chat_sessions"),
+        (TelegramPairingCode, "telegram_pairing_codes"),
+        (IntakeSubmission, "intake_submissions"),
+        (NotionSnapshot, "notion_snapshots"),
+    ]:
+        result = await db.execute(
+            update(model)
+            .where(getattr(model, "student_id") == source.id)
+            .values(student_id=target.id)
+        )
+        moved_counts[label] += result.rowcount or 0
+
+    source_portfolio = (await db.execute(
+        select(PortfolioProgress).where(PortfolioProgress.student_id == source.id)
+    )).scalar_one_or_none()
+    if source_portfolio and target.portfolio_progress is None:
+        source_portfolio.student_id = target.id
+        moved_counts["portfolio_progress"] += 1
+
+    # Merge applications with a simple dedupe by country; keep one primary.
+    target_apps_result = await db.execute(select(Application).where(Application.student_id == target.id))
+    target_apps = target_apps_result.scalars().all()
+    target_country_keys = {norm(app.country) for app in target_apps}
+    target_has_primary = any(app.is_primary for app in target_apps)
+
+    source_apps_result = await db.execute(
+        select(Application).where(Application.student_id == source.id).order_by(Application.id)
+    )
+    for app in source_apps_result.scalars().all():
+        key = norm(app.country)
+        if key in target_country_keys:
+            continue
+        if app.is_primary and target_has_primary:
+            app.is_primary = False
+        elif app.is_primary:
+            target_has_primary = True
+        app.student_id = target.id
+        target_country_keys.add(key)
+        moved_counts["applications"] += 1
+
+    # Mentor assignments can collide for the same mentor/role/scope; skip exact duplicates.
+    target_assignments_result = await db.execute(
+        select(MentorAssignment).where(MentorAssignment.student_id == target.id)
+    )
+    assignment_keys = {
+        (a.mentor_id, a.role.value, norm(a.country_scope), a.is_active)
+        for a in target_assignments_result.scalars().all()
+    }
+    source_assignments_result = await db.execute(
+        select(MentorAssignment).where(MentorAssignment.student_id == source.id)
+    )
+    for assignment in source_assignments_result.scalars().all():
+        key = (assignment.mentor_id, assignment.role.value, norm(assignment.country_scope), assignment.is_active)
+        if key in assignment_keys:
+            continue
+        assignment.student_id = target.id
+        assignment_keys.add(key)
+        moved_counts["mentor_assignments"] += 1
+
+    source.is_archived = True
+    source.updated_at = now
+    target.updated_at = now
+
+    await log_change(
+        db,
+        "student",
+        target.id,
+        "merged_from",
+        str(source.id),
+        source.full_name,
+        str(current_user.id),
+        "manual_merge",
+    )
+    await log_change(
+        db,
+        "student",
+        source.id,
+        "merged_into",
+        None,
+        str(target.id),
+        str(current_user.id),
+        "manual_merge",
+    )
+
+    await db.commit()
+    return {
+        "ok": True,
+        "source_student_id": str(source.id),
+        "target_student_id": str(target.id),
+        "moved": dict(moved_counts),
+    }
 
 
 @router.get("")
@@ -179,7 +361,11 @@ async def list_students(
     items = []
     for s in students:
         contract_result = await db.execute(
-            select(Contract).where(Contract.student_id == s.id).order_by(Contract.created_at.desc()).limit(1)
+            select(Contract)
+            .options(selectinload(Contract.mzk_manager))
+            .where(Contract.student_id == s.id)
+            .order_by(Contract.created_at.desc())
+            .limit(1)
         )
         contract = contract_result.scalar_one_or_none()
         days_in_work = None
@@ -200,6 +386,7 @@ async def list_students(
             "pipeline_status": pipeline_status_val,
             "days_in_work": days_in_work,
             "is_mine": is_mine,
+            "mzk_manager_name": contract.mzk_manager_name if contract and contract.mzk_manager else None,
             "responsibles": responsibles,
             "responsible_count": len([r for r in responsibles if r["is_active"]]),
         })
@@ -263,9 +450,9 @@ async def get_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    result = await db.execute(
+    query = (
         select(Student)
-        .where(Student.is_archived == False)  # noqa: E712
+        .where(Student.id == student_id)
         .options(
             selectinload(Student.contracts).selectinload(Contract.payments),
             selectinload(Student.applications),
@@ -278,7 +465,11 @@ async def get_student(
             selectinload(Student.pending_insights),
             selectinload(Student.notes),
         )
-        .where(Student.id == student_id)
+    )
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        query = query.where(Student.is_archived == False)  # noqa: E712
+    result = await db.execute(
+        query
     )
     student = result.scalar_one_or_none()
     if not student:

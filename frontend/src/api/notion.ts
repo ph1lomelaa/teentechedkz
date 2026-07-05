@@ -77,6 +77,26 @@ export interface NotionFinanceSummary {
     ielts_exam_fee: number
     total_company: number
   }
+  rows: {
+    id: string
+    full_name?: string | null
+    payment_status: string
+    intake?: string | null
+    client_fee: number
+    client_remaining: number
+    mentor_total: number
+    mentor_paid: number
+    mentor_tbp: number
+    english_sum: number
+    english_paid: number
+    english_tbp: number
+    up_sum: number
+    up_paid: number
+    up_tbp: number
+    proforientation_sum: number
+    ielts_exam_fee: number
+    total_company: number
+  }[]
   by_status: { status: string; count: number }[]
 }
 

@@ -14,6 +14,7 @@ from app.models.payment import Payment, PaymentType, PaymentStatus
 from app.models.contract import Contract
 from app.models.student import Student
 from app.models.user import UserRole, User
+from app.models.mentor_assignment import MentorAssignment
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -116,6 +117,93 @@ async def finance_summary(
     }
 
 
+@router.get("/finance-breakdown")
+async def finance_breakdown(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+
+    paid_subquery = (
+        select(
+            Payment.contract_id.label("contract_id"),
+            func.sum(Payment.amount).label("paid_amount"),
+        )
+        .where(
+            Payment.type == PaymentType.client_payment,
+            Payment.status == PaymentStatus.paid,
+        )
+        .group_by(Payment.contract_id)
+        .subquery()
+    )
+
+    manager_name_sq = (
+        select(User.name)
+        .where(User.id == Contract.mzk_manager_id)
+        .correlate(Contract)
+        .scalar_subquery()
+    )
+    mentor_name_sq = (
+        select(User.name)
+        .select_from(MentorAssignment)
+        .join(User, User.id == MentorAssignment.mentor_id)
+        .where(
+            MentorAssignment.student_id == Contract.student_id,
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        .order_by(MentorAssignment.assigned_at.desc())
+        .limit(1)
+        .correlate(Contract)
+        .scalar_subquery()
+    )
+
+    result = await db.execute(
+        select(
+            Contract.id,
+            Student.id.label("student_id"),
+            Student.full_name,
+            Student.intake_year,
+            Student.degree_level,
+            Contract.pipeline_status,
+            Contract.currency,
+            Contract.amount,
+            Contract.client_remaining_amount,
+            manager_name_sq.label("manager_name"),
+            mentor_name_sq.label("mentor_name"),
+            func.coalesce(paid_subquery.c.paid_amount, 0).label("paid_amount"),
+        )
+        .join(Student, Student.id == Contract.student_id)
+        .outerjoin(paid_subquery, paid_subquery.c.contract_id == Contract.id)
+        .order_by(func.coalesce(Contract.client_remaining_amount, 0).desc(), Student.full_name.asc())
+    )
+    rows = result.all()
+
+    return {
+        "contracts": [
+            {
+                "contract_id": str(r.id),
+                "student_id": str(r.student_id),
+                "student_name": r.full_name,
+                "intake_year": r.intake_year,
+                "degree_level": r.degree_level.value,
+                "pipeline_status": r.pipeline_status.value if r.pipeline_status else None,
+                "currency": r.currency,
+                "amount": str(r.amount) if r.amount is not None else None,
+                "paid_amount": str(r.paid_amount or 0),
+                "remaining_amount": str(r.client_remaining_amount or 0),
+                "calculated_remaining_amount": str(
+                    Decimal(str(r.amount or 0)) - Decimal(str(r.paid_amount or 0))
+                ),
+                "manager_name": r.manager_name,
+                "mentor_name": r.mentor_name,
+                "responsible_name": r.manager_name or r.mentor_name,
+                "responsible_role": "manager" if r.manager_name else ("mentor" if r.mentor_name else None),
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/mentor-payouts")
 async def mentor_payouts(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -156,6 +244,33 @@ async def client_balances(
 ):
     _require_admin_mzk(current_user)
 
+    manager_name_sq = (
+        select(User.name)
+        .select_from(Contract)
+        .join(User, User.id == Contract.mzk_manager_id)
+        .where(
+            Contract.student_id == Student.id,
+            Contract.mzk_manager_id.isnot(None),
+        )
+        .order_by(Contract.created_at.desc())
+        .limit(1)
+        .correlate(Student)
+        .scalar_subquery()
+    )
+    mentor_name_sq = (
+        select(User.name)
+        .select_from(MentorAssignment)
+        .join(User, User.id == MentorAssignment.mentor_id)
+        .where(
+            MentorAssignment.student_id == Student.id,
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        .order_by(MentorAssignment.assigned_at.desc())
+        .limit(1)
+        .correlate(Student)
+        .scalar_subquery()
+    )
+
     result = await db.execute(
         select(
             Student.id.label("student_id"),
@@ -165,6 +280,8 @@ async def client_balances(
             Contract.pipeline_status,
             Contract.currency,
             func.sum(Contract.client_remaining_amount).label("remaining"),
+            manager_name_sq.label("manager_name"),
+            mentor_name_sq.label("mentor_name"),
         )
         .join(Contract, Contract.student_id == Student.id)
         .where(
@@ -193,6 +310,8 @@ async def client_balances(
             "pipeline_status": r.pipeline_status.value if r.pipeline_status else None,
             "remaining": str(r.remaining or 0),
             "currency": r.currency,
+            "responsible_name": r.manager_name or r.mentor_name,
+            "responsible_role": "manager" if r.manager_name else ("mentor" if r.mentor_name else None),
         }
         for r in rows
     ]

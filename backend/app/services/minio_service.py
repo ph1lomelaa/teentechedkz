@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import uuid
 from io import BytesIO
 from urllib.parse import urlparse, urlunparse
@@ -8,6 +9,7 @@ from minio.error import S3Error
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 _client: Minio | None = None
 
 
@@ -29,7 +31,8 @@ def _ensure_bucket(client: Minio) -> None:
         if not client.bucket_exists(settings.MINIO_BUCKET_NAME):
             client.make_bucket(settings.MINIO_BUCKET_NAME)
     except S3Error:
-        pass
+        logger.exception("Failed to ensure MinIO bucket exists: %s", settings.MINIO_BUCKET_NAME)
+        raise
 
 
 async def minio_upload(

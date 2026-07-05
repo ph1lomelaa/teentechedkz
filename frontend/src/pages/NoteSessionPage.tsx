@@ -18,6 +18,14 @@ import {
 import { notesApi } from '@/api/notes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useDeepgramTranscription, type CaptureSource } from '@/hooks/useDeepgramTranscription'
 import { useAudioBackupRecorder } from '@/hooks/useAudioBackupRecorder'
 import { formatDate } from '@/lib/utils'
@@ -30,6 +38,7 @@ import {
   removeTranscriptFromOutbox,
   type PendingTranscript,
 } from '@/utils/transcriptOutbox'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 function entryValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -90,6 +99,7 @@ export const NoteSessionPage: React.FC = () => {
   const [sourceStoppedAlert, setSourceStoppedAlert] = useState(false)
   const [reconcileResult, setReconcileResult] = useState<NoteSessionReconcileResult | null>(null)
   const [reconciling, setReconciling] = useState(false)
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
 
   const audioBackup = useAudioBackupRecorder(sessionId)
   const originalTitleRef = useRef(document.title)
@@ -338,8 +348,8 @@ export const NoteSessionPage: React.FC = () => {
       setReconcileResult(result)
     } catch (err) {
       toast({
-        title: 'Ошибка',
-        description: (err as Error).message || 'Не удалось собрать транскрипт из резервной записи',
+        title: 'Не удалось собрать резервный транскрипт',
+        description: getErrorMessage(err),
         variant: 'destructive',
       })
     } finally {
@@ -354,7 +364,7 @@ export const NoteSessionPage: React.FC = () => {
       const draftData = await notesApi.draftSession(sessionId)
       setDraft(draftData)
     } catch (err) {
-      toast({ title: 'Ошибка', description: (err as Error).message || 'Не удалось собрать черновик', variant: 'destructive' })
+      toast({ title: 'Не удалось собрать черновик', description: getErrorMessage(err), variant: 'destructive' })
     } finally {
       setDraftLoading(false)
     }
@@ -394,8 +404,6 @@ export const NoteSessionPage: React.FC = () => {
 
   const handleFinalize = useCallback(async () => {
     if (!session) return
-    if (transcripts.length === 0 && !window.confirm('Завершить сессию без транскрипта?')) return
-    if (transcripts.length > 0 && !window.confirm('Завершить сессию и собрать конспект?')) return
 
     await handleStop()
     if (readTranscriptOutbox(sessionId).length > 0) {
@@ -409,7 +417,7 @@ export const NoteSessionPage: React.FC = () => {
       await refetch()
       navigate(`/notes/${result.note.id}`)
     } catch (err) {
-      setError((err as Error).message || 'Не удалось завершить сессию')
+      setError(getErrorMessage(err, 'Не удалось завершить сессию'))
       setFinishing(false)
     }
   }, [handleStop, navigate, refetch, session, sessionId, transcripts.length])
@@ -423,6 +431,22 @@ export const NoteSessionPage: React.FC = () => {
       : 'Ожидает запуска'
 
   const latestTranscript = transcripts.length ? transcripts[transcripts.length - 1].text : interimText
+  const focusRecording = isDeepgramCapturing && !draft
+  const captureStatusText = isDeepgramCapturing
+    ? captureSource === 'system'
+      ? 'Экран и системный звук захватываются'
+      : 'Микрофон захватывается'
+    : 'Захват не запущен'
+  const recognitionStatusText = isDeepgramConnected
+    ? 'Распознавание подключено'
+    : isDeepgramCapturing
+      ? 'Подключаем распознавание'
+      : 'Распознавание не запущено'
+  const saveStatusText = pendingCount > 0
+    ? `${pendingCount} фрагм. ожидают отправки`
+    : syncStatus
+      ? syncStatus
+      : 'Все фрагменты сохранены'
 
   if (isLoading || !session) {
     return <div className="py-12 text-center text-slate-500">Загрузка...</div>
@@ -440,6 +464,16 @@ export const NoteSessionPage: React.FC = () => {
           </div>
           <Button size="sm" className="bg-red-700 text-white hover:bg-red-800 shrink-0" onClick={() => void handleStart('system')}>
             Возобновить показ экрана
+          </Button>
+        </div>
+      )}
+      {pendingCount > 0 && (
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 rounded-[2px] border border-amber-300 bg-amber-50 px-4 py-3 shadow-md">
+          <p className="text-sm font-medium text-amber-900">
+            Текст сохраняется локально: {pendingCount} фрагм. в очереди. Не закрывайте вкладку до отправки.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => void flushOutbox()}>
+            Отправить сейчас
           </Button>
         </div>
       )}
@@ -466,14 +500,39 @@ export const NoteSessionPage: React.FC = () => {
             {draftLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
             AI-черновик
           </Button>
-          <Button onClick={handleFinalize} disabled={finishing}>
+          <Button onClick={() => setFinalizeDialogOpen(true)} disabled={finishing}>
             {finishing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
             Завершить
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.15fr_0.9fr]">
+      <div className="sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+          <span className={`h-2.5 w-2.5 rounded-full ${isDeepgramCapturing ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+          <span className="truncate">{captureStatusText} · {recognitionStatusText}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => void handleStart('mic')} disabled={isDeepgramCapturing} title="Начать запись с микрофона">
+            <Mic className="w-4 h-4 mr-1.5" />
+            Микрофон
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void handleStart('system')} disabled={isDeepgramCapturing} title="Начать запись системного звука">
+            <MonitorUp className="w-4 h-4 mr-1.5" />
+            Экран
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void handleStop()} disabled={!isDeepgramCapturing} title="Остановить запись, не завершая сессию">
+            <Square className="w-4 h-4 mr-1.5" />
+            Стоп
+          </Button>
+          <Button size="sm" onClick={() => setFinalizeDialogOpen(true)} disabled={finishing} title="Остановить запись и собрать конспект">
+            <Check className="w-4 h-4 mr-1.5" />
+            Завершить
+          </Button>
+        </div>
+      </div>
+
+      <div className={`grid gap-4 ${focusRecording ? 'xl:grid-cols-[0.9fr_1.1fr]' : 'xl:grid-cols-[0.95fr_1.15fr_0.9fr]'}`}>
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-4">
             <CardTitle className="text-base text-slate-900">Запись</CardTitle>
@@ -481,15 +540,20 @@ export const NoteSessionPage: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Статус</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{statusLabel}</p>
-                </div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                  <span className={`w-2 h-2 rounded-full ${isDeepgramConnected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                  {isDeepgramConnected ? 'online' : 'offline'}
-                </span>
+              <div className="space-y-2">
+                {[
+                  { label: 'Звук', value: captureStatusText, ok: isDeepgramCapturing },
+                  { label: 'Распознавание', value: recognitionStatusText, ok: isDeepgramConnected },
+                  { label: 'Сохранение', value: saveStatusText, ok: pendingCount === 0 && !syncStatus },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{item.label}</p>
+                      <p className="mt-0.5 text-sm font-semibold text-slate-900">{item.value}</p>
+                    </div>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.ok ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                  </div>
+                ))}
               </div>
 
               <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
@@ -554,8 +618,11 @@ export const NoteSessionPage: React.FC = () => {
                 disabled={reconciling || audioBackup.uploadedCount === 0}
               >
                 {reconciling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                Собрать транскрипт из резервной записи
+                Восстановить транскрипт из резервной записи
               </Button>
+              <p className="text-xs text-slate-400">
+                Используйте, если live-распознавание пропало, но резервные аудио-фрагменты успели загрузиться.
+              </p>
               {reconcileResult && (
                 <div className="mt-2 rounded-[2px] border border-slate-200 bg-slate-50 p-3 max-h-40 overflow-y-auto">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Резервный транскрипт</p>
@@ -615,10 +682,16 @@ export const NoteSessionPage: React.FC = () => {
               )}
             </div>
             {syncStatus ? <p className="mt-2 text-xs text-amber-700">{syncStatus}</p> : null}
+            {pendingCount > 0 && (
+              <div className="mt-2 rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Текст временно хранится на этом устройстве. Не закрывайте вкладку, пока очередь отправки не станет 0.
+              </div>
+            )}
             {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
           </CardContent>
         </Card>
 
+        {!focusRecording && (
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between gap-3">
@@ -666,6 +739,7 @@ export const NoteSessionPage: React.FC = () => {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <Card className="border-slate-200 bg-white">
@@ -709,6 +783,36 @@ export const NoteSessionPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{transcripts.length ? 'Завершить сессию и собрать конспект?' : 'Завершить сессию без транскрипта?'}</DialogTitle>
+            <DialogDescription>
+              {transcripts.length
+                ? 'Запись остановится, все сохранённые фрагменты будут отправлены в CRM, после этого AI соберёт конспект.'
+                : 'В сессии пока нет фрагментов транскрипта. Конспект будет пустым или неинформативным.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-[2px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Фрагментов: {transcripts.length} · ожидают отправки: {pendingCount}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFinalizeDialogOpen(false)}>
+              Продолжить запись
+            </Button>
+            <Button
+              onClick={() => {
+                setFinalizeDialogOpen(false)
+                void handleFinalize()
+              }}
+              disabled={finishing}
+            >
+              Завершить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

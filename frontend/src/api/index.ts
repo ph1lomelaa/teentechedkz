@@ -9,6 +9,7 @@ import {
   PortfolioProgress,
   Country,
   FinanceSummary,
+  FinanceBreakdown,
   MentorPayout,
   ClientBalance,
   HistoryEntry,
@@ -110,6 +111,12 @@ export const paymentsApi = {
   financeSummary: async (): Promise<FinanceSummary> => {
     const response = await apiClient.get<FinanceSummary>(
       '/payments/finance-summary'
+    )
+    return response.data
+  },
+  financeBreakdown: async (): Promise<FinanceBreakdown> => {
+    const response = await apiClient.get<FinanceBreakdown>(
+      '/payments/finance-breakdown'
     )
     return response.data
   },

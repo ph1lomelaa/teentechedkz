@@ -19,6 +19,7 @@ function pickMimeType(): string {
 }
 
 interface PendingChunk {
+  sessionId: string
   chunkIndex: number
   blob: Blob
 }
@@ -36,6 +37,7 @@ export function useAudioBackupRecorder(sessionId: string) {
   const flushingRef = useRef(false)
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
+  const recordingSessionIdRef = useRef(sessionId)
 
   const flush = useCallback(async () => {
     if (flushingRef.current) return
@@ -44,9 +46,11 @@ export function useAudioBackupRecorder(sessionId: string) {
       while (pendingRef.current.length) {
         const item = pendingRef.current[0]
         try {
-          await notesApi.uploadAudioChunk(sessionIdRef.current, item.blob, item.chunkIndex)
+          await notesApi.uploadAudioChunk(item.sessionId, item.blob, item.chunkIndex)
           pendingRef.current.shift()
-          setUploadedCount((n) => n + 1)
+          if (item.sessionId === recordingSessionIdRef.current) {
+            setUploadedCount((n) => n + 1)
+          }
         } catch {
           // Network/server hiccup — leave it queued in memory and retry on
           // the next timer tick or 'online' event. A full page reload loses
@@ -63,7 +67,7 @@ export function useAudioBackupRecorder(sessionId: string) {
   const enqueue = useCallback((blob: Blob) => {
     if (blob.size === 0) return
     const chunkIndex = chunkIndexRef.current++
-    pendingRef.current.push({ chunkIndex, blob })
+    pendingRef.current.push({ sessionId: recordingSessionIdRef.current, chunkIndex, blob })
     setSegmentCount((n) => n + 1)
     void flush()
   }, [flush])
@@ -99,6 +103,10 @@ export function useAudioBackupRecorder(sessionId: string) {
 
   const start = useCallback((stream: MediaStream) => {
     if (activeRef.current) stop()
+    recordingSessionIdRef.current = sessionIdRef.current
+    chunkIndexRef.current = 0
+    setSegmentCount(0)
+    setUploadedCount(0)
     streamRef.current = stream
     activeRef.current = true
     startSegment()

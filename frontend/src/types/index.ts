@@ -60,6 +60,7 @@ export interface StudentListItem {
   pipeline_status?: PipelineStatus
   days_in_work?: number
   is_mine?: boolean
+  mzk_manager_name?: string | null
   responsible_count?: number
   responsibles?: ResponsibleUser[]
 }
@@ -457,6 +458,28 @@ export interface FinanceSummary {
   currency?: string
 }
 
+export interface FinanceBreakdownContract {
+  contract_id: string
+  student_id: string
+  student_name: string
+  intake_year: number
+  degree_level: DegreeLevel
+  pipeline_status?: PipelineStatus
+  currency: string
+  amount?: string | null
+  paid_amount: string
+  remaining_amount: string
+  calculated_remaining_amount: string
+  manager_name?: string | null
+  mentor_name?: string | null
+  responsible_name?: string | null
+  responsible_role?: 'manager' | 'mentor' | null
+}
+
+export interface FinanceBreakdown {
+  contracts: FinanceBreakdownContract[]
+}
+
 export interface MentorPayout {
   mentor_id: string
   mentor_name: string
@@ -473,6 +496,8 @@ export interface ClientBalance {
   pipeline_status?: PipelineStatus
   remaining: string
   currency: string
+  responsible_name?: string | null
+  responsible_role?: 'manager' | 'mentor' | null
 }
 
 export interface PaginatedResponse<T> {

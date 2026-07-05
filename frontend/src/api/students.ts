@@ -57,6 +57,21 @@ export const studentsApi = {
     return response.data
   },
 
+  merge: async (
+    sourceStudentId: string,
+    targetStudentId: string,
+  ): Promise<{
+    ok: boolean
+    source_student_id: string
+    target_student_id: string
+    moved: Record<string, number>
+  }> => {
+    const response = await apiClient.post(`/students/${sourceStudentId}/merge`, {
+      target_student_id: targetStudentId,
+    })
+    return response.data
+  },
+
   archive: async (id: string): Promise<void> => {
     await apiClient.delete(`/students/${id}`)
   },

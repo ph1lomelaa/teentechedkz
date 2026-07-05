@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Download, Search, RefreshCw, Inbox, EyeOff, Eye, CheckCheck } from 'lucide-react'
+import { Plus, Download, Search, RefreshCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import { mentorAssignmentsApi } from '@/api/index'
 import { syncApi, IntakeSubmission } from '@/api/sync'
@@ -16,6 +16,7 @@ import {
 } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -43,10 +44,19 @@ import { downloadBlob } from '@/lib/utils'
 import { debounce } from '@/lib/utils'
 import { fuzzyStudentMatch } from '@/lib/fuzzyName'
 import { toast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 const SOURCE_LABELS: Record<string, string> = {
   package: 'Пакет (менеджер)',
   cases: 'Кейс (студент)',
+}
+
+type ResponsibleFilter = 'mzk' | 'lead_mentor' | 'mentor'
+
+const RESPONSIBLE_FILTER_LABELS: Record<ResponsibleFilter, string> = {
+  mzk: 'MZK',
+  lead_mentor: 'Lead mentor',
+  mentor: 'Mentors',
 }
 
 /** Диалог привязки входящей анкеты к студенту */
@@ -84,7 +94,7 @@ function LinkDialog({
       toast({ title: 'Анкета привязана' })
       onClose()
     },
-    onError: () => toast({ title: 'Ошибка привязки', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Ошибка привязки', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   return (
@@ -151,6 +161,7 @@ function IntakeInbox() {
   const [linkTarget, setLinkTarget] = useState<IntakeSubmission | null>(null)
   const [ignoreTarget, setIgnoreTarget] = useState<IntakeSubmission | null>(null)
   const [intakeView, setIntakeView] = useState<'new' | 'hidden' | 'all'>('new')
+  const [confirmLinkAll, setConfirmLinkAll] = useState(false)
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
 
   const { data, isLoading } = useQuery({
@@ -166,12 +177,13 @@ function IntakeInbox() {
     mutationFn: () => syncApi.linkAll({ status: 'new' }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['intake'] })
+      setConfirmLinkAll(false)
       toast({
         title: 'Совпадения привязаны',
         description: `Привязано: ${res.linked}${res.skipped ? ` · пропущено: ${res.skipped}` : ''}`,
       })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось привязать все совпадения', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось привязать все совпадения', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const ignoreMutation = useMutation({
@@ -181,7 +193,7 @@ function IntakeInbox() {
       setIgnoreTarget(null)
       toast({ title: 'Анкета скрыта' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось скрыть анкету', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось скрыть анкету', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const createMutation = useMutation({
@@ -192,8 +204,7 @@ function IntakeInbox() {
       toast({ title: 'Студент создан из анкеты' })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Студент не создан', description: detail ?? 'Ошибка создания', variant: 'destructive' })
+      toast({ title: 'Студент не создан', description: getErrorMessage(err, 'Ошибка создания'), variant: 'destructive' })
       qc.invalidateQueries({ queryKey: ['intake'] })
     },
   })
@@ -209,7 +220,7 @@ function IntakeInbox() {
         description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
       })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось создать студентов', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось создать студентов', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const items = data?.items ?? []
@@ -244,7 +255,7 @@ function IntakeInbox() {
             variant="outline"
             size="sm"
             className="h-8"
-            onClick={() => bulkLinkMutation.mutate()}
+            onClick={() => setConfirmLinkAll(true)}
             disabled={bulkLinkMutation.isPending || linkableCount === 0}
           >
             <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
@@ -358,6 +369,25 @@ function IntakeInbox() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={confirmLinkAll} onOpenChange={(open) => !open && setConfirmLinkAll(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Привязать найденные совпадения?</DialogTitle>
+            <DialogDescription>
+              Будет привязано до {linkableCount} новых анкет к предложенным студентам. Анкеты без кандидата не будут затронуты.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Если кандидат выбран неверно, откройте анкету и привяжите её вручную.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmLinkAll(false)}>Отмена</Button>
+            <Button onClick={() => bulkLinkMutation.mutate()} disabled={bulkLinkMutation.isPending}>
+              {bulkLinkMutation.isPending ? 'Привязываем…' : `Привязать · ${linkableCount}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmCreateAll} onOpenChange={(open) => !open && setConfirmCreateAll(false)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -368,6 +398,9 @@ function IntakeInbox() {
               не переносятся — их менеджер вносит вручную.
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            С кандидатом на привязку: {linkableCount}. Эти анкеты не будут созданы как новые студенты, чтобы не плодить дубли.
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmCreateAll(false)}>Отмена</Button>
             <Button
@@ -419,7 +452,7 @@ function NotionLinkDialog({
       toast({ title: 'Запись Notion привязана' })
       onClose()
     },
-    onError: () => toast({ title: 'Ошибка привязки', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Ошибка привязки', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   return (
@@ -485,6 +518,7 @@ function NotionInbox() {
   const qc = useQueryClient()
   const [linkTarget, setLinkTarget] = useState<NotionSnapshotItem | null>(null)
   const [view, setView] = useState<'new' | 'ignored' | 'all'>('new')
+  const [confirmLinkAll, setConfirmLinkAll] = useState(false)
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
 
   const { data, isLoading } = useQuery({
@@ -500,8 +534,7 @@ function NotionInbox() {
       toast({ title: 'Студент создан из Notion' })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Студент не создан', description: detail ?? 'Ошибка', variant: 'destructive' })
+      toast({ title: 'Студент не создан', description: getErrorMessage(err, 'Ошибка создания'), variant: 'destructive' })
       qc.invalidateQueries({ queryKey: ['notion'] })
     },
   })
@@ -517,16 +550,17 @@ function NotionInbox() {
         description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
       })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось создать студентов', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось создать студентов', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const bulkLinkMutation = useMutation({
     mutationFn: () => notionApi.linkAll(),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['notion'] })
+      setConfirmLinkAll(false)
       toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}` })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось привязать совпадения', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось привязать совпадения', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const ignoreMutation = useMutation({
@@ -535,7 +569,7 @@ function NotionInbox() {
       qc.invalidateQueries({ queryKey: ['notion'] })
       toast({ title: 'Запись скрыта' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось скрыть запись', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось скрыть запись', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const items = data?.items ?? []
@@ -570,7 +604,7 @@ function NotionInbox() {
             variant="outline"
             size="sm"
             className="h-8"
-            onClick={() => bulkLinkMutation.mutate()}
+            onClick={() => setConfirmLinkAll(true)}
             disabled={bulkLinkMutation.isPending || linkableCount === 0}
           >
             <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
@@ -662,6 +696,25 @@ function NotionInbox() {
           </TableBody>
         </Table>
       )}
+      <Dialog open={confirmLinkAll} onOpenChange={(open) => !open && setConfirmLinkAll(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Привязать совпадения из Notion?</DialogTitle>
+            <DialogDescription>
+              Будет привязано до {linkableCount} записей Notion к предложенным студентам. Записи без кандидата не будут затронуты.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Если кандидат выбран неверно, откройте запись и привяжите её вручную.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmLinkAll(false)}>Отмена</Button>
+            <Button onClick={() => bulkLinkMutation.mutate()} disabled={bulkLinkMutation.isPending}>
+              {bulkLinkMutation.isPending ? 'Привязываем…' : `Привязать · ${linkableCount}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmCreateAll} onOpenChange={(open) => !open && setConfirmCreateAll(false)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -671,6 +724,9 @@ function NotionInbox() {
               только записи без кандидата на привязку. Записи с кандидатом останутся на ручное решение.
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            С кандидатом на привязку: {linkableCount}. Эти записи останутся в списке для ручной проверки.
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmCreateAll(false)}>Отмена</Button>
             <Button
@@ -696,6 +752,8 @@ export const StudentsListPage: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
+  const [responsibleRoles, setResponsibleRoles] = useState<ResponsibleFilter[]>([])
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const showInbox = searchParams.get('inbox') === '1'
   const showNotion = searchParams.get('notion') === '1'
@@ -742,9 +800,9 @@ export const StudentsListPage: React.FC = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['students'] })
       qc.invalidateQueries({ queryKey: ['my-students'] })
-      toast({ title: 'Студент добавлен в ваши' })
+      toast({ title: 'Вы стали ответственным', description: 'Студент появится в фильтре «Мои».' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось стать ответственным', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const unassignSelfMutation = useMutation({
@@ -752,9 +810,9 @@ export const StudentsListPage: React.FC = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['students'] })
       qc.invalidateQueries({ queryKey: ['my-students'] })
-      toast({ title: 'Студент снят с ваших' })
+      toast({ title: 'Вы больше не ответственный', description: 'Студент скрыт из фильтра «Мои».' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось снять студента', variant: 'destructive' }),
+    onError: (err) => toast({ title: 'Не удалось снять ответственность', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const { data: syncStatus } = useQuery({
@@ -788,8 +846,7 @@ export const StudentsListPage: React.FC = () => {
       })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Синк Notion не выполнен', description: detail ?? 'Ошибка', variant: 'destructive' })
+      toast({ title: 'Синк Notion не выполнен', description: getErrorMessage(err), variant: 'destructive' })
     },
   })
 
@@ -803,21 +860,46 @@ export const StudentsListPage: React.FC = () => {
       toast({ title: 'Синхронизация завершена', description: parts.join(' · ') })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Синк не выполнен', description: detail ?? 'Ошибка', variant: 'destructive' })
+      toast({ title: 'Синк не выполнен', description: getErrorMessage(err), variant: 'destructive' })
     },
   })
 
   const allStudents = data?.items ?? []
   const students = useMemo(
-    () =>
-      debouncedSearch.trim()
+    () => {
+      const matchesSearch = debouncedSearch.trim()
         ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
-        : allStudents,
-    [allStudents, debouncedSearch]
+        : allStudents
+
+      return matchesSearch.filter((student) => {
+        if (scope === 'mine' && !student.is_mine) return false
+        if (scope === 'unassigned' && (student.responsibles?.some((r) => r.is_active) ?? false)) return false
+        if (responsibleRoles.length > 0) {
+          const activeResponsibles = (student.responsibles ?? []).filter((r) => r.is_active)
+          const matchesRole = responsibleRoles.some((role) => {
+            if (role === 'mzk') return Boolean(student.mzk_manager_name)
+            if (role === 'lead_mentor') return activeResponsibles.some((r) => r.role === 'lead')
+            return activeResponsibles.some((r) => r.role && r.role !== 'lead')
+          })
+          if (!matchesRole) return false
+        }
+        return true
+      })
+    },
+    [allStudents, debouncedSearch, scope, responsibleRoles]
   )
   const total = students.length
   const newCount = syncStatus?.new_submissions ?? 0
+  const activeFiltersCount =
+    (scope !== 'all' ? 1 : 0) +
+    (statusFilter ? 1 : 0) +
+    responsibleRoles.length
+
+  const roleOptions: ResponsibleFilter[] = ['mzk', 'lead_mentor', 'mentor']
+
+  const toggleResponsibleRole = (role: ResponsibleFilter) => {
+    setResponsibleRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]))
+  }
 
   const handleExport = async () => {
     try {
@@ -903,25 +985,6 @@ export const StudentsListPage: React.FC = () => {
 
       {/* Filters */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
-          {[
-            { value: 'all', label: 'Все' },
-            { value: 'mine', label: 'Мои' },
-            { value: 'unassigned', label: 'Без ответственного' },
-          ].map((item) => (
-            <button
-              key={item.value}
-              onClick={() => setScope(item.value as typeof scope)}
-              className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
-                scope === item.value
-                  ? 'bg-white text-black shadow-sm'
-                  : 'text-gray-600 hover:text-black hover:bg-gray-50'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
           <Input
@@ -931,20 +994,119 @@ export const StudentsListPage: React.FC = () => {
             className="pl-8 h-9 text-sm"
           />
         </div>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
-        >
-          <SelectTrigger className="w-48 h-9 text-sm">
-            <SelectValue placeholder="Все статусы" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все статусы</SelectItem>
-            {Object.entries(PIPELINE_STATUS_LABELS).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="relative">
+          <Button
+            type="button"
+            variant={activeFiltersCount > 0 ? 'default' : 'outline'}
+            size="sm"
+            className="h-9 gap-1.5"
+            onClick={() => setFiltersOpen((next) => !next)}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Фильтры
+            {activeFiltersCount > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-white/15 text-[11px] font-semibold">
+                {activeFiltersCount}
+              </span>
+            )}
+          </Button>
+          {filtersOpen && (
+            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 rounded-[2px] border border-gray-200 bg-white shadow-lg">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Фильтры</p>
+                <button
+                  type="button"
+                  className="text-gray-400 hover:text-gray-700"
+                  onClick={() => setFiltersOpen(false)}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-3 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Видимость</p>
+                  <div className="grid grid-cols-3 gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+                    {[
+                      { value: 'all', label: 'Все' },
+                      { value: 'mine', label: 'Мои' },
+                      { value: 'unassigned', label: 'Без отв.' },
+                    ].map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => setScope(item.value as typeof scope)}
+                        className={`px-2 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                          scope === item.value
+                            ? 'bg-white text-black shadow-sm'
+                            : 'text-gray-600 hover:text-black hover:bg-gray-50'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Роли ответственных</p>
+                  <div className="space-y-2">
+                    {roleOptions.map((role) => (
+                      <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
+                        <Checkbox
+                          checked={responsibleRoles.includes(role)}
+                          onCheckedChange={() => toggleResponsibleRole(role)}
+                        />
+                        <span>{RESPONSIBLE_FILTER_LABELS[role]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Статус</p>
+                  <Select
+                    value={statusFilter || 'all'}
+                    onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Все статусы" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все статусы</SelectItem>
+                      {Object.entries(PIPELINE_STATUS_LABELS).map(([val, label]) => (
+                        <SelectItem key={val} value={val}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs text-gray-500"
+                    onClick={() => {
+                      setScope('all')
+                      setResponsibleRoles([])
+                      setStatusFilter('')
+                    }}
+                  >
+                    Сбросить
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => setFiltersOpen(false)}
+                  >
+                    Готово
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Table */}

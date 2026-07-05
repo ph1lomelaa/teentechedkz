@@ -151,6 +151,17 @@ _FINANCE_TOTAL_FIELDS = [
 ]
 
 
+def _as_float(v) -> float:
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v).replace(" ", "").replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @router.get("/finance-summary")
 async def finance_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -166,15 +177,36 @@ async def finance_summary(
 
     totals: dict[str, float] = {f: 0.0 for f in _FINANCE_TOTAL_FIELDS}
     by_status: dict[str, int] = {}
+    rows: list[dict] = []
     synced_at = None
     for s in snapshots:
         d = s.normalized_data or {}
         for f in _FINANCE_TOTAL_FIELDS:
-            v = d.get(f)
-            if isinstance(v, (int, float)):
-                totals[f] += v
+            totals[f] += _as_float(d.get(f))
         status = d.get("payment_status_raw") or "Без статуса"
         by_status[status] = by_status.get(status, 0) + 1
+        rows.append(
+            {
+                "id": str(s.id),
+                "full_name": s.full_name,
+                "payment_status": status,
+                "intake": d.get("intake_raw"),
+                "client_fee": _as_float(d.get("client_fee")),
+                "client_remaining": _as_float(d.get("client_remaining")),
+                "mentor_total": _as_float(d.get("mentor_total")),
+                "mentor_paid": _as_float(d.get("mentor_paid")),
+                "mentor_tbp": _as_float(d.get("mentor_tbp")),
+                "english_sum": _as_float(d.get("english_sum")),
+                "english_paid": _as_float(d.get("english_paid")),
+                "english_tbp": _as_float(d.get("english_tbp")),
+                "up_sum": _as_float(d.get("up_sum")),
+                "up_paid": _as_float(d.get("up_paid")),
+                "up_tbp": _as_float(d.get("up_tbp")),
+                "proforientation_sum": _as_float(d.get("proforientation_sum")),
+                "ielts_exam_fee": _as_float(d.get("ielts_exam_fee")),
+                "total_company": _as_float(d.get("total_company")),
+            }
+        )
         if s.synced_at and (synced_at is None or s.synced_at > synced_at):
             synced_at = s.synced_at
 
@@ -182,6 +214,7 @@ async def finance_summary(
         "records": len(snapshots),
         "synced_at": synced_at.isoformat() if synced_at else None,
         "totals": totals,
+        "rows": rows,
         "by_status": sorted(
             ({"status": k, "count": v} for k, v in by_status.items()),
             key=lambda x: -x["count"],
@@ -200,7 +233,11 @@ async def list_snapshots(
     _require_manager(current_user)
     query = select(NotionSnapshot).options(joinedload(NotionSnapshot.suggested_student))
     if status != "all":
-        query = query.where(NotionSnapshot.status == NotionMatchStatus(status))
+        try:
+            parsed_status = NotionMatchStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Неверный статус")
+        query = query.where(NotionSnapshot.status == parsed_status)
     result = await db.execute(query.order_by(NotionSnapshot.full_name))
     items = result.scalars().unique().all()
     return {"items": [_snapshot_to_dict(s) for s in items], "total": len(items)}
