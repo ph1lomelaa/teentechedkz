@@ -18,7 +18,7 @@ from sqlalchemy import text
 import app.models  # noqa: F401 - register metadata
 from app.core.database import Base, engine
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 ALEMBIC_DIR = PROJECT_ROOT / "alembic"
 
