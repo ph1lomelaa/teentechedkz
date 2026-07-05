@@ -52,6 +52,7 @@ export const MyStudentsPage: React.FC = () => {
       studentsApi.list({
         search: debouncedSearch || undefined,
         pipeline_status: (statusFilter as PipelineStatus) || undefined,
+        scope: 'mine',
         page,
         size: 20,
       }),
@@ -120,7 +121,7 @@ export const MyStudentsPage: React.FC = () => {
             ) : students.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                  Студенты не найдены
+                  У вас пока нет студентов. Откройте общий список и нажмите «Взять» у нужного студента.
                 </TableCell>
               </TableRow>
             ) : (
@@ -167,7 +168,7 @@ export const MyStudentsPage: React.FC = () => {
 
       {!isLoading && students.length === 0 && (
         <div className="mt-4 rounded-[2px] border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-          У вас нет активных назначений. Проверьте, что администратор создал MentorAssignment и включил его.
+          У вас нет активных ответственных назначений. Перейдите во «Все студенты» и отметьте нужных студентов как своих.
         </div>
       )}
 

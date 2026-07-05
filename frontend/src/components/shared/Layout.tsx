@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   MessageCircle,
   ClipboardList,
+  LogOut,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
@@ -56,6 +57,7 @@ const leadMentorNavItems: NavItem[] = [
 
 const mentorNavItems: NavItem[] = [
   { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
+  { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
   { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
   { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
   { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
@@ -95,7 +97,7 @@ function getBreadcrumb(pathname: string): string {
 }
 
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const location = useLocation()
 
   const navItems = user ? getNavItems(user.role) : []
@@ -140,7 +142,15 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4" />
+        <div className="border-t border-white/10 px-5 py-4">
+          <button
+            onClick={() => logout()}
+            className="flex w-full items-center gap-2.5 text-left text-[13px] font-medium text-white/60 hover:text-white/85 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Выйти
+          </button>
+        </div>
       </aside>
 
       {/* Main */}

@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { pendingInsightsApi } from '@/api'
+import { mentorAssignmentsApi, pendingInsightsApi } from '@/api'
 import { InsightCard } from '@/components/shared/InsightCard'
+import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
+import { useState } from 'react'
 
 export default function StatusInboxPage() {
   const qc = useQueryClient()
+  const [scope, setScope] = useState<'all' | 'mine'>('all')
 
   const { data: insights = [], isLoading } = useQuery({
-    queryKey: ['pending-insights', 'all'],
-    queryFn: () => pendingInsightsApi.listAll(),
+    queryKey: ['pending-insights', 'all', scope],
+    queryFn: () => pendingInsightsApi.listAll(undefined, scope),
   })
 
   const reviewMutation = useMutation({
@@ -24,6 +27,15 @@ export default function StatusInboxPage() {
   const pending = insights.filter((i) => i.status === 'pending')
   const resolved = insights.filter((i) => i.status !== 'pending')
 
+  const assignSelfMutation = useMutation({
+    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-insights'] })
+      toast({ title: 'Студент добавлен в ваши' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
+
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-gray-900">Статус</h1>
@@ -31,6 +43,24 @@ export default function StatusInboxPage() {
         Наблюдения от AI по переписке со студентами — как то, что попало в структурные поля профиля, так и то, что
         не удалось сопоставить ни с одним полем и требует ручного просмотра.
       </p>
+      <div className="flex gap-1 border-b border-gray-200">
+        {[
+          { value: 'all', label: 'Все' },
+          { value: 'mine', label: 'Мои' },
+        ].map((item) => (
+          <button
+            key={item.value}
+            onClick={() => setScope(item.value as typeof scope)}
+            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+              scope === item.value
+                ? 'border-black text-gray-900 font-medium'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
       {isLoading ? (
         <p className="text-sm text-gray-500">Загрузка…</p>
@@ -43,14 +73,25 @@ export default function StatusInboxPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {pending.map((insight) => (
-                  <InsightCard
-                    key={insight.id}
-                    insight={insight}
-                    showStudentLink
-                    isPending={reviewMutation.isPending}
-                    onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
-                    onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
-                  />
+                  <div key={insight.id} className="space-y-2">
+                    <InsightCard
+                      insight={insight}
+                      showStudentLink
+                      isPending={reviewMutation.isPending}
+                      onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
+                      onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
+                    />
+                    {!insight.is_mine && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={assignSelfMutation.isPending}
+                        onClick={() => assignSelfMutation.mutate(insight.student_id)}
+                      >
+                        Взять студента
+                      </Button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}

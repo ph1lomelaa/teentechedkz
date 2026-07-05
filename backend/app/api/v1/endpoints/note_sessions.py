@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,22 +13,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.note_session import NoteSession, NoteSessionStatus
+from app.models.note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from app.models.note_transcript import NoteTranscript
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.user import UserRole
 from app.schemas.note_session import (
+    NoteSessionAudioChunkResponse,
     NoteSessionCreate,
     NoteSessionDetail,
     NoteSessionDraftResponse,
     NoteSessionFinalizeResponse,
+    NoteSessionReconcileResponse,
     NoteSessionResponse,
     NoteTranscriptCreate,
     NoteTranscriptResponse,
 )
 from app.schemas.student_note import StudentNoteResponse
+from app.services.deepgram_rest import transcribe_audio_file
+from app.services.minio_service import minio_download, minio_upload_note_audio, minio_url
 from app.services.note_sessions import generate_note_draft
 from app.services.student_notes import render_change_preview, snapshot_student
+
+MAX_AUDIO_CHUNK_SIZE = 60 * 1024 * 1024  # 60 MB — generous headroom for a ~5 min opus segment
 
 
 router = APIRouter(prefix="/note-sessions", tags=["note-sessions"])
@@ -291,6 +299,124 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"ok": True}
+
+
+async def _chunk_to_response(chunk: NoteSessionAudioChunk) -> NoteSessionAudioChunkResponse:
+    return NoteSessionAudioChunkResponse(
+        id=chunk.id,
+        session_id=chunk.session_id,
+        chunk_index=chunk.chunk_index,
+        file_size=chunk.file_size,
+        status=chunk.status,
+        transcript_text=chunk.transcript_text,
+        download_url=await minio_url(chunk.storage_path),
+        created_at=chunk.created_at,
+    )
+
+
+@router.post("/{session_id}/audio-chunks", response_model=NoteSessionAudioChunkResponse, status_code=201)
+async def upload_audio_chunk(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    chunk_index: int = Form(...),
+    file: UploadFile = File(...),
+):
+    """Backup-recording segment upload (safety net alongside the live
+    Deepgram websocket stream) — see useAudioBackupRecorder.ts. Accepted
+    regardless of session status: the last rotated segment can legitimately
+    arrive just after the session was ended."""
+    session, _ = await _session_context(db, session_id, current_user)
+
+    content = await file.read()
+    if len(content) > MAX_AUDIO_CHUNK_SIZE:
+        raise HTTPException(status_code=413, detail="Аудиофрагмент слишком большой")
+
+    existing = await db.execute(
+        select(NoteSessionAudioChunk).where(
+            NoteSessionAudioChunk.session_id == session_id,
+            NoteSessionAudioChunk.chunk_index == chunk_index,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Этот фрагмент уже загружен")
+
+    storage_path = await minio_upload_note_audio(
+        content=content,
+        session_id=session.id,
+        filename=file.filename or f"chunk_{chunk_index}.webm",
+        mime_type=file.content_type or "audio/webm",
+    )
+    chunk = NoteSessionAudioChunk(
+        session_id=session.id,
+        chunk_index=chunk_index,
+        storage_path=storage_path,
+        file_size=len(content),
+    )
+    db.add(chunk)
+    await db.commit()
+    await db.refresh(chunk)
+    return await _chunk_to_response(chunk)
+
+
+@router.get("/{session_id}/audio-chunks", response_model=list[NoteSessionAudioChunkResponse])
+async def list_audio_chunks(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    session, _ = await _session_context(db, session_id, current_user)
+    result = await db.execute(
+        select(NoteSessionAudioChunk)
+        .where(NoteSessionAudioChunk.session_id == session.id)
+        .order_by(NoteSessionAudioChunk.chunk_index)
+    )
+    return [await _chunk_to_response(c) for c in result.scalars()]
+
+
+@router.post("/{session_id}/reconcile-audio", response_model=NoteSessionReconcileResponse)
+async def reconcile_audio(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Re-transcribes every backup segment that hasn't been transcribed yet
+    via Deepgram's pre-recorded REST API, and stitches the results into
+    session.backup_transcript_text — a second, independent transcript the
+    manager can compare against the live one rather than a silent auto-merge
+    (gap-detection between the two sources isn't reliable enough to trust)."""
+    session, _ = await _session_context(db, session_id, current_user)
+    result = await db.execute(
+        select(NoteSessionAudioChunk)
+        .where(NoteSessionAudioChunk.session_id == session.id)
+        .order_by(NoteSessionAudioChunk.chunk_index)
+    )
+    chunks = list(result.scalars())
+
+    for chunk in chunks:
+        if chunk.status == NoteAudioChunkStatus.transcribed:
+            continue
+        try:
+            content = await minio_download(chunk.storage_path)
+            chunk.transcript_text = await transcribe_audio_file(content, "audio/webm")
+            chunk.status = NoteAudioChunkStatus.transcribed
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Failed to reconcile audio chunk %s for session %s", chunk.id, session_id
+            )
+            chunk.status = NoteAudioChunkStatus.failed
+
+    session.backup_transcript_text = " ".join(
+        c.transcript_text.strip() for c in chunks if c.transcript_text and c.transcript_text.strip()
+    )
+    await db.commit()
+    for chunk in chunks:
+        await db.refresh(chunk)
+
+    return NoteSessionReconcileResponse(
+        backup_transcript_text=session.backup_transcript_text or "",
+        chunks=[await _chunk_to_response(c) for c in chunks],
+    )
 
 
 @router.post("/{session_id}/transcripts", response_model=NoteTranscriptResponse, status_code=201)

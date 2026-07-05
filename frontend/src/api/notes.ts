@@ -1,8 +1,10 @@
 import apiClient from './client'
 import {
   NoteSession,
+  NoteSessionAudioChunk,
   NoteSessionDetail,
   NoteSessionDraft,
+  NoteSessionReconcileResult,
   NoteSessionStatus,
   NoteTranscript,
   StudentNote,
@@ -84,6 +86,25 @@ export const notesApi = {
     const response = await apiClient.post<{ session: NoteSession; note: StudentNote }>(
       `/note-sessions/${sessionId}/finalize`,
     )
+    return response.data
+  },
+  uploadAudioChunk: async (sessionId: string, blob: Blob, chunkIndex: number): Promise<NoteSessionAudioChunk> => {
+    const form = new FormData()
+    form.append('chunk_index', String(chunkIndex))
+    form.append('file', blob, `chunk_${chunkIndex}.webm`)
+    const response = await apiClient.post<NoteSessionAudioChunk>(
+      `/note-sessions/${sessionId}/audio-chunks`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return response.data
+  },
+  listAudioChunks: async (sessionId: string): Promise<NoteSessionAudioChunk[]> => {
+    const response = await apiClient.get<NoteSessionAudioChunk[]>(`/note-sessions/${sessionId}/audio-chunks`)
+    return response.data
+  },
+  reconcileAudio: async (sessionId: string): Promise<NoteSessionReconcileResult> => {
+    const response = await apiClient.post<NoteSessionReconcileResult>(`/note-sessions/${sessionId}/reconcile-audio`)
     return response.data
   },
   list: async (params?: { student_id?: string; status?: StudentNoteStatus }): Promise<StudentNote[]> => {

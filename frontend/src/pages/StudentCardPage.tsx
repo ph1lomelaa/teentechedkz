@@ -28,6 +28,7 @@ import {
   portfolioApi,
   servicesApi,
   telegramApi,
+  mentorAssignmentsApi,
 } from '@/api/index'
 import { syncApi } from '@/api/sync'
 import { stripMarkdown } from '@/components/shared/Markdown'
@@ -362,6 +363,28 @@ export const StudentCardPage: React.FC = () => {
       }),
   })
 
+  const assignSelfMutation = useMutation({
+    mutationFn: () => mentorAssignmentsApi.assignSelf(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Студент добавлен в ваши' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
+
+  const unassignSelfMutation = useMutation({
+    mutationFn: () => mentorAssignmentsApi.setSelfActive(id!, false),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Студент снят с ваших' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось снять студента', variant: 'destructive' }),
+  })
+
   const toggleTaskMutation = useMutation({
     mutationFn: (task: { id: string; status: 'open' | 'done' }) =>
       tasksApi.update(task.id, {
@@ -490,6 +513,17 @@ export const StudentCardPage: React.FC = () => {
             )}
           </div>
         </div>
+        <Button
+          variant={student.is_mine ? 'outline' : 'default'}
+          size="sm"
+          disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
+          onClick={() => {
+            if (student.is_mine) unassignSelfMutation.mutate()
+            else assignSelfMutation.mutate()
+          }}
+        >
+          {student.is_mine ? '★ Мой студент' : '☆ Взять в работу'}
+        </Button>
         <Button variant="outline" size="sm" onClick={handleExportStudent}>
           <Download className="w-4 h-4 mr-2" />
           Экспорт
@@ -503,6 +537,48 @@ export const StudentCardPage: React.FC = () => {
       </div>
 
       <Accordion type="multiple" defaultValue={['profile', 'applications', 'services', 'tasks']} className="space-y-2">
+        <AccordionItem value="responsibles" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionTrigger className="text-base font-semibold">
+            Ответственные
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-3">
+              {student.responsibles && student.responsibles.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {student.responsibles.map((responsible) => (
+                    <span
+                      key={responsible.assignment_id || responsible.id}
+                      className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 text-xs ${
+                        responsible.is_active
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-400'
+                      }`}
+                    >
+                      {responsible.name || 'Без имени'}
+                      <span className="text-[10px] uppercase tracking-wide opacity-70">
+                        {responsible.is_active ? 'активен' : 'снят'}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Ответственные не назначены</p>
+              )}
+              <Button
+                variant={student.is_mine ? 'outline' : 'default'}
+                size="sm"
+                disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
+                onClick={() => {
+                  if (student.is_mine) unassignSelfMutation.mutate()
+                  else assignSelfMutation.mutate()
+                }}
+              >
+                {student.is_mine ? 'Снять с моих' : 'Добавить себя'}
+              </Button>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
         {/* 0. Сверка анкет: менеджер vs студент vs CRM */}
         {intake && (intake.package || intake.cases) && (
           <AccordionItem value="intake" className="border border-gray-200 rounded-[2px] px-4">
@@ -540,11 +616,7 @@ export const StudentCardPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {intake.comparison.map((row) => {
-                      const formValue = row.package ?? row.cases
-                      const crmMatches =
-                        row.crm != null &&
-                        formValue != null &&
-                        row.crm.trim().toLowerCase() === formValue.trim().toLowerCase()
+                      const crmMatches = row.crm_matches ?? false
                       return (
                         <tr
                           key={row.field}
@@ -1291,12 +1363,16 @@ export const StudentCardPage: React.FC = () => {
                   {history.map((entry) => (
                     <div key={entry.id} className="border-l-2 border-gray-200 pl-3 py-1">
                       <p className="text-sm text-gray-600">
-                        <span className="font-medium">{entry.action}</span>
-                        {entry.performed_by && (
-                          <span className="text-gray-500"> · {entry.performed_by}</span>
+                        <span className="font-medium">{entry.field_changed}</span>
+                        <span className="text-gray-500">
+                          {' '}
+                          {entry.old_value ?? '—'} → {entry.new_value ?? '—'}
+                        </span>
+                        {entry.source && (
+                          <span className="text-gray-500"> · {entry.source}</span>
                         )}
                       </p>
-                      <p className="text-xs text-gray-500">{formatDate(entry.performed_at)}</p>
+                      <p className="text-xs text-gray-500">{formatDate(entry.changed_at)}</p>
                     </div>
                   ))}
                 </div>

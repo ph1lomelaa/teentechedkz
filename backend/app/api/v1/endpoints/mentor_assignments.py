@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
@@ -26,10 +27,72 @@ async def get_assignments(
     current_user: CurrentUser,
 ):
     result = await db.execute(
-        select(MentorAssignment).where(MentorAssignment.student_id == student_id)
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.student_id == student_id)
     )
     assignments = result.scalars().all()
     return [_ma_to_dict(a) for a in assignments]
+
+
+@router.post("/student/{student_id}/self")
+async def assign_self(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(
+            MentorAssignment.student_id == student_id,
+            MentorAssignment.mentor_id == current_user.id,
+        )
+    )
+    ma = result.scalar_one_or_none()
+    if ma:
+        ma.is_active = True
+    else:
+        ma = MentorAssignment(
+            student_id=student_id,
+            mentor_id=current_user.id,
+            role=MentorRole.lead,
+            is_active=True,
+        )
+        db.add(ma)
+    await db.commit()
+    await db.refresh(ma)
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.id == ma.id)
+    )
+    return _ma_to_dict(result.scalar_one())
+
+
+@router.patch("/student/{student_id}/self")
+async def update_self_assignment(
+    student_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(
+            MentorAssignment.student_id == student_id,
+            MentorAssignment.mentor_id == current_user.id,
+        )
+    )
+    ma = result.scalar_one_or_none()
+    if not ma:
+        raise HTTPException(status_code=404, detail="Назначение не найдено")
+    if "is_active" in body:
+        ma.is_active = bool(body["is_active"])
+    await db.commit()
+    await db.refresh(ma)
+    return _ma_to_dict(ma)
 
 
 @router.post("")
@@ -106,6 +169,7 @@ def _ma_to_dict(a: MentorAssignment) -> dict:
         "id": str(a.id),
         "student_id": str(a.student_id),
         "mentor_id": str(a.mentor_id),
+        "mentor_name": a.mentor.name if getattr(a, "mentor", None) else None,
         "role": a.role.value,
         "country_scope": a.country_scope,
         "is_active": a.is_active,

@@ -301,14 +301,27 @@ def _norm_year(v: str | None) -> str:
 _FIELD_NORMALIZERS: dict = {}
 
 
+def _norm_degree_for_compare(v: str | None) -> str:
+    """Like parse_degree, but for comparison only: parse_degree defaults any
+    unrecognized text to "undergraduate", which is the right call when
+    creating a student (has to pick something) but wrong here — two
+    different unrecognized spellings ("фаундейшн", "магистратура, foundation")
+    would both silently fall back to the same default and look like a match
+    even though neither was actually understood."""
+    from migration.transformers.normalize import DEGREE_MAP
+
+    key = str(v or "").strip().lower()
+    return DEGREE_MAP.get(key, key)
+
+
 def _get_normalizers() -> dict:
     """Поле → функция нормализации перед сравнением менеджер↔студент."""
     if not _FIELD_NORMALIZERS:
-        from migration.transformers.normalize import normalize_phone, parse_degree
+        from migration.transformers.normalize import normalize_phone
 
         _FIELD_NORMALIZERS.update({
             "phone": lambda v: normalize_phone(str(v or "").removesuffix(".0")),
-            "degree_level": lambda v: parse_degree(str(v or "")),
+            "degree_level": _norm_degree_for_compare,
             "intake_year": _norm_year,
         })
     return _FIELD_NORMALIZERS
@@ -380,14 +393,25 @@ async def student_intake(
     }
 
     def row(field: str, label: str, pkg_v, cs_v, crm_v, comparable: bool = False, human_only: bool = False) -> dict:
+        norm = _get_normalizers().get(field, _norm_cmp)
         mismatch = None
         if comparable and pkg_v and cs_v:
-            norm = _get_normalizers().get(field, _norm_cmp)
             mismatch = norm(pkg_v) != norm(cs_v)
+
+        # Whether the CRM value matches what's in the forms — must use the
+        # same field-aware normalizer as above (phone/year/degree), not a
+        # raw string compare: "+7 (925) 916-11-05" and "79259161105" are the
+        # same number, but look different letter-for-letter. The frontend
+        # used to do a naive .toLowerCase() compare here and flagged
+        # correctly-matching phones as discrepancies.
+        form_v = pkg_v or cs_v
+        crm_matches = norm(form_v) == norm(crm_v) if (form_v and crm_v) else None
+
         return {
             "field": field, "label": label,
             "package": clean(pkg_v), "cases": clean(cs_v), "crm": clean(crm_v),
             "mismatch": mismatch, "human_only": human_only,
+            "crm_matches": crm_matches,
         }
 
     crm_degree = _DEGREE_RU.get(

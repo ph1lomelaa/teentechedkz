@@ -5,7 +5,6 @@ import { ArrowLeft, FolderInput, Paperclip } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
-import { useAuth } from '@/contexts/AuthContext'
 import {
   DocType,
   DOC_TYPE_LABELS,
@@ -40,8 +39,7 @@ export default function TelegramChatDetailPage() {
   const { chatId } = useParams<{ chatId: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { hasRole } = useAuth()
-  const canManage = hasRole('admin', 'mzk_manager')
+  const canManage = true
 
   const [reassignOpen, setReassignOpen] = useState(false)
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)

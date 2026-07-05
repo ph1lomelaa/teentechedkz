@@ -59,6 +59,17 @@ export interface StudentListItem {
   city?: string
   pipeline_status?: PipelineStatus
   days_in_work?: number
+  is_mine?: boolean
+  responsible_count?: number
+  responsibles?: ResponsibleUser[]
+}
+
+export interface ResponsibleUser {
+  id: string
+  assignment_id?: string
+  name?: string | null
+  role?: string
+  is_active: boolean
 }
 
 export interface Application {
@@ -193,6 +204,7 @@ export interface MentorAssignment {
   mentor_id: string
   mentor_name?: string
   role: string
+  is_active?: boolean
   assigned_at: string
 }
 
@@ -262,6 +274,24 @@ export interface NoteSessionDetail extends NoteSession {
   note?: StudentNote | null
 }
 
+export type NoteAudioChunkStatus = 'pending' | 'transcribed' | 'failed'
+
+export interface NoteSessionAudioChunk {
+  id: string
+  session_id: string
+  chunk_index: number
+  file_size: number
+  status: NoteAudioChunkStatus
+  transcript_text?: string | null
+  download_url?: string | null
+  created_at: string
+}
+
+export interface NoteSessionReconcileResult {
+  backup_transcript_text: string
+  chunks: NoteSessionAudioChunk[]
+}
+
 export interface NoteSessionDraft {
   title: string
   source_text: string
@@ -301,6 +331,8 @@ export interface PendingInsight {
 export interface InsightWithDiff extends PendingInsight {
   diff: { field: string; old_value: unknown; new_value: unknown }[]
   student_name?: string
+  is_mine?: boolean
+  responsibles?: ResponsibleUser[]
 }
 
 export type TelegramChatStatus = 'unbound' | 'active' | 'paused' | 'closed'
@@ -320,6 +352,9 @@ export interface TelegramChat {
   last_message_at: string | null
   pending_insight_count: number
   unresolved_attachment_count: number
+  is_mine?: boolean
+  responsible_count?: number
+  responsibles?: ResponsibleUser[]
 }
 
 export interface TelegramAttachment {
@@ -401,6 +436,8 @@ export interface StudentFull extends StudentListItem {
   pending_insights: PendingInsight[]
   guardians?: Guardian[]
   confidential_notes?: ConfidentialNote[]
+  responsibles?: ResponsibleUser[]
+  is_mine?: boolean
 }
 
 export interface Country {
@@ -449,10 +486,12 @@ export interface HistoryEntry {
   id: string
   entity_type: string
   entity_id: string
-  action: string
-  changes?: Record<string, unknown>
-  performed_by?: string
-  performed_at: string
+  field_changed: string
+  old_value?: string | null
+  new_value?: string | null
+  changed_by?: string | null
+  source?: string | null
+  changed_at: string
 }
 
 export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {

@@ -7,9 +7,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, AdminOrMZK
+from app.core.deps import CurrentUser
 from app.core.audit import log_change
 from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
@@ -39,6 +40,32 @@ async def _get_mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[u
     return {row[0] for row in result.all()}
 
 
+async def _student_responsibles(
+    db: AsyncSession,
+    student_id: uuid.UUID,
+    current_user_id: uuid.UUID,
+) -> tuple[list[dict], bool]:
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.student_id == student_id)
+        .order_by(MentorAssignment.assigned_at.desc())
+    )
+    assignments = result.scalars().all()
+    responsibles = [
+        {
+            "id": str(a.mentor_id),
+            "assignment_id": str(a.id),
+            "name": a.mentor.name if a.mentor else None,
+            "role": a.role.value,
+            "is_active": a.is_active,
+        }
+        for a in assignments
+    ]
+    is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
+    return responsibles, is_mine
+
+
 @router.get("")
 async def list_students(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -49,21 +76,27 @@ async def list_students(
     mzk_manager_id: uuid.UUID | None = None,
     country: str | None = None,
     mentor_id: uuid.UUID | None = None,
+    scope: str = Query("all", pattern="^(all|mine|unassigned)$"),
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=500),
 ):
     from app.models.application import Application
 
-    mentor_ids: set[uuid.UUID] = set()
-    if current_user.role in (UserRole.lead_mentor, UserRole.mentor):
-        mentor_ids = await _get_mentor_student_ids(db, current_user.id)
-
     query = select(Student).where(Student.is_archived == False)  # noqa: E712
 
-    if current_user.role in (UserRole.lead_mentor, UserRole.mentor):
-        if not mentor_ids:
-            return {"items": [], "total": 0, "page": page, "size": size, "pages": 0}
-        query = query.where(Student.id.in_(mentor_ids))
+    if scope == "mine":
+        query = query.join(
+            MentorAssignment,
+            MentorAssignment.student_id == Student.id,
+        ).where(
+            MentorAssignment.mentor_id == current_user.id,
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+    elif scope == "unassigned":
+        assigned_subquery = select(MentorAssignment.student_id).where(
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        query = query.where(Student.id.not_in(assigned_subquery))
 
     if search:
         query = query.where(
@@ -122,6 +155,7 @@ async def list_students(
                 days_in_work = (date.today() - contract.signed_date).days
             pipeline_status_val = contract.pipeline_status.value if contract.pipeline_status else None
 
+        responsibles, is_mine = await _student_responsibles(db, s.id, current_user.id)
         items.append({
             "id": str(s.id),
             "full_name": s.full_name,
@@ -131,6 +165,9 @@ async def list_students(
             "intake_year": s.intake_year,
             "pipeline_status": pipeline_status_val,
             "days_in_work": days_in_work,
+            "is_mine": is_mine,
+            "responsibles": responsibles,
+            "responsible_count": len([r for r in responsibles if r["is_active"]]),
         })
 
     return {
@@ -148,9 +185,6 @@ async def create_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Access denied")
-
     phone = body.phone.strip()
     existing = await db.execute(select(Student).where(Student.phone == phone))
     existing_student = existing.scalar_one_or_none()
@@ -195,14 +229,6 @@ async def get_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    from sqlalchemy.orm import selectinload
-
-    mentor_ids: set[uuid.UUID] = set()
-    if current_user.role in (UserRole.lead_mentor, UserRole.mentor):
-        mentor_ids = await _get_mentor_student_ids(db, current_user.id)
-        if student_id not in mentor_ids:
-            raise HTTPException(status_code=403, detail="Access denied")
-
     result = await db.execute(
         select(Student)
         .where(Student.is_archived == False)  # noqa: E712
@@ -225,9 +251,12 @@ async def get_student(
         raise HTTPException(status_code=404, detail="Студент не найден")
 
     data = _student_to_dict(student)
+    responsibles, is_mine = await _student_responsibles(db, student.id, current_user.id)
+    data["responsibles"] = responsibles
+    data["is_mine"] = is_mine
 
-    # Include full data for admin/mzk
-    if current_user.role in (UserRole.admin, UserRole.mzk_manager):
+    # Product mode: role is not an access boundary; "mine" is a work filter.
+    if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
         guardian_result = await db.execute(
             select(Guardian).where(Guardian.student_id == student_id)
         )
@@ -310,12 +339,6 @@ async def update_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    mentor_ids: set[uuid.UUID] = set()
-    if current_user.role in (UserRole.lead_mentor, UserRole.mentor):
-        mentor_ids = await _get_mentor_student_ids(db, current_user.id)
-        if student_id not in mentor_ids:
-            raise HTTPException(status_code=403, detail="Access denied")
-
     result = await db.execute(select(Student).where(Student.id == student_id))
     student = result.scalar_one_or_none()
     if not student:

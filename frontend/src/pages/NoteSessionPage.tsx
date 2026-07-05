@@ -13,14 +13,16 @@ import {
   RefreshCw,
   Square,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useDeepgramTranscription, type CaptureSource } from '@/hooks/useDeepgramTranscription'
+import { useAudioBackupRecorder } from '@/hooks/useAudioBackupRecorder'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import type { NoteSessionDraft, NoteTranscript } from '@/types'
+import type { NoteSessionDraft, NoteSessionReconcileResult, NoteTranscript } from '@/types'
 import {
   createClientSegmentId,
   enqueueTranscript,
@@ -34,6 +36,22 @@ function entryValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ')
   if (typeof value === 'object') return JSON.stringify(value, null, 2)
   return String(value)
+}
+
+function playAlertBeep() {
+  try {
+    const ctx = new AudioContext()
+    const oscillator = ctx.createOscillator()
+    const gain = ctx.createGain()
+    oscillator.frequency.value = 880
+    gain.gain.value = 0.15
+    oscillator.connect(gain).connect(ctx.destination)
+    oscillator.start()
+    oscillator.stop(ctx.currentTime + 0.35)
+    oscillator.onended = () => void ctx.close()
+  } catch {
+    // best-effort — silence is not worth failing the page over
+  }
 }
 
 function renderPairs(data: Record<string, unknown>) {
@@ -69,6 +87,13 @@ export const NoteSessionPage: React.FC = () => {
   const [finishing, setFinishing] = useState(false)
   const [returnedFromBackground, setReturnedFromBackground] = useState(false)
   const [captureSource, setCaptureSource] = useState<CaptureSource | null>(null)
+  const [sourceStoppedAlert, setSourceStoppedAlert] = useState(false)
+  const [reconcileResult, setReconcileResult] = useState<NoteSessionReconcileResult | null>(null)
+  const [reconciling, setReconciling] = useState(false)
+
+  const audioBackup = useAudioBackupRecorder(sessionId)
+  const originalTitleRef = useRef(document.title)
+  const titleFlashRef = useRef<number | null>(null)
 
   const transcriptsRef = useRef<NoteTranscript[]>([])
   const interimRef = useRef('')
@@ -195,10 +220,15 @@ export const NoteSessionPage: React.FC = () => {
     onSourceStopped: () => {
       void savePendingInterim()
       setError('Захват звука остановлен. Сохранённый текст не потерян.')
+      setSourceStoppedAlert(true)
+      playAlertBeep()
     },
     onVisibilityChange: (hidden) => {
       if (hidden) setReturnedFromBackground(false)
       else setReturnedFromBackground(true)
+    },
+    onBackupStreamReady: (stream) => {
+      audioBackup.start(stream)
     },
   })
   const {
@@ -266,6 +296,31 @@ export const NoteSessionPage: React.FC = () => {
   }, [returnedFromBackground])
 
   useEffect(() => {
+    if (!sourceStoppedAlert) {
+      if (titleFlashRef.current) {
+        window.clearInterval(titleFlashRef.current)
+        titleFlashRef.current = null
+        document.title = originalTitleRef.current
+      }
+      return
+    }
+    let flashed = false
+    titleFlashRef.current = window.setInterval(() => {
+      document.title = flashed ? originalTitleRef.current : '⚠️ Звук остановлен — TeenTechEd'
+      flashed = !flashed
+    }, 1000)
+    return () => {
+      if (titleFlashRef.current) window.clearInterval(titleFlashRef.current)
+      titleFlashRef.current = null
+      document.title = originalTitleRef.current
+    }
+  }, [sourceStoppedAlert])
+
+  useEffect(() => {
+    if (isDeepgramConnected) setSourceStoppedAlert(false)
+  }, [isDeepgramConnected])
+
+  useEffect(() => {
     const warnBeforeClose = (event: BeforeUnloadEvent) => {
       if (!isDeepgramCapturing) return
       event.preventDefault()
@@ -274,6 +329,23 @@ export const NoteSessionPage: React.FC = () => {
     window.addEventListener('beforeunload', warnBeforeClose)
     return () => window.removeEventListener('beforeunload', warnBeforeClose)
   }, [isDeepgramCapturing])
+
+  const handleReconcile = useCallback(async () => {
+    if (!sessionId) return
+    setReconciling(true)
+    try {
+      const result = await notesApi.reconcileAudio(sessionId)
+      setReconcileResult(result)
+    } catch (err) {
+      toast({
+        title: 'Ошибка',
+        description: (err as Error).message || 'Не удалось собрать транскрипт из резервной записи',
+        variant: 'destructive',
+      })
+    } finally {
+      setReconciling(false)
+    }
+  }, [sessionId])
 
   const requestDraft = useCallback(async () => {
     if (!sessionId) return
@@ -303,6 +375,7 @@ export const NoteSessionPage: React.FC = () => {
     setAudioLevel(0)
     setAudioStatus('')
     setCaptureSource(source)
+    setSourceStoppedAlert(false)
     await stopDeepgram()
     await startDeepgram(source)
     toast({ title: 'Сессия запущена', description: source === 'system' ? 'Захват системного звука активирован' : 'Микрофон активирован' })
@@ -310,12 +383,14 @@ export const NoteSessionPage: React.FC = () => {
 
   const handleStop = useCallback(async () => {
     if (isDeepgramCapturing) await stopDeepgram()
+    audioBackup.stop()
     await savePendingInterim()
     await flushOutbox()
     setAudioLevel(0)
     setAudioStatus('')
     setCaptureSource(null)
-  }, [flushOutbox, isDeepgramCapturing, savePendingInterim, stopDeepgram])
+    setSourceStoppedAlert(false)
+  }, [audioBackup, flushOutbox, isDeepgramCapturing, savePendingInterim, stopDeepgram])
 
   const handleFinalize = useCallback(async () => {
     if (!session) return
@@ -355,6 +430,19 @@ export const NoteSessionPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      {sourceStoppedAlert && (
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 rounded-[2px] border-2 border-red-600 bg-red-50 px-4 py-3 shadow-lg">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-700 shrink-0" />
+            <p className="text-sm font-semibold text-red-800">
+              Показ экрана остановлен — запись прервалась. Сохранённый текст не потерян, но новый звук не пишется.
+            </p>
+          </div>
+          <Button size="sm" className="bg-red-700 text-white hover:bg-red-800 shrink-0" onClick={() => void handleStart('system')}>
+            Возобновить показ экрана
+          </Button>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-400">
@@ -449,6 +537,33 @@ export const NoteSessionPage: React.FC = () => {
                 <span>Последняя фраза</span>
                 <span className="font-medium text-slate-900 truncate max-w-[12rem]">{latestTranscript || '—'}</span>
               </div>
+            </div>
+
+            <div className="border-t border-slate-200 pt-4 text-sm text-slate-600 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span>Резервных фрагментов</span>
+                <span className="font-medium text-slate-900">
+                  {audioBackup.uploadedCount}/{audioBackup.segmentCount}
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => void handleReconcile()}
+                disabled={reconciling || audioBackup.uploadedCount === 0}
+              >
+                {reconciling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                Собрать транскрипт из резервной записи
+              </Button>
+              {reconcileResult && (
+                <div className="mt-2 rounded-[2px] border border-slate-200 bg-slate-50 p-3 max-h-40 overflow-y-auto">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Резервный транскрипт</p>
+                  <p className="text-xs text-slate-700 whitespace-pre-wrap">
+                    {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
+                  </p>
+                </div>
+              )}
             </div>
 
             {session.student_id && (

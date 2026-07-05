@@ -47,7 +47,7 @@ async def create_contract(
     )
     db.add(contract)
     await db.flush()
-    await log_change(db, "contract", contract.id, "created", None, str(pipeline_status.value), str(current_user.id))
+    await log_change(db, "contract", contract.id, "created", None, str(contract.pipeline_status.value), str(current_user.id))
     await db.commit()
     contract = await _load_contract(db, contract.id)
     return _contract_to_dict(contract)
@@ -71,12 +71,6 @@ async def update_contract(
 
     if "pipeline_status" in updates:
         new_ps = updates["pipeline_status"]
-        if new_ps in (PipelineStatus.refund, PipelineStatus.changed_mind) and current_user.role != UserRole.admin:
-            raise HTTPException(
-                status_code=403,
-                detail="Смена статуса на 'refund'/'changed_mind' — только для admin",
-                headers={"X-Error-Code": "HUMAN_ONLY_FIELD"},
-            )
         old_ps = contract.pipeline_status.value
         if old_ps != new_ps.value:
             await log_change(db, "contract", contract.id, "pipeline_status", old_ps, new_ps.value, str(current_user.id))
@@ -122,7 +116,7 @@ async def _load_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 

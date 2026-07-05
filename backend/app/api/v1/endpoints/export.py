@@ -2,6 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -92,8 +93,17 @@ async def export_student(
     content = export_student_card(student_dict, current_user.role)
     safe_name = student.full_name.replace(" ", "_")[:30]
     filename = f"{safe_name}_{date.today().isoformat()}.xlsx"
+    # Cyrillic names aren't latin-1-encodable — HTTP headers are, so this
+    # crashed with UnicodeEncodeError for any non-ASCII student name (same
+    # bug class as the document download endpoint).
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii") or "student.xlsx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
     )

@@ -43,6 +43,7 @@ class NoteSession(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    backup_transcript_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -55,4 +56,9 @@ class NoteSession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="NoteTranscript.sequence_no",
+    )
+    audio_chunks: Mapped[list["NoteSessionAudioChunk"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="NoteSessionAudioChunk.chunk_index",
     )

@@ -239,21 +239,15 @@ async def run_cases(db: AsyncSession, all_students: list[dict], filepath: str | 
                     source="excel_cases",
                 )
 
-                if rec.get("ielts_score") or rec.get("ielts_raw"):
-                    exists = await db.execute(
-                        select(Service).where(
-                            Service.student_id == student_id,
-                            Service.service_type == ServiceType.ielts_mock,
-                        )
-                    )
-                    if not exists.scalar_one_or_none():
-                        db.add(Service(
-                            student_id=student_id,
-                            service_type=ServiceType.ielts_mock,
-                            included=True,
-                            status=ServiceStatus(rec.get("ielts_status", "not_started")),
-                            result=rec.get("ielts_score"),
-                        ))
+                # NB: intentionally not auto-marking ielts_mock as `included`
+                # from the student's own case-form IELTS mention (mentioning
+                # a current score/level, e.g. "уровень B1-B2, ещё не сдавал")
+                # is not the same as the manager having actually sold/included
+                # the IELTS Mock service — only the package (manager) form is
+                # a source of truth for `included`. A prior version of this
+                # importer conflated the two and incorrectly marked 25
+                # students as having IELTS Mock included with no package
+                # form to back it up (fixed via one-off DB cleanup 2026-07-05).
 
                 if rec.get("sat_included"):
                     exists = await db.execute(

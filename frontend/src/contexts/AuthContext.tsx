@@ -99,17 +99,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const role = state.user.role
       switch (resource) {
         case 'finances':
-          return role === 'admin' || role === 'mzk_manager'
+          return true
         case 'guardians':
-          return role === 'admin' || role === 'mzk_manager'
+          return true
         case 'confidential':
-          return role === 'admin' || role === 'mzk_manager'
+          return true
         case 'users':
           return role === 'admin'
         case 'tasks_create':
-          return role === 'admin' || role === 'mzk_manager' || role === 'lead_mentor'
+          return true
         case 'all_students':
-          return role === 'admin' || role === 'mzk_manager'
+          return true
         default:
           return false
       }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -196,8 +197,16 @@ async def download_document(
         object_name=doc.storage_path,
     )
 
+    # HTTP headers are latin-1 only — file names with Cyrillic (or any
+    # non-ASCII) characters crash StreamingResponse if interpolated directly.
+    # RFC 5987's filename* covers that; the plain ASCII fallback is for
+    # older clients that don't parse filename*.
+    ascii_fallback = doc.file_name.encode("ascii", "ignore").decode("ascii") or "file"
     headers = {
-        "Content-Disposition": f'inline; filename="{doc.file_name}"',
+        "Content-Disposition": (
+            f'inline; filename="{ascii_fallback}"; '
+            f"filename*=UTF-8''{quote(doc.file_name)}"
+        ),
         "X-Content-Type-Options": "nosniff",
     }
     return StreamingResponse(

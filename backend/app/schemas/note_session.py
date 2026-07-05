@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.note_session import NoteSessionStatus
+from app.models.note_session_audio_chunk import NoteAudioChunkStatus
 from app.models.student_note import StudentNoteStatus
 
 
@@ -88,3 +89,21 @@ class NoteSessionDraftResponse(BaseModel):
 class NoteSessionFinalizeResponse(BaseModel):
     session: NoteSessionResponse
     note: NoteSessionNoteSummary
+
+
+class NoteSessionAudioChunkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    session_id: uuid.UUID
+    chunk_index: int
+    file_size: int
+    status: NoteAudioChunkStatus
+    transcript_text: str | None = None
+    download_url: str | None = None
+    created_at: datetime
+
+
+class NoteSessionReconcileResponse(BaseModel):
+    backup_transcript_text: str
+    chunks: list[NoteSessionAudioChunkResponse]

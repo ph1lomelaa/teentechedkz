@@ -79,6 +79,39 @@ async def minio_upload_raw(
     return object_name
 
 
+async def minio_upload_note_audio(
+    content: bytes,
+    session_id: uuid.UUID,
+    filename: str,
+    mime_type: str,
+) -> str:
+    """Stores a ~5-minute local recording segment uploaded as a safety net
+    alongside the live Deepgram websocket stream (see useAudioBackupRecorder.ts)."""
+    client = get_minio()
+    file_id = str(uuid.uuid4())
+    safe_name = filename.replace(" ", "_")
+    object_name = f"note_sessions/{session_id}/{file_id}_{safe_name}"
+
+    client.put_object(
+        bucket_name=settings.MINIO_BUCKET_NAME,
+        object_name=object_name,
+        data=BytesIO(content),
+        length=len(content),
+        content_type=mime_type,
+    )
+    return object_name
+
+
+async def minio_download(storage_path: str) -> bytes:
+    client = get_minio()
+    response = client.get_object(bucket_name=settings.MINIO_BUCKET_NAME, object_name=storage_path)
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
+
+
 async def minio_copy_to_student(storage_path: str, student_id: uuid.UUID, filename: str) -> str:
     client = get_minio()
     file_id = str(uuid.uuid4())

@@ -10,6 +10,7 @@ export interface StudentsQueryParams {
   search?: string
   pipeline_status?: PipelineStatus
   intake_year?: number
+  scope?: 'all' | 'mine' | 'unassigned'
   page?: number
   size?: number
   mentor_id?: string

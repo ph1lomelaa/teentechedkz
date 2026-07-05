@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import AdminOrMZK, AllStaff, CurrentUser
+from app.core.deps import AllStaff, CurrentUser
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.student import Student
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
@@ -20,6 +20,7 @@ from app.models.telegram_chat import TelegramChat, TelegramChatStatus
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_message import TelegramMessage
 from app.models.telegram_pairing_code import TelegramPairingCode
+from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User
 from app.services.mentor_scope import mentor_assigned_student_ids
 from app.services.minio_service import minio_url
@@ -46,6 +47,30 @@ async def _current_student_id(db: AsyncSession, chat_id: uuid.UUID) -> uuid.UUID
     return row[0] if row else None
 
 
+async def _student_responsibles(db: AsyncSession, student_id: uuid.UUID | None, current_user_id: uuid.UUID) -> tuple[list[dict], bool]:
+    if student_id is None:
+        return [], False
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.student_id == student_id)
+        .order_by(MentorAssignment.assigned_at.desc())
+    )
+    assignments = result.scalars().all()
+    responsibles = [
+        {
+            "id": str(a.mentor_id),
+            "assignment_id": str(a.id),
+            "name": a.mentor.name if a.mentor else None,
+            "role": a.role.value,
+            "is_active": a.is_active,
+        }
+        for a in assignments
+    ]
+    is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
+    return responsibles, is_mine
+
+
 async def _require_chat_access(db: AsyncSession, chat_id: uuid.UUID, current_user: User) -> None:
     """404s (not 403) if a mentor tries to reach a chat outside their assignments —
     avoids revealing that the chat exists at all."""
@@ -62,6 +87,7 @@ async def list_chats(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: StaffUser,
     status: str | None = None,
+    scope: str = "all",
 ):
     query = select(TelegramChat).order_by(TelegramChat.created_at.desc())
     if status:
@@ -73,13 +99,13 @@ async def list_chats(
     result = await db.execute(query)
     chats = result.scalars().all()
 
-    allowed_ids = await mentor_assigned_student_ids(db, current_user)
     dicts = []
     for c in chats:
-        chat_dict = await _chat_to_dict(db, c)
-        if allowed_ids is not None:
-            if not chat_dict["student_id"] or uuid.UUID(chat_dict["student_id"]) not in allowed_ids:
-                continue
+        chat_dict = await _chat_to_dict(db, c, current_user=current_user)
+        if scope == "mine" and not chat_dict["is_mine"]:
+            continue
+        if scope == "unassigned" and chat_dict["responsible_count"] > 0:
+            continue
         dicts.append(chat_dict)
     return dicts
 
@@ -130,7 +156,7 @@ async def get_chat(
     return await _chat_to_dict(db, chat)
 
 
-@router.post("/{chat_id}/attach", dependencies=[AdminOrMZK])
+@router.post("/{chat_id}/attach")
 async def attach_chat(
     chat_id: uuid.UUID,
     body: dict,
@@ -157,7 +183,7 @@ async def attach_chat(
     return await _chat_to_dict(db, chat, session=session)
 
 
-@router.post("/{chat_id}/reassign", dependencies=[AdminOrMZK])
+@router.post("/{chat_id}/reassign")
 async def reassign_chat(
     chat_id: uuid.UUID,
     body: dict,
@@ -204,7 +230,7 @@ async def reassign_chat(
     return await _chat_to_dict(db, chat, session=new_session)
 
 
-@router.post("/{chat_id}/pause", dependencies=[AdminOrMZK])
+@router.post("/{chat_id}/pause")
 async def pause_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -218,7 +244,7 @@ async def pause_chat(
     return await _chat_to_dict(db, chat)
 
 
-@router.post("/{chat_id}/resume", dependencies=[AdminOrMZK])
+@router.post("/{chat_id}/resume")
 async def resume_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -233,7 +259,7 @@ async def resume_chat(
     return await _chat_to_dict(db, chat)
 
 
-@router.post("/{chat_id}/close", dependencies=[AdminOrMZK])
+@router.post("/{chat_id}/close")
 async def close_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -314,7 +340,7 @@ async def list_chat_insights(
     return out
 
 
-@router.post("/pairing-code", dependencies=[AdminOrMZK])
+@router.post("/pairing-code")
 async def create_pairing_code(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -348,7 +374,12 @@ async def create_pairing_code(
     }
 
 
-async def _chat_to_dict(db: AsyncSession, chat: TelegramChat, session: TelegramChatSession | None = None) -> dict:
+async def _chat_to_dict(
+    db: AsyncSession,
+    chat: TelegramChat,
+    session: TelegramChatSession | None = None,
+    current_user: User | None = None,
+) -> dict:
     if session is None:
         result = await db.execute(
             select(TelegramChatSession)
@@ -369,6 +400,11 @@ async def _chat_to_dict(db: AsyncSession, chat: TelegramChat, session: TelegramC
     if session and session.student_id:
         student = await db.get(Student, session.student_id)
         student_name = student.full_name if student else None
+    responsibles, is_mine = await _student_responsibles(
+        db,
+        session.student_id if session else None,
+        current_user.id if current_user else uuid.UUID(int=0),
+    )
 
     pending_insight_count = (
         await db.execute(
@@ -408,6 +444,9 @@ async def _chat_to_dict(db: AsyncSession, chat: TelegramChat, session: TelegramC
         "last_message_at": last_message[1].isoformat() if last_message else None,
         "pending_insight_count": pending_insight_count,
         "unresolved_attachment_count": unresolved_attachment_count,
+        "responsibles": responsibles,
+        "responsible_count": len([r for r in responsibles if r["is_active"]]),
+        "is_mine": is_mine,
     }
 
 

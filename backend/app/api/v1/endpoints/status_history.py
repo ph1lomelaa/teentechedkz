@@ -24,7 +24,7 @@ async def get_history(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     query = select(StatusHistory).order_by(StatusHistory.changed_at.desc())

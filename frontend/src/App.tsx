@@ -80,7 +80,7 @@ function AppRoutes() {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute>
             <AppLayout>
               <DashboardPage />
             </AppLayout>
@@ -91,7 +91,7 @@ function AppRoutes() {
       <Route
         path="/students"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute>
             <AppLayout>
               <StudentsListPage />
             </AppLayout>
@@ -102,7 +102,7 @@ function AppRoutes() {
       <Route
         path="/students/new"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <NewStudentPage />
@@ -185,7 +185,7 @@ function AppRoutes() {
       <Route
         path="/finances"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <FinancesPage />
@@ -211,7 +211,7 @@ function AppRoutes() {
       <Route
         path="/tasks"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'lead_mentor']}>
+          <ProtectedRoute>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TasksPage />
@@ -224,7 +224,7 @@ function AppRoutes() {
       <Route
         path="/migration-conflicts"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <MigrationConflictsPage />

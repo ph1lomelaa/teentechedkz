@@ -4,6 +4,7 @@ import { integrationsApi } from '@/api/integrations'
 const DEEPGRAM_WS = 'wss://api.deepgram.com/v1/listen'
 const MAX_BUFFER_BYTES = 16000 * 2 * 5 * 60
 const MAX_RECONNECT_ATTEMPTS = 10
+const SLOW_RETRY_DELAY_MS = 30000
 
 export type CaptureSource = 'system' | 'mic'
 
@@ -15,6 +16,7 @@ interface Options {
   onAudioStatus?: (status: string) => void
   onSourceStopped?: () => void
   onVisibilityChange?: (hidden: boolean) => void
+  onBackupStreamReady?: (stream: MediaStream) => void
 }
 
 interface DeepgramWord {
@@ -185,7 +187,7 @@ export function useDeepgramTranscription(options: Options) {
       }
 
       ws.onerror = () => callbacksRef.current.onAudioStatus?.('Сеть нестабильна · сохраняю аудио для переподключения')
-      ws.onclose = (event) => {
+      ws.onclose = () => {
         if (wsRef.current === ws) wsRef.current = null
         openingRef.current = false
         setIsConnected(false)
@@ -194,8 +196,15 @@ export function useDeepgramTranscription(options: Options) {
         if (!activeRef.current || manualStopRef.current) return
         reconnectAttemptRef.current += 1
         if (reconnectAttemptRef.current > MAX_RECONNECT_ATTEMPTS) {
-          callbacksRef.current.onError(`Не удалось восстановить распознавание (код ${event.code}).`)
-          fullCleanup()
+          // Give up on fast retries, but DO NOT release the mic/screen capture —
+          // audio keeps buffering locally (bounded by MAX_BUFFER_BYTES) and the
+          // backup recorder keeps writing, so nothing is lost even if this
+          // outage lasts a while. Keep retrying slowly forever instead of
+          // failing permanently.
+          callbacksRef.current.onAudioStatus?.(
+            'Не удаётся восстановить распознавание · звук пишется локально, повтор каждые 30 сек',
+          )
+          reconnectTimerRef.current = setTimeout(() => void openSocketRef.current(), SLOW_RETRY_DELAY_MS)
           return
         }
         const delay = Math.min(30000, 750 * 2 ** (reconnectAttemptRef.current - 1))
@@ -205,10 +214,19 @@ export function useDeepgramTranscription(options: Options) {
     } catch (error) {
       openingRef.current = false
       if (!activeRef.current || manualStopRef.current) return
+      const message = (error as Error).message || ''
+      if (message.includes('не настроен на сервере')) {
+        // Our own /integrations/deepgram/token endpoint reports Deepgram isn't
+        // configured at all — retrying will never succeed, say so clearly.
+        callbacksRef.current.onError(message)
+        return
+      }
       reconnectAttemptRef.current += 1
       if (reconnectAttemptRef.current > MAX_RECONNECT_ATTEMPTS) {
-        callbacksRef.current.onError((error as Error).message || 'Не удалось восстановить распознавание')
-        fullCleanup()
+        callbacksRef.current.onAudioStatus?.(
+          'Сервис недоступен · звук пишется локально, повтор каждые 30 сек',
+        )
+        reconnectTimerRef.current = setTimeout(() => void openSocketRef.current(), SLOW_RETRY_DELAY_MS)
         return
       }
       const delay = Math.min(30_000, 750 * 2 ** (reconnectAttemptRef.current - 1))
@@ -277,6 +295,14 @@ export function useDeepgramTranscription(options: Options) {
       capturedGain.gain.value = source === 'system' ? 2.2 : 1
       capturedSource.connect(capturedGain).connect(worklet)
 
+      // Mixed-down destination for the local backup recording (safety net) —
+      // same mix that's being sent to Deepgram, exposed so the caller can
+      // feed it into a MediaRecorder without a second getUserMedia/
+      // getDisplayMedia prompt.
+      const backupDest = audioCtx.createMediaStreamDestination()
+      capturedGain.connect(backupDest)
+      callbacksRef.current.onBackupStreamReady?.(backupDest.stream)
+
       if (source === 'system') {
         try {
           const mic = await navigator.mediaDevices.getUserMedia({
@@ -287,6 +313,7 @@ export function useDeepgramTranscription(options: Options) {
             const micGain = audioCtx.createGain()
             micGain.gain.value = 1.15
             audioCtx.createMediaStreamSource(mic).connect(micGain).connect(worklet)
+            micGain.connect(backupDest)
           } else {
             mic.getTracks().forEach((track) => track.stop())
           }
@@ -302,6 +329,14 @@ export function useDeepgramTranscription(options: Options) {
 
       stream.getTracks().forEach((track) => track.addEventListener('ended', () => {
         if (!activeRef.current) return
+        if (source === 'mic') {
+          // Browsers don't re-prompt for mic permission within the same page,
+          // so a dropped mic track can be silently re-acquired — no need to
+          // make the user notice and click Start again.
+          fullCleanup()
+          void startRef.current?.(source, deviceId)
+          return
+        }
         fullCleanup()
         callbacksRef.current.onSourceStopped?.()
       }))
@@ -311,6 +346,9 @@ export function useDeepgramTranscription(options: Options) {
       fullCleanup()
     }
   }, [fullCleanup, queueOrSend])
+
+  const startRef = useRef(start)
+  startRef.current = start
 
   const stop = useCallback(async () => {
     manualStopRef.current = true

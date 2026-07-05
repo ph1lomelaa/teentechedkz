@@ -12,7 +12,8 @@ from app.core.deps import CurrentUser
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
 from app.models.pending_insight import PendingInsight, InsightStatus
 from app.models.student import Student
-from app.models.user import UserRole
+from app.models.user import User, UserRole
+from app.models.mentor_assignment import MentorAssignment
 from app.core.audit import log_change
 from app.services.mentor_scope import mentor_assigned_student_ids
 from app.services.student_notes import apply_student_updates, build_profile_diff, snapshot_student
@@ -67,6 +68,7 @@ async def list_all_pending_insights(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
     status: str | None = None,
+    scope: str = "all",
 ):
     query = select(PendingInsight).order_by(PendingInsight.created_at.desc())
     if status:
@@ -78,15 +80,16 @@ async def list_all_pending_insights(
     result = await db.execute(query)
     insights = result.scalars().all()
 
-    allowed_ids = await mentor_assigned_student_ids(db, current_user)
-
     out = []
     for insight in insights:
-        if allowed_ids is not None and insight.student_id not in allowed_ids:
+        responsibles, is_mine = await _student_responsibles(db, insight.student_id, current_user.id)
+        if scope == "mine" and not is_mine:
             continue
         student = await db.get(Student, insight.student_id)
         insight_dict = _insight_to_dict(insight)
         insight_dict["student_name"] = student.full_name if student else None
+        insight_dict["responsibles"] = responsibles
+        insight_dict["is_mine"] = is_mine
         if insight.status == InsightStatus.pending and student:
             insight_dict["diff"] = build_profile_diff(snapshot_student(student), insight.proposed_changes or {})
         else:
@@ -127,11 +130,6 @@ async def review_insight(
     insight = result.scalar_one_or_none()
     if not insight:
         raise HTTPException(status_code=404, detail="Инсайт не найден")
-
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        allowed_ids = await mentor_assigned_student_ids(db, current_user)
-        if allowed_ids is None or insight.student_id not in allowed_ids:
-            raise HTTPException(status_code=403, detail="Access denied")
 
     action = body.get("action")
     if action not in ("approve", "reject"):
@@ -201,3 +199,23 @@ def _insight_to_dict(i: PendingInsight) -> dict:
         "created_at": i.created_at.isoformat(),
         "reviewed_at": i.reviewed_at.isoformat() if i.reviewed_at else None,
     }
+
+
+async def _student_responsibles(db: AsyncSession, student_id: uuid.UUID, current_user_id: uuid.UUID) -> tuple[list[dict], bool]:
+    result = await db.execute(
+        select(MentorAssignment)
+        .where(MentorAssignment.student_id == student_id)
+    )
+    assignments = result.scalars().all()
+    responsibles = []
+    for a in assignments:
+        user = await db.get(User, a.mentor_id)
+        responsibles.append({
+            "id": str(a.mentor_id),
+            "assignment_id": str(a.id),
+            "name": user.name if user else None,
+            "role": a.role.value,
+            "is_active": a.is_active,
+        })
+    is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
+    return responsibles, is_mine

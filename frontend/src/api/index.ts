@@ -262,6 +262,22 @@ export const mentorAssignmentsApi = {
     )
     return response.data
   },
+  assignSelf: async (studentId: string): Promise<MentorAssignment> => {
+    const response = await apiClient.post<MentorAssignment>(
+      `/mentor-assignments/student/${studentId}/self`
+    )
+    return response.data
+  },
+  setSelfActive: async (
+    studentId: string,
+    isActive: boolean
+  ): Promise<MentorAssignment> => {
+    const response = await apiClient.patch<MentorAssignment>(
+      `/mentor-assignments/student/${studentId}/self`,
+      { is_active: isActive }
+    )
+    return response.data
+  },
 }
 
 export const pendingInsightsApi = {
@@ -269,9 +285,12 @@ export const pendingInsightsApi = {
     const response = await apiClient.post(`/communications/pending-insights/${id}/review`, { action })
     return response.data
   },
-  listAll: async (status?: string): Promise<InsightWithDiff[]> => {
+  listAll: async (
+    status?: string,
+    scope?: 'all' | 'mine'
+  ): Promise<InsightWithDiff[]> => {
     const response = await apiClient.get<InsightWithDiff[]>('/communications/pending-insights', {
-      params: status ? { status } : undefined,
+      params: { ...(status ? { status } : {}), ...(scope ? { scope } : {}) },
     })
     return response.data
   },

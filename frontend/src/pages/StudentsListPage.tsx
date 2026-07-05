@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Download, Search, RefreshCw, Inbox, EyeOff, Eye, CheckCheck } from 'lucide-react'
 import { studentsApi } from '@/api/students'
+import { mentorAssignmentsApi } from '@/api/index'
 import { syncApi, IntakeSubmission } from '@/api/sync'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -335,6 +336,7 @@ export const StudentsListPage: React.FC = () => {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
   const [page, setPage] = useState(1)
   const [searchParams, setSearchParams] = useSearchParams()
   const showInbox = searchParams.get('inbox') === '1'
@@ -358,14 +360,35 @@ export const StudentsListPage: React.FC = () => {
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['students', debouncedSearch, statusFilter, page],
+    queryKey: ['students', debouncedSearch, statusFilter, scope, page],
     queryFn: () =>
       studentsApi.list({
         search: debouncedSearch || undefined,
         pipeline_status: (statusFilter as PipelineStatus) || undefined,
+        scope,
         page,
         size: 20,
       }),
+  })
+
+  const assignSelfMutation = useMutation({
+    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Студент добавлен в ваши' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
+
+  const unassignSelfMutation = useMutation({
+    mutationFn: (studentId: string) => mentorAssignmentsApi.setSelfActive(studentId, false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Студент снят с ваших' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось снять студента', variant: 'destructive' }),
   })
 
   const { data: syncStatus } = useQuery({
@@ -464,7 +487,29 @@ export const StudentsListPage: React.FC = () => {
       {isManager && showInbox && <IntakeInbox />}
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+          {[
+            { value: 'all', label: 'Все' },
+            { value: 'mine', label: 'Мои' },
+            { value: 'unassigned', label: 'Без ответственного' },
+          ].map((item) => (
+            <button
+              key={item.value}
+              onClick={() => {
+                setScope(item.value as typeof scope)
+                setPage(1)
+              }}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                scope === item.value
+                  ? 'bg-white text-black shadow-sm'
+                  : 'text-gray-600 hover:text-black hover:bg-gray-50'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
           <Input
@@ -499,6 +544,7 @@ export const StudentsListPage: React.FC = () => {
               <TableHead>Программа</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead>Год</TableHead>
+              <TableHead>Ответственные</TableHead>
               {isManager && <TableHead>Анкеты</TableHead>}
               <TableHead />
             </TableRow>
@@ -506,13 +552,13 @@ export const StudentsListPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 6 : 5} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 7 : 6} className="text-center py-12 text-gray-500 text-sm">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 6 : 5} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 7 : 6} className="text-center py-12 text-gray-500 text-sm">
                   Студенты не найдены
                 </TableCell>
               </TableRow>
@@ -547,6 +593,18 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-gray-600">{student.intake_year}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {student.is_mine && (
+                        <span className="w-fit text-[10px] px-1.5 py-0.5 rounded-[2px] border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
+                          Мой
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500 max-w-[180px] truncate">
+                        {student.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
+                      </span>
+                    </div>
+                  </TableCell>
                   {isManager && (
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -574,12 +632,27 @@ export const StudentsListPage: React.FC = () => {
                     </TableCell>
                   )}
                   <TableCell>
-                    <Link
-                      to={`/students/${student.id}`}
-                      className="label-caps text-gray-500 hover:text-black transition-colors"
-                    >
-                      Открыть →
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        className={`label-caps transition-colors ${
+                          student.is_mine ? 'text-emerald-700 hover:text-emerald-800' : 'text-gray-500 hover:text-black'
+                        }`}
+                        disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
+                        onClick={() =>
+                          student.is_mine
+                            ? unassignSelfMutation.mutate(student.id)
+                            : assignSelfMutation.mutate(student.id)
+                        }
+                      >
+                        {student.is_mine ? '★ Мой' : '☆ Взять'}
+                      </button>
+                      <Link
+                        to={`/students/${student.id}`}
+                        className="label-caps text-gray-500 hover:text-black transition-colors"
+                      >
+                        Открыть →
+                      </Link>
+                    </div>
                   </TableCell>
                 </TableRow>
               )})

@@ -2,9 +2,9 @@ import apiClient from './client'
 import { TelegramChat, TelegramChatInsight, TelegramMessage, TelegramPairingCode } from '../types'
 
 export const telegramApi = {
-  listAll: async (status?: string): Promise<TelegramChat[]> => {
+  listAll: async (status?: string, scope?: 'all' | 'mine' | 'unassigned'): Promise<TelegramChat[]> => {
     const response = await apiClient.get<TelegramChat[]>('/telegram-chats/', {
-      params: status ? { status } : undefined,
+      params: { ...(status ? { status } : {}), ...(scope ? { scope } : {}) },
     })
     return response.data
   },

@@ -16,7 +16,7 @@ router = APIRouter(prefix="/confidential-notes", tags=["confidential_notes"])
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 

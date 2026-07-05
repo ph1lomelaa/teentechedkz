@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquareWarning, Paperclip } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
-import { useAuth } from '@/contexts/AuthContext'
+import { mentorAssignmentsApi } from '@/api/index'
 import {
   TelegramChat,
   TelegramChatStatus,
@@ -48,17 +48,17 @@ function formatDate(iso: string | null) {
 export default function TelegramInboxPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { hasRole } = useAuth()
-  const canManage = hasRole('admin', 'mzk_manager')
+  const canManage = true
 
   const [tab, setTab] = useState<TelegramChatStatus | 'all'>('all')
+  const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
   const [attachTarget, setAttachTarget] = useState<TelegramChat | null>(null)
   const [reassignTarget, setReassignTarget] = useState<TelegramChat | null>(null)
   const [closeTarget, setCloseTarget] = useState<TelegramChat | null>(null)
 
   const { data: chats = [], isLoading } = useQuery({
-    queryKey: ['telegram-chats', 'all'],
-    queryFn: () => telegramApi.listAll(),
+    queryKey: ['telegram-chats', 'all', scope],
+    queryFn: () => telegramApi.listAll(undefined, scope),
   })
 
   const filtered = useMemo(() => {
@@ -67,6 +67,15 @@ export default function TelegramInboxPage() {
   }, [chats, tab])
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['telegram-chats'] })
+
+  const assignStudentMutation = useMutation({
+    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
+    onSuccess: () => {
+      invalidate()
+      toast({ title: 'Студент добавлен в ваши' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
 
   const attachMutation = useMutation({
     mutationFn: (studentId: string) => telegramApi.attach(attachTarget!.id, studentId),
@@ -123,6 +132,26 @@ export default function TelegramInboxPage() {
       </div>
 
       <div className="flex gap-1 border-b border-gray-200">
+        {[
+          { value: 'all', label: 'Все' },
+          { value: 'mine', label: 'Мои' },
+          { value: 'unassigned', label: 'Без ответственного' },
+        ].map((s) => (
+          <button
+            key={s.value}
+            onClick={() => setScope(s.value as typeof scope)}
+            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+              scope === s.value
+                ? 'border-black text-gray-900 font-medium'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-1 border-b border-gray-200">
         {TABS.map((t) => (
           <button
             key={t.value}
@@ -148,8 +177,9 @@ export default function TelegramInboxPage() {
             <TableRow>
               <TableHead>Чат</TableHead>
               <TableHead>Статус</TableHead>
-              <TableHead>Студент</TableHead>
-              <TableHead>Последнее сообщение</TableHead>
+                <TableHead>Студент</TableHead>
+                <TableHead>Ответственные</TableHead>
+                <TableHead>Последнее сообщение</TableHead>
               <TableHead>Не разобрано</TableHead>
               {canManage && <TableHead className="text-right">Действия</TableHead>}
             </TableRow>
@@ -180,10 +210,22 @@ export default function TelegramInboxPage() {
                 </TableCell>
                 <TableCell>
                   {chat.student_name ? (
-                    <span className="text-gray-800">{chat.student_name}</span>
+                    <div className="space-y-1">
+                      <span className="text-gray-800">{chat.student_name}</span>
+                      {chat.is_mine && (
+                        <span className="block w-fit text-[10px] px-1.5 py-0.5 rounded-[2px] border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
+                          Мой чат
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-gray-400">—</span>
                   )}
+                </TableCell>
+                <TableCell>
+                  <span className="text-xs text-gray-500 max-w-[160px] block truncate">
+                    {chat.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
+                  </span>
                 </TableCell>
                 <TableCell className="text-sm text-gray-600">
                   <div className="max-w-[240px] truncate">{chat.last_message_preview || '—'}</div>
@@ -216,6 +258,17 @@ export default function TelegramInboxPage() {
                       {chat.student_id && (
                         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setReassignTarget(chat)}>
                           Сменить студента
+                        </Button>
+                      )}
+                      {chat.student_id && !chat.is_mine && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          disabled={assignStudentMutation.isPending}
+                          onClick={() => assignStudentMutation.mutate(chat.student_id!)}
+                        >
+                          Взять
                         </Button>
                       )}
                       {chat.status === 'active' && (

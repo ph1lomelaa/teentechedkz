@@ -18,6 +18,7 @@ from .sync_status import SyncStatus
 from .student_note import StudentNote, StudentNoteStatus
 from .note_session import NoteSession, NoteSessionStatus
 from .note_transcript import NoteTranscript
+from .note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from .intake_submission import IntakeSubmission, IntakeSource, IntakeStatus
 from .telegram_chat import TelegramChat, TelegramChatType, TelegramChatStatus
 from .telegram_chat_session import TelegramChatSession, TelegramSessionStatus

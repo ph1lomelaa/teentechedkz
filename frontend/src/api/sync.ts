@@ -33,6 +33,7 @@ export interface ComparisonRow {
   crm?: string
   mismatch: boolean | null
   human_only: boolean
+  crm_matches: boolean | null
 }
 
 export interface StudentIntake {
