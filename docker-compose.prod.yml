@@ -29,14 +29,16 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: tte_backend_prod
     env_file: .env
     environment:
       ENVIRONMENT: production
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tte}:${POSTGRES_PASSWORD:-tte}@postgres:5432/${POSTGRES_DB:-tte_db}
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./google_service_account.json:/data/google_service_account.json:ro
     depends_on:
       - postgres
       - minio
