@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+*.pyc
+
+# FastAPI / Alembic
+alembic/versions/*.pyc
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Local ngrok tunnel state (pid/log)
+.ngrok/
+
+# Node / React
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/node_modules/
+
+# Docker volumes
+postgres_data/
+minio_data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Secrets & keys
+*.pem
+*.key
+*.cert
+google_service_account.json
+client_secrets.json
+authorized_user.json
+
+# Excel migration files (sensitive data)
+migration/data/
+*.xlsx
+*.xls
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

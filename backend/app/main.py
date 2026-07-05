@@ -1,0 +1,99 @@
+from contextlib import asynccontextmanager
+import logging
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.config import settings
+from app.api.v1.router import api_router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("TeenTechEd CRM starting up...")
+    # Register Telegram webhook if token is configured
+    webhook_health_task = None
+    if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_WEBHOOK_URL:
+        try:
+            from app.services.telegram_bot import get_bot, webhook_health_loop
+            bot = get_bot()
+            webhook_url = f"{settings.TELEGRAM_WEBHOOK_URL}"
+            await bot.set_webhook(
+                webhook_url,
+                secret_token=settings.TELEGRAM_WEBHOOK_SECRET or None,
+                allowed_updates=["message", "my_chat_member"],
+            )
+            logger.info(f"Telegram webhook set: {webhook_url}")
+            import asyncio
+            webhook_health_task = asyncio.create_task(webhook_health_loop())
+        except Exception as e:
+            logger.warning(f"Failed to set Telegram webhook: {e}")
+
+    # Автосинк анкет из Google Sheets (если настроен service account)
+    sheets_task = None
+    from app.services.sheets_sync import is_configured, sync_loop
+    if is_configured():
+        import asyncio
+        sheets_task = asyncio.create_task(sync_loop())
+    else:
+        logger.info("Sheets sync disabled: service account key is not configured")
+
+    yield
+    if sheets_task:
+        sheets_task.cancel()
+    if webhook_health_task:
+        webhook_health_task.cancel()
+    logger.info("TeenTechEd CRM shutting down...")
+    if settings.TELEGRAM_BOT_TOKEN:
+        try:
+            from app.services.telegram_bot import get_bot
+            bot = get_bot()
+            await bot.session.close()
+        except Exception:
+            pass
+
+
+app = FastAPI(
+    title="TeenTechEd CRM",
+    description="CRM для образовательного консалтинга TeenTechEd",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(api_router)
+
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "Not found", "code": "NOT_FOUND"},
+    )
+
+
+@app.exception_handler(403)
+async def forbidden_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "Access denied", "code": "FORBIDDEN"},
+    )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "teenteched-crm"}

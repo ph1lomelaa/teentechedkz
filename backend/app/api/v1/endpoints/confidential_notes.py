@@ -1,0 +1,98 @@
+from __future__ import annotations
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.database import get_db
+from app.core.deps import CurrentUser
+from app.core.encryption import encrypt, decrypt
+from app.models.confidential_note import ConfidentialNote, NoteVisibility
+from app.models.user import UserRole
+
+router = APIRouter(prefix="/confidential-notes", tags=["confidential_notes"])
+
+
+def _require_admin_mzk(user):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+@router.get("/student/{student_id}")
+async def get_notes(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+    result = await db.execute(
+        select(ConfidentialNote)
+        .where(ConfidentialNote.student_id == student_id)
+        .order_by(ConfidentialNote.created_at)
+    )
+    notes = result.scalars().all()
+    return [_note_to_dict(n) for n in notes]
+
+
+@router.post("")
+async def create_note(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+
+    note_text = body.get("note_text", "").strip()
+    if not note_text:
+        raise HTTPException(status_code=422, detail="note_text обязателен")
+
+    try:
+        visibility = NoteVisibility(body.get("visible_to_role", "admin_only"))
+    except ValueError:
+        visibility = NoteVisibility.admin_only
+
+    note = ConfidentialNote(
+        student_id=uuid.UUID(body["student_id"]),
+        note_text_encrypted=encrypt(note_text),
+        visible_to_role=visibility,
+        created_by=current_user.id,
+    )
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_dict(note)
+
+
+@router.delete("/{note_id}")
+async def delete_note(
+    note_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+    result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
+    note = result.scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=404, detail="Заметка не найдена")
+    await db.delete(note)
+    await db.commit()
+    return {"message": "Deleted"}
+
+
+def _note_to_dict(n: ConfidentialNote) -> dict:
+    plain = None
+    if n.note_text_encrypted:
+        try:
+            plain = decrypt(n.note_text_encrypted)
+        except Exception:
+            plain = "[decrypt error]"
+    return {
+        "id": str(n.id),
+        "student_id": str(n.student_id),
+        "note_text": plain,
+        "visible_to_role": n.visible_to_role.value,
+        "created_by": str(n.created_by),
+        "created_at": n.created_at.isoformat(),
+    }

@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;900&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Единая тема: светлый контент + тёмный сайдбар (bg-sidebar).
+       Все компоненты и страницы используют только эти токены. */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 25%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 42%;
+
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 84%;
+    --ring: 0 0% 25%;
+
+    --radius: 4px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  /* Плоская контрастная кнопка: чёрная заливка / белый текст */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground font-medium px-4 py-2 rounded-[2px]
+           hover:bg-primary/85 transition-colors
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  /* Панель: белый фон + hairline, без теней */
+  .app-card {
+    @apply bg-card rounded-[2px] border border-border;
+  }
+
+  /* Мелкий uppercase-лейбл с letter-spacing */
+  .label-caps {
+    @apply text-[11px] uppercase tracking-caps text-muted-foreground font-medium;
+  }
+
+  /* Ghost-дубликат текста (hero-зоны на светлом фоне).
+     На тёмных панелях используй inline text-white/[0.04]. */
+  .ghost-text {
+    @apply absolute text-black/[0.04] font-black uppercase select-none pointer-events-none whitespace-nowrap;
+  }
+
+  /* Sidebar nav item (тёмный сайдбар) */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 text-sm font-medium
+           transition-colors duration-150 cursor-pointer border-l-2;
+  }
+
+  .nav-item-inactive {
+    @apply text-white/65 border-transparent hover:text-white/80;
+  }
+
+  .nav-item-active {
+    @apply text-white border-white/80;
+  }
+
+  /* Stat block */
+  .stat-card {
+    @apply bg-card rounded-[2px] border border-border p-5;
+  }
+
+  /* Table row hover */
+  .table-row-hover {
+    @apply hover:bg-muted/60 transition-colors duration-100;
+  }
+}
+
+/* Kanban */
+.kanban-column {
+  min-width: 240px;
+  max-width: 240px;
+}
+
+.kanban-container {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+}
+
+.kanban-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.kanban-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kanban-container::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 2px;
+}
+
+/* Scrollbar global */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
