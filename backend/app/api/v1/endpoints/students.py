@@ -290,6 +290,7 @@ async def list_students(
     pipeline_status: str | None = None,
     intake_year: int | None = None,
     mzk_manager_id: uuid.UUID | None = None,
+    lead_mentor_id: uuid.UUID | None = None,
     country: str | None = None,
     mentor_id: uuid.UUID | None = None,
     scope: str = Query("all", pattern="^(all|mine|unassigned)$"),
@@ -339,6 +340,10 @@ async def list_students(
     if country:
         query = query.join(Application, Application.student_id == Student.id, isouter=True)
         query = query.where(Application.country.ilike(f"%{country}%"))
+
+    if lead_mentor_id:
+        query = query.join(Application, Application.student_id == Student.id, isouter=True)
+        query = query.where(Application.lead_mentor_id == lead_mentor_id)
 
     if mentor_id:
         query = query.join(

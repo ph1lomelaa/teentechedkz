@@ -1,7 +1,7 @@
 """
-One-time Google OAuth authorization.
-Run once locally: python auth_google.py
-Opens browser → login → saves authorized_user.json
+One-time Google OAuth authorization for migration scripts.
+Run once locally: python migration/auth_google.py
+Opens browser -> login -> saves authorized_user.json next to this script.
 """
 import json
 import sys
@@ -37,12 +37,12 @@ flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRETS), SCOPES)
 creds = flow.run_local_server(port=0)
 
 output = {
-    "token":         creds.token,
+    "token": creds.token,
     "refresh_token": creds.refresh_token,
-    "token_uri":     creds.token_uri,
-    "client_id":     creds.client_id,
+    "token_uri": creds.token_uri,
+    "client_id": creds.client_id,
     "client_secret": creds.client_secret,
-    "scopes":        list(creds.scopes),
+    "scopes": list(creds.scopes),
 }
 
 out_path = Path(__file__).parent / "authorized_user.json"

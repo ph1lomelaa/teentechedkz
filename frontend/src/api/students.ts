@@ -15,6 +15,7 @@ export interface StudentsQueryParams {
   size?: number
   mentor_id?: string
   mzk_manager_id?: string
+  lead_mentor_id?: string
   country?: string
 }
 

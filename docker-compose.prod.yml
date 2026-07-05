@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: tte_postgres_prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tte}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tte}
+      POSTGRES_DB: ${POSTGRES_DB:-tte_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init_pgcrypto.sql:/docker-entrypoint-initdb.d/init_pgcrypto.sql:ro
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: tte_minio_prod
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: tte_redis_prod
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tte_backend_prod
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tte}:${POSTGRES_PASSWORD:-tte}@postgres:5432/${POSTGRES_DB:-tte_db}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - minio
+      - redis
+    restart: unless-stopped
+    command: >
+      sh -c "until nc -z postgres 5432; do echo 'Waiting for postgres...'; sleep 2; done &&
+             alembic upgrade head &&
+             python -m app.core.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://teenteched.duckdns.org}
+    container_name: tte_frontend_prod
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: tte_caddy_prod
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      CADDY_EMAIL: ${CADDY_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

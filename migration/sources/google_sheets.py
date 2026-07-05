@@ -29,7 +29,7 @@ def _get_authorized_user_info() -> dict | None:
     if path and os.path.exists(path):
         with open(path) as f:
             return json.load(f)
-    local = os.path.join(os.path.dirname(__file__), "..", "..", "authorized_user.json")
+    local = os.path.join(os.path.dirname(__file__), "..", "authorized_user.json")
     if os.path.exists(local):
         with open(local) as f:
             return json.load(f)
@@ -103,7 +103,7 @@ class GoogleSheetsClient:
             logger.info(f"Google Sheets: authenticated as {sa_info.get('client_email', '?')}")
         else:
             raise RuntimeError(
-                "Google credentials not found. Run python auth_google.py first, "
+                "Google credentials not found. Run python migration/auth_google.py first, "
                 "then set GOOGLE_AUTHORIZED_USER_JSON in .env"
             )
 
