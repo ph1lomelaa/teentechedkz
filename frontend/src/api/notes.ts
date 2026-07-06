@@ -107,7 +107,7 @@ export const notesApi = {
     const response = await apiClient.post<NoteSessionReconcileResult>(`/note-sessions/${sessionId}/reconcile-audio`)
     return response.data
   },
-  list: async (params?: { student_id?: string; status?: StudentNoteStatus }): Promise<StudentNote[]> => {
+  list: async (params?: { student_id?: string; status?: StudentNoteStatus; scope?: 'all' | 'mine' }): Promise<StudentNote[]> => {
     const response = await apiClient.get<StudentNote[]>('/notes', { params })
     return response.data
   },

@@ -9,19 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.audit import log_change
 from app.models.pending_insight import InsightStatus, InsightType, PendingInsight, RiskLevel
 from app.models.student import Student
 from app.models.telegram_message import TelegramMessage
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.student_notes import NOTEABLE_FIELDS, apply_student_updates, build_profile_diff, snapshot_student
-
-AUTO_APPLY_MIN_CONFIDENCE = 0.90
+from app.services.student_notes import NOTEABLE_FIELDS, build_profile_diff, sanitize_suggested_changes, snapshot_student
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +35,7 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
 Правила:
 - Не выдумывай факты, бери только то, что прямо сказано в сообщении.
 - proposed_changes должен содержать только поля карточки студента, которые реально надо обновить.
+- Намерения, планы и предположения ("думаю", "хочу", "планирую", "осенью ближе к 20 числам") не являются изменением поля профиля.
 - Если сообщение не содержит ничего значимого для профиля, verni proposed_changes пустым объектом и confidence 0.
 - confidence — твоя уверенность в правильности предложенных изменений, от 0 до 1.
 """
@@ -85,6 +82,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     proposed_changes = parsed.get("proposed_changes")
     if not isinstance(proposed_changes, dict) or not proposed_changes:
         return None
+    proposed_changes, context_unmatched = sanitize_suggested_changes(text, proposed_changes)
 
     try:
         insight_type = InsightType(parsed.get("insight_type", "status_update"))
@@ -96,6 +94,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
 
     diff = build_profile_diff(snapshot, proposed_changes)
     unmatched_fields = {k: v for k, v in proposed_changes.items() if k not in NOTEABLE_FIELDS}
+    unmatched_fields.update(context_unmatched)
     if not diff and not unmatched_fields:
         # LLM returned fields that don't actually differ from the current
         # profile (hallucinated or no-op) — nothing worth surfacing.
@@ -118,25 +117,6 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         risk_level=risk_level,
         status=InsightStatus.pending,
     )
-
-    if diff and risk_level == RiskLevel.low and confidence >= AUTO_APPLY_MIN_CONFIDENCE:
-        applied = apply_student_updates(student, proposed_changes)
-        for change in applied:
-            await log_change(
-                db,
-                "student",
-                student.id,
-                change["field"],
-                change["old_value"],
-                change["new_value"],
-                changed_by="ai",
-                source="ai_auto",
-            )
-        if applied:
-            student.updated_at = datetime.now(timezone.utc)
-        insight.status = InsightStatus.approved
-        insight.auto_applied = True
-        insight.reviewed_at = datetime.now(timezone.utc)
 
     db.add(insight)
     return insight

@@ -133,6 +133,7 @@ export default function TelegramChatDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['telegram-chat', chatId, 'insights'] })
       qc.invalidateQueries({ queryKey: ['telegram-chats'] })
+      qc.invalidateQueries({ queryKey: ['student-notes'] })
       toast({ title: 'Инсайт обработан' })
     },
     onError: (err) => toast({ title: 'Не удалось обработать инсайт', description: getErrorMessage(err), variant: 'destructive' }),

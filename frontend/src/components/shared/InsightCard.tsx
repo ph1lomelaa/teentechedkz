@@ -24,6 +24,7 @@ interface InsightCardProps {
 
 export function InsightCard({ insight, onApprove, onReject, isPending, showStudentLink, canReview = true }: InsightCardProps) {
   const unmatchedEntries = Object.entries(insight.unmatched_fields || {})
+  const canApprove = insight.diff.length > 0 || unmatchedEntries.length > 0
 
   return (
     <div className="border border-gray-100 rounded-[2px] p-3 text-sm space-y-2">
@@ -80,13 +81,13 @@ export function InsightCard({ insight, onApprove, onReject, isPending, showStude
 
       {insight.status === 'pending' && canReview && (
         <div className="flex gap-1.5 pt-1">
-          {insight.diff.length > 0 && (
+          {canApprove && (
             <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={onApprove}>
               Подтвердить
             </Button>
           )}
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={isPending} onClick={onReject}>
-            {insight.diff.length > 0 ? 'Отклонить' : 'Просмотрено'}
+            {canApprove ? 'Отклонить' : 'Просмотрено'}
           </Button>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft,
@@ -153,13 +153,12 @@ function EditableInfoRow({
       ) : !editing ? (
         <button
           type="button"
-          className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[2px] -mx-1 px-1 text-left text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 hover:bg-amber-50/70"
+          className="group flex min-w-0 cursor-pointer items-center rounded-[2px] -mx-1 px-1 text-left text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 hover:bg-amber-50/70"
           title="Редактировать"
           onClick={start}
           onDoubleClick={start}
         >
           <span className="min-w-0 break-words">{display ?? '—'}</span>
-          <Edit2 className="h-3.5 w-3.5 shrink-0 text-gray-300 group-hover:text-amber-600" />
         </button>
       ) : type === 'select' ? (
         <Select
@@ -403,12 +402,8 @@ function ServiceEditModal({
 export const StudentCardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
   const { canAccess, hasRole } = useAuth()
-  const canEditProfile = canAccess('all_students')
   const canEditContract = hasRole('admin', 'mzk_manager')
-  const [archiveOpen, setArchiveOpen] = useState(false)
-  const [archiveName, setArchiveName] = useState('')
 
   const [editOpen, setEditOpen] = useState(false)
   const [editService, setEditService] = useState<Service | null>(null)
@@ -452,22 +447,6 @@ export const StudentCardPage: React.FC = () => {
     enabled: !!id && hasRole('admin', 'mzk_manager'),
   })
 
-  const updateStudentFieldMutation = useMutation({
-    // Record<string, unknown>: для очистки поля бэкенду нужен явный null,
-    // которого нет в типах StudentFull (там поля string | undefined)
-    mutationFn: (patch: Record<string, unknown>) =>
-      studentsApi.update(id!, patch as Partial<StudentFull>),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
-      queryClient.invalidateQueries({ queryKey: ['students'] })
-      toast({ title: 'Сохранено' })
-    },
-    onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Не удалось сохранить', description: detail ?? 'Ошибка', variant: 'destructive' })
-    },
-  })
-
   const updateContractFieldMutation = useMutation({
     mutationFn: (patch: Record<string, unknown>) =>
       contractsApi.update(student!.contracts![0].id, patch),
@@ -491,18 +470,6 @@ export const StudentCardPage: React.FC = () => {
       })
     },
     onError: () => toast({ title: 'Не удалось отвязать', variant: 'destructive' }),
-  })
-
-  const archiveMutation = useMutation({
-    mutationFn: () => studentsApi.archive(id!),
-    onSuccess: () => {
-      toast({ title: 'Студент архивирован' })
-      navigate('/students')
-    },
-    onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Не удалось архивировать', description: detail ?? 'Ошибка', variant: 'destructive' })
-    },
   })
 
   const applyNotionFieldMutation = useMutation({
@@ -737,19 +704,20 @@ export const StudentCardPage: React.FC = () => {
         <Button
           variant={student.is_mine ? 'outline' : 'default'}
           size="sm"
+          className="h-10 px-4"
           disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
           onClick={() => {
             if (student.is_mine) unassignSelfMutation.mutate()
             else assignSelfMutation.mutate()
           }}
         >
-          {student.is_mine ? '★ Мой студент' : '☆ Взять в работу'}
+          {student.is_mine ? 'Мой студент' : 'Взять в работу'}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleExportStudent}>
+        <Button variant="outline" size="sm" className="h-10 px-4" onClick={handleExportStudent}>
           <Download className="w-4 h-4 mr-2" />
           Экспорт
         </Button>
-        <Button asChild variant="outline" size="sm">
+        <Button asChild variant="outline" size="sm" className="h-10 px-4">
           <Link to={`/notes?student_id=${student.id}&create=1`}>
             <BookText className="w-4 h-4 mr-2" />
             Конспекты
@@ -1058,54 +1026,22 @@ export const StudentCardPage: React.FC = () => {
           </AccordionTrigger>
           <AccordionContent>
             <div className="flex justify-end gap-2 mb-2">
-              {hasRole('admin') && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => {
-                    setArchiveName('')
-                    setArchiveOpen(true)
-                  }}
-                >
-                  <Trash2 className="w-3 h-3 mr-2" />
-                  Архивировать
-                </Button>
-              )}
               {canAccess('all_students') && (
-                <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Button variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => setEditOpen(true)}>
                   <Edit2 className="w-3 h-3 mr-2" />
                   Редактировать
                 </Button>
               )}
             </div>
-            <EditableInfoRow label="ФИО" display={student.full_name} canEdit={canEditProfile}
-              onSave={(v) => v && updateStudentFieldMutation.mutate({ full_name: v })} />
-            <EditableInfoRow label="Телефон" display={student.phone} canEdit={canEditProfile}
-              onSave={(v) => updateStudentFieldMutation.mutate({ phone: v })} />
-            <EditableInfoRow label="Город" display={student.city} canEdit={canEditProfile}
-              onSave={(v) => updateStudentFieldMutation.mutate({ city: v || null })} />
-            <EditableInfoRow label="Уровень" display={DEGREE_LEVEL_LABELS[student.degree_level]}
-              editValue={student.degree_level} canEdit={canEditProfile} type="select"
-              options={Object.entries(DEGREE_LEVEL_LABELS).map(([value, label]) => ({ value, label }))}
-              onSave={(v) => updateStudentFieldMutation.mutate({ degree_level: v as StudentFull['degree_level'] })} />
-            <EditableInfoRow label="Год поступления" display={student.intake_year} canEdit={canEditProfile} type="number"
-              onSave={(v) => {
-                const year = Number.parseInt(v, 10)
-                if (!year || year < 2000 || year > 2100) {
-                  toast({ title: 'Некорректный год', description: v, variant: 'destructive' })
-                  return
-                }
-                updateStudentFieldMutation.mutate({ intake_year: year })
-              }} />
-            <EditableInfoRow label="Специальность" display={student.specialty} canEdit={canEditProfile}
-              onSave={(v) => updateStudentFieldMutation.mutate({ specialty: v || null })} />
-            <EditableInfoRow label="GPA" display={student.gpa} canEdit={canEditProfile}
-              onSave={(v) => updateStudentFieldMutation.mutate({ gpa: v || null })} />
-            <EditableInfoRow label="Бюджет/год" display={student.budget_per_year} canEdit={canEditProfile}
-              onSave={(v) => updateStudentFieldMutation.mutate({ budget_per_year: v || null })} />
-            <EditableInfoRow label="Достижения" display={student.achievements_text} canEdit={canEditProfile} type="textarea"
-              onSave={(v) => updateStudentFieldMutation.mutate({ achievements_text: v || null })} />
+            <InfoRow label="ФИО" value={student.full_name} />
+            <InfoRow label="Телефон" value={student.phone} />
+            <InfoRow label="Город" value={student.city} />
+            <InfoRow label="Уровень" value={DEGREE_LEVEL_LABELS[student.degree_level]} />
+            <InfoRow label="Год поступления" value={student.intake_year} />
+            <InfoRow label="Специальность" value={student.specialty} />
+            <InfoRow label="GPA" value={student.gpa} />
+            <InfoRow label="Бюджет/год" value={student.budget_per_year} />
+            <InfoRow label="Достижения" value={student.achievements_text} />
             <InfoRow label="Дней в работе" value={student.days_in_work} />
 
             {canAccess('guardians') && (
@@ -1575,7 +1511,13 @@ export const StudentCardPage: React.FC = () => {
 
                   {telegramMessages.length > 0 ? (
                     <div className="space-y-2">
-                      {telegramMessages.slice(-10).map((m) => (
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Последние 5 из {telegramMessages.length}</span>
+                        <Link to={`/telegram-inbox/${telegramChat.id}`} className="text-gray-700 hover:text-black underline underline-offset-4">
+                          Вся переписка и логи
+                        </Link>
+                      </div>
+                      {telegramMessages.slice(-5).map((m) => (
                         <div key={m.id} className="text-sm border border-gray-200 rounded-[2px] p-2 bg-white">
                           <p className="text-[11px] text-gray-500 mb-0.5">
                             {m.sender_name || 'Без имени'} · {formatDate(m.created_at)}
@@ -1838,38 +1780,6 @@ export const StudentCardPage: React.FC = () => {
           onClose={() => setEditOpen(false)}
         />
       )}
-
-      {/* Archive confirm: требуется ввести полное имя */}
-      <Dialog open={archiveOpen} onOpenChange={(open) => !open && setArchiveOpen(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Архивировать студента?</DialogTitle>
-            <DialogDescription>
-              Студент исчезнет из списков, но данные сохранятся. Чтобы подтвердить,
-              введи полное имя: <span className="font-semibold text-gray-900">{student.full_name}</span>
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            placeholder="Полное имя студента"
-            value={archiveName}
-            onChange={(e) => setArchiveName(e.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setArchiveOpen(false)}>Отмена</Button>
-            <Button
-              variant="destructive"
-              disabled={
-                archiveName.trim().toLowerCase() !== student.full_name.trim().toLowerCase() ||
-                archiveMutation.isPending
-              }
-              onClick={() => archiveMutation.mutate()}
-            >
-              {archiveMutation.isPending ? 'Архивируем…' : 'Архивировать'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Edit service modal */}
       {editService && (

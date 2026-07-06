@@ -85,13 +85,25 @@ async def list_notes(
     db: Annotated[AsyncSession, Depends(get_db)],
     student_id: uuid.UUID | None = None,
     status: StudentNoteStatus | None = None,
+    scope: str = "all",
 ):
     query = select(StudentNote, Student.full_name).outerjoin(Student, Student.id == StudentNote.student_id)
     if student_id:
         query = query.where(StudentNote.student_id == student_id)
 
-    if not _is_staff_admin(current_user):
+    mentor_ids: set[uuid.UUID] | None = None
+    if scope == "mine":
         mentor_ids = await _mentor_student_ids(db, current_user.id)
+        if mentor_ids:
+            query = query.where(StudentNote.student_id.in_(mentor_ids))
+        else:
+            query = query.where(StudentNote.student_id.is_(None) & (StudentNote.created_by == current_user.id))
+    elif scope != "all":
+        raise HTTPException(status_code=422, detail="Неверный scope")
+
+    if not _is_staff_admin(current_user):
+        if mentor_ids is None:
+            mentor_ids = await _mentor_student_ids(db, current_user.id)
         if mentor_ids:
             query = query.where(
                 (StudentNote.student_id.is_(None) & (StudentNote.created_by == current_user.id))

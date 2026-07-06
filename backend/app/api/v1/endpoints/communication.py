@@ -12,11 +12,18 @@ from app.core.deps import CurrentUser
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
 from app.models.pending_insight import PendingInsight, InsightStatus
 from app.models.student import Student
+from app.models.student_note import StudentNote, StudentNoteStatus
+from app.models.telegram_message import TelegramMessage
 from app.models.user import User, UserRole
 from app.models.mentor_assignment import MentorAssignment
 from app.core.audit import log_change
 from app.services.mentor_scope import mentor_assigned_student_ids
-from app.services.student_notes import apply_student_updates, build_profile_diff, snapshot_student
+from app.services.student_notes import (
+    apply_student_updates,
+    build_insight_note_markdown,
+    build_profile_diff,
+    snapshot_student,
+)
 
 router = APIRouter(prefix="/communications", tags=["communications"])
 
@@ -150,6 +157,7 @@ async def review_insight(
     insight.status = InsightStatus.approved
     student = await db.get(Student, insight.student_id)
     if student:
+        snapshot = snapshot_student(student)
         applied_changes = apply_student_updates(student, insight.proposed_changes or {})
         for change in applied_changes:
             await log_change(
@@ -164,6 +172,32 @@ async def review_insight(
             )
         if applied_changes:
             student.updated_at = datetime.now(timezone.utc)
+        if insight.unmatched_fields:
+            source_text = ""
+            if insight.source_telegram_message_id:
+                source_message = await db.get(TelegramMessage, insight.source_telegram_message_id)
+                source_text = source_message.raw_text if source_message else ""
+            db.add(
+                StudentNote(
+                    student_id=student.id,
+                    title="AI-инсайт из Telegram",
+                    source_text=source_text or "AI-инсайт без исходного текста",
+                    summary_markdown=build_insight_note_markdown(
+                        source_text=source_text,
+                        snapshot=snapshot,
+                        proposed_changes=insight.proposed_changes or {},
+                        unmatched_fields=insight.unmatched_fields or {},
+                    ),
+                    profile_snapshot=snapshot,
+                    suggested_changes={},
+                    applied_changes={},
+                    status=StudentNoteStatus.approved,
+                    created_by=current_user.id,
+                    reviewed_by=current_user.id,
+                    created_at=datetime.now(timezone.utc),
+                    reviewed_at=datetime.now(timezone.utc),
+                )
+            )
 
     await db.commit()
     await db.refresh(insight)

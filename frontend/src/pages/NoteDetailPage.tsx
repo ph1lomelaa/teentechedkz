@@ -235,13 +235,6 @@ export const NoteDetailPage: React.FC = () => {
           <CardContent>{preview}</CardContent>
         </Card>
 
-        <Card className="border-slate-200 bg-white">
-          <CardHeader>
-            <CardTitle className="text-base text-slate-900">Снимок профиля</CardTitle>
-            <CardDescription>Профиль студента на момент создания конспекта</CardDescription>
-          </CardHeader>
-          <CardContent>{renderEntries(note.profile_snapshot)}</CardContent>
-        </Card>
         </div>
       </div>
     </div>

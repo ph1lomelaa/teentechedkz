@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.student_notes import build_summary_markdown, parse_suggested_changes
+from app.services.student_notes import build_summary_markdown, parse_suggested_changes, sanitize_suggested_changes
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +29,15 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
 Правила:
 - Не выдумывай факты.
 - Если изменение не подтверждается транскриптом, не добавляй его.
+- Отделяй подтверждённые факты от планов и намерений. Фразы вроде "думаю", "хочу", "планирую", "рассматриваю" должны попасть в summary_markdown как заметка, но не в suggested_changes.
 - suggested_changes должен содержать только поля карточки студента, которые реально надо обновить.
 - Если ничего менять не нужно, suggested_changes верни пустым объектом.
 
 Требования к summary_markdown (пиши для менеджера, а не для машины):
-- 2–4 предложения о сути разговора, затем при необходимости короткие списки «Договорённости» и «Следующие шаги».
+- 2–4 предложения о сути разговора, затем короткие блоки «Сравнение с текущей карточкой», «Подтверждённые факты», «Планы/намерения», «Рекомендуемые заметки в профиль», «Следующие шаги».
+- В «Сравнение с текущей карточкой» прямо укажи, что уже было в профиле и что появилось в разговоре.
+- В «Рекомендуемые заметки в профиль» предложи 2–5 конкретных заметок для отслеживания статуса ученика: мотивация, риски, дедлайны, сомнения, договорённости, важные предпочтения, документы/экзамены/финансы. Пиши так, чтобы менеджер мог сразу понять, стоит ли сохранить заметку.
+- Не пиши очевидные дубли полей профиля как заметки. Например, если GPA уже предложен как поле, заметка должна объяснять контекст: почему это важно, насколько подтверждено, что проверить дальше.
 - НЕ дублируй профиль студента (он и так открыт рядом) и НЕ перечисляй поля базы.
 - Никаких технических имён полей (full_name, budget_per_year...) и значений енумов (undergraduate) — только человеческий русский текст («ФИО», «Бакалавриат»).
 - Без заголовка первого уровня «#» — начинай сразу с текста или «##».
@@ -93,6 +97,8 @@ async def generate_note_draft(
     suggested_changes = parsed.get("suggested_changes")
     if not isinstance(suggested_changes, dict):
         suggested_changes = parse_suggested_changes(None, transcript)
+    else:
+        suggested_changes, _ = sanitize_suggested_changes(transcript, suggested_changes)
 
     summary = parsed.get("summary_markdown")
     if not isinstance(summary, str) or not summary.strip():

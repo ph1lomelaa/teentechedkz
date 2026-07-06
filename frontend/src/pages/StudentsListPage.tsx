@@ -50,6 +50,8 @@ const SOURCE_LABELS: Record<string, string> = {
   cases: 'Кейс (студент)',
 }
 
+type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
+
 /** Диалог привязки входящей анкеты к студенту */
 function LinkDialog({
   submission,
@@ -746,6 +748,9 @@ export const StudentsListPage: React.FC = () => {
   const [mentorFilter, setMentorFilter] = useState('')
   const [leadMentorFilter, setLeadMentorFilter] = useState('')
   const [mzkManagerFilter, setMzkManagerFilter] = useState('')
+  const [responsibleRole, setResponsibleRole] = useState<ResponsibleRoleFilter>('any')
+  const [intakeYearFilter, setIntakeYearFilter] = useState('')
+  const [countryFilter, setCountryFilter] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [responsibleSearch, setResponsibleSearch] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -794,7 +799,16 @@ export const StudentsListPage: React.FC = () => {
   // Список загружается целиком, поиск — на клиенте: терпит пробелы,
   // опечатки и кириллицу↔латиницу (см. fuzzyStudentMatch)
   const { data, isLoading } = useQuery({
-    queryKey: ['students', statusFilter, scope, mentorFilter, leadMentorFilter, mzkManagerFilter],
+    queryKey: [
+      'students',
+      statusFilter,
+      scope,
+      mentorFilter,
+      leadMentorFilter,
+      mzkManagerFilter,
+      intakeYearFilter,
+      countryFilter,
+    ],
     queryFn: () =>
       studentsApi.list({
         pipeline_status: (statusFilter as PipelineStatus) || undefined,
@@ -802,6 +816,8 @@ export const StudentsListPage: React.FC = () => {
         mentor_id: mentorFilter || undefined,
         lead_mentor_id: leadMentorFilter || undefined,
         mzk_manager_id: mzkManagerFilter || undefined,
+        intake_year: intakeYearFilter.length === 4 ? Number.parseInt(intakeYearFilter, 10) : undefined,
+        country: countryFilter.trim() || undefined,
         page: 1,
         size: 500,
       }),
@@ -891,7 +907,35 @@ export const StudentsListPage: React.FC = () => {
     (statusFilter ? 1 : 0) +
     (mentorFilter ? 1 : 0) +
     (leadMentorFilter ? 1 : 0) +
-    (mzkManagerFilter ? 1 : 0)
+    (mzkManagerFilter ? 1 : 0) +
+    (intakeYearFilter.length === 4 ? 1 : 0) +
+    (countryFilter.trim() ? 1 : 0)
+
+  const currentResponsibleUsers =
+    responsibleRole === 'mzk_manager'
+      ? mzkUsers
+      : responsibleRole === 'lead_mentor'
+        ? leadMentorUsers
+        : responsibleRole === 'mentor'
+          ? mentorUsers
+          : []
+
+  const selectedResponsibleId =
+    responsibleRole === 'mzk_manager'
+      ? mzkManagerFilter
+      : responsibleRole === 'lead_mentor'
+        ? leadMentorFilter
+        : responsibleRole === 'mentor'
+          ? mentorFilter
+          : ''
+
+  const setResponsibleFilter = (role: ResponsibleRoleFilter, userId = '') => {
+    setResponsibleRole(role)
+    setMzkManagerFilter(role === 'mzk_manager' ? userId : '')
+    setLeadMentorFilter(role === 'lead_mentor' ? userId : '')
+    setMentorFilter(role === 'mentor' ? userId : '')
+    setResponsibleSearch('')
+  }
 
   const handleExport = async () => {
     try {
@@ -1016,16 +1060,6 @@ export const StudentsListPage: React.FC = () => {
               </div>
               <div className="p-3 space-y-4">
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Поиск по именам</p>
-                  <Input
-                    value={responsibleSearch}
-                    onChange={(e) => setResponsibleSearch(e.target.value)}
-                    placeholder="Начните вводить имя..."
-                    className="h-9 text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Видимость</p>
                   <div className="grid grid-cols-3 gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
                     {[
@@ -1050,106 +1084,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">MZK</p>
-                  <div className="space-y-1.5 max-h-40 overflow-auto pr-1">
-                    <button
-                      type="button"
-                      onClick={() => setMzkManagerFilter('')}
-                      className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                        mzkManagerFilter === ''
-                          ? 'border-black bg-black text-white'
-                          : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                      }`}
-                    >
-                      Все MZK
-                    </button>
-                    {mzkUsers
-                      .filter((user) => user.name.toLowerCase().includes(responsibleSearch.trim().toLowerCase()))
-                      .map((user) => (
-                      <button
-                        key={user.id}
-                        type="button"
-                        onClick={() => setMzkManagerFilter(user.id)}
-                        className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                          mzkManagerFilter === user.id
-                            ? 'border-black bg-black text-white'
-                            : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        {user.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead mentor</p>
-                  <div className="space-y-1.5 max-h-40 overflow-auto pr-1">
-                    <button
-                      type="button"
-                      onClick={() => setLeadMentorFilter('')}
-                      className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                        leadMentorFilter === ''
-                          ? 'border-black bg-black text-white'
-                          : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                      }`}
-                    >
-                      Все lead mentors
-                    </button>
-                    {leadMentorUsers
-                      .filter((user) => user.name.toLowerCase().includes(responsibleSearch.trim().toLowerCase()))
-                      .map((user) => (
-                      <button
-                        key={user.id}
-                        type="button"
-                        onClick={() => setLeadMentorFilter(user.id)}
-                        className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                          leadMentorFilter === user.id
-                            ? 'border-black bg-black text-white'
-                            : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        {user.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Менторы</p>
-                  <div className="space-y-1.5 max-h-40 overflow-auto pr-1">
-                    <button
-                      type="button"
-                      onClick={() => setMentorFilter('')}
-                      className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                        mentorFilter === ''
-                          ? 'border-black bg-black text-white'
-                          : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                      }`}
-                    >
-                      Все менторы
-                    </button>
-                    {mentorUsers
-                      .filter((user) => user.name.toLowerCase().includes(responsibleSearch.trim().toLowerCase()))
-                      .map((user) => (
-                      <button
-                        key={user.id}
-                        type="button"
-                        onClick={() => setMentorFilter(user.id)}
-                        className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
-                          mentorFilter === user.id
-                            ? 'border-black bg-black text-white'
-                            : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        {user.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Статус</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Статус договора</p>
                   <Select
                     value={statusFilter || 'all'}
                     onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
@@ -1166,6 +1101,87 @@ export const StudentsListPage: React.FC = () => {
                   </Select>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Год</p>
+                    <Input
+                      value={intakeYearFilter}
+                      onChange={(e) => setIntakeYearFilter(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="2026"
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Страна</p>
+                    <Input
+                      value={countryFilter}
+                      onChange={(e) => setCountryFilter(e.target.value)}
+                      placeholder="USA, UK..."
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ответственный</p>
+                  <Select
+                    value={responsibleRole}
+                    onValueChange={(v) => setResponsibleFilter(v as ResponsibleRoleFilter)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Любая роль" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Любая роль</SelectItem>
+                      <SelectItem value="mzk_manager">MZK</SelectItem>
+                      <SelectItem value="lead_mentor">Lead mentor</SelectItem>
+                      <SelectItem value="mentor">Ментор</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {responsibleRole !== 'any' && (
+                    <div className="space-y-2">
+                      <Input
+                        value={responsibleSearch}
+                        onChange={(e) => setResponsibleSearch(e.target.value)}
+                        placeholder="Найти по имени..."
+                        className="h-9 text-sm"
+                      />
+                      <div className="space-y-1.5 max-h-44 overflow-auto pr-1">
+                        <button
+                          type="button"
+                          onClick={() => setResponsibleFilter(responsibleRole)}
+                          className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+                            selectedResponsibleId === ''
+                              ? 'border-black bg-black text-white'
+                              : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          Все в выбранной роли
+                        </button>
+                        {currentResponsibleUsers
+                          .filter((user) => user.name.toLowerCase().includes(responsibleSearch.trim().toLowerCase()))
+                          .map((user) => (
+                            <button
+                              key={user.id}
+                              type="button"
+                              onClick={() => setResponsibleFilter(responsibleRole, user.id)}
+                              className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+                                selectedResponsibleId === user.id
+                                  ? 'border-black bg-black text-white'
+                                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              {user.name}
+                            </button>
+                          ))}
+                        {currentResponsibleUsers.length === 0 && (
+                          <p className="px-2 py-2 text-sm text-gray-500">Пользователей нет</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <Button
                     type="button"
@@ -1177,6 +1193,9 @@ export const StudentsListPage: React.FC = () => {
                       setMentorFilter('')
                       setLeadMentorFilter('')
                       setMzkManagerFilter('')
+                      setResponsibleRole('any')
+                      setIntakeYearFilter('')
+                      setCountryFilter('')
                       setStatusFilter('')
                       setResponsibleSearch('')
                     }}

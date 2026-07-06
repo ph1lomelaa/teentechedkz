@@ -721,10 +721,6 @@ export const NoteSessionPage: React.FC = () => {
                     ? renderPairs(Object.fromEntries(draft.change_preview.map((item) => [item.field, `${entryValue(item.old_value)} → ${entryValue(item.new_value)}`])))
                     : renderPairs(draft.suggested_changes)}
                 </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Снимок профиля</p>
-                  {renderPairs(draft.profile_snapshot)}
-                </div>
               </>
             ) : (
               <div className="flex h-[30rem] items-center justify-center text-center">

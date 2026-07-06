@@ -24,6 +24,16 @@ NOTEABLE_FIELDS = (
     "intake_season",
 )
 
+SPECULATIVE_FIELD_NOTE_KEY = "context_note"
+SPECULATIVE_PROFILE_FIELDS = {"intake_year", "intake_season"}
+_SPECULATIVE_RE = re.compile(
+    r"\b("
+    r"думаю|планирую|хочу|рассматриваю|возможно|наверн\w*|скорее|может|собираюсь|"
+    r"considering|thinking|maybe|probably|closer"
+    r")\b|\bближе\b",
+    re.IGNORECASE,
+)
+
 
 def snapshot_student(student: Student) -> dict[str, Any]:
     return {
@@ -47,10 +57,41 @@ def snapshot_student(student: Student) -> dict[str, Any]:
 def parse_suggested_changes(raw: dict[str, Any] | None, source_text: str) -> dict[str, Any]:
     parsed = dict(raw or {})
     if parsed:
+        parsed, _ = sanitize_suggested_changes(source_text, parsed)
         return parsed
 
     parsed.update(_extract_from_text(source_text))
+    parsed, _ = sanitize_suggested_changes(source_text, parsed)
     return parsed
+
+
+def sanitize_suggested_changes(
+    source_text: str,
+    suggested_changes: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Keep uncertain plans out of structured profile fields.
+
+    Example: "думаю подаваться осенью" is useful context, but it should not
+    silently become intake_season=fall. We surface it as a note candidate.
+    """
+    cleaned = dict(suggested_changes or {})
+    unmatched: dict[str, Any] = {}
+    if not cleaned:
+        return cleaned, unmatched
+
+    compact_text = " ".join((source_text or "").split())
+    if not compact_text or not _SPECULATIVE_RE.search(compact_text):
+        return cleaned, unmatched
+
+    moved: dict[str, Any] = {}
+    for field in list(cleaned.keys()):
+        if field in SPECULATIVE_PROFILE_FIELDS:
+            moved[field] = cleaned.pop(field)
+
+    if moved:
+        unmatched[SPECULATIVE_FIELD_NOTE_KEY] = compact_text[:500]
+        unmatched["suggested_but_uncertain"] = moved
+    return cleaned, unmatched
 
 
 FIELD_LABELS_RU: dict[str, str] = {
@@ -91,32 +132,145 @@ def humanize_value(value: Any) -> str:
 
 
 def build_summary_markdown(title: str, source_text: str, snapshot: dict[str, Any], suggested_changes: dict[str, Any]) -> str:
-    """Конспект для менеджера: суть разговора + изменения «было → станет».
-    Профиль студента не дублируем — он и так открыт рядом в карточке."""
+    """Конспект для менеджера: суть разговора + сравнение с текущей карточкой."""
     chunks: list[str] = [f"## {title.strip() or 'Конспект'}"]
 
     body_lines = [line.strip(" -•\t") for line in source_text.splitlines() if line.strip()]
     if body_lines:
         chunks.append("")
-        for line in body_lines[:12]:
+        chunks.append("**Что появилось**")
+        for line in body_lines[:8]:
             chunks.append(f"- {line}")
 
     chunks.append("")
-    chunks.append("**Предлагаемые изменения**")
+    chunks.append("**Сравнение с текущей карточкой**")
     if suggested_changes:
         for key, value in suggested_changes.items():
+            if key not in NOTEABLE_FIELDS:
+                continue
             old = humanize_value(snapshot.get(key))
             new = humanize_value(value)
-            chunks.append(f"- {humanize_field(key)}: {old} → **{new}**")
+            chunks.append(f"- {humanize_field(key)}: сейчас {old}, предлагается {new}")
     else:
-        chunks.append("- Изменений не обнаружено")
+        chunks.append("- Подтверждённых изменений для полей карточки нет.")
+
+    chunks.append("")
+    chunks.append("**Контекст для менеджера**")
+    if body_lines:
+        chunks.append("- Проверьте, какие детали стоит сохранить как отдельные заметки по статусу ученика.")
+    else:
+        chunks.append("- Источник не содержит текста для анализа.")
+
+    chunks.append("")
+    chunks.append("**Рекомендуемые заметки в профиль**")
+    recommendations = _build_profile_note_recommendations(source_text, suggested_changes)
+    if recommendations:
+        chunks.extend(f"- {item}" for item in recommendations)
+    else:
+        chunks.append("- Новых заметок для отслеживания статуса не выявлено.")
 
     return "\n".join(chunks)
+
+
+def build_insight_note_markdown(
+    *,
+    source_text: str,
+    snapshot: dict[str, Any],
+    proposed_changes: dict[str, Any],
+    unmatched_fields: dict[str, Any],
+) -> str:
+    chunks: list[str] = ["## AI-инсайт из Telegram"]
+    compact = " ".join((source_text or "").split())
+
+    chunks.append("")
+    chunks.append("**Что сказал студент/родитель**")
+    chunks.append(f"- {compact or 'Текст сообщения отсутствует.'}")
+
+    chunks.append("")
+    chunks.append("**Сравнение с текущей карточкой**")
+    comparable = {key: value for key, value in proposed_changes.items() if key in NOTEABLE_FIELDS}
+    if comparable:
+        for key, value in comparable.items():
+            chunks.append(
+                f"- {humanize_field(key)}: сейчас {humanize_value(snapshot.get(key))}, предлагается {humanize_value(value)}"
+            )
+    else:
+        chunks.append("- Подтверждённых изменений для структурных полей нет.")
+
+    context_note = unmatched_fields.get(SPECULATIVE_FIELD_NOTE_KEY)
+    uncertain = unmatched_fields.get("suggested_but_uncertain")
+    other_unmatched = {
+        key: value
+        for key, value in unmatched_fields.items()
+        if key not in {SPECULATIVE_FIELD_NOTE_KEY, "suggested_but_uncertain"}
+    }
+
+    chunks.append("")
+    chunks.append("**Как интерпретировать**")
+    if context_note and uncertain:
+        chunks.append("- В сообщении есть намерение или план, но не подтверждённое изменение профиля.")
+        for key, value in dict(uncertain).items():
+            chunks.append(f"- Не менять поле «{humanize_field(key)}» автоматически: кандидат был {humanize_value(value)}.")
+    elif comparable:
+        chunks.append("- Изменение можно применять только после проверки менеджером.")
+    else:
+        chunks.append("- Это контекстная заметка без изменения полей карточки.")
+
+    if other_unmatched:
+        chunks.append("")
+        chunks.append("**Несопоставленные детали**")
+        for key, value in other_unmatched.items():
+            chunks.append(f"- {key}: {humanize_value(value)}")
+
+    chunks.append("")
+    chunks.append("**Рекомендуемая заметка в профиль**")
+    if context_note:
+        chunks.append(f"- {context_note}")
+    elif compact:
+        chunks.append(f"- Проверить и сохранить контекст из сообщения: {compact[:240]}")
+    else:
+        chunks.append("- Новых заметок для отслеживания статуса не выявлено.")
+
+    return "\n".join(chunks)
+
+
+def _build_profile_note_recommendations(source_text: str, suggested_changes: dict[str, Any]) -> list[str]:
+    compact = " ".join((source_text or "").split())
+    lowered = compact.lower()
+    recommendations: list[str] = []
+
+    if not compact:
+        return recommendations
+
+    if _SPECULATIVE_RE.search(compact):
+        recommendations.append(f"Намерение/план ученика требует уточнения: {compact[:220]}")
+    if re.search(r"deadline|дедлайн|до \d|числ|осень|весн|подав", lowered, re.IGNORECASE):
+        recommendations.append("Зафиксировать сроки и ближайший контрольный шаг по поступлению.")
+    if re.search(r"gpa|гпа|ielts|sat|toefl|экзамен|сертификат|грамот|отчет|отчёт", lowered, re.IGNORECASE):
+        recommendations.append("Проверить подтверждающие документы/результаты и отметить, что уже загружено.")
+    if re.search(r"бюджет|оплат|деньг|финанс|стоим", lowered, re.IGNORECASE):
+        recommendations.append("Отдельно сохранить финансовый контекст: бюджет, ограничения, кто принимает решение.")
+    if re.search(r"сомнев|не уверен|не знаю|пережив|риск|проблем", lowered, re.IGNORECASE):
+        recommendations.append("Сохранить риск или сомнение ученика, чтобы вернуться к нему на следующем контакте.")
+
+    for field in suggested_changes:
+        if field in {"gpa", "achievements_text", "intake_year", "intake_season", "budget_per_year"}:
+            recommendations.append(
+                f"После подтверждения поля «{humanize_field(field)}» добавить короткий контекст: откуда взялось изменение и что проверить дальше."
+            )
+
+    deduped: list[str] = []
+    for item in recommendations:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped[:5]
 
 
 def coerce_student_value(field: str, value: Any) -> Any:
     if field in {"age", "intake_year"}:
         if value in (None, ""):
+            return None
+        if isinstance(value, str) and not value.strip():
             return None
         return int(value)
     if field == "degree_level":
@@ -147,7 +301,10 @@ def apply_student_updates(student: Student, suggested_changes: dict[str, Any]) -
     for field, raw_new in suggested_changes.items():
         if field not in NOTEABLE_FIELDS:
             continue
-        new_value = coerce_student_value(field, raw_new)
+        try:
+            new_value = coerce_student_value(field, raw_new)
+        except (TypeError, ValueError):
+            continue
         old_value = getattr(student, field)
         if old_value != new_value:
             setattr(student, field, new_value)
