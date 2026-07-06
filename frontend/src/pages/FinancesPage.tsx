@@ -170,7 +170,7 @@ function NotionFinanceSection({
 
   return (
     <div className="mb-10">
-      <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <button
           type="button"
           onClick={() => onSelect({ source: 'notion', section: 'statuses' })}

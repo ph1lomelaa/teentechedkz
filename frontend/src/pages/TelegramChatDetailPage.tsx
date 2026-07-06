@@ -164,11 +164,11 @@ export default function TelegramChatDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => navigate('/telegram-inbox')}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[200px]">
           <h1 className="text-xl font-semibold text-gray-900">{chat.title || `Чат ${chat.chat_id}`}</h1>
           <div className="flex items-center gap-2 mt-1">
             <span className={`px-2 py-0.5 rounded-[2px] text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
@@ -184,7 +184,7 @@ export default function TelegramChatDetailPage() {
           </div>
         </div>
         {canManage && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {chat.student_id && (
               <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
                 Сменить привязку

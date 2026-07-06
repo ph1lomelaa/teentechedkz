@@ -88,7 +88,7 @@ export const NotesPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-400">
             <BookText className="w-4 h-4" />

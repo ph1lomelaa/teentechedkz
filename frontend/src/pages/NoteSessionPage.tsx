@@ -455,7 +455,7 @@ export const NoteSessionPage: React.FC = () => {
   return (
     <div className="space-y-5">
       {sourceStoppedAlert && (
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 rounded-[2px] border-2 border-red-600 bg-red-50 px-4 py-3 shadow-lg">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[2px] border-2 border-red-600 bg-red-50 px-4 py-3 shadow-lg">
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-red-700 shrink-0" />
             <p className="text-sm font-semibold text-red-800">
@@ -468,7 +468,7 @@ export const NoteSessionPage: React.FC = () => {
         </div>
       )}
       {pendingCount > 0 && (
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 rounded-[2px] border border-amber-300 bg-amber-50 px-4 py-3 shadow-md">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-amber-300 bg-amber-50 px-4 py-3 shadow-md">
           <p className="text-sm font-medium text-amber-900">
             Текст сохраняется локально: {pendingCount} фрагм. в очереди. Не закрывайте вкладку до отправки.
           </p>
@@ -477,7 +477,7 @@ export const NoteSessionPage: React.FC = () => {
           </Button>
         </div>
       )}
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-400">
             <AudioLines className="w-4 h-4" />
@@ -491,7 +491,7 @@ export const NoteSessionPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => navigate('/notes')}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             Назад
@@ -768,7 +768,7 @@ export const NoteSessionPage: React.FC = () => {
             <span className="text-xs text-slate-400">{session.student_name ?? 'Без привязки'}</span>
           </div>
         </CardHeader>
-        <CardContent className="flex items-center justify-between gap-3">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
           {session.student_id ? (
             <Button variant="outline" asChild>
               <Link to={`/students/${session.student_id}`}>

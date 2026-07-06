@@ -6,7 +6,8 @@ import {
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -148,7 +149,9 @@ export const DashboardPage: React.FC = () => {
   )
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    // На тачскринах drag стартует после долгого нажатия, чтобы не мешать прокрутке
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   )
 
   const { data: students = [], isLoading } = useQuery({
@@ -265,7 +268,7 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="relative mb-5 pb-5 border-b border-gray-200 overflow-hidden">
-        <h1 className="relative text-[2rem] font-black uppercase tracking-tight text-gray-900 leading-none">
+        <h1 className="relative text-2xl md:text-[2rem] font-black uppercase tracking-tight text-gray-900 leading-none">
           Студенты
         </h1>
       </div>
@@ -273,7 +276,7 @@ export const DashboardPage: React.FC = () => {
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Select value={mentorFilter || 'all'} onValueChange={(v) => setMentorFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="w-40 h-8 text-xs">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40 h-8 text-xs">
             <SelectValue placeholder="Ментор" />
           </SelectTrigger>
           <SelectContent>
@@ -285,7 +288,7 @@ export const DashboardPage: React.FC = () => {
         </Select>
 
         <Select value={mzkFilter || 'all'} onValueChange={(v) => setMzkFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="w-40 h-8 text-xs">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40 h-8 text-xs">
             <SelectValue placeholder="MZK менеджер" />
           </SelectTrigger>
           <SelectContent>
@@ -297,7 +300,7 @@ export const DashboardPage: React.FC = () => {
         </Select>
 
         <Select value={countryFilter || 'all'} onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="w-40 h-8 text-xs">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-40 h-8 text-xs">
             <SelectValue placeholder="Страна" />
           </SelectTrigger>
           <SelectContent>
@@ -309,7 +312,7 @@ export const DashboardPage: React.FC = () => {
         </Select>
 
         <Select value={intakeYearFilter || 'all'} onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="w-28 h-8 text-xs">
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-28 h-8 text-xs">
             <SelectValue placeholder="Год" />
           </SelectTrigger>
           <SelectContent>

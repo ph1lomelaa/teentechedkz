@@ -170,7 +170,7 @@ export default function TelegramInboxPage() {
         <h1 className="text-xl font-semibold text-gray-900">Telegram</h1>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {[
           { value: 'all', label: 'Все' },
           { value: 'mine', label: 'Мои' },
@@ -179,7 +179,7 @@ export default function TelegramInboxPage() {
           <button
             key={s.value}
             onClick={() => setScope(s.value as typeof scope)}
-            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               scope === s.value
                 ? 'border-black text-gray-900 font-medium'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -190,7 +190,7 @@ export default function TelegramInboxPage() {
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
         <div className="text-sm text-gray-600">
           {filtered.length} из {chats.length} чатов
           {quickFilter !== 'none' ? ' · включён быстрый фильтр' : ''}
@@ -216,12 +216,12 @@ export default function TelegramInboxPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
-            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               tab === t.value
                 ? 'border-black text-gray-900 font-medium'
                 : 'border-transparent text-gray-500 hover:text-gray-800'

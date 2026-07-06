@@ -678,14 +678,14 @@ export const StudentCardPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mb-6">
         <Link to="/students" className="flex items-center text-gray-500 hover:text-black text-sm transition-colors">
           <ChevronLeft className="w-4 h-4 mr-1" />
           Назад
         </Link>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="font-serif text-3xl text-gray-900 tracking-tight">{student.full_name}</h1>
+        <div className="flex-1 min-w-[240px]">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-serif text-2xl md:text-3xl text-gray-900 tracking-tight">{student.full_name}</h1>
             {student.is_archived && (
               <span className="text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-gray-100 text-gray-500 border border-gray-200">
                 Архивирован
@@ -725,7 +725,7 @@ export const StudentCardPage: React.FC = () => {
         </Button>
       </div>
 
-      <div className="mb-4 grid gap-2 md:grid-cols-4">
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
         <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
           <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Следующее действие</p>
           <p className="mt-1 text-sm font-semibold text-gray-900">
@@ -804,7 +804,7 @@ export const StudentCardPage: React.FC = () => {
               Сверка анкет
             </AccordionTrigger>
             <AccordionContent>
-              <div className="flex items-center gap-4 mb-3 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs text-gray-500">
                 <span>
                   Пакет (менеджер):{' '}
                   {intake.package
@@ -911,7 +911,7 @@ export const StudentCardPage: React.FC = () => {
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <p className="text-xs text-gray-500">
                   Синхронизировано:{' '}
                   {notion.snapshot.synced_at
@@ -1469,14 +1469,14 @@ export const StudentCardPage: React.FC = () => {
             <AccordionContent>
               {telegramChat && telegramChat.status !== 'closed' ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between rounded-[2px] border border-gray-200 bg-gray-50 p-3">
-                    <div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-gray-200 bg-gray-50 p-3">
+                    <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">
                         {telegramChat.title || `Чат ${telegramChat.chat_id}`}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">{telegramChat.chat_type}</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {telegramChat.status === 'active' ? (
                         <Button
                           size="sm"

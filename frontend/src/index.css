@@ -105,6 +105,16 @@
   }
 }
 
+/* iOS Safari автоматически зумит страницу при фокусе на поле с font-size < 16px.
+   На тач-устройствах поднимаем шрифт полей ввода до 16px, чтобы зума не было. */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* Kanban */
 .kanban-column {
   min-width: 240px;

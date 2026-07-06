@@ -222,7 +222,7 @@ function IntakeInbox() {
 
   return (
     <div className="border border-gray-200 rounded-[2px]">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Входящие анкеты · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
@@ -571,7 +571,7 @@ function NotionInbox() {
 
   return (
     <div className="border border-gray-200 rounded-[2px]">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
@@ -1032,12 +1032,12 @@ export const StudentsListPage: React.FC = () => {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-end justify-between pb-5 border-b border-gray-200">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between pb-5 border-b border-gray-200">
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Все студенты</h1>
           <p className="label-caps mt-1.5">Всего: {total}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {isManager && (
             <>
               <Button
@@ -1130,7 +1130,7 @@ export const StudentsListPage: React.FC = () => {
             )}
           </Button>
           {filtersOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 rounded-[2px] border border-gray-200 bg-white shadow-lg">
+            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-[2px] border border-gray-200 bg-white shadow-lg">
               <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Фильтры</p>
                 <button

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -12,6 +12,8 @@ import {
   MessageCircle,
   ClipboardList,
   LogOut,
+  Menu,
+  X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
@@ -95,21 +97,61 @@ function getBreadcrumb(pathname: string): string {
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth()
   const location = useLocation()
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   const navItems = user ? getNavItems(user.role) : []
   const breadcrumb = getBreadcrumb(location.pathname)
 
+  // Закрываем мобильное меню при переходе на другую страницу
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
+
+  // Блокируем прокрутку фона, пока открыт drawer
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = ''
+      }
+    }
+  }, [mobileOpen])
+
   return (
-    <div className="flex h-screen overflow-hidden bg-white text-black">
-      {/* Sidebar */}
-      <aside className="flex flex-col w-56 min-w-[224px] shrink-0 bg-sidebar border-r border-white/10">
+    <div className="flex h-[100dvh] overflow-hidden bg-white text-black">
+      {/* Backdrop для мобильного меню */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar: drawer на мобильных/планшете-портрете, статичный от lg */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex flex-col w-64 max-w-[85vw] bg-sidebar border-r border-white/10',
+          'transform transition-transform duration-200 ease-out',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          'lg:static lg:z-auto lg:w-56 lg:min-w-[224px] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:transition-none'
+        )}
+      >
         {/* Logo */}
-        <div className="px-5 py-6">
+        <div className="flex items-center justify-between px-5 py-6">
           <Link to="/" className="block">
             <span className="text-white font-black text-[15px] uppercase tracking-[0.22em]">
               TeenTechEd
             </span>
           </Link>
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="p-1 -mr-1 text-white/60 hover:text-white lg:hidden"
+            aria-label="Закрыть меню"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Nav */}
@@ -123,7 +165,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  'flex items-center gap-2.5 px-5 py-2.5 text-[15px] font-medium transition-colors duration-150 border-l-2',
+                  'flex items-center gap-2.5 px-5 py-3 lg:py-2.5 text-[15px] font-medium transition-colors duration-150 border-l-2',
                   isActive
                     ? 'text-white border-white/80'
                     : 'text-white/65 border-transparent hover:text-white/80'
@@ -138,7 +180,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4">
+        <div className="border-t border-white/10 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <button
             onClick={() => logout()}
             className="flex w-full items-center gap-2.5 text-left text-[13px] font-medium text-white/60 hover:text-white/85 transition-colors"
@@ -150,24 +192,30 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       </aside>
 
       {/* Main */}
-      <div className="flex flex-col flex-1 overflow-hidden bg-white text-black">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden bg-white text-black">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shrink-0">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-caps">
-            <span className="text-gray-400">TeenTechEd</span>
+        <header className="flex items-center gap-3 px-4 md:px-6 py-4 bg-white border-b border-gray-200 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="p-1.5 -ml-1.5 text-gray-600 hover:text-black lg:hidden"
+            aria-label="Открыть меню"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-caps min-w-0">
+            <span className="text-gray-400 hidden sm:inline">TeenTechEd</span>
             {breadcrumb && (
               <>
-                <span className="text-gray-300">/</span>
-                <span className="text-gray-900 font-medium">{breadcrumb}</span>
+                <span className="text-gray-300 hidden sm:inline">/</span>
+                <span className="text-gray-900 font-medium truncate">{breadcrumb}</span>
               </>
             )}
           </div>
-
-          <div />
         </header>
 
         {/* Content */}
-        <main className="app-main flex-1 overflow-y-auto bg-white p-6 text-black">{children}</main>
+        <main className="app-main flex-1 overflow-y-auto bg-white p-4 md:p-6 text-black">{children}</main>
       </div>
     </div>
   )
