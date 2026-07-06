@@ -35,7 +35,7 @@ export const studentsApi = {
   ): Promise<StudentListItem[]> => {
     const response = await apiClient.get<
       PaginatedResponse<StudentListItem> | StudentListItem[]
-    >('/students', { params: { ...params, size: 500 } })
+    >('/students', { params: { ...params, size: 2000 } })
     if (Array.isArray(response.data)) return response.data
     return (response.data as PaginatedResponse<StudentListItem>).items
   },

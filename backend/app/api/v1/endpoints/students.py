@@ -86,6 +86,44 @@ async def _student_responsibles(
     return responsibles, is_mine
 
 
+def _compute_duplicate_pairs(students: list[dict]) -> list[dict]:
+    """Чистый CPU-проход: нормализация один раз на студента (O(n)),
+    телефоны — через словарь, имена — по предвычисленным сжатым словам.
+    Вызывается в thread pool, чтобы не блокировать event loop."""
+    import sys
+    sys.path.insert(0, "/app") if "/app" not in sys.path else None
+    from migration.transformers.normalize import normalize_phone, squash_name, squashed_words_match
+
+    for s in students:
+        phone = normalize_phone(s["phone"] or "")
+        s["_phone"] = phone if len(phone) >= 10 else ""
+        s["_words"] = squash_name(s["full_name"]).split()
+
+    def brief(s: dict) -> dict:
+        return {"id": s["id"], "full_name": s["full_name"], "phone": s["phone"], "intake_year": s["intake_year"]}
+
+    pairs = []
+    seen: set[tuple[str, str]] = set()
+
+    by_phone: dict[str, list[dict]] = {}
+    for s in students:
+        if s["_phone"]:
+            by_phone.setdefault(s["_phone"], []).append(s)
+    for bucket in by_phone.values():
+        for i, a in enumerate(bucket):
+            for b in bucket[i + 1:]:
+                seen.add((a["id"], b["id"]))
+                pairs.append({"reason": "phone", "a": brief(a), "b": brief(b)})
+
+    for i, a in enumerate(students):
+        for b in students[i + 1:]:
+            if (a["id"], b["id"]) in seen:
+                continue
+            if squashed_words_match(a["_words"], b["_words"]):
+                pairs.append({"reason": "name", "a": brief(a), "b": brief(b)})
+    return pairs
+
+
 @router.get("/duplicates")
 async def find_duplicates(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -96,27 +134,16 @@ async def find_duplicates(
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
-    import sys
-    sys.path.insert(0, "/app") if "/app" not in sys.path else None
-    from migration.transformers.normalize import names_probably_same, normalize_phone
-
     result = await db.execute(
         select(Student).where(Student.is_archived == False)  # noqa: E712
     )
-    students = result.scalars().all()
+    students = [
+        {"id": str(s.id), "full_name": s.full_name, "phone": s.phone, "intake_year": s.intake_year}
+        for s in result.scalars().all()
+    ]
 
-    pairs = []
-    for i, a in enumerate(students):
-        phone_a = normalize_phone(a.phone or "")
-        for b in students[i + 1:]:
-            phone_b = normalize_phone(b.phone or "")
-            phone_match = bool(phone_a) and len(phone_a) >= 10 and phone_a == phone_b
-            if phone_match or names_probably_same(a.full_name, b.full_name):
-                pairs.append({
-                    "reason": "phone" if phone_match else "name",
-                    "a": {"id": str(a.id), "full_name": a.full_name, "phone": a.phone, "intake_year": a.intake_year},
-                    "b": {"id": str(b.id), "full_name": b.full_name, "phone": b.phone, "intake_year": b.intake_year},
-                })
+    import asyncio
+    pairs = await asyncio.get_event_loop().run_in_executor(None, _compute_duplicate_pairs, students)
     return {"pairs": pairs, "total": len(pairs)}
 
 
@@ -204,7 +231,12 @@ async def merge_student(
     source_portfolio = (await db.execute(
         select(PortfolioProgress).where(PortfolioProgress.student_id == source.id)
     )).scalar_one_or_none()
-    if source_portfolio and target.portfolio_progress is None:
+    # target.portfolio_progress трогать нельзя: лениво грузить связь в async-сессии
+    # нельзя (MissingGreenlet) — читаем явным запросом
+    target_portfolio = (await db.execute(
+        select(PortfolioProgress).where(PortfolioProgress.student_id == target.id)
+    )).scalar_one_or_none()
+    if source_portfolio and target_portfolio is None:
         source_portfolio.student_id = target.id
         moved_counts["portfolio_progress"] += 1
 
@@ -247,6 +279,14 @@ async def merge_student(
         assignment.student_id = target.id
         assignment_keys.add(key)
         moved_counts["mentor_assignments"] += 1
+
+    # Подсказки-кандидаты в инбоксах не должны указывать на архивируемый дубль
+    for model in (IntakeSubmission, NotionSnapshot):
+        await db.execute(
+            update(model)
+            .where(getattr(model, "suggested_student_id") == source.id)
+            .values(suggested_student_id=target.id)
+        )
 
     source.is_archived = True
     source.updated_at = now
@@ -295,7 +335,7 @@ async def list_students(
     mentor_id: uuid.UUID | None = None,
     scope: str = Query("all", pattern="^(all|mine|unassigned)$"),
     page: int = Query(1, ge=1),
-    size: int = Query(25, ge=1, le=500),
+    size: int = Query(25, ge=1, le=2000),
 ):
     from app.models.application import Application
 

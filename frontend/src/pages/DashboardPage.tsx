@@ -156,7 +156,7 @@ export const DashboardPage: React.FC = () => {
     queryKey: ['students', 'all', mentorFilter, mzkFilter, countryFilter, intakeYearFilter],
     queryFn: () =>
       studentsApi.getAll({
-        size: 500,
+        size: 2000,
         mentor_id: mentorFilter || undefined,
         mzk_manager_id: mzkFilter || undefined,
         country: countryFilter || undefined,

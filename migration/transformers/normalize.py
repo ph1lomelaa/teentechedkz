@@ -71,13 +71,12 @@ def squash_name(text: str) -> str:
     return " ".join(s.split())
 
 
-def names_probably_same(a: str, b: str) -> bool:
-    """Одно ли это имя, с учётом транслитерации и отброшенного отчества:
-    каждое слово короткого имени находится в длинном (точно, по префиксу или
-    с одной опечаткой). Минимум два слова — по одному имени не матчим."""
+def squashed_words_match(wa: list[str], wb: list[str]) -> bool:
+    """Ядро сравнения имён по УЖЕ сжатым словам (squash_name().split()).
+    Отдельно от names_probably_same, чтобы массовые сверки (поиск дублей)
+    могли предвычислить сжатие один раз, а не на каждую пару."""
     from Levenshtein import distance as levenshtein_distance
 
-    wa, wb = squash_name(a).split(), squash_name(b).split()
     if not wa or not wb:
         return False
     short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
@@ -88,6 +87,13 @@ def names_probably_same(a: str, b: str) -> bool:
         if any(sw == lw or lw.startswith(sw) or levenshtein_distance(sw, lw) <= 1 for lw in long_)
     )
     return matched == len(short)
+
+
+def names_probably_same(a: str, b: str) -> bool:
+    """Одно ли это имя, с учётом транслитерации и отброшенного отчества:
+    каждое слово короткого имени находится в длинном (точно, по префиксу или
+    с одной опечаткой). Минимум два слова — по одному имени не матчим."""
+    return squashed_words_match(squash_name(a).split(), squash_name(b).split())
 
 
 def countries_set(raw: str) -> set[str]:

@@ -141,9 +141,13 @@ async def link_submission(
     _require_manager(current_user)
     submission = await _load_submission(db, submission_id)
 
-    student = (await db.execute(select(Student).where(Student.id == body.student_id))).scalars().first()
+    student = (
+        await db.execute(
+            select(Student).where(Student.id == body.student_id, Student.is_archived == False)  # noqa: E712
+        )
+    ).scalars().first()
     if not student:
-        raise HTTPException(status_code=404, detail="Студент не найден")
+        raise HTTPException(status_code=404, detail="Студент не найден или архивирован")
 
     submission.student_id = student.id
     submission.status = IntakeStatus.linked
@@ -165,7 +169,12 @@ async def link_all_submissions(
 ):
     _require_manager(current_user)
 
-    query = select(IntakeSubmission).options(joinedload(IntakeSubmission.suggested_student))
+    query = (
+        select(IntakeSubmission)
+        .options(joinedload(IntakeSubmission.suggested_student))
+        .join(Student, Student.id == IntakeSubmission.suggested_student_id)
+        .where(Student.is_archived == False)  # noqa: E712
+    )
     if body.status and body.status != "all":
         query = query.where(IntakeSubmission.status == IntakeStatus(body.status))
     if body.source:

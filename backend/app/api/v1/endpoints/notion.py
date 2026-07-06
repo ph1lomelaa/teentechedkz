@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
@@ -212,7 +212,8 @@ async def finance_summary(
 
     return {
         "records": len(snapshots),
-        "synced_at": synced_at.isoformat() if synced_at else None,
+        # last_run — время последнего прохода синка (строки без изменений не трогаются)
+        "synced_at": notion_sync.last_run.get("at") or (synced_at.isoformat() if synced_at else None),
         "totals": totals,
         "rows": rows,
         "by_status": sorted(
@@ -268,9 +269,13 @@ async def link_snapshot(
 ):
     _require_manager(current_user)
     snapshot = await _load_snapshot(db, snapshot_id)
-    student = (await db.execute(select(Student).where(Student.id == body.student_id))).scalars().first()
+    student = (
+        await db.execute(
+            select(Student).where(Student.id == body.student_id, Student.is_archived == False)  # noqa: E712
+        )
+    ).scalars().first()
     if not student:
-        raise HTTPException(status_code=404, detail="Студент не найден")
+        raise HTTPException(status_code=404, detail="Студент не найден или архивирован")
 
     snapshot.student_id = student.id
     snapshot.status = NotionMatchStatus.linked
@@ -337,9 +342,12 @@ async def link_all_snapshots(
     """Привязать все непривязанные снапшоты с предложенным студентом."""
     _require_manager(current_user)
     result = await db.execute(
-        select(NotionSnapshot).where(
+        select(NotionSnapshot)
+        .join(Student, Student.id == NotionSnapshot.suggested_student_id)
+        .where(
             NotionSnapshot.status == NotionMatchStatus.new,
             NotionSnapshot.suggested_student_id.isnot(None),
+            Student.is_archived == False,  # noqa: E712
         )
     )
     snapshots = result.scalars().all()
@@ -542,8 +550,8 @@ async def student_notion(
         await db.execute(
             select(Student)
             .options(
-                joinedload(Student.applications),
-                joinedload(Student.mentor_assignments).joinedload(MentorAssignment.mentor),
+                selectinload(Student.applications),
+                selectinload(Student.mentor_assignments).selectinload(MentorAssignment.mentor),
             )
             .where(Student.id == student_id)
         )

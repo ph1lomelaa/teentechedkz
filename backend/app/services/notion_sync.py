@@ -85,12 +85,40 @@ async def run_sync(db: AsyncSession) -> dict:
             students_index = await _load_students_index(db)
 
             now = datetime.now(timezone.utc)
-            created = updated = auto_linked = 0
+            created = updated = unchanged = auto_linked = 0
+
+            def apply_match(snapshot: NotionSnapshot, row: dict) -> bool:
+                """Матчинг непривязанного снапшота. True, если автопривязали."""
+                match = fuzzy_match(row.get("full_name", ""), row.get("phone", ""), students_index)
+                # После ручной отвязки автопривязка запрещена — только предложение
+                if match.student_id and match.confidence >= 1.0 and not snapshot.manual_unlink:
+                    snapshot.student_id = match.student_id
+                    snapshot.status = NotionMatchStatus.linked
+                    snapshot.linked_at = now
+                    snapshot.suggested_student_id = match.student_id
+                    snapshot.suggested_confidence = 1.0
+                    return True
+                snapshot.suggested_student_id = match.student_id
+                snapshot.suggested_confidence = round(match.confidence, 3) if match.student_id else None
+                return False
 
             for row in rows:
                 raw_properties = row.pop("raw_properties")
                 snapshot = existing.get(row["notion_page_id"])
-                phone_norm = normalize_phone(row.get("phone", "")) or None
+                incoming_edited = _parse_iso(row.get("last_edited_time"))
+
+                # Строка в Notion не менялась — не переписываем JSONB зря
+                # (иначе каждый цикл — UPDATE всей таблицы и WAL-мусор).
+                # Матчинг для непривязанных всё равно освежаем: база студентов растёт.
+                if (
+                    snapshot is not None
+                    and incoming_edited is not None
+                    and snapshot.notion_last_edited_at == incoming_edited
+                ):
+                    unchanged += 1
+                    if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
+                        auto_linked += 1
+                    continue
 
                 if snapshot is None:
                     snapshot = NotionSnapshot(
@@ -107,28 +135,14 @@ async def run_sync(db: AsyncSession) -> dict:
 
                 snapshot.notion_url = row.get("notion_url")
                 snapshot.full_name = (row.get("full_name") or "")[:500] or None
-                snapshot.phone_normalized = phone_norm
+                snapshot.phone_normalized = normalize_phone(row.get("phone", "")) or None
                 snapshot.raw_properties = raw_properties
                 snapshot.normalized_data = row
-                snapshot.notion_last_edited_at = _parse_iso(row.get("last_edited_time"))
+                snapshot.notion_last_edited_at = incoming_edited
                 snapshot.synced_at = now
 
-                # Матчинг — только для непривязанных и неигнорированных
-                if snapshot.status == NotionMatchStatus.new:
-                    match = fuzzy_match(row.get("full_name", ""), row.get("phone", ""), students_index)
-                    # После ручной отвязки автопривязка запрещена — только предложение
-                    if match.student_id and match.confidence >= 1.0 and not snapshot.manual_unlink:
-                        snapshot.student_id = match.student_id
-                        snapshot.status = NotionMatchStatus.linked
-                        snapshot.linked_at = now
-                        snapshot.suggested_student_id = match.student_id
-                        snapshot.suggested_confidence = 1.0
-                        auto_linked += 1
-                    else:
-                        snapshot.suggested_student_id = match.student_id
-                        snapshot.suggested_confidence = (
-                            round(match.confidence, 3) if match.student_id else None
-                        )
+                if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
+                    auto_linked += 1
 
             await db.commit()
 
@@ -137,6 +151,7 @@ async def run_sync(db: AsyncSession) -> dict:
                 "total": len(rows),
                 "created": created,
                 "updated": updated,
+                "unchanged": unchanged,
                 "auto_linked": auto_linked,
                 "needs_review": needs_review,
             }

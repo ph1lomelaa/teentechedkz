@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 import uuid
 
 from sqlalchemy import select
@@ -18,6 +19,11 @@ logger = logging.getLogger(__name__)
 # are handled by _get_normalizers() in sync.py and don't need this — adding
 # more fields here should be a deliberate choice, not a default.
 AI_CHECKABLE_FIELDS = {"full_name"}
+
+# После ошибки провайдера (невалидный ключ, недоступность) не долбим его на
+# каждый просмотр карточки: страница сверки — read-only и не должна ждать таймауты
+_COOLDOWN_SECONDS = 600
+_provider_cooldown_until: float = 0.0
 
 PROMPT_SYSTEM = """Ты проверяешь анкету студента образовательного консалтинга.
 Два человека (менеджер и студент) независимо указали значение одного и того
@@ -45,7 +51,11 @@ async def check_same_meaning(
     """Returns (same_meaning, note). (None, None) if AI isn't configured or
     the field isn't in the checkable allowlist — callers should treat that
     as "no verdict available", not "confirmed different"."""
+    global _provider_cooldown_until
+
     if field not in AI_CHECKABLE_FIELDS or not provider_chain():
+        return None, None
+    if time.monotonic() < _provider_cooldown_until:
         return None, None
 
     content_hash = _content_hash(field, pkg_v, cs_v)
@@ -70,7 +80,11 @@ async def check_same_meaning(
         same = bool(parsed.get("same"))
         note = parsed.get("note") if isinstance(parsed.get("note"), str) else None
     except Exception:
-        logger.exception("AI intake-mismatch check failed for student=%s field=%s", student_id, field)
+        _provider_cooldown_until = time.monotonic() + _COOLDOWN_SECONDS
+        logger.exception(
+            "AI intake-mismatch check failed for student=%s field=%s — пауза AI-проверок на %s сек",
+            student_id, field, _COOLDOWN_SECONDS,
+        )
         return None, None
 
     db.add(IntakeAiCheck(

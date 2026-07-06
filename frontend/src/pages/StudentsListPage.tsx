@@ -819,7 +819,7 @@ export const StudentsListPage: React.FC = () => {
         intake_year: intakeYearFilter.length === 4 ? Number.parseInt(intakeYearFilter, 10) : undefined,
         country: countryFilter.trim() || undefined,
         page: 1,
-        size: 500,
+        size: 2000,
       }),
   })
 

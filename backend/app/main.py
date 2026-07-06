@@ -12,9 +12,28 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _check_production_secrets() -> None:
+    """Громко ругаемся на дефолтные секреты в проде. Не роняем приложение,
+    чтобы не положить работающий сайт, — но это надо чинить сразу."""
+    if settings.ENVIRONMENT != "production":
+        return
+    problems = []
+    if "change-me" in settings.JWT_SECRET_KEY:
+        problems.append("JWT_SECRET_KEY — дефолтный: любой может подделать токен админа")
+    if "change-me" in settings.PGCRYPTO_KEY:
+        problems.append("PGCRYPTO_KEY — дефолтный: шифрование ИИН формальное")
+    if settings.FIRST_ADMIN_PASSWORD == "Admin1234!":
+        problems.append("FIRST_ADMIN_PASSWORD — дефолтный: смени пароль админа")
+    if settings.MINIO_SECRET_KEY == "minioadmin":
+        problems.append("MINIO_SECRET_KEY — дефолтный (minioadmin)")
+    for p in problems:
+        logger.critical(f"PRODUCTION SECURITY: {p}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("TeenTechEd CRM starting up...")
+    _check_production_secrets()
     # Register Telegram webhook if token is configured
     webhook_health_task = None
     if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_WEBHOOK_URL:
@@ -68,14 +87,17 @@ async def lifespan(app: FastAPI):
             pass
 
 
+# В проде Swagger/OpenAPI не светим наружу: схема API — подарок для перебора эндпоинтов
+_is_production = settings.ENVIRONMENT == "production"
+
 app = FastAPI(
     title="TeenTechEd CRM",
     description="CRM для образовательного консалтинга TeenTechEd",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url=None if _is_production else "/api/docs",
+    redoc_url=None if _is_production else "/api/redoc",
+    openapi_url=None if _is_production else "/api/openapi.json",
 )
 
 app.add_middleware(
