@@ -37,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
 import { toast } from '@/hooks/use-toast'
 
 interface StudentCardProps {
@@ -174,6 +173,11 @@ export const DashboardPage: React.FC = () => {
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
   })
 
+  const { data: facets } = useQuery({
+    queryKey: ['students', 'facets'],
+    queryFn: studentsApi.facets,
+  })
+
   const updatePipelineMutation = useMutation({
     mutationFn: async ({
       studentId,
@@ -292,12 +296,17 @@ export const DashboardPage: React.FC = () => {
           </SelectContent>
         </Select>
 
-        <Input
-          placeholder="Страна..."
-          value={countryFilter}
-          onChange={(e) => setCountryFilter(e.target.value)}
-          className="w-32 h-8 text-xs"
-        />
+        <Select value={countryFilter || 'all'} onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}>
+          <SelectTrigger className="w-40 h-8 text-xs">
+            <SelectValue placeholder="Страна" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все страны</SelectItem>
+            {(facets?.countries ?? []).map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select value={intakeYearFilter || 'all'} onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-28 h-8 text-xs">
@@ -305,9 +314,9 @@ export const DashboardPage: React.FC = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Все годы</SelectItem>
-            <SelectItem value="2025">2025</SelectItem>
-            <SelectItem value="2026">2026</SelectItem>
-            <SelectItem value="2027">2027</SelectItem>
+            {(facets?.years ?? []).map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

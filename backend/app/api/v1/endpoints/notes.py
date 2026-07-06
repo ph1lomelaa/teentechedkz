@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_change
 from app.core.deps import CurrentUser
 from app.core.database import get_db
+from app.core.encryption import encrypt
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
+from app.models.confidential_note import ConfidentialNote, NoteVisibility
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.user import UserRole
@@ -226,6 +228,7 @@ async def review_note(
         return _note_to_response(note, student_name)
 
     applied_changes: list[dict] = []
+    saved_profile_notes = 0
     if note.student_id:
         student = await _load_accessible_student(db, current_user, note.student_id)
         applied_changes = apply_student_updates(student, note.suggested_changes or {})
@@ -243,6 +246,28 @@ async def review_note(
                 )
             student.updated_at = datetime.now(timezone.utc)
 
+        # Важные факты, не ложащиеся в поля профиля, — в заметки студента
+        # (видимость admin+mzk, как у ручных заметок на карточке)
+        profile_notes = (note.suggested_changes or {}).get("profile_notes") or []
+        for text in profile_notes:
+            if not isinstance(text, str) or not text.strip():
+                continue
+            db.add(
+                ConfidentialNote(
+                    student_id=student.id,
+                    note_text_encrypted=encrypt(f"Из конспекта «{note.title}»: {text.strip()}"[:4000]),
+                    visible_to_role=NoteVisibility.admin_and_mzk,
+                    created_by=current_user.id,
+                )
+            )
+            saved_profile_notes += 1
+        if saved_profile_notes:
+            await log_change(
+                db, "student", student.id, "profile_notes_from_note",
+                None, f"{saved_profile_notes} заметок из «{note.title}»",
+                str(current_user.id), "student_note",
+            )
+
         db.add(
             CommunicationLog(
                 student_id=student.id,
@@ -256,7 +281,7 @@ async def review_note(
         )
 
     note.status = StudentNoteStatus.approved
-    note.applied_changes = {"changes": applied_changes}
+    note.applied_changes = {"changes": applied_changes, "profile_notes_saved": saved_profile_notes}
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student_name)

@@ -719,8 +719,28 @@ export const NoteSessionPage: React.FC = () => {
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">Предлагаемые изменения</p>
                   {draft.change_preview.length > 0
                     ? renderPairs(Object.fromEntries(draft.change_preview.map((item) => [item.field, `${entryValue(item.old_value)} → ${entryValue(item.new_value)}`])))
-                    : renderPairs(draft.suggested_changes)}
+                    : renderPairs(
+                        Object.fromEntries(
+                          Object.entries(draft.suggested_changes).filter(([key]) => key !== 'profile_notes')
+                        )
+                      )}
                 </div>
+                {Array.isArray((draft.suggested_changes as { profile_notes?: unknown }).profile_notes) &&
+                  ((draft.suggested_changes as { profile_notes: unknown[] }).profile_notes.length > 0) && (
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-2">В заметки профиля</p>
+                    <div className="grid gap-2">
+                      {((draft.suggested_changes as { profile_notes: unknown[] }).profile_notes)
+                        .filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+                        .map((text, i) => (
+                          <div key={i} className="rounded-[2px] border border-amber-200 bg-amber-50 p-2.5 text-sm text-slate-900">
+                            {text}
+                          </div>
+                        ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-slate-400">Сохранятся в заметки студента при подтверждении конспекта</p>
+                  </div>
+                )}
               </>
             ) : (
               <div className="flex h-[30rem] items-center justify-center text-center">

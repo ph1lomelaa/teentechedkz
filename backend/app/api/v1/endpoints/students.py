@@ -147,6 +147,51 @@ async def find_duplicates(
     return {"pairs": pairs, "total": len(pairs)}
 
 
+@router.get("/facets")
+async def student_facets(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Значения для фильтров списка — только те, что реально есть в данных,
+    со счётчиком студентов по каждому."""
+    active = Student.is_archived == False  # noqa: E712
+
+    years_result = await db.execute(
+        select(Student.intake_year, func.count())
+        .where(active)
+        .group_by(Student.intake_year)
+        .order_by(Student.intake_year)
+    )
+    degrees_result = await db.execute(
+        select(Student.degree_level, func.count())
+        .where(active)
+        .group_by(Student.degree_level)
+    )
+    statuses_result = await db.execute(
+        select(Contract.pipeline_status, func.count(func.distinct(Contract.student_id)))
+        .join(Student, Student.id == Contract.student_id)
+        .where(active)
+        .group_by(Contract.pipeline_status)
+    )
+    countries_result = await db.execute(
+        select(Application.country, func.count(func.distinct(Application.student_id)))
+        .join(Student, Student.id == Application.student_id)
+        .where(active)
+        .group_by(Application.country)
+        .order_by(func.count(func.distinct(Application.student_id)).desc())
+    )
+
+    return {
+        "years": [{"value": str(y), "count": c} for y, c in years_result.all() if y],
+        "degrees": [{"value": d.value, "count": c} for d, c in degrees_result.all() if d],
+        "statuses": sorted(
+            ({"value": s.value, "count": c} for s, c in statuses_result.all() if s),
+            key=lambda x: -x["count"],
+        ),
+        "countries": [{"value": co, "count": c} for co, c in countries_result.all() if co],
+    }
+
+
 @router.post("/{student_id}/merge")
 async def merge_student(
     student_id: uuid.UUID,
@@ -329,6 +374,7 @@ async def list_students(
     search: str | None = None,
     pipeline_status: str | None = None,
     intake_year: int | None = None,
+    degree_level: str | None = None,
     mzk_manager_id: uuid.UUID | None = None,
     lead_mentor_id: uuid.UUID | None = None,
     country: str | None = None,
@@ -365,6 +411,12 @@ async def list_students(
 
     if intake_year:
         query = query.where(Student.intake_year == intake_year)
+
+    if degree_level:
+        try:
+            query = query.where(Student.degree_level == DegreeLevel(degree_level))
+        except ValueError:
+            pass
 
     if pipeline_status or mzk_manager_id:
         query = query.join(Contract, Contract.student_id == Student.id, isouter=True)

@@ -129,7 +129,15 @@ export const NoteDetailPage: React.FC = () => {
     )
   }
 
-  const preview = diff ? renderDiffPreview(diff.preview) : renderEntries(note.suggested_changes)
+  const { profile_notes: rawProfileNotes, ...fieldChanges } = note.suggested_changes as {
+    profile_notes?: unknown
+  } & Record<string, unknown>
+  const profileNotes = Array.isArray(rawProfileNotes)
+    ? rawProfileNotes.filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+    : []
+  const savedNotesCount = (note.applied_changes as { profile_notes_saved?: number })?.profile_notes_saved
+
+  const preview = diff ? renderDiffPreview(diff.preview) : renderEntries(fieldChanges, 'Нет предлагаемых изменений')
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -234,6 +242,28 @@ export const NoteDetailPage: React.FC = () => {
           </CardHeader>
           <CardContent>{preview}</CardContent>
         </Card>
+
+          {profileNotes.length > 0 && (
+            <Card className="border-slate-200 bg-white">
+              <CardHeader>
+                <CardTitle className="text-base text-slate-900">В заметки профиля</CardTitle>
+                <CardDescription>
+                  {note.status === 'approved'
+                    ? `Сохранено в заметки студента: ${savedNotesCount ?? profileNotes.length}`
+                    : 'Важное из разговора — сохранится в заметки студента при подтверждении'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2">
+                  {profileNotes.map((text, i) => (
+                    <div key={i} className="rounded-[2px] border border-amber-200 bg-amber-50 p-3 text-sm text-slate-900">
+                      {text}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         </div>
       </div>

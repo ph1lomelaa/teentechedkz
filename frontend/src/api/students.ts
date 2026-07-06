@@ -10,6 +10,7 @@ export interface StudentsQueryParams {
   search?: string
   pipeline_status?: PipelineStatus
   intake_year?: number
+  degree_level?: string
   scope?: 'all' | 'mine' | 'unassigned'
   page?: number
   size?: number
@@ -17,6 +18,18 @@ export interface StudentsQueryParams {
   mzk_manager_id?: string
   lead_mentor_id?: string
   country?: string
+}
+
+export interface FacetOption {
+  value: string
+  count: number
+}
+
+export interface StudentFacets {
+  years: FacetOption[]
+  degrees: FacetOption[]
+  statuses: FacetOption[]
+  countries: FacetOption[]
 }
 
 export const studentsApi = {
@@ -70,6 +83,11 @@ export const studentsApi = {
     const response = await apiClient.post(`/students/${sourceStudentId}/merge`, {
       target_student_id: targetStudentId,
     })
+    return response.data
+  },
+
+  facets: async (): Promise<StudentFacets> => {
+    const response = await apiClient.get<StudentFacets>('/students/facets')
     return response.data
   },
 

@@ -751,6 +751,7 @@ export const StudentsListPage: React.FC = () => {
   const [responsibleRole, setResponsibleRole] = useState<ResponsibleRoleFilter>('any')
   const [intakeYearFilter, setIntakeYearFilter] = useState('')
   const [countryFilter, setCountryFilter] = useState('')
+  const [degreeFilter, setDegreeFilter] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [responsibleSearch, setResponsibleSearch] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -770,6 +771,12 @@ export const StudentsListPage: React.FC = () => {
   const { data: mzkUsers = [] } = useQuery({
     queryKey: ['users', 'mzk_manager'],
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
+  })
+
+  // Реальные значения из базы со счётчиками — опции фильтров строятся из данных
+  const { data: facets } = useQuery({
+    queryKey: ['students', 'facets'],
+    queryFn: studentsApi.facets,
   })
 
   const debouncedSetSearch = useMemo(
@@ -808,6 +815,7 @@ export const StudentsListPage: React.FC = () => {
       mzkManagerFilter,
       intakeYearFilter,
       countryFilter,
+      degreeFilter,
     ],
     queryFn: () =>
       studentsApi.list({
@@ -816,8 +824,9 @@ export const StudentsListPage: React.FC = () => {
         mentor_id: mentorFilter || undefined,
         lead_mentor_id: leadMentorFilter || undefined,
         mzk_manager_id: mzkManagerFilter || undefined,
-        intake_year: intakeYearFilter.length === 4 ? Number.parseInt(intakeYearFilter, 10) : undefined,
+        intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
         country: countryFilter.trim() || undefined,
+        degree_level: degreeFilter || undefined,
         page: 1,
         size: 2000,
       }),
@@ -908,8 +917,82 @@ export const StudentsListPage: React.FC = () => {
     (mentorFilter ? 1 : 0) +
     (leadMentorFilter ? 1 : 0) +
     (mzkManagerFilter ? 1 : 0) +
-    (intakeYearFilter.length === 4 ? 1 : 0) +
-    (countryFilter.trim() ? 1 : 0)
+    (intakeYearFilter ? 1 : 0) +
+    (countryFilter.trim() ? 1 : 0) +
+    (degreeFilter ? 1 : 0)
+
+  const resetFilters = () => {
+    setScope('all')
+    setMentorFilter('')
+    setLeadMentorFilter('')
+    setMzkManagerFilter('')
+    setResponsibleRole('any')
+    setIntakeYearFilter('')
+    setCountryFilter('')
+    setDegreeFilter('')
+    setStatusFilter('')
+    setResponsibleSearch('')
+  }
+
+  const allUsers = [...mzkUsers, ...leadMentorUsers, ...mentorUsers]
+  const responsibleName = (id: string) => allUsers.find((u) => u.id === id)?.name ?? id
+
+  // Чипы активных фильтров — видны без открытия панели, снимаются крестиком
+  const activeFilterChips: { key: string; label: string; onRemove: () => void }[] = []
+  if (scope !== 'all')
+    activeFilterChips.push({
+      key: 'scope',
+      label: scope === 'mine' ? 'Только мои' : 'Без ответственного',
+      onRemove: () => setScope('all'),
+    })
+  if (statusFilter)
+    activeFilterChips.push({
+      key: 'status',
+      label: `Статус: ${PIPELINE_STATUS_LABELS[statusFilter as PipelineStatus] ?? statusFilter}`,
+      onRemove: () => setStatusFilter(''),
+    })
+  if (intakeYearFilter)
+    activeFilterChips.push({
+      key: 'year',
+      label: `Год: ${intakeYearFilter}`,
+      onRemove: () => setIntakeYearFilter(''),
+    })
+  if (degreeFilter)
+    activeFilterChips.push({
+      key: 'degree',
+      label: `Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`,
+      onRemove: () => setDegreeFilter(''),
+    })
+  if (countryFilter.trim())
+    activeFilterChips.push({
+      key: 'country',
+      label: `Страна: ${countryFilter}`,
+      onRemove: () => setCountryFilter(''),
+    })
+  const clearResponsible = () => {
+    setResponsibleRole('any')
+    setMzkManagerFilter('')
+    setLeadMentorFilter('')
+    setMentorFilter('')
+  }
+  if (mzkManagerFilter)
+    activeFilterChips.push({
+      key: 'mzk',
+      label: `МЗК: ${responsibleName(mzkManagerFilter)}`,
+      onRemove: clearResponsible,
+    })
+  if (leadMentorFilter)
+    activeFilterChips.push({
+      key: 'lead',
+      label: `Lead: ${responsibleName(leadMentorFilter)}`,
+      onRemove: clearResponsible,
+    })
+  if (mentorFilter)
+    activeFilterChips.push({
+      key: 'mentor',
+      label: `Ментор: ${responsibleName(mentorFilter)}`,
+      onRemove: clearResponsible,
+    })
 
   const currentResponsibleUsers =
     responsibleRole === 'mzk_manager'
@@ -1094,8 +1177,10 @@ export const StudentsListPage: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Все статусы</SelectItem>
-                      {Object.entries(PIPELINE_STATUS_LABELS).map(([val, label]) => (
-                        <SelectItem key={val} value={val}>{label}</SelectItem>
+                      {(facets?.statuses ?? []).map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {PIPELINE_STATUS_LABELS[opt.value as PipelineStatus] ?? opt.value} · {opt.count}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1104,22 +1189,62 @@ export const StudentsListPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Год</p>
-                    <Input
-                      value={intakeYearFilter}
-                      onChange={(e) => setIntakeYearFilter(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      placeholder="2026"
-                      className="h-9 text-sm"
-                    />
+                    <Select
+                      value={intakeYearFilter || 'all'}
+                      onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Все годы" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все годы</SelectItem>
+                        {(facets?.years ?? []).map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.value} · {opt.count}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Страна</p>
-                    <Input
-                      value={countryFilter}
-                      onChange={(e) => setCountryFilter(e.target.value)}
-                      placeholder="USA, UK..."
-                      className="h-9 text-sm"
-                    />
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ступень</p>
+                    <Select
+                      value={degreeFilter || 'all'}
+                      onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Все ступени" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все ступени</SelectItem>
+                        {(facets?.degrees ?? []).map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {DEGREE_LEVEL_LABELS[opt.value as keyof typeof DEGREE_LEVEL_LABELS] ?? opt.value} · {opt.count}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Страна поступления</p>
+                  <Select
+                    value={countryFilter || 'all'}
+                    onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Все страны" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все страны</SelectItem>
+                      {(facets?.countries ?? []).map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.value} · {opt.count}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -1188,17 +1313,7 @@ export const StudentsListPage: React.FC = () => {
                     variant="ghost"
                     size="sm"
                     className="h-8 px-2 text-xs text-gray-500"
-                    onClick={() => {
-                      setScope('all')
-                      setMentorFilter('')
-                      setLeadMentorFilter('')
-                      setMzkManagerFilter('')
-                      setResponsibleRole('any')
-                      setIntakeYearFilter('')
-                      setCountryFilter('')
-                      setStatusFilter('')
-                      setResponsibleSearch('')
-                    }}
+                    onClick={resetFilters}
                   >
                     Сбросить
                   </Button>
@@ -1216,6 +1331,35 @@ export const StudentsListPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Активные фильтры — видны без открытия панели */}
+      {activeFilterChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {activeFilterChips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-[2px] border border-gray-300 bg-gray-50 text-gray-700"
+            >
+              {chip.label}
+              <button
+                type="button"
+                onClick={chip.onRemove}
+                className="text-gray-400 hover:text-black transition-colors"
+                aria-label={`Убрать фильтр ${chip.label}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="text-[12px] text-gray-500 hover:text-black underline underline-offset-4 ml-1"
+          >
+            Сбросить всё
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="border-y border-gray-200">
