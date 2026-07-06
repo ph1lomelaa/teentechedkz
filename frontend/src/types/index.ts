@@ -353,6 +353,8 @@ export interface TelegramChat {
   last_message_at: string | null
   pending_insight_count: number
   unresolved_attachment_count: number
+  context_signal_count: number
+  has_context_signal: boolean
   is_mine?: boolean
   responsible_count?: number
   responsibles?: ResponsibleUser[]
@@ -384,6 +386,37 @@ export interface TelegramPairingCode {
 }
 
 export type TelegramChatInsight = InsightWithDiff
+
+export interface TelegramContextProfileUpdate {
+  field: string
+  value: unknown
+  old_value?: unknown
+  reason?: string
+}
+
+export interface TelegramContextDraft {
+  summary: string
+  source_text: string
+  student_id: string
+  student_name: string
+  profile_snapshot: Record<string, unknown>
+  source_last_message_id?: string
+  prompt_version?: string
+  model?: string | null
+  profile_updates: TelegramContextProfileUpdate[]
+  profile_notes: string[]
+  follow_ups: string[]
+  document_flags: string[]
+  contradictions: string[]
+  quality_warnings: string[]
+  ignored_as_noise: string[]
+}
+
+export interface TelegramContextApplyResult {
+  note_id: string
+  applied_changes: Array<{ field: string; old_value: unknown; new_value: unknown }>
+  profile_notes_saved: number
+}
 
 export function hasReviewPending(chat: TelegramChat): boolean {
   return (chat.status === 'active' || chat.status === 'paused') && chat.pending_insight_count > 0

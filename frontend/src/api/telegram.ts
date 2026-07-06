@@ -1,5 +1,12 @@
 import apiClient from './client'
-import { TelegramChat, TelegramChatInsight, TelegramMessage, TelegramPairingCode } from '../types'
+import {
+  TelegramChat,
+  TelegramChatInsight,
+  TelegramContextApplyResult,
+  TelegramContextDraft,
+  TelegramMessage,
+  TelegramPairingCode,
+} from '../types'
 
 export const telegramApi = {
   listAll: async (status?: string, scope?: 'all' | 'mine' | 'unassigned'): Promise<TelegramChat[]> => {
@@ -50,6 +57,17 @@ export const telegramApi = {
   },
   listMessages: async (chatId: string): Promise<TelegramMessage[]> => {
     const response = await apiClient.get<TelegramMessage[]>(`/telegram-chats/${chatId}/messages`)
+    return response.data
+  },
+  createContextDraft: async (chatId: string, limit = 30): Promise<TelegramContextDraft> => {
+    const response = await apiClient.post<TelegramContextDraft>(`/telegram-chats/${chatId}/context-draft`, { limit })
+    return response.data
+  },
+  applyContextDraft: async (chatId: string, data: TelegramContextDraft): Promise<TelegramContextApplyResult> => {
+    const response = await apiClient.post<TelegramContextApplyResult>(
+      `/telegram-chats/${chatId}/context-draft/apply`,
+      data,
+    )
     return response.data
   },
   downloadAttachment: async (attachmentId: string): Promise<Blob> => {

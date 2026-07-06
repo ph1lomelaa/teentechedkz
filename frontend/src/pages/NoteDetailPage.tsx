@@ -5,6 +5,7 @@ import { ArrowLeft, Check, X } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
 import { Markdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
@@ -83,6 +84,8 @@ function renderDiffPreview(
 export const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const [editedSummary, setEditedSummary] = React.useState('')
+  const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
 
   const { data: note, isLoading } = useQuery({
     queryKey: ['note', id],
@@ -96,8 +99,20 @@ export const NoteDetailPage: React.FC = () => {
     enabled: Boolean(id),
   })
 
+  React.useEffect(() => {
+    if (!note) return
+    const rawProfileNotes = (note.suggested_changes as { profile_notes?: unknown })?.profile_notes
+    setEditedSummary(note.summary_markdown ?? '')
+    setEditedProfileNotes(
+      Array.isArray(rawProfileNotes)
+        ? rawProfileNotes.filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+        : [],
+    )
+  }, [note?.id, note?.summary_markdown, note?.suggested_changes])
+
   const reviewMutation = useMutation({
-    mutationFn: (action: 'approve' | 'reject') => notesApi.review(id!, { action }),
+    mutationFn: (payload: { action: 'approve' | 'reject'; summary_markdown?: string; suggested_changes?: Record<string, unknown> }) =>
+      notesApi.review(id!, payload),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['notes'] })
       queryClient.invalidateQueries({ queryKey: ['note', id] })
@@ -136,6 +151,12 @@ export const NoteDetailPage: React.FC = () => {
     ? rawProfileNotes.filter((n): n is string => typeof n === 'string' && n.trim() !== '')
     : []
   const savedNotesCount = (note.applied_changes as { profile_notes_saved?: number })?.profile_notes_saved
+  const editedSuggestedChanges = {
+    ...fieldChanges,
+    ...(editedProfileNotes.filter((item) => item.trim()).length
+      ? { profile_notes: editedProfileNotes.filter((item) => item.trim()) }
+      : {}),
+  }
 
   const preview = diff ? renderDiffPreview(diff.preview) : renderEntries(fieldChanges, 'Нет предлагаемых изменений')
 
@@ -166,14 +187,18 @@ export const NoteDetailPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => reviewMutation.mutate('reject')}
+              onClick={() => reviewMutation.mutate({ action: 'reject' })}
               disabled={reviewMutation.isPending}
             >
               <X className="w-4 h-4 mr-2" />
               Отклонить
             </Button>
             <Button
-              onClick={() => reviewMutation.mutate('approve')}
+              onClick={() => reviewMutation.mutate({
+                action: 'approve',
+                summary_markdown: editedSummary,
+                suggested_changes: editedSuggestedChanges,
+              })}
               disabled={reviewMutation.isPending}
             >
               <Check className="w-4 h-4 mr-2" />
@@ -192,9 +217,17 @@ export const NoteDetailPage: React.FC = () => {
           <CardContent className="space-y-5">
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Содержание</h3>
-              <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-4">
-                <Markdown>{note.summary_markdown ?? ''}</Markdown>
-              </div>
+              {note.status === 'draft' ? (
+                <Textarea
+                  value={editedSummary}
+                  onChange={(event) => setEditedSummary(event.target.value)}
+                  className="min-h-[260px] bg-slate-50"
+                />
+              ) : (
+                <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-4">
+                  <Markdown>{note.summary_markdown ?? ''}</Markdown>
+                </div>
+              )}
             </div>
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Исходный текст</h3>
@@ -243,7 +276,7 @@ export const NoteDetailPage: React.FC = () => {
           <CardContent>{preview}</CardContent>
         </Card>
 
-          {profileNotes.length > 0 && (
+          {(profileNotes.length > 0 || note.status === 'draft') && (
             <Card className="border-slate-200 bg-white">
               <CardHeader>
                 <CardTitle className="text-base text-slate-900">В заметки профиля</CardTitle>
@@ -254,13 +287,44 @@ export const NoteDetailPage: React.FC = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-2">
-                  {profileNotes.map((text, i) => (
-                    <div key={i} className="rounded-[2px] border border-amber-200 bg-amber-50 p-3 text-sm text-slate-900">
-                      {text}
-                    </div>
-                  ))}
-                </div>
+                {note.status === 'draft' ? (
+                  <div className="grid gap-2">
+                    {editedProfileNotes.map((text, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <Textarea
+                          value={text}
+                          className="min-h-[68px] bg-amber-50"
+                          onChange={(event) => setEditedProfileNotes(
+                            editedProfileNotes.map((item, index) => index === i ? event.target.value : item)
+                          )}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 px-2"
+                          onClick={() => setEditedProfileNotes(editedProfileNotes.filter((_, index) => index !== i))}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditedProfileNotes([...editedProfileNotes, ''])}
+                    >
+                      Добавить заметку
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {profileNotes.map((text, i) => (
+                      <div key={i} className="rounded-[2px] border border-amber-200 bg-amber-50 p-3 text-sm text-slate-900">
+                        {text}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

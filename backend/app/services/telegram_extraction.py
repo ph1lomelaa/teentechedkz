@@ -83,6 +83,16 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     if not isinstance(proposed_changes, dict) or not proposed_changes:
         return None
     proposed_changes, context_unmatched = sanitize_suggested_changes(text, proposed_changes)
+    proposed_changes = {
+        key: value
+        for key, value in proposed_changes.items()
+        if key in NOTEABLE_FIELDS
+    }
+    if not proposed_changes:
+        # The automatic per-message flow is intentionally limited to real
+        # structured profile updates. Context, documents, follow-ups and
+        # uncertain plans are handled by the manual dialog-level draft flow.
+        return None
 
     try:
         insight_type = InsightType(parsed.get("insight_type", "status_update"))
@@ -93,12 +103,11 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     confidence = float(confidence) if isinstance(confidence, (int, float)) else 0.5
 
     diff = build_profile_diff(snapshot, proposed_changes)
-    unmatched_fields = {k: v for k, v in proposed_changes.items() if k not in NOTEABLE_FIELDS}
-    unmatched_fields.update(context_unmatched)
-    if not diff and not unmatched_fields:
+    if not diff:
         # LLM returned fields that don't actually differ from the current
         # profile (hallucinated or no-op) — nothing worth surfacing.
         return None
+    unmatched_fields = {}
 
     touches_phone = any(d["field"] == "phone" for d in diff)
     risk_level = (

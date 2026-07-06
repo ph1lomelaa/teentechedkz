@@ -6,7 +6,15 @@ import os
 from typing import Any
 
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.student_notes import build_summary_markdown, parse_suggested_changes, sanitize_suggested_changes
+from app.services.student_notes import (
+    append_quality_warnings,
+    build_summary_markdown,
+    detect_quality_warnings,
+    parse_suggested_changes,
+    remove_quality_risky_notes,
+    remove_quality_risky_summary_lines,
+    sanitize_suggested_changes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +57,7 @@ profile_notes — важное, что НЕ ложится в поля карт�
 - Никаких технических имён полей (full_name, budget_per_year...) и значений енумов (undergraduate) — только человеческий русский текст («ФИО», «Бакалавриат»).
 - Без заголовка первого уровня «#» — начинай сразу с текста или «##».
 """
+PROMPT_VERSION = "note_sessions.v1"
 
 
 import re
@@ -132,10 +141,23 @@ async def generate_note_draft(
 
     if not provider_chain():
         summary = build_summary_markdown(source_title, transcript, snapshot, {})
+        quality_warnings = detect_quality_warnings(transcript)
+        summary, summary_quality_warnings = remove_quality_risky_summary_lines(summary)
+        quality_warnings.extend(
+            warning for warning in summary_quality_warnings if warning not in quality_warnings
+        )
+        summary = append_quality_warnings(summary, quality_warnings)
         return {
             "title": source_title,
             "summary_markdown": summary,
             "suggested_changes": {},
+            "__ai_meta": {
+                "prompt_version": PROMPT_VERSION,
+                "model": "heuristic",
+                "raw_output": None,
+                "parsed_output": {},
+                "filter_reasons": {"fallback": "AI provider is not configured"},
+            },
         }
 
     raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
@@ -150,14 +172,28 @@ async def generate_note_draft(
     # при подтверждении конспекта. Возим внутри suggested_changes (JSON-поле),
     # apply_student_updates этот ключ игнорирует.
     profile_notes = parse_profile_notes(parsed.get("profile_notes"))
+    profile_notes, note_quality_warnings = remove_quality_risky_notes(profile_notes)
     if profile_notes:
         suggested_changes["profile_notes"] = profile_notes
+
+    quality_warnings = []
+    quality_warnings.extend(detect_quality_warnings(transcript))
+    quality_warnings.extend(note_quality_warnings)
+    deduped_quality_warnings = []
+    for warning in quality_warnings:
+        if warning not in deduped_quality_warnings:
+            deduped_quality_warnings.append(warning)
 
     summary = parsed.get("summary_markdown")
     if not isinstance(summary, str) or not summary.strip():
         summary = build_summary_markdown(source_title, transcript, snapshot, suggested_changes)
     else:
         summary = strip_profile_dump(summary)
+    summary, summary_quality_warnings = remove_quality_risky_summary_lines(summary)
+    deduped_quality_warnings.extend(
+        warning for warning in summary_quality_warnings if warning not in deduped_quality_warnings
+    )
+    summary = append_quality_warnings(summary, deduped_quality_warnings)
 
     next_title = parsed.get("title")
     if not isinstance(next_title, str) or not next_title.strip():
@@ -167,4 +203,13 @@ async def generate_note_draft(
         "title": next_title.strip(),
         "summary_markdown": summary.strip(),
         "suggested_changes": suggested_changes,
+        "__ai_meta": {
+            "prompt_version": PROMPT_VERSION,
+            "model": "provider_chain",
+            "raw_output": raw,
+            "parsed_output": parsed,
+            "filter_reasons": {
+                "quality_warnings": deduped_quality_warnings,
+            },
+        },
     }

@@ -218,6 +218,14 @@ async def review_note(
     if note.status != StudentNoteStatus.draft:
         raise HTTPException(status_code=409, detail="Конспект уже проверен")
 
+    if action == "approve":
+        if body.summary_markdown is not None:
+            summary_markdown = body.summary_markdown.strip()
+            if summary_markdown:
+                note.summary_markdown = summary_markdown
+        if body.suggested_changes is not None:
+            note.suggested_changes = dict(body.suggested_changes)
+
     note.reviewed_by = current_user.id
     note.reviewed_at = datetime.now(timezone.utc)
 

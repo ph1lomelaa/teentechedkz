@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, MessageSquareWarning, Paperclip } from 'lucide-react'
+import { Loader2, MessageSquareWarning, Paperclip, Sparkles } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { mentorAssignmentsApi } from '@/api/index'
 import {
@@ -306,7 +306,13 @@ export default function TelegramInboxPage() {
                     {chat.pending_insight_count > 0 && (
                       <span className="flex items-center gap-1">
                         <MessageSquareWarning className="w-3.5 h-3.5" />
-                        {chat.pending_insight_count} инс.
+                        {chat.pending_insight_count} изм.
+                      </span>
+                    )}
+                    {chat.has_context_signal && (
+                      <span className="flex items-center gap-1 text-amber-700">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {chat.context_signal_count} конт.
                       </span>
                     )}
                     {chat.unresolved_attachment_count > 0 && (

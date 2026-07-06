@@ -19,6 +19,8 @@ class StudentNoteCreate(BaseModel):
 
 class StudentNoteReviewRequest(BaseModel):
     action: Literal["approve", "reject"]
+    summary_markdown: str | None = None
+    suggested_changes: dict[str, Any] | None = None
 
 
 class StudentNoteResponse(BaseModel):

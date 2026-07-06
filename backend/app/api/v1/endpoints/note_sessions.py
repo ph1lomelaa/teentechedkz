@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.note_session import NoteSession, NoteSessionStatus
 from app.models.note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from app.models.note_transcript import NoteTranscript
@@ -39,6 +40,43 @@ MAX_AUDIO_CHUNK_SIZE = 60 * 1024 * 1024  # 60 MB — generous headroom for a ~5 
 
 
 router = APIRouter(prefix="/note-sessions", tags=["note-sessions"])
+
+
+def _ai_meta(draft: dict) -> dict:
+    return draft.pop("__ai_meta", {}) if isinstance(draft, dict) else {}
+
+
+def _add_note_ai_run(
+    db: AsyncSession,
+    *,
+    session: NoteSession,
+    student_id: uuid.UUID | None,
+    source_text: str,
+    snapshot: dict,
+    draft: dict,
+    ai_meta: dict,
+    current_user,
+    status: str,
+) -> None:
+    db.add(
+        AiAnalysisRun(
+            source_type="note_session_draft",
+            source_id=session.id,
+            student_id=student_id,
+            status=status,
+            prompt_version=str(ai_meta.get("prompt_version") or "unknown"),
+            model=ai_meta.get("model"),
+            input_snapshot={
+                "session_title": session.title,
+                "source_text": source_text,
+                "profile_snapshot": snapshot,
+            },
+            raw_output=ai_meta.get("raw_output"),
+            parsed_output=ai_meta.get("parsed_output") or draft,
+            filter_reasons=ai_meta.get("filter_reasons") or {},
+            created_by=current_user.id,
+        )
+    )
 
 
 def _is_staff_admin(current_user) -> bool:
@@ -502,6 +540,19 @@ async def draft_session(
         snapshot=snapshot,
         student_name=student_name,
     )
+    ai_meta = _ai_meta(draft)
+    _add_note_ai_run(
+        db,
+        session=session,
+        student_id=session.student_id,
+        source_text=source_text,
+        snapshot=snapshot,
+        draft=draft,
+        ai_meta=ai_meta,
+        current_user=current_user,
+        status="draft_created",
+    )
+    await db.commit()
     return NoteSessionDraftResponse(
         title=draft["title"],
         source_text=source_text,
@@ -557,6 +608,7 @@ async def finalize_session(
         snapshot=snapshot,
         student_name=student.full_name if student else student_name,
     )
+    ai_meta = _ai_meta(draft)
 
     note = StudentNote(
         student_id=session.student_id,
@@ -572,6 +624,17 @@ async def finalize_session(
         created_at=datetime.now(timezone.utc),
     )
     db.add(note)
+    _add_note_ai_run(
+        db,
+        session=session,
+        student_id=session.student_id,
+        source_text=source_text,
+        snapshot=snapshot,
+        draft=draft,
+        ai_meta=ai_meta,
+        current_user=current_user,
+        status="note_created",
+    )
     await db.flush()
 
     session.note_id = note.id

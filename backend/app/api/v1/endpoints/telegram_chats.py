@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -13,11 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 
+from app.core.audit import log_change
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import AllStaff, CurrentUser
+from app.core.encryption import encrypt
+from app.models.ai_analysis_run import AiAnalysisRun
+from app.models.communication_log import CommunicationLog, CommSource, MessageType
+from app.models.confidential_note import ConfidentialNote, NoteVisibility
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.student import Student
+from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from app.models.telegram_chat import TelegramChat, TelegramChatStatus
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
@@ -27,11 +34,17 @@ from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User
 from app.services.mentor_scope import mentor_assigned_student_ids
 from app.services.minio_service import close_minio_object, get_minio
-from app.services.student_notes import build_profile_diff, snapshot_student
+from app.services.student_context_ai import generate_context_review_draft
+from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
 
 router = APIRouter(prefix="/telegram-chats", tags=["telegram-chats"])
 
 PAIRING_CODE_TTL_MINUTES = 30
+IMPORTANT_CONTEXT_RE = re.compile(
+    r"ielts|айл[тт]с|toefl|sat|сертификат|документ|аттестат|транскрипт|дедлайн|"
+    r"\b\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b",
+    re.IGNORECASE,
+)
 
 StaffUser = Annotated[User, AllStaff]
 
@@ -308,6 +321,209 @@ async def list_chat_messages(
     return [await _message_to_dict(m) for m in messages]
 
 
+@router.post("/{chat_id}/context-draft")
+async def create_context_draft(
+    chat_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    student_id = await _current_student_id(db, chat_id)
+    if not student_id:
+        raise HTTPException(status_code=422, detail="Чат не привязан к студенту")
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
+    limit = int(body.get("limit") or 30)
+    limit = max(5, min(limit, 80))
+    result = await db.execute(
+        select(TelegramMessage)
+        .where(TelegramMessage.chat_id == chat_id)
+        .options(selectinload(TelegramMessage.attachments))
+        .order_by(TelegramMessage.created_at.desc(), TelegramMessage.id.desc())
+        .limit(limit)
+    )
+    messages = list(reversed(result.scalars().all()))
+    if not messages:
+        raise HTTPException(status_code=422, detail="В чате нет сообщений для анализа")
+
+    source_text = _messages_context_text(messages)
+    attachments = _messages_attachment_context(messages)
+    snapshot = snapshot_student(student)
+    draft = await generate_context_review_draft(
+        source_text=source_text,
+        snapshot=snapshot,
+        attachments=attachments,
+    )
+    ai_meta = draft.pop("__ai_meta", {})
+    last_message = messages[-1]
+    db.add(
+        AiAnalysisRun(
+            source_type="telegram_context_draft",
+            source_id=chat.id,
+            student_id=student.id,
+            source_last_message_id=last_message.id,
+            status="draft_created",
+            prompt_version=str(ai_meta.get("prompt_version") or "unknown"),
+            model=ai_meta.get("model"),
+            input_snapshot={
+                "message_count": len(messages),
+                "source_text": source_text,
+                "attachments": attachments,
+                "profile_snapshot": snapshot,
+            },
+            raw_output=ai_meta.get("raw_output"),
+            parsed_output=ai_meta.get("parsed_output") or draft,
+            filter_reasons=ai_meta.get("filter_reasons") or {},
+            created_by=current_user.id,
+        )
+    )
+    await db.commit()
+    draft["source_text"] = source_text
+    draft["profile_snapshot"] = snapshot
+    draft["student_id"] = str(student.id)
+    draft["student_name"] = student.full_name
+    draft["source_last_message_id"] = str(last_message.id)
+    draft["prompt_version"] = str(ai_meta.get("prompt_version") or "unknown")
+    draft["model"] = ai_meta.get("model")
+    return draft
+
+
+@router.post("/{chat_id}/context-draft/apply")
+async def apply_context_draft(
+    chat_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    student_id = await _current_student_id(db, chat_id)
+    if not student_id:
+        raise HTTPException(status_code=422, detail="Чат не привязан к студенту")
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
+    source_text = str(body.get("source_text") or "").strip()
+    if not source_text:
+        raise HTTPException(status_code=422, detail="source_text обязателен")
+
+    profile_updates = body.get("profile_updates") if isinstance(body.get("profile_updates"), list) else []
+    proposed_changes = {
+        str(item.get("field")): item.get("value")
+        for item in profile_updates
+        if isinstance(item, dict) and item.get("field")
+    }
+    profile_notes = _clean_body_strings(body.get("profile_notes"))
+    follow_ups = _clean_body_strings(body.get("follow_ups"))
+    document_flags = _clean_body_strings(body.get("document_flags"))
+    contradictions = _clean_body_strings(body.get("contradictions"))
+    quality_warnings = _clean_body_strings(body.get("quality_warnings"))
+    ignored_as_noise = _clean_body_strings(body.get("ignored_as_noise"))
+    summary = " ".join(str(body.get("summary") or "").split())[:1200]
+
+    snapshot = snapshot_student(student)
+    applied_changes = apply_student_updates(student, proposed_changes)
+    for change in applied_changes:
+        await log_change(
+            db,
+            "student",
+            student.id,
+            change["field"],
+            change["old_value"],
+            change["new_value"],
+            str(current_user.id),
+            source="telegram_context_draft",
+        )
+    if applied_changes:
+        student.updated_at = datetime.now(timezone.utc)
+
+    saved_notes = 0
+    for text in [*profile_notes, *follow_ups, *document_flags, *contradictions, *quality_warnings]:
+        db.add(
+            ConfidentialNote(
+                student_id=student.id,
+                note_text_encrypted=encrypt(f"Из Telegram-чата: {text}"[:4000]),
+                visible_to_role=NoteVisibility.admin_and_mzk,
+                created_by=current_user.id,
+            )
+        )
+        saved_notes += 1
+
+    note = StudentNote(
+        student_id=student.id,
+        title="Заметки из Telegram-чата",
+        source_text=source_text,
+        summary_markdown=_context_note_markdown(
+            summary=summary,
+            profile_updates=profile_updates,
+            profile_notes=profile_notes,
+            follow_ups=follow_ups,
+            document_flags=document_flags,
+            contradictions=contradictions,
+            quality_warnings=quality_warnings,
+            ignored_as_noise=ignored_as_noise,
+        ),
+        profile_snapshot=snapshot,
+        suggested_changes={**proposed_changes, "profile_notes": profile_notes},
+        applied_changes={"changes": applied_changes, "profile_notes_saved": saved_notes},
+        status=StudentNoteStatus.approved,
+        created_by=current_user.id,
+        reviewed_by=current_user.id,
+        created_at=datetime.now(timezone.utc),
+        reviewed_at=datetime.now(timezone.utc),
+    )
+    db.add(note)
+    last_message_id = body.get("source_last_message_id")
+    db.add(
+        AiAnalysisRun(
+            source_type="telegram_context_draft",
+            source_id=chat_id,
+            student_id=student.id,
+            source_last_message_id=uuid.UUID(str(last_message_id)) if last_message_id else None,
+            status="applied",
+            prompt_version=str(body.get("prompt_version") or "manual_review"),
+            model=str(body.get("model") or "reviewed_draft"),
+            input_snapshot={"source_text": source_text, "profile_snapshot": snapshot},
+            raw_output=None,
+            parsed_output={
+                "summary": summary,
+                "profile_updates": profile_updates,
+                "profile_notes": profile_notes,
+                "follow_ups": follow_ups,
+                "document_flags": document_flags,
+                "contradictions": contradictions,
+                "quality_warnings": quality_warnings,
+                "ignored_as_noise": ignored_as_noise,
+            },
+            filter_reasons={"review": "manager applied edited context draft"},
+            created_by=current_user.id,
+        )
+    )
+    db.add(
+        CommunicationLog(
+            student_id=student.id,
+            source=CommSource.telegram,
+            message_type=MessageType.text_event,
+            raw_text=source_text,
+            ai_summary=note.summary_markdown,
+        )
+    )
+    await db.commit()
+    await db.refresh(note)
+    return {
+        "note_id": str(note.id),
+        "applied_changes": applied_changes,
+        "profile_notes_saved": saved_notes,
+    }
+
+
 @router.get("/attachments/{attachment_id}/download")
 async def download_attachment(
     attachment_id: uuid.UUID,
@@ -474,6 +690,8 @@ async def _chat_to_dict(
         )
     ).scalar_one()
 
+    context_signal_count = await _context_signal_count(db, chat.id)
+
     return {
         "id": str(chat.id),
         "chat_id": chat.chat_id,
@@ -489,6 +707,8 @@ async def _chat_to_dict(
         "last_message_at": last_message[1].isoformat() if last_message else None,
         "pending_insight_count": pending_insight_count,
         "unresolved_attachment_count": unresolved_attachment_count,
+        "context_signal_count": context_signal_count,
+        "has_context_signal": context_signal_count > 0,
         "responsibles": responsibles,
         "responsible_count": len([r for r in responsibles if r["is_active"]]),
         "is_mine": is_mine,
@@ -534,3 +754,129 @@ def _insight_to_dict(i: PendingInsight) -> dict:
         "created_at": i.created_at.isoformat(),
         "reviewed_at": i.reviewed_at.isoformat() if i.reviewed_at else None,
     }
+
+
+def _messages_context_text(messages: list[TelegramMessage]) -> str:
+    lines: list[str] = []
+    for message in messages:
+        stamp = message.created_at.strftime("%d.%m.%Y %H:%M") if message.created_at else ""
+        sender = message.sender_name or "Без имени"
+        text = " ".join((message.raw_text or "").split())
+        attachment_bits = []
+        for attachment in message.attachments:
+            name = attachment.file_name or attachment.mime_type or "файл"
+            attachment_bits.append(f"{name} ({attachment.status.value})")
+        if attachment_bits:
+            text = f"{text} [вложения: {', '.join(attachment_bits)}]".strip()
+        if text:
+            lines.append(f"[{stamp}] {sender}: {text}")
+    return "\n".join(lines)
+
+
+def _messages_attachment_context(messages: list[TelegramMessage]) -> list[dict]:
+    out: list[dict] = []
+    for message in messages:
+        for attachment in message.attachments:
+            out.append(
+                {
+                    "message_id": str(message.id),
+                    "file_name": attachment.file_name,
+                    "mime_type": attachment.mime_type,
+                    "status": attachment.status.value,
+                    "file_size": attachment.file_size,
+                }
+            )
+    return out[:20]
+
+
+async def _context_signal_count(db: AsyncSession, chat_id: uuid.UUID) -> int:
+    watermark_result = await db.execute(
+        select(AiAnalysisRun)
+        .where(
+            AiAnalysisRun.source_type == "telegram_context_draft",
+            AiAnalysisRun.source_id == chat_id,
+            AiAnalysisRun.status == "applied",
+            AiAnalysisRun.source_last_message_id.is_not(None),
+        )
+        .order_by(AiAnalysisRun.created_at.desc())
+        .limit(1)
+    )
+    watermark = watermark_result.scalar_one_or_none()
+    watermark_message = (
+        await db.get(TelegramMessage, watermark.source_last_message_id)
+        if watermark and watermark.source_last_message_id
+        else None
+    )
+
+    query = select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
+    if watermark_message:
+        query = query.where(TelegramMessage.created_at > watermark_message.created_at)
+
+    result = await db.execute(
+        query
+        .options(selectinload(TelegramMessage.attachments))
+        .order_by(TelegramMessage.created_at.desc(), TelegramMessage.id.desc())
+        .limit(30)
+    )
+    count = 0
+    for message in result.scalars().all():
+        text = message.raw_text or ""
+        if IMPORTANT_CONTEXT_RE.search(text) or message.attachments:
+            count += 1
+    return count
+
+
+def _clean_body_strings(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        text = " ".join(str(item or "").split())[:800]
+        if text:
+            out.append(text)
+    return out[:20]
+
+
+def _context_note_markdown(
+    *,
+    summary: str,
+    profile_updates: list,
+    profile_notes: list[str],
+    follow_ups: list[str],
+    document_flags: list[str],
+    contradictions: list[str],
+    quality_warnings: list[str],
+    ignored_as_noise: list[str],
+) -> str:
+    chunks = ["## Заметки из Telegram-чата"]
+    if summary:
+        chunks.extend(["", summary])
+
+    chunks.extend(["", "**Изменения профиля**"])
+    comparable_updates = [item for item in profile_updates if isinstance(item, dict) and item.get("field")]
+    if comparable_updates:
+        for item in comparable_updates:
+            field = str(item.get("field"))
+            old_value = humanize_value(item.get("old_value"))
+            new_value = humanize_value(item.get("value"))
+            reason = str(item.get("reason") or "").strip()
+            suffix = f" — {reason}" if reason else ""
+            chunks.append(f"- {humanize_field(field)}: {old_value} → {new_value}{suffix}")
+    else:
+        chunks.append("- Подтверждённых изменений полей нет.")
+
+    sections = [
+        ("Заметки профиля", profile_notes),
+        ("Follow-up", follow_ups),
+        ("Документы", document_flags),
+        ("Противоречия/неясности", contradictions),
+        ("Предупреждения качества", quality_warnings),
+        ("Не сохранено как шум", ignored_as_noise),
+    ]
+    for title, items in sections:
+        if not items:
+            continue
+        chunks.extend(["", f"**{title}**"])
+        chunks.extend(f"- {item}" for item in items)
+
+    return "\n".join(chunks)

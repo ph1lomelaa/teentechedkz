@@ -33,6 +33,61 @@ _SPECULATIVE_RE = re.compile(
     r")\b|\bближе\b",
     re.IGNORECASE,
 )
+_IELTS_ZERO_RE = re.compile(
+    r"(?:ielts|айл[тт]с).{0,40}(?:до|на|=|:)?\s*(?:0|н[уо]л[ьяею]?)\b|"
+    r"(?:до|на|=|:)?\s*(?:0|н[уо]л[ьяею]?)\b.{0,40}(?:ielts|айл[тт]с)",
+    re.IGNORECASE,
+)
+
+
+def detect_quality_warnings(text: str) -> list[str]:
+    compact = " ".join((text or "").split())
+    warnings: list[str] = []
+    if compact and _IELTS_ZERO_RE.search(compact):
+        warnings.append("Есть нелогичное упоминание IELTS около значения 0; не сохранять как подтверждённый результат без проверки.")
+    return warnings
+
+
+def remove_quality_risky_notes(notes: list[str]) -> tuple[list[str], list[str]]:
+    kept: list[str] = []
+    warnings: list[str] = []
+    for note in notes:
+        note_warnings = detect_quality_warnings(note)
+        if note_warnings:
+            warnings.extend(note_warnings)
+            continue
+        kept.append(note)
+    deduped_warnings: list[str] = []
+    for warning in warnings:
+        if warning not in deduped_warnings:
+            deduped_warnings.append(warning)
+    return kept, deduped_warnings
+
+
+def append_quality_warnings(summary: str, warnings: list[str]) -> str:
+    clean_warnings = [warning for warning in warnings if warning]
+    if not clean_warnings:
+        return summary
+    chunks = [summary.strip(), "", "**Требует проверки качества**"]
+    chunks.extend(f"- {warning}" for warning in clean_warnings)
+    return "\n".join(chunks).strip()
+
+
+def remove_quality_risky_summary_lines(summary: str) -> tuple[str, list[str]]:
+    lines = (summary or "").splitlines()
+    kept: list[str] = []
+    warnings: list[str] = []
+    for line in lines:
+        line_warnings = detect_quality_warnings(line)
+        if line_warnings:
+            warnings.extend(line_warnings)
+            continue
+        kept.append(line)
+    deduped_warnings: list[str] = []
+    for warning in warnings:
+        if warning not in deduped_warnings:
+            deduped_warnings.append(warning)
+    return "\n".join(kept).strip(), deduped_warnings
 
 
 def snapshot_student(student: Student) -> dict[str, Any]:

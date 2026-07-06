@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FolderInput, Paperclip } from 'lucide-react'
+import { ArrowLeft, FolderInput, Paperclip, Sparkles, X } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
@@ -27,16 +27,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import { downloadBlob } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errorMessage'
-import type { TelegramAttachment } from '@/types'
+import type { TelegramAttachment, TelegramContextDraft } from '@/types'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function compactContextDraft(draft: TelegramContextDraft): TelegramContextDraft {
+  const cleanList = (items: string[]) => items.map((item) => item.trim()).filter(Boolean)
+  return {
+    ...draft,
+    summary: draft.summary.trim(),
+    profile_updates: draft.profile_updates.filter((item) => item.field.trim() && String(item.value ?? '').trim()),
+    profile_notes: cleanList(draft.profile_notes),
+    follow_ups: cleanList(draft.follow_ups),
+    document_flags: cleanList(draft.document_flags),
+    contradictions: cleanList(draft.contradictions),
+    quality_warnings: cleanList(draft.quality_warnings),
+    ignored_as_noise: cleanList(draft.ignored_as_noise),
+  }
+}
+
+function replaceDraftList(
+  draft: TelegramContextDraft,
+  key: keyof Pick<TelegramContextDraft, 'profile_notes' | 'follow_ups' | 'document_flags' | 'contradictions' | 'quality_warnings'>,
+  index: number,
+  value: string,
+): TelegramContextDraft {
+  return {
+    ...draft,
+    [key]: draft[key].map((item, i) => (i === index ? value : item)),
+  }
 }
 
 export default function TelegramChatDetailPage() {
@@ -49,6 +78,8 @@ export default function TelegramChatDetailPage() {
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
   const [saveAsDocTarget, setSaveAsDocTarget] = useState<string | null>(null)
   const [saveAsDocType, setSaveAsDocType] = useState<DocType | ''>('')
+  const [contextDraftOpen, setContextDraftOpen] = useState(false)
+  const [contextDraft, setContextDraft] = useState<TelegramContextDraft | null>(null)
 
   const { data: chat } = useQuery({
     queryKey: ['telegram-chat', chatId],
@@ -149,6 +180,30 @@ export default function TelegramChatDetailPage() {
     onError: (err) => toast({ title: 'Не удалось сохранить файл', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
+  const contextDraftMutation = useMutation({
+    mutationFn: () => telegramApi.createContextDraft(chatId!, 40),
+    onSuccess: (draft) => {
+      setContextDraft(draft)
+      setContextDraftOpen(true)
+    },
+    onError: (err) => toast({ title: 'Не удалось создать заметки', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
+  const applyContextDraftMutation = useMutation({
+    mutationFn: () => telegramApi.applyContextDraft(chatId!, compactContextDraft(contextDraft!)),
+    onSuccess: (result) => {
+      setContextDraftOpen(false)
+      setContextDraft(null)
+      qc.invalidateQueries({ queryKey: ['student-notes'] })
+      qc.invalidateQueries({ queryKey: ['telegram-chat', chatId, 'insights'] })
+      toast({
+        title: 'Заметки сохранены',
+        description: `Сохранено заметок: ${result.profile_notes_saved}`,
+      })
+    },
+    onError: (err) => toast({ title: 'Не удалось сохранить заметки', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
   const handleDownloadAttachment = async (a: TelegramAttachment) => {
     try {
       const blob = await telegramApi.downloadAttachment(a.id)
@@ -156,6 +211,54 @@ export default function TelegramChatDetailPage() {
     } catch (err) {
       toast({ title: 'Не удалось скачать файл', description: getErrorMessage(err), variant: 'destructive' })
     }
+  }
+
+  const renderDraftTextList = (
+    title: string,
+    key: keyof Pick<TelegramContextDraft, 'profile_notes' | 'follow_ups' | 'document_flags' | 'contradictions' | 'quality_warnings'>,
+  ) => {
+    if (!contextDraft) return null
+    const items = contextDraft[key]
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">{title}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            onClick={() => setContextDraft({ ...contextDraft, [key]: [...items, ''] })}
+          >
+            Добавить
+          </Button>
+        </div>
+        {items.length === 0 ? (
+          <p className="text-xs text-gray-400">Нет пунктов</p>
+        ) : (
+          <div className="space-y-2">
+            {items.map((item, index) => (
+              <div key={`${key}-${index}`} className="flex items-start gap-2">
+                <Textarea
+                  value={item}
+                  className="min-h-[64px] text-sm"
+                  onChange={(event) => setContextDraft(replaceDraftList(contextDraft, key, index, event.target.value))}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 w-9 p-0"
+                  onClick={() => setContextDraft({ ...contextDraft, [key]: items.filter((_, i) => i !== index) })}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (!chat) {
@@ -188,6 +291,17 @@ export default function TelegramChatDetailPage() {
             {chat.student_id && (
               <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
                 Сменить привязку
+              </Button>
+            )}
+            {chat.student_id && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={contextDraftMutation.isPending || messages.length === 0}
+                onClick={() => contextDraftMutation.mutate()}
+              >
+                <Sparkles className="w-4 h-4" />
+                Создать заметки{chat.has_context_signal ? ` (${chat.context_signal_count})` : ''}
               </Button>
             )}
             {chat.status === 'active' && (
@@ -259,11 +373,19 @@ export default function TelegramChatDetailPage() {
         </div>
 
         <div className="border border-gray-200 rounded-[2px]">
-          <div className="px-4 py-2 border-b border-gray-200 font-medium text-sm text-gray-700">
-            AI-инсайты ({insights.length})
+          <div className="px-4 py-2 border-b border-gray-200">
+            <div className="font-medium text-sm text-gray-700">Авто-изменения полей ({insights.length})</div>
+            <p className="mt-0.5 text-xs text-gray-400">
+              Здесь только структурные изменения карточки. Для заметок, документов и follow-up используйте «Создать заметки».
+            </p>
           </div>
           <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
-            {insights.length === 0 && <p className="text-sm text-gray-500">Инсайтов пока нет</p>}
+            {chat.has_context_signal && (
+              <div className="rounded-[2px] border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                В последних сообщениях есть потенциально важный контекст: экзамены, документы, даты или вложения.
+              </div>
+            )}
+            {insights.length === 0 && <p className="text-sm text-gray-500">Авто-изменений полей пока нет</p>}
             {insights.map((insight) => (
               <InsightCard
                 key={insight.id}
@@ -276,6 +398,129 @@ export default function TelegramChatDetailPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={contextDraftOpen} onOpenChange={setContextDraftOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Заметки из Telegram</DialogTitle>
+            <DialogDescription>
+              Проверьте черновик перед сохранением. В профиль попадут только оставленные пункты.
+            </DialogDescription>
+          </DialogHeader>
+          {contextDraft && (
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Кратко</p>
+                <Textarea
+                  value={contextDraft.summary}
+                  className="min-h-[84px]"
+                  onChange={(event) => setContextDraft({ ...contextDraft, summary: event.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Изменения полей</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setContextDraft({
+                      ...contextDraft,
+                      profile_updates: [...contextDraft.profile_updates, { field: '', value: '', reason: '' }],
+                    })}
+                  >
+                    Добавить
+                  </Button>
+                </div>
+                {contextDraft.profile_updates.length === 0 ? (
+                  <p className="text-xs text-gray-400">Подтверждённых изменений полей нет</p>
+                ) : (
+                  <div className="space-y-2">
+                    {contextDraft.profile_updates.map((item, index) => (
+                      <div key={index} className="grid gap-2 rounded-[2px] border border-gray-200 p-3 md:grid-cols-[1fr_1fr_auto]">
+                        <Input
+                          value={item.field}
+                          placeholder="field"
+                          onChange={(event) => setContextDraft({
+                            ...contextDraft,
+                            profile_updates: contextDraft.profile_updates.map((next, i) =>
+                              i === index ? { ...next, field: event.target.value } : next
+                            ),
+                          })}
+                        />
+                        <Input
+                          value={String(item.value ?? '')}
+                          placeholder="Новое значение"
+                          onChange={(event) => setContextDraft({
+                            ...contextDraft,
+                            profile_updates: contextDraft.profile_updates.map((next, i) =>
+                              i === index ? { ...next, value: event.target.value } : next
+                            ),
+                          })}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-10 w-10 p-0"
+                          onClick={() => setContextDraft({
+                            ...contextDraft,
+                            profile_updates: contextDraft.profile_updates.filter((_, i) => i !== index),
+                          })}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                        <Textarea
+                          value={item.reason || ''}
+                          placeholder="Почему это подтверждено"
+                          className="min-h-[56px] md:col-span-3"
+                          onChange={(event) => setContextDraft({
+                            ...contextDraft,
+                            profile_updates: contextDraft.profile_updates.map((next, i) =>
+                              i === index ? { ...next, reason: event.target.value } : next
+                            ),
+                          })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {renderDraftTextList('Заметки профиля', 'profile_notes')}
+              {renderDraftTextList('Follow-up', 'follow_ups')}
+              {renderDraftTextList('Документы', 'document_flags')}
+              <p className="text-xs text-gray-400">
+                Вложения пока не распознаются автоматически: AI видит факт файла, но не читает содержимое сертификата.
+              </p>
+              {renderDraftTextList('Противоречия / неясности', 'contradictions')}
+              {renderDraftTextList('Предупреждения качества', 'quality_warnings')}
+
+              {contextDraft.ignored_as_noise.length > 0 && (
+                <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Не сохранять</p>
+                  <ul className="mt-2 list-disc pl-5 text-sm text-gray-600">
+                    {contextDraft.ignored_as_noise.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContextDraftOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={!contextDraft || applyContextDraftMutation.isPending}
+              onClick={() => applyContextDraftMutation.mutate()}
+            >
+              Сохранить выбранное
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <StudentPickerDialog
         open={reassignOpen}

@@ -27,6 +27,7 @@ from .telegram_message import TelegramMessage, TelegramMessageType
 from .telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from .telegram_pairing_code import TelegramPairingCode
 from .notion_snapshot import NotionSnapshot, NotionMatchStatus
+from .ai_analysis_run import AiAnalysisRun
 
 __all__ = [
     "User", "RefreshToken",
@@ -44,4 +45,5 @@ __all__ = [
     "TelegramAttachment", "TelegramAttachmentStatus",
     "TelegramPairingCode",
     "NotionSnapshot", "NotionMatchStatus",
+    "AiAnalysisRun",
 ]

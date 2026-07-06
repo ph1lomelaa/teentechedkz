@@ -21,6 +21,8 @@ export interface StudentNoteCreatePayload {
 
 export interface StudentNoteReviewPayload {
   action: 'approve' | 'reject'
+  summary_markdown?: string
+  suggested_changes?: Record<string, unknown>
 }
 
 export interface NoteSessionCreatePayload {
