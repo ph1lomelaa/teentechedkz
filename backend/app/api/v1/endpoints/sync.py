@@ -154,6 +154,14 @@ async def link_submission(
     submission.status = IntakeStatus.linked
     submission.linked_by = current_user.id
     submission.linked_at = datetime.now(timezone.utc)
+
+    mapped = map_row(list(submission.raw_data.keys()), list(submission.raw_data.values()), submission.source)
+    changed = _backfill_student_fields(student, mapped)
+    added_countries = await _apply_intake_countries(db, student, mapped)
+    if changed or added_countries:
+        detail = ", ".join(changed) + (f" + страны: {added_countries}" if added_countries else "")
+        await log_change(db, "student", student.id, "filled_from_intake", None, detail, str(current_user.id), "sheets_sync")
+
     await log_change(
         db, "student", student.id, "intake_submission_linked",
         None, f"{submission.source.value}:{submission.id}", str(current_user.id), "sheets_sync",
@@ -195,6 +203,12 @@ async def link_all_submissions(
         submission.status = IntakeStatus.linked
         submission.linked_by = current_user.id
         submission.linked_at = datetime.now(timezone.utc)
+
+        if submission.suggested_student:
+            mapped = map_row(list(submission.raw_data.keys()), list(submission.raw_data.values()), submission.source)
+            _backfill_student_fields(submission.suggested_student, mapped)
+            await _apply_intake_countries(db, submission.suggested_student, mapped)
+
         if submission.student_id:
             await log_change(
                 db,
@@ -265,6 +279,68 @@ async def create_student_from_submission(
     return {"student_id": str(student.id), "submission": _submission_to_dict(submission)}
 
 
+def _parse_intake_year(raw) -> int | None:
+    for token in str(raw or "").replace(".", " ").split():
+        if token.isdigit() and 2020 <= int(token) <= 2035:
+            return int(token)
+    return None
+
+
+def _backfill_student_fields(student: Student, mapped: dict) -> list[str]:
+    """Дозаполняет ТОЛЬКО пустые поля профиля значениями из анкеты — никогда
+    не перезаписывает то, что уже внесено вручную или из другой анкеты того
+    же студента (Пакет и Кейс приходят в разное время и дополняют друг друга)."""
+    changed: list[str] = []
+
+    def backfill(attr: str, value):
+        if not value or getattr(student, attr):
+            return
+        setattr(student, attr, value)
+        changed.append(attr)
+
+    backfill("city", mapped.get("city"))
+    backfill("specialty", mapped.get("specialty"))
+    backfill("gpa", mapped.get("gpa"))
+    backfill("achievements_text", mapped.get("achievements"))
+    backfill("budget_per_year", mapped.get("budget"))
+    backfill("phone", mapped.get("phone"))
+
+    raw_age = str(mapped.get("age", "")).split(".")[0]
+    if raw_age.isdigit() and 10 <= int(raw_age) <= 80 and not student.age:
+        student.age = int(raw_age)
+        changed.append("age")
+
+    return changed
+
+
+async def _apply_intake_countries(db: AsyncSession, student: Student, mapped: dict) -> int:
+    """Создаёт заявки (Application) по странам из анкеты, которых ещё нет у студента в CRM."""
+    from migration.transformers.normalize import countries_set
+    from app.models import Application
+
+    raw = mapped.get("countries")
+    if not raw:
+        return 0
+
+    existing = {
+        c.strip().lower()
+        for c in (await db.execute(
+            select(Application.country).where(Application.student_id == student.id)
+        )).scalars().all()
+        if c
+    }
+
+    added = 0
+    for country in sorted(countries_set(raw)):
+        key = country.strip().lower()
+        if not key or key in existing:
+            continue
+        db.add(Application(student_id=student.id, country=country, is_primary=not existing))
+        existing.add(key)
+        added += 1
+    return added
+
+
 async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmission, user_id: uuid.UUID) -> Student:
     from migration.transformers.normalize import parse_degree
 
@@ -273,32 +349,17 @@ async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmis
     values = [submission.raw_data[h] for h in headers]
     mapped = map_row(headers, values, source)
 
-    intake_year = None
-    raw_year = mapped.get("intake_year", "")
-    for token in str(raw_year).replace(".", " ").split():
-        if token.isdigit() and 2020 <= int(token) <= 2035:
-            intake_year = int(token)
-            break
-
-    age = None
-    raw_age = str(mapped.get("age", "")).split(".")[0]
-    if raw_age.isdigit() and 10 <= int(raw_age) <= 80:
-        age = int(raw_age)
-
     student = Student(
         full_name=(submission.full_name or "Без имени")[:500],
         phone=mapped.get("phone", "")[:100],
-        city=(mapped.get("city") or None),
-        age=age,
         degree_level=parse_degree(mapped.get("degree_level", "")),
-        specialty=mapped.get("specialty") or None,
-        gpa=mapped.get("gpa") or None,
-        achievements_text=mapped.get("achievements") or None,
-        budget_per_year=mapped.get("budget") or None,
-        intake_year=intake_year or datetime.now(timezone.utc).year + 1,
+        intake_year=_parse_intake_year(mapped.get("intake_year")) or datetime.now(timezone.utc).year + 1,
     )
     db.add(student)
     await db.flush()
+
+    _backfill_student_fields(student, mapped)
+    await _apply_intake_countries(db, student, mapped)
 
     submission.student_id = student.id
     submission.status = IntakeStatus.linked
