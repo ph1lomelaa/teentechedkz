@@ -5,10 +5,12 @@ import { ArrowLeft, Check, X } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Markdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 
 function humanizeKey(key: string): string {
   const labels: Record<string, string> = {
@@ -84,8 +86,10 @@ function renderDiffPreview(
 export const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const { hasRole } = useAuth()
   const [editedSummary, setEditedSummary] = React.useState('')
   const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
+  const [rejectConfirmOpen, setRejectConfirmOpen] = React.useState(false)
 
   const { data: note, isLoading } = useQuery({
     queryKey: ['note', id],
@@ -183,11 +187,11 @@ export const NoteDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {note.student_id && note.status === 'draft' && (
+        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager') && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => reviewMutation.mutate({ action: 'reject' })}
+              onClick={() => setRejectConfirmOpen(true)}
               disabled={reviewMutation.isPending}
             >
               <X className="w-4 h-4 mr-2" />
@@ -207,6 +211,32 @@ export const NoteDetailPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      <Dialog open={rejectConfirmOpen} onOpenChange={setRejectConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Отклонить конспект?</DialogTitle>
+            <DialogDescription>
+              AI-черновик будет отклонён без возможности вернуть его на повторную проверку.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectConfirmOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setRejectConfirmOpen(false)
+                reviewMutation.mutate({ action: 'reject' })
+              }}
+              disabled={reviewMutation.isPending}
+            >
+              Отклонить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
         <Card className="border-slate-200 bg-white">

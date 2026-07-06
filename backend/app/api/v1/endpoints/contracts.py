@@ -27,8 +27,6 @@ async def create_contract(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
-
     contract = Contract(
         student_id=body.student_id,
         signed_date=body.signed_date,
@@ -97,7 +95,6 @@ async def get_contracts_for_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(
         select(Contract)
         .options(joinedload(Contract.mzk_manager))
@@ -116,7 +113,7 @@ async def _load_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager):
         raise HTTPException(status_code=403, detail="Access denied")
 
 

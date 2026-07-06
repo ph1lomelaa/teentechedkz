@@ -80,6 +80,9 @@ export const notesApi = {
     const response = await apiClient.patch<NoteSession>(`/note-sessions/${sessionId}/end`)
     return response.data
   },
+  deleteSession: async (sessionId: string): Promise<void> => {
+    await apiClient.delete(`/note-sessions/${sessionId}`)
+  },
   draftSession: async (sessionId: string): Promise<NoteSessionDraft> => {
     const response = await apiClient.post<NoteSessionDraft>(`/note-sessions/${sessionId}/draft`)
     return response.data
@@ -128,5 +131,8 @@ export const notesApi = {
   diff: async (id: string): Promise<StudentNoteDiff> => {
     const response = await apiClient.get<StudentNoteDiff>(`/notes/${id}/diff`)
     return response.data
+  },
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/notes/${id}`)
   },
 }

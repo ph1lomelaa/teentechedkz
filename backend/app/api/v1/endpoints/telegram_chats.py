@@ -191,6 +191,16 @@ async def attach_chat(
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
 
+    result = await db.execute(
+        select(TelegramChatSession).where(
+            TelegramChatSession.chat_id == chat.id,
+            TelegramChatSession.status == TelegramSessionStatus.active,
+        )
+    )
+    for existing_session in result.scalars().all():
+        existing_session.status = TelegramSessionStatus.closed
+        existing_session.closed_at = datetime.now(timezone.utc)
+
     chat.status = TelegramChatStatus.active
     session = TelegramChatSession(chat_id=chat.id, student_id=student.id, opened_by=current_user.id)
     db.add(session)

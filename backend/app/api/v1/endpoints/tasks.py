@@ -82,7 +82,7 @@ async def create_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     task = StudentTask(

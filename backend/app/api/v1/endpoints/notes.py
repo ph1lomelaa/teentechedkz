@@ -192,6 +192,28 @@ async def create_note(
     return _note_to_response(note, student.full_name if student else None)
 
 
+@router.delete("/{note_id}")
+async def delete_note(
+    note_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    note = await db.get(StudentNote, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Конспект не найден")
+
+    if note.student_id and not _is_staff_admin(current_user):
+        mentor_ids = await _mentor_student_ids(db, current_user.id)
+        if note.student_id not in mentor_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    await db.delete(note)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.post("/{note_id}/review", response_model=StudentNoteResponse)
 async def review_note(
     note_id: uuid.UUID,

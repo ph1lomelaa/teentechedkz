@@ -513,6 +513,7 @@ function NotionInbox() {
   const [view, setView] = useState<'new' | 'ignored' | 'all'>('new')
   const [confirmLinkAll, setConfirmLinkAll] = useState(false)
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
+  const [ignoreTarget, setIgnoreTarget] = useState<NotionSnapshotItem | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['notion', 'inbox', view],
@@ -560,6 +561,7 @@ function NotionInbox() {
     mutationFn: (id: string) => notionApi.ignore(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notion'] })
+      setIgnoreTarget(null)
       toast({ title: 'Запись скрыта' })
     },
     onError: (err) => toast({ title: 'Не удалось скрыть запись', description: getErrorMessage(err), variant: 'destructive' }),
@@ -676,7 +678,7 @@ function NotionInbox() {
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500"
                           disabled={ignoreMutation.isPending}
-                          onClick={() => ignoreMutation.mutate(snap.id)}>
+                          onClick={() => setIgnoreTarget(snap)}>
                           <EyeOff className="w-3.5 h-3.5 mr-1" />
                           Скрыть
                         </Button>
@@ -689,6 +691,28 @@ function NotionInbox() {
           </TableBody>
         </Table>
       )}
+      <Dialog open={!!ignoreTarget} onOpenChange={(open) => !open && setIgnoreTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Скрыть запись Notion?</DialogTitle>
+            <DialogDescription>
+              Запись {ignoreTarget?.full_name ?? 'выбранного студента'} будет перемещена в скрытые и останется доступной через фильтр.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIgnoreTarget(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => ignoreTarget && ignoreMutation.mutate(ignoreTarget.id)}
+              disabled={!ignoreTarget || ignoreMutation.isPending}
+            >
+              Скрыть
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmLinkAll} onOpenChange={(open) => !open && setConfirmLinkAll(false)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -741,6 +765,7 @@ export const StudentsListPage: React.FC = () => {
   const qc = useQueryClient()
   const { canAccess, hasRole } = useAuth()
   const isManager = hasRole('admin', 'mzk_manager')
+  const canRunSync = hasRole('admin')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
@@ -1040,16 +1065,18 @@ export const StudentsListPage: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           {isManager && (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => syncMutation.mutate()}
-                disabled={syncMutation.isPending}
-                title={syncStatus?.configured === false ? 'Google Sheets не настроен' : 'Забрать новые анкеты из Google Sheets'}
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                Синхронизировать
-              </Button>
+              {canRunSync && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => syncMutation.mutate()}
+                  disabled={syncMutation.isPending}
+                  title={syncStatus?.configured === false ? 'Google Sheets не настроен' : 'Забрать новые анкеты из Google Sheets'}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Синхронизировать
+                </Button>
+              )}
               <Button
                 variant={showInbox ? 'default' : 'outline'}
                 size="sm"
@@ -1058,16 +1085,18 @@ export const StudentsListPage: React.FC = () => {
                 <Inbox className="w-3.5 h-3.5 mr-1.5" />
                 {showInbox ? 'Все студенты' : 'Входящие'}{newCount > 0 && !showInbox ? ` · ${newCount}` : ''}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => notionSyncMutation.mutate()}
-                disabled={notionSyncMutation.isPending}
-                title={notionStatus?.configured === false ? 'Notion не настроен' : 'Обновить зеркало Notion'}
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${notionSyncMutation.isPending ? 'animate-spin' : ''}`} />
-                Синк Notion
-              </Button>
+              {canRunSync && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => notionSyncMutation.mutate()}
+                  disabled={notionSyncMutation.isPending}
+                  title={notionStatus?.configured === false ? 'Notion не настроен' : 'Обновить зеркало Notion'}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${notionSyncMutation.isPending ? 'animate-spin' : ''}`} />
+                  Синк Notion
+                </Button>
+              )}
               <Button
                 variant={showNotion ? 'default' : 'outline'}
                 size="sm"

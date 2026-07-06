@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 interface StudentCardProps {
   student: StudentListItem
@@ -194,17 +195,18 @@ export const DashboardPage: React.FC = () => {
 
       const studentFull = await studentsApi.get(studentId)
       const contract = studentFull.contracts?.[0]
-      if (contract) {
-        await contractsApi.update(contract.id, {
-          pipeline_status: newStatus,
-        })
+      if (!contract) {
+        throw new Error('У студента нет договора — статус пайплайна привязан к договору')
       }
+      await contractsApi.update(contract.id, {
+        pipeline_status: newStatus,
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['students'] })
     },
-    onError: () => {
-      toast({ title: 'Ошибка', description: 'Не удалось обновить статус', variant: 'destructive' })
+    onError: (err) => {
+      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось обновить статус'), variant: 'destructive' })
     },
   })
 

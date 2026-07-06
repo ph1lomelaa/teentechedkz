@@ -9,15 +9,9 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.encryption import encrypt, decrypt
-from app.models.confidential_note import ConfidentialNote, NoteVisibility
-from app.models.user import UserRole
+from app.models.confidential_note import ConfidentialNote, NoteVisibility, note_visible_to_role
 
 router = APIRouter(prefix="/confidential-notes", tags=["confidential_notes"])
-
-
-def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/student/{student_id}")
@@ -26,14 +20,16 @@ async def get_notes(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(
         select(ConfidentialNote)
         .where(ConfidentialNote.student_id == student_id)
         .order_by(ConfidentialNote.created_at)
     )
     notes = result.scalars().all()
-    return [_note_to_dict(n) for n in notes]
+    return [
+        _note_to_dict(n) for n in notes
+        if note_visible_to_role(n.visible_to_role, current_user.role)
+    ]
 
 
 @router.post("")
@@ -42,8 +38,6 @@ async def create_note(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
-
     note_text = body.get("note_text", "").strip()
     if not note_text:
         raise HTTPException(status_code=422, detail="note_text обязателен")
@@ -71,10 +65,11 @@ async def delete_note(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
     note = result.scalar_one_or_none()
     if not note:
+        raise HTTPException(status_code=404, detail="Заметка не найдена")
+    if not note_visible_to_role(note.visible_to_role, current_user.role):
         raise HTTPException(status_code=404, detail="Заметка не найдена")
     await db.delete(note)
     await db.commit()

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
@@ -33,7 +33,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ToastAction } from '@/components/ui/toast'
 import { toast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 
 const STEPS = [
@@ -138,6 +140,7 @@ export const NewStudentPage: React.FC = () => {
   ])
 
   const [confidentialNote, setConfidentialNote] = useState('')
+  const createdStudentRef = useRef<{ id: string; full_name: string } | null>(null)
 
   const { data: mentors = [] } = useQuery({
     queryKey: ['users', 'mentor'],
@@ -152,6 +155,7 @@ export const NewStudentPage: React.FC = () => {
   const createMutation = useMutation({
     mutationFn: async () => {
       const student = await studentsApi.create(studentForm)
+      createdStudentRef.current = { id: student.id, full_name: student.full_name }
       const contract = await contractsApi.create({
         student_id: student.id,
         signed_date: contractForm.signed_date || undefined,
@@ -219,11 +223,26 @@ export const NewStudentPage: React.FC = () => {
       return student
     },
     onSuccess: (student) => {
+      createdStudentRef.current = null
       toast({ title: 'Студент создан', description: student.full_name })
       navigate(`/students/${student.id}`)
     },
-    onError: () => {
-      toast({ title: 'Ошибка', description: 'Не удалось создать студента', variant: 'destructive' })
+    onError: (err) => {
+      const created = createdStudentRef.current
+      if (created) {
+        toast({
+          title: 'Студент создан, но часть данных не сохранилась',
+          description: `${created.full_name}: проверьте опекуна/услуги/страны на карточке студента — ${getErrorMessage(err)}`,
+          variant: 'destructive',
+          action: (
+            <ToastAction altText="Открыть студента" onClick={() => navigate(`/students/${created.id}`)}>
+              Открыть студента
+            </ToastAction>
+          ),
+        })
+      } else {
+        toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось создать студента'), variant: 'destructive' })
+      }
     },
   })
 
@@ -231,11 +250,15 @@ export const NewStudentPage: React.FC = () => {
     if (step === 0) {
       return studentForm.full_name.trim().length > 0 && studentForm.phone.trim().length > 0
     }
+    if (step === 1 && guardianForm.iin.trim()) {
+      return /^\d{12}$/.test(guardianForm.iin.trim())
+    }
     return true
   }
 
   const nextStep = () => {
     if (validateStep()) setStep((s) => Math.min(s + 1, STEPS.length - 1))
+    else if (step === 1) toast({ title: 'ИИН должен содержать 12 цифр', variant: 'destructive' })
     else toast({ title: 'Заполните обязательные поля', variant: 'destructive' })
   }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookText, CircleDot, Plus, Sparkles } from 'lucide-react'
+import { BookText, CircleDot, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import type { NoteSessionStatus, StudentListItem, StudentNoteStatus } from '@/types'
+import { getErrorMessage } from '@/lib/errorMessage'
+import type { NoteSession, NoteSessionStatus, StudentListItem, StudentNote, StudentNoteStatus } from '@/types'
 
 const sessionStatusOptions: Array<{ value: NoteSessionStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все сессии' },
@@ -35,6 +36,8 @@ export const NotesPage: React.FC = () => {
   const [studentSelect, setStudentSelect] = useState('')
   const [sessionStatus, setSessionStatus] = useState<NoteSessionStatus | 'all'>('all')
   const [noteStatus, setNoteStatus] = useState<StudentNoteStatus | 'all'>('all')
+  const [sessionDeleteTarget, setSessionDeleteTarget] = useState<NoteSession | null>(null)
+  const [noteDeleteTarget, setNoteDeleteTarget] = useState<StudentNote | null>(null)
 
   useEffect(() => {
     const studentId = searchParams.get('student_id')
@@ -83,6 +86,31 @@ export const NotesPage: React.FC = () => {
     },
     onError: () => {
       toast({ title: 'Ошибка', description: 'Не удалось создать сессию', variant: 'destructive' })
+    },
+  })
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => notesApi.deleteSession(sessionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['note-sessions'] })
+      setSessionDeleteTarget(null)
+      toast({ title: 'Сессия удалена' })
+    },
+    onError: (err) => {
+      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось удалить сессию'), variant: 'destructive' })
+    },
+  })
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: (noteId: string) => notesApi.delete(noteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      queryClient.invalidateQueries({ queryKey: ['note-sessions'] })
+      setNoteDeleteTarget(null)
+      toast({ title: 'Конспект удалён' })
+    },
+    onError: (err) => {
+      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось удалить конспект'), variant: 'destructive' })
     },
   })
 
@@ -164,13 +192,23 @@ export const NotesPage: React.FC = () => {
                     </div>
                     <div className="mt-4 flex items-center gap-2">
                       <Button size="sm" asChild>
-                        <Link to={`/notes/session/${session.id}`}>Открыть</Link>
+                        <Link to={`/notes/session/${session.id}`}>
+                          {session.note_id ? 'Просмотреть' : 'Открыть'}
+                        </Link>
                       </Button>
                       {session.note_id && (
                         <Button variant="outline" size="sm" asChild>
                           <Link to={`/notes/${session.note_id}`}>Конспект</Link>
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setSessionDeleteTarget(session)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -223,9 +261,19 @@ export const NotesPage: React.FC = () => {
                           {stripMarkdown(note.summary_markdown)}
                         </p>
                       </div>
-                      <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                        {note.status}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                          {note.status}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => setNoteDeleteTarget(note)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -294,6 +342,53 @@ export const NotesPage: React.FC = () => {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
             <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
               {createMutation.isPending ? 'Создаю…' : 'Начать сессию'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!sessionDeleteTarget} onOpenChange={() => setSessionDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Удалить сессию?</DialogTitle>
+            <DialogDescription>
+              «{sessionDeleteTarget?.title}» и все её фрагменты транскрипта будут удалены без возможности восстановления.
+              {sessionDeleteTarget?.note_id && ' Связанный конспект удалён не будет.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSessionDeleteTarget(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => sessionDeleteTarget && deleteSessionMutation.mutate(sessionDeleteTarget.id)}
+              disabled={deleteSessionMutation.isPending}
+            >
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!noteDeleteTarget} onOpenChange={() => setNoteDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Удалить конспект?</DialogTitle>
+            <DialogDescription>
+              «{noteDeleteTarget?.title}» будет удалён без возможности восстановления. Уже применённые изменения профиля студента отменены не будут.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteDeleteTarget(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => noteDeleteTarget && deleteNoteMutation.mutate(noteDeleteTarget.id)}
+              disabled={deleteNoteMutation.isPending}
+            >
+              Удалить
             </Button>
           </DialogFooter>
         </DialogContent>

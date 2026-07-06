@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
 import {
@@ -51,7 +52,9 @@ function UserModal({
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
+  const { user: currentUser } = useAuth()
   const isEdit = !!user
+  const isSelf = isEdit && user?.id === currentUser?.id
   const [form, setForm] = useState<UserForm>({
     name: user?.name ?? '',
     email: user?.email ?? '',
@@ -120,6 +123,7 @@ function UserModal({
             <Select
               value={form.role}
               onValueChange={(v) => setForm({ ...form, role: v as UserRole })}
+              disabled={isSelf}
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -128,6 +132,9 @@ function UserModal({
                 ))}
               </SelectContent>
             </Select>
+            {isSelf && (
+              <p className="text-xs text-gray-500 mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
+            )}
           </div>
           <div>
             <Label>Телефон</Label>
@@ -176,6 +183,7 @@ export const SettingsUsersPage: React.FC = () => {
   const { user: currentUser, logout } = useAuth()
   const [editUser, setEditUser] = useState<User | undefined>()
   const [addOpen, setAddOpen] = useState(false)
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users', 'all'],
@@ -187,6 +195,7 @@ export const SettingsUsersPage: React.FC = () => {
       usersApi.update(user.id, { is_active: !user.is_active }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
+      setDeactivateTarget(null)
       toast({ title: 'Статус обновлён' })
     },
     onError: () => {
@@ -290,9 +299,13 @@ export const SettingsUsersPage: React.FC = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => toggleActiveMutation.mutate(user)}
-                        disabled={toggleActiveMutation.isPending}
-                        title={user.is_active ? 'Деактивировать' : 'Активировать'}
+                        onClick={() => user.is_active ? setDeactivateTarget(user) : toggleActiveMutation.mutate(user)}
+                        disabled={toggleActiveMutation.isPending || (user.is_active && user.id === currentUser?.id)}
+                        title={
+                          user.is_active && user.id === currentUser?.id
+                            ? 'Нельзя деактивировать самого себя'
+                            : user.is_active ? 'Деактивировать' : 'Активировать'
+                        }
                       >
                         {user.is_active ? (
                           <UserX className="w-3 h-3 text-red-600" />
@@ -319,6 +332,29 @@ export const SettingsUsersPage: React.FC = () => {
           onClose={() => setEditUser(undefined)}
         />
       )}
+
+      <Dialog open={!!deactivateTarget} onOpenChange={() => setDeactivateTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Деактивировать пользователя?</DialogTitle>
+            <DialogDescription>
+              {deactivateTarget?.name} потеряет доступ к системе. Активировать обратно можно в любой момент.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeactivateTarget(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deactivateTarget && toggleActiveMutation.mutate(deactivateTarget)}
+              disabled={toggleActiveMutation.isPending}
+            >
+              Деактивировать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

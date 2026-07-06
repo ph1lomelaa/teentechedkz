@@ -175,6 +175,9 @@ export default function TelegramChatDetailPage() {
     onSuccess: () => {
       setSaveAsDocTarget(null)
       setSaveAsDocType('')
+      if (chat?.student_id) {
+        qc.invalidateQueries({ queryKey: ['student', chat.student_id] })
+      }
       toast({ title: 'Файл добавлен в документы студента' })
     },
     onError: (err) => toast({ title: 'Не удалось сохранить файл', description: getErrorMessage(err), variant: 'destructive' }),
@@ -288,11 +291,9 @@ export default function TelegramChatDetailPage() {
         </div>
         {canManage && (
           <div className="flex flex-wrap gap-2">
-            {chat.student_id && (
-              <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
-                Сменить привязку
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
+              {chat.student_id ? 'Сменить привязку' : 'Привязать студента'}
+            </Button>
             {chat.student_id && (
               <Button
                 variant="outline"

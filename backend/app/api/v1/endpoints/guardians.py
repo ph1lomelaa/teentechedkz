@@ -16,7 +16,7 @@ router = APIRouter(prefix="/guardians", tags=["guardians"])
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
@@ -26,7 +26,6 @@ async def get_guardians(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(select(Guardian).where(Guardian.student_id == student_id))
     guardians = result.scalars().all()
     return [_guardian_to_dict(g, reveal_iin=False) for g in guardians]
@@ -64,8 +63,6 @@ async def create_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
-
     iin_plain = body.get("iin", "")
     if iin_plain and (not iin_plain.isdigit() or len(iin_plain) != 12):
         raise HTTPException(status_code=422, detail="ИИН должен содержать 12 цифр", headers={"X-Error-Code": "HUMAN_ONLY_FIELD"})
@@ -97,7 +94,6 @@ async def update_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(select(Guardian).where(Guardian.id == guardian_id))
     g = result.scalar_one_or_none()
     if not g:
@@ -128,7 +124,6 @@ async def delete_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
     result = await db.execute(select(Guardian).where(Guardian.id == guardian_id))
     g = result.scalar_one_or_none()
     if not g:

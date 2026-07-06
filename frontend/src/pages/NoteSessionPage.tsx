@@ -452,6 +452,8 @@ export const NoteSessionPage: React.FC = () => {
     return <div className="py-12 text-center text-slate-500">Загрузка...</div>
   }
 
+  const isReadOnly = Boolean(session.note_id)
+
   return (
     <div className="space-y-5">
       {sourceStoppedAlert && (
@@ -487,7 +489,7 @@ export const NoteSessionPage: React.FC = () => {
             {session.title}
           </h1>
           <p className="mt-2 text-sm text-slate-500 max-w-2xl">
-            {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)} · {statusLabel}
+            {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)} · {isReadOnly ? 'Сессия завершена, конспект готов' : statusLabel}
           </p>
         </div>
 
@@ -496,43 +498,63 @@ export const NoteSessionPage: React.FC = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Назад
           </Button>
-          <Button variant="outline" onClick={requestDraft} disabled={draftLoading || transcripts.length === 0}>
-            {draftLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
-            AI-черновик
-          </Button>
-          <Button onClick={() => setFinalizeDialogOpen(true)} disabled={finishing}>
-            {finishing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
-            Завершить
-          </Button>
+          {session.note_id ? (
+            <Button asChild>
+              <Link to={`/notes/${session.note_id}`}>
+                <Bot className="w-4 h-4 mr-2" />
+                Конспект
+              </Link>
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={requestDraft} disabled={isReadOnly || draftLoading || transcripts.length === 0}>
+              {draftLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
+              AI-черновик
+            </Button>
+          )}
+          {!isReadOnly && (
+            <Button onClick={() => setFinalizeDialogOpen(true)} disabled={finishing}>
+              {finishing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
+              Завершить
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
-        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
-          <span className={`h-2.5 w-2.5 rounded-full ${isDeepgramCapturing ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-          <span className="truncate">{captureStatusText} · {recognitionStatusText}</span>
+      {isReadOnly ? (
+        <div className="sticky top-0 z-[9] flex flex-wrap items-center gap-2 rounded-[2px] border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
+          <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+          <span className="text-sm text-slate-700">
+            Конспект уже готов · только просмотр, запись недоступна
+          </span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => void handleStart('mic')} disabled={isDeepgramCapturing} title="Начать запись с микрофона">
-            <Mic className="w-4 h-4 mr-1.5" />
-            Микрофон
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void handleStart('system')} disabled={isDeepgramCapturing} title="Начать запись системного звука">
-            <MonitorUp className="w-4 h-4 mr-1.5" />
-            Экран
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void handleStop()} disabled={!isDeepgramCapturing} title="Остановить запись, не завершая сессию">
-            <Square className="w-4 h-4 mr-1.5" />
-            Стоп
-          </Button>
-          <Button size="sm" onClick={() => setFinalizeDialogOpen(true)} disabled={finishing} title="Остановить запись и собрать конспект">
-            <Check className="w-4 h-4 mr-1.5" />
-            Завершить
-          </Button>
+      ) : (
+        <div className="sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
+          <div className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+            <span className={`h-2.5 w-2.5 rounded-full ${isDeepgramCapturing ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+            <span className="truncate">{captureStatusText} · {recognitionStatusText}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant="outline" onClick={() => void handleStart('mic')} disabled={isDeepgramCapturing} title="Начать запись с микрофона">
+              <Mic className="w-4 h-4 mr-1.5" />
+              Микрофон
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void handleStart('system')} disabled={isDeepgramCapturing} title="Начать запись системного звука">
+              <MonitorUp className="w-4 h-4 mr-1.5" />
+              Экран
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void handleStop()} disabled={!isDeepgramCapturing} title="Остановить запись, не завершая сессию">
+              <Square className="w-4 h-4 mr-1.5" />
+              Стоп
+            </Button>
+            <Button size="sm" onClick={() => setFinalizeDialogOpen(true)} disabled={finishing} title="Остановить запись и собрать конспект">
+              <Check className="w-4 h-4 mr-1.5" />
+              Завершить
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={`grid gap-4 ${focusRecording ? 'xl:grid-cols-[0.9fr_1.1fr]' : 'xl:grid-cols-[0.95fr_1.15fr_0.9fr]'}`}>
+      <div className={`grid gap-4 ${focusRecording || isReadOnly ? 'xl:grid-cols-[0.9fr_1.1fr]' : 'xl:grid-cols-[0.95fr_1.15fr_0.9fr]'}`}>
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-4">
             <CardTitle className="text-base text-slate-900">Запись</CardTitle>
@@ -564,29 +586,35 @@ export const NoteSessionPage: React.FC = () => {
               {returnedFromBackground && <p className="text-xs text-amber-700">Вкладка возвращена из фона, проверьте звук.</p>}
             </div>
 
-            <div className="grid gap-2">
-              <Button
-                className="justify-start bg-black text-white hover:bg-black/90"
-                onClick={() => void handleStart('mic')}
-                disabled={isDeepgramCapturing}
-              >
-                <Mic className="w-4 h-4 mr-2" />
-                Микрофон
-              </Button>
-              <Button
-                variant="outline"
-                className="justify-start"
-                onClick={() => void handleStart('system')}
-                disabled={isDeepgramCapturing}
-              >
-                <MonitorUp className="w-4 h-4 mr-2" />
-                Экран / системный звук
-              </Button>
-              <Button variant="ghost" className="justify-start" onClick={() => void handleStop()} disabled={!isDeepgramCapturing}>
-                <Square className="w-4 h-4 mr-2" />
-                Остановить запись
-              </Button>
-            </div>
+            {isReadOnly ? (
+              <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+                Конспект уже собран — запись для этой сессии больше не ведётся.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <Button
+                  className="justify-start bg-black text-white hover:bg-black/90"
+                  onClick={() => void handleStart('mic')}
+                  disabled={isDeepgramCapturing}
+                >
+                  <Mic className="w-4 h-4 mr-2" />
+                  Микрофон
+                </Button>
+                <Button
+                  variant="outline"
+                  className="justify-start"
+                  onClick={() => void handleStart('system')}
+                  disabled={isDeepgramCapturing}
+                >
+                  <MonitorUp className="w-4 h-4 mr-2" />
+                  Экран / системный звук
+                </Button>
+                <Button variant="ghost" className="justify-start" onClick={() => void handleStop()} disabled={!isDeepgramCapturing}>
+                  <Square className="w-4 h-4 mr-2" />
+                  Остановить запись
+                </Button>
+              </div>
+            )}
 
             <div className="border-t border-slate-200 pt-4 text-sm text-slate-600 space-y-1">
               <div className="flex items-center justify-between gap-3">
@@ -603,35 +631,37 @@ export const NoteSessionPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="border-t border-slate-200 pt-4 text-sm text-slate-600 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <span>Резервных фрагментов</span>
-                <span className="font-medium text-slate-900">
-                  {audioBackup.uploadedCount}/{audioBackup.segmentCount}
-                </span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start"
-                onClick={() => void handleReconcile()}
-                disabled={reconciling || audioBackup.uploadedCount === 0}
-              >
-                {reconciling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                Восстановить транскрипт из резервной записи
-              </Button>
-              <p className="text-xs text-slate-400">
-                Используйте, если live-распознавание пропало, но резервные аудио-фрагменты успели загрузиться.
-              </p>
-              {reconcileResult && (
-                <div className="mt-2 rounded-[2px] border border-slate-200 bg-slate-50 p-3 max-h-40 overflow-y-auto">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Резервный транскрипт</p>
-                  <p className="text-xs text-slate-700 whitespace-pre-wrap">
-                    {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
-                  </p>
+            {!isReadOnly && (
+              <div className="border-t border-slate-200 pt-4 text-sm text-slate-600 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Резервных фрагментов</span>
+                  <span className="font-medium text-slate-900">
+                    {audioBackup.uploadedCount}/{audioBackup.segmentCount}
+                  </span>
                 </div>
-              )}
-            </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => void handleReconcile()}
+                  disabled={reconciling || audioBackup.uploadedCount === 0}
+                >
+                  {reconciling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Восстановить транскрипт из резервной записи
+                </Button>
+                <p className="text-xs text-slate-400">
+                  Используйте, если live-распознавание пропало, но резервные аудио-фрагменты успели загрузиться.
+                </p>
+                {reconcileResult && (
+                  <div className="mt-2 rounded-[2px] border border-slate-200 bg-slate-50 p-3 max-h-40 overflow-y-auto">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400 mb-1">Резервный транскрипт</p>
+                    <p className="text-xs text-slate-700 whitespace-pre-wrap">
+                      {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {session.student_id && (
               <Button variant="outline" asChild className="w-full justify-start">
@@ -691,7 +721,7 @@ export const NoteSessionPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {!focusRecording && (
+        {!focusRecording && !isReadOnly && (
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between gap-3">
@@ -779,10 +809,12 @@ export const NoteSessionPage: React.FC = () => {
           ) : (
             <p className="text-sm text-slate-500">Эта сессия не привязана к студенту.</p>
           )}
-          <Button variant="outline" onClick={() => void requestDraft()} disabled={!transcripts.length}>
-            <Bot className="w-4 h-4 mr-2" />
-            Обновить AI
-          </Button>
+          {!isReadOnly && (
+            <Button variant="outline" onClick={() => void requestDraft()} disabled={!transcripts.length}>
+              <Bot className="w-4 h-4 mr-2" />
+              Обновить AI
+            </Button>
+          )}
         </CardContent>
       </Card>
 

@@ -417,6 +417,8 @@ export const StudentCardPage: React.FC = () => {
   const [documentOpenId, setDocumentOpenId] = useState<string | null>(null)
   const [documentDeleteTarget, setDocumentDeleteTarget] = useState<Document | null>(null)
   const [documentDeletePending, setDocumentDeletePending] = useState(false)
+  const [unlinkNotionConfirm, setUnlinkNotionConfirm] = useState<string | null>(null)
+  const [closeChatConfirm, setCloseChatConfirm] = useState<string | null>(null)
 
   const { data: student, isLoading, error } = useQuery<StudentFull>({
     queryKey: ['student', id],
@@ -939,7 +941,7 @@ export const StudentCardPage: React.FC = () => {
                     className="h-6 text-[11px] text-gray-500"
                     disabled={unlinkNotionMutation.isPending}
                     title="Если запись Notion привязана не к тому студенту"
-                    onClick={() => unlinkNotionMutation.mutate(notion.snapshot!.id)}
+                    onClick={() => setUnlinkNotionConfirm(notion.snapshot!.id)}
                   >
                     <Link2Off className="w-3 h-3 mr-1" />
                     Отвязать
@@ -1071,7 +1073,7 @@ export const StudentCardPage: React.FC = () => {
                               {revealedIins[g.id] ?? g.iin_masked ?? '***'}
                             </TableCell>
                             <TableCell>
-                              {!revealedIins[g.id] && (
+                              {!revealedIins[g.id] && hasRole('admin', 'mzk_manager') && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1429,7 +1431,7 @@ export const StudentCardPage: React.FC = () => {
                         <Eye className="w-3.5 h-3.5 mr-1.5" />
                         {documentOpenId === doc.id ? 'Открытие…' : 'Открыть'}
                       </Button>
-                      {canAccess('all_students') && (
+                      {hasRole('admin', 'mzk_manager') && (
                         <Button
                           variant="outline"
                           size="icon"
@@ -1500,7 +1502,7 @@ export const StudentCardPage: React.FC = () => {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => closeChatMutation.mutate(telegramChat.id)}
+                        onClick={() => setCloseChatConfirm(telegramChat.id)}
                         disabled={closeChatMutation.isPending}
                       >
                         <Link2Off className="w-3.5 h-3.5 mr-1.5" />
@@ -1717,7 +1719,7 @@ export const StudentCardPage: React.FC = () => {
                     value={newTaskText}
                     onChange={(e) => setNewTaskText(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newTaskText.trim()) {
+                      if (e.key === 'Enter' && newTaskText.trim() && !addTaskMutation.isPending) {
                         addTaskMutation.mutate(newTaskText)
                       }
                     }}
@@ -1832,6 +1834,58 @@ export const StudentCardPage: React.FC = () => {
               disabled={documentDeletePending}
             >
               Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!unlinkNotionConfirm} onOpenChange={() => setUnlinkNotionConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Отвязать запись Notion?</DialogTitle>
+            <DialogDescription>
+              Связь между этим студентом и записью Notion будет разорвана. Данные Notion не удаляются и их можно привязать заново.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUnlinkNotionConfirm(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (unlinkNotionConfirm) unlinkNotionMutation.mutate(unlinkNotionConfirm)
+                setUnlinkNotionConfirm(null)
+              }}
+              disabled={unlinkNotionMutation.isPending}
+            >
+              Отвязать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!closeChatConfirm} onOpenChange={() => setCloseChatConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Завершить Telegram-чат?</DialogTitle>
+            <DialogDescription>
+              AI перестанет отвечать в этом чате, а сессия закроется. Чат можно будет открыть заново из Входящих.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloseChatConfirm(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (closeChatConfirm) closeChatMutation.mutate(closeChatConfirm)
+                setCloseChatConfirm(null)
+              }}
+              disabled={closeChatMutation.isPending}
+            >
+              Завершить
             </Button>
           </DialogFooter>
         </DialogContent>

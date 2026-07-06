@@ -100,13 +100,20 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
+    is_self = user_id == current_user.id
+    if is_self and body.get("is_active") is False:
+        raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
+
     if "name" in body:
         user.name = body["name"].strip()
     if "role" in body:
         try:
-            user.role = UserRole(body["role"])
+            new_role = UserRole(body["role"])
         except ValueError:
             raise HTTPException(status_code=422, detail="Неверная роль")
+        if is_self and new_role != UserRole.admin:
+            raise HTTPException(status_code=400, detail="Нельзя понизить собственную роль — попросите другого администратора")
+        user.role = new_role
     if "phone" in body:
         user.phone = body["phone"]
     if "telegram_username" in body:
@@ -133,6 +140,8 @@ async def deactivate_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:

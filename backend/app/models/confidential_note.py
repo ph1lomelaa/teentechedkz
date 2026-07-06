@@ -12,6 +12,18 @@ class NoteVisibility(str, enum.Enum):
     all_mentors = "all_mentors"
 
 
+def note_visible_to_role(visibility: "NoteVisibility", role) -> bool:
+    from app.models.user import UserRole
+
+    if role == UserRole.admin:
+        return True
+    if visibility == NoteVisibility.admin_only:
+        return False
+    if role == UserRole.mzk_manager:
+        return True
+    return visibility == NoteVisibility.all_mentors
+
+
 class ConfidentialNote(Base):
     __tablename__ = "confidential_notes"
 

@@ -78,8 +78,10 @@ export default function TelegramInboxPage() {
 
   const assignStudentMutation = useMutation({
     mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
-    onSuccess: () => {
+    onSuccess: (_data, studentId) => {
       invalidate()
+      qc.invalidateQueries({ queryKey: ['student', studentId] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
       toast({
         title: 'Вы стали ответственным',
         description: 'Чат появится в фильтре «Мои».',
@@ -326,9 +328,9 @@ export default function TelegramInboxPage() {
                 {canManage && (
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1.5 flex-wrap">
-                      {chat.status === 'unbound' && (
+                      {(chat.status === 'unbound' || chat.status === 'closed') && (
                         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAttachTarget(chat)}>
-                          Привязать студента
+                          {chat.status === 'closed' ? 'Открыть заново' : 'Привязать студента'}
                         </Button>
                       )}
                       {chat.student_id && (

@@ -53,7 +53,8 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Только администратор может запускать синхронизацию")
     try:
         counters = await sheets_sync.run_sync(db)
     except RuntimeError as e:
