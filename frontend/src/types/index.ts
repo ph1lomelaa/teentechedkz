@@ -61,6 +61,7 @@ export interface StudentListItem {
   days_in_work?: number
   is_mine?: boolean
   country?: string | null
+  mentors?: string[]
   mzk_manager_name?: string | null
   responsible_count?: number
   responsibles?: ResponsibleUser[]

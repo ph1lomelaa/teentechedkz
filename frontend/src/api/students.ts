@@ -18,11 +18,24 @@ export interface StudentsQueryParams {
   mzk_manager_id?: string
   lead_mentor_id?: string
   country?: string
+  mentor_name?: string
+  mzk_name?: string
 }
 
 export interface FacetOption {
   value: string
   count: number
+}
+
+export interface PeopleFacetOption {
+  key: string
+  label: string
+  count: number
+}
+
+export interface PeopleFacets {
+  mentors: PeopleFacetOption[]
+  managers: PeopleFacetOption[]
 }
 
 export interface StudentFacets {
@@ -88,6 +101,11 @@ export const studentsApi = {
 
   facets: async (): Promise<StudentFacets> => {
     const response = await apiClient.get<StudentFacets>('/students/facets')
+    return response.data
+  },
+
+  peopleFacets: async (): Promise<PeopleFacets> => {
+    const response = await apiClient.get<PeopleFacets>('/students/people-facets')
     return response.data
   },
 

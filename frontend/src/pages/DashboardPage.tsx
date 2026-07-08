@@ -21,7 +21,6 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { studentsApi } from '@/api/students'
 import { contractsApi } from '@/api/index'
-import { usersApi } from '@/api/index'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   StudentListItem,
@@ -80,9 +79,12 @@ interface StudentCardProps {
 }
 
 function StudentCard({ student, isDragging }: StudentCardProps) {
-  const mentors = (student.responsibles ?? [])
-    .filter((r) => r.is_active && r.name)
-    .map((r) => r.name as string)
+  // Имена менторов из Notion-снэпшота; фолбэк — активные назначения в CRM
+  const mentors = (student.mentors && student.mentors.length > 0
+    ? student.mentors
+    : (student.responsibles ?? [])
+        .filter((r) => r.is_active && r.name)
+        .map((r) => r.name as string))
   const flag = countryFlag(student.country)
 
   return (
@@ -217,22 +219,21 @@ export const DashboardPage: React.FC = () => {
     queryFn: () =>
       studentsApi.getAll({
         size: 2000,
-        mentor_id: mentorFilter || undefined,
-        mzk_manager_id: mzkFilter || undefined,
+        mentor_name: mentorFilter || undefined,
+        mzk_name: mzkFilter || undefined,
         country: countryFilter || undefined,
         intake_year: intakeYearFilter ? Number(intakeYearFilter) : undefined,
       }),
   })
 
-  const { data: mentors = [] } = useQuery({
-    queryKey: ['users', 'mentor'],
-    queryFn: () => usersApi.list({ role: 'mentor' }),
+  // Менторы/менеджеры собираются из Notion-снэпшотов и дедуплицируются
+  // (транслит + регистр), см. backend/app/services/people_facets.py
+  const { data: peopleFacets } = useQuery({
+    queryKey: ['students', 'people-facets'],
+    queryFn: studentsApi.peopleFacets,
   })
-
-  const { data: mzkManagers = [] } = useQuery({
-    queryKey: ['users', 'mzk_manager'],
-    queryFn: () => usersApi.list({ role: 'mzk_manager' }),
-  })
+  const mentors = peopleFacets?.mentors ?? []
+  const mzkManagers = peopleFacets?.managers ?? []
 
   const { data: facets } = useQuery({
     queryKey: ['students', 'facets'],
@@ -341,7 +342,7 @@ export const DashboardPage: React.FC = () => {
           <SelectContent>
             <SelectItem value="all">Все менторы</SelectItem>
             {mentors.map((m) => (
-              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+              <SelectItem key={m.key} value={m.key}>{m.label} · {m.count}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -353,7 +354,7 @@ export const DashboardPage: React.FC = () => {
           <SelectContent>
             <SelectItem value="all">Все менеджеры</SelectItem>
             {mzkManagers.map((m) => (
-              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+              <SelectItem key={m.key} value={m.key}>{m.label} · {m.count}</SelectItem>
             ))}
           </SelectContent>
         </Select>

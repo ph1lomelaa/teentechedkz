@@ -23,6 +23,7 @@ from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.application import Application
 from app.models.service import Service
 from app.services.default_services import ensure_default_services
+from app.services.people_facets import build_people_index
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
 from app.models.pending_insight import PendingInsight
@@ -190,6 +191,21 @@ async def student_facets(
             key=lambda x: -x["count"],
         ),
         "countries": [{"value": co, "count": c} for co, c in countries_result.all() if co],
+    }
+
+
+@router.get("/people-facets")
+async def student_people_facets(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Уникальные менторы и MZK-менеджеры для фильтров дашборда.
+    Имена берутся из Notion-снэпшотов и канонизируются (транслит + сжатие),
+    поэтому 'Aisulu'/'Aisulu (KG)' и 'Aruzhan'/'Аружан' не двоятся."""
+    index = await build_people_index(db)
+    return {
+        "mentors": index.mentor_facets(),
+        "managers": index.manager_facets(),
     }
 
 
@@ -380,13 +396,29 @@ async def list_students(
     lead_mentor_id: uuid.UUID | None = None,
     country: str | None = None,
     mentor_id: uuid.UUID | None = None,
+    mentor_name: str | None = None,
+    mzk_name: str | None = None,
     scope: str = Query("all", pattern="^(all|mine|unassigned)$"),
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=2000),
 ):
     from app.models.application import Application
 
+    # Менторы/менеджеры хранятся текстом в Notion-снэпшотах — индекс даёт и
+    # канон-фильтры (mentor_name/mzk_name), и имена для карточек.
+    people = await build_people_index(db)
+
     query = select(Student).where(Student.is_archived == False)  # noqa: E712
+
+    # Фильтр по канон-ключу ментора/менеджера (пересечение, если оба заданы).
+    if mentor_name or mzk_name:
+        allowed: set[uuid.UUID] | None = None
+        if mentor_name:
+            allowed = set(people.mentor_students.get(mentor_name, set()))
+        if mzk_name:
+            mgr_ids = set(people.manager_students.get(mzk_name, set()))
+            allowed = mgr_ids if allowed is None else (allowed & mgr_ids)
+        query = query.where(Student.id.in_(allowed or set()))
 
     if scope == "mine":
         query = query.join(
@@ -499,7 +531,11 @@ async def list_students(
             "days_in_work": days_in_work,
             "is_mine": is_mine,
             "country": country_map.get(s.id),
-            "mzk_manager_name": contract.mzk_manager_name if contract and contract.mzk_manager else None,
+            "mentors": people.student_mentor_labels.get(s.id, []),
+            "mzk_manager_name": (
+                contract.mzk_manager_name if contract and contract.mzk_manager
+                else people.student_manager_label.get(s.id)
+            ),
             "responsibles": responsibles,
             "responsible_count": len([r for r in responsibles if r["is_active"]]),
         })
