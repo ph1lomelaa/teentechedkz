@@ -41,12 +41,50 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 
+// Флаг по названию страны (данные в базе преимущественно на русском,
+// встречаются английские и составные значения — берём первый сегмент).
+const COUNTRY_FLAGS: Record<string, string> = {
+  'италия': '🇮🇹', 'italy': '🇮🇹',
+  'корея': '🇰🇷', 'южная корея': '🇰🇷', 'korea': '🇰🇷', 'south korea': '🇰🇷',
+  'китай': '🇨🇳', 'china': '🇨🇳',
+  'гонконг': '🇭🇰', 'hong kong': '🇭🇰',
+  'сша': '🇺🇸', 'usa': '🇺🇸', 'америка': '🇺🇸',
+  'германия': '🇩🇪', 'germany': '🇩🇪',
+  'венгрия': '🇭🇺', 'hungary': '🇭🇺',
+  'малайзия': '🇲🇾', 'malaysia': '🇲🇾',
+  'великобритания': '🇬🇧', 'англия': '🇬🇧', 'uk': '🇬🇧',
+  'катар': '🇶🇦', 'qatar': '🇶🇦',
+  'оаэ': '🇦🇪', 'uae': '🇦🇪', 'эмираты': '🇦🇪',
+  'япония': '🇯🇵', 'japan': '🇯🇵',
+  'канада': '🇨🇦', 'canada': '🇨🇦',
+  'австрия': '🇦🇹', 'austria': '🇦🇹',
+  'сингапур': '🇸🇬', 'singapore': '🇸🇬',
+  'польша': '🇵🇱', 'poland': '🇵🇱',
+  'чехия': '🇨🇿', 'czech': '🇨🇿',
+  'нидерланды': '🇳🇱', 'голландия': '🇳🇱', 'netherlands': '🇳🇱',
+  'франция': '🇫🇷', 'france': '🇫🇷',
+  'испания': '🇪🇸', 'spain': '🇪🇸',
+  'турция': '🇹🇷', 'turkey': '🇹🇷',
+  'финляндия': '🇫🇮', 'finland': '🇫🇮',
+}
+
+function countryFlag(country?: string | null): string {
+  if (!country) return ''
+  const first = country.split(/[,/]/)[0].trim().toLowerCase()
+  return COUNTRY_FLAGS[first] ?? ''
+}
+
 interface StudentCardProps {
   student: StudentListItem
   isDragging?: boolean
 }
 
 function StudentCard({ student, isDragging }: StudentCardProps) {
+  const mentors = (student.responsibles ?? [])
+    .filter((r) => r.is_active && r.name)
+    .map((r) => r.name as string)
+  const flag = countryFlag(student.country)
+
   return (
     <div
       className={`bg-white rounded-[2px] border border-gray-200 p-3 cursor-grab active:cursor-grabbing transition-colors hover:border-gray-300 ${isDragging ? 'opacity-40 scale-95' : ''}`}
@@ -63,13 +101,32 @@ function StudentCard({ student, isDragging }: StudentCardProps) {
         <span className={`text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
           {DEGREE_LEVEL_LABELS[student.degree_level]}
         </span>
-        <span className="text-[10px] text-gray-500 font-medium">{student.intake_year}</span>
+        {mentors.slice(0, 2).map((name) => (
+          <span key={name} className="text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium bg-gray-100 text-gray-600 max-w-[7rem] truncate">
+            {name}
+          </span>
+        ))}
+        {mentors.length > 2 && (
+          <span className="text-[10px] text-gray-400 font-medium">+{mentors.length - 2}</span>
+        )}
       </div>
 
-      {student.days_in_work != null && (
-        <p className={`text-[10px] mt-1.5 font-medium ${student.days_in_work > 365 ? 'text-amber-600' : 'text-gray-500'}`}>
-          {student.days_in_work}д в работе
-        </p>
+      {(student.country || student.days_in_work != null) && (
+        <div className="flex items-center justify-between gap-2 mt-2">
+          {student.country ? (
+            <span className="text-[10px] text-gray-600 font-medium truncate">
+              {flag && <span className="mr-1">{flag}</span>}
+              {student.country}
+            </span>
+          ) : (
+            <span />
+          )}
+          {student.days_in_work != null && (
+            <span className={`text-[10px] font-medium shrink-0 ${student.days_in_work > 365 ? 'text-amber-600' : 'text-gray-500'}`}>
+              {student.days_in_work}д
+            </span>
+          )}
+        </div>
       )}
     </div>
   )

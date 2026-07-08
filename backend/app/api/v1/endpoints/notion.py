@@ -26,6 +26,7 @@ from app.models.mentor_assignment import MentorRole
 from app.models.student import DegreeLevel
 from app.models.user import UserRole
 from app.services import notion_sync
+from app.services.default_services import ensure_default_services
 
 router = APIRouter(prefix="/notion", tags=["notion"])
 
@@ -392,6 +393,8 @@ async def _create_student_from_snapshot(
     )
     db.add(student)
     await db.flush()
+
+    await ensure_default_services(db, student.id)
 
     def dec(v) -> Decimal | None:
         return Decimal(str(v)) if v is not None else None

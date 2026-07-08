@@ -60,6 +60,7 @@ export interface StudentListItem {
   pipeline_status?: PipelineStatus
   days_in_work?: number
   is_mine?: boolean
+  country?: string | null
   mzk_manager_name?: string | null
   responsible_count?: number
   responsibles?: ResponsibleUser[]

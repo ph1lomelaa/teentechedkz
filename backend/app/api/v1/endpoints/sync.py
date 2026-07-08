@@ -18,6 +18,7 @@ from app.models import IntakeSubmission, IntakeSource, IntakeStatus, Student
 from app.models.user import UserRole
 from app.services import sheets_sync
 from app.services.intake_ai_check import check_same_meaning
+from app.services.default_services import ensure_default_services
 from app.services.sheets_sync import map_row, PACKAGE_FIELD_PATTERNS, CASES_FIELD_PATTERNS  # noqa: F401
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -357,6 +358,8 @@ async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmis
     )
     db.add(student)
     await db.flush()
+
+    await ensure_default_services(db, student.id)
 
     _backfill_student_fields(student, mapped)
     await _apply_intake_countries(db, student, mapped)

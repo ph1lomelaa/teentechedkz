@@ -22,6 +22,7 @@ from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.application import Application
 from app.models.service import Service
+from app.services.default_services import ensure_default_services
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
 from app.models.pending_insight import PendingInsight
@@ -455,6 +456,20 @@ async def list_students(
     result = await db.execute(query)
     students = result.scalars().all()
 
+    # Страна для карточек дашборда — основная заявка (fallback: любая).
+    # Один батч-запрос вместо N+1 по студентам.
+    country_map: dict[uuid.UUID, str] = {}
+    student_ids = [s.id for s in students]
+    if student_ids:
+        app_result = await db.execute(
+            select(Application.student_id, Application.country)
+            .where(Application.student_id.in_(student_ids))
+            .order_by(Application.is_primary.desc(), Application.id)
+        )
+        for sid, app_country in app_result.all():
+            if sid not in country_map and app_country:
+                country_map[sid] = app_country
+
     items = []
     for s in students:
         contract_result = await db.execute(
@@ -483,6 +498,7 @@ async def list_students(
             "pipeline_status": pipeline_status_val,
             "days_in_work": days_in_work,
             "is_mine": is_mine,
+            "country": country_map.get(s.id),
             "mzk_manager_name": contract.mzk_manager_name if contract and contract.mzk_manager else None,
             "responsibles": responsibles,
             "responsible_count": len([r for r in responsibles if r["is_active"]]),
@@ -532,13 +548,32 @@ async def create_student(
     db.add(student)
     await db.flush()
 
+    await ensure_default_services(db, student.id)
+
     await log_change(
         db, "student", student.id, "created", None, student.full_name,
         str(current_user.id), "manual"
     )
     await db.commit()
-    await db.refresh(student)
-    return _student_to_dict(student)
+
+    # Перечитываем с eager-load: _student_to_dict обходит relationships
+    # (в т.ч. только что созданные услуги), а lazy-load в async падает.
+    result = await db.execute(
+        select(Student)
+        .options(
+            selectinload(Student.applications),
+            selectinload(Student.services),
+            selectinload(Student.portfolio_progress),
+            selectinload(Student.documents),
+            selectinload(Student.student_tasks),
+            selectinload(Student.mentor_assignments),
+            selectinload(Student.communication_logs),
+            selectinload(Student.pending_insights),
+            selectinload(Student.notes),
+        )
+        .where(Student.id == student.id)
+    )
+    return _student_to_dict(result.scalar_one())
 
 
 @router.get("/{student_id}")
