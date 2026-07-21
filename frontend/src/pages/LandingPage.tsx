@@ -66,10 +66,11 @@ export function LandingPage() {
             <Link to="/login" className="auth-primary-button h-11 px-6 text-sm font-bold">
               Войти в кабинет →
             </Link>
-            <Link to="/apply" className="auth-secondary-button h-11 px-6 text-sm font-bold">
-              Оставить заявку
-            </Link>
           </div>
+
+          <p className="text-center text-sm text-gray-400">
+            Студенты присоединяются по приглашению от менторов
+          </p>
 
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
             {TAGS.map((tag) => (

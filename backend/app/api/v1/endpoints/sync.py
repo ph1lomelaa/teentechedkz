@@ -1,11 +1,12 @@
 """Синк Google-форм и работа с входящими анкетами (intake_submissions)."""
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -754,6 +755,71 @@ async def student_intake(
         "cases": _submission_to_dict(cases) if cases else None,
         "comparison": comparison,
     }
+
+
+@router.post("/submissions", status_code=status.HTTP_201_CREATED)
+async def create_intake_submission(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Staff-only: create a new intake submission (e.g., for a student to follow up with)."""
+    if current_user.role not in _MANAGE_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    full_name = str(body.get("full_name") or "").strip()
+    phone = str(body.get("phone") or "").strip()
+
+    if len(full_name) < 2:
+        raise HTTPException(status_code=422, detail="Укажите имя")
+    if len(phone) < 5:
+        raise HTTPException(status_code=422, detail="Укажите телефон")
+
+    now = datetime.now(timezone.utc)
+    raw_data = {
+        "full_name": full_name,
+        "phone": phone,
+        "email": body.get("email") or "",
+        "city": body.get("city") or "",
+        "source": "staff_created",
+    }
+    fingerprint_src = f"staff|{current_user.id}|{now.isoformat()}|{full_name}|{phone}"
+    submission = IntakeSubmission(
+        source=IntakeSource.package,
+        submitted_at=now,
+        row_fingerprint=hashlib.sha256(fingerprint_src.encode()).hexdigest(),
+        raw_data=raw_data,
+        full_name=full_name,
+        phone_normalized=phone,
+        manager_name=current_user.name,
+        status=IntakeStatus.new,
+    )
+    db.add(submission)
+    await db.commit()
+    await db.refresh(submission)
+    return {"id": str(submission.id), "status": submission.status.value}
+
+
+@router.post("/submissions/{submission_id}/assign-self")
+async def assign_submission_to_self(
+    submission_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Staff-only: mark a submission as reviewed/assigned to current user."""
+    if current_user.role not in _MANAGE_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    submission = await _load_submission(db, submission_id)
+
+    now = datetime.now(timezone.utc)
+    submission.linked_by = current_user.id
+    submission.linked_at = now
+    submission.status = IntakeStatus.linked
+
+    await db.commit()
+    await db.refresh(submission)
+    return _submission_to_dict(submission)
 
 
 @router.get("/overview")
