@@ -128,6 +128,12 @@ export function LandingPage() {
                 {label}
               </a>
             ))}
+            <Link
+              to="/student"
+              className="text-xs tracking-wide text-white/50 transition-colors hover:text-white"
+            >
+              Ученикам
+            </Link>
           </nav>
 
           <Link to="/login" className="auth-primary-button h-9 px-4 text-xs uppercase tracking-[0.1em]">
@@ -164,7 +170,10 @@ export function LandingPage() {
           </div>
 
           <p className="mb-20 text-sm text-white/40">
-            Для менторов: доступ откроется после одобрения администратора
+            Для менторов: доступ откроется после одобрения администратора.{' '}
+            <Link to="/student" className="font-semibold text-[#FFD400]/80 transition-colors hover:text-[#FFD400]">
+              Вы ученик? Вам сюда →
+            </Link>
           </p>
 
           <Reveal>
@@ -304,6 +313,9 @@ export function LandingPage() {
             >
               Как работает
             </a>
+            <Link to="/student" className="text-xs text-white/40 transition-colors hover:text-white">
+              Ученикам
+            </Link>
             <Link to="/join" className="text-xs text-white/40 transition-colors hover:text-white">
               Оставить заявку
             </Link>
@@ -404,7 +416,7 @@ function ProductMockup() {
   )
 }
 
-function Reveal({
+export function Reveal({
   children,
   delay = 0,
   className = '',

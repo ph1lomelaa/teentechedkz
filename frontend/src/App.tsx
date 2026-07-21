@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/shared/Layout'
 import { Toaster } from '@/components/ui/toaster'
 
 import { LandingPage } from '@/pages/LandingPage'
+import { StudentLandingPage } from '@/pages/StudentLandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ApplyPage } from '@/pages/ApplyPage'
 import { JoinMentorPage } from '@/pages/JoinMentorPage'
@@ -205,6 +206,10 @@ function AppRoutes() {
     <React.Suspense fallback={<AppLoadingScreen />}>
       <Routes>
       <Route path="/" element={<HomeRoute />} />
+      {/* Публичный лендинг для учеников — постоянная ссылка без токена */}
+      {['/student', '/for-students'].map((path) => (
+        <Route key={path} path={path} element={<StudentLandingPage />} />
+      ))}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/apply" element={<ApplyPage />} />
       <Route path="/register" element={<ApplyPage />} />
