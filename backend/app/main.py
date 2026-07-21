@@ -93,6 +93,16 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Notion sync disabled: NOTION_API_KEY / NOTION_DATABASE_ID not configured")
 
+    # Payment notifier: scan for upcoming payments and send notifications
+    payment_notifier_task = None
+    if settings.ENABLE_PAYMENT_NOTIFICATIONS:
+        import asyncio
+        from app.services.payment_notifier import payment_notifier_loop
+        payment_notifier_task = asyncio.create_task(payment_notifier_loop())
+        logger.info("Payment notifier started")
+    else:
+        logger.info("Payment notifications disabled")
+
     yield
     if sheets_task:
         sheets_task.cancel()
@@ -100,6 +110,8 @@ async def lifespan(app: FastAPI):
         notion_task.cancel()
     if webhook_health_task:
         webhook_health_task.cancel()
+    if payment_notifier_task:
+        payment_notifier_task.cancel()
     logger.info("TeenTechEd CRM shutting down...")
     if settings.TELEGRAM_BOT_TOKEN:
         try:

@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     ANTHROPIC_API_KEY: str = ""
 
+    # Payment notifications
+    ENABLE_PAYMENT_NOTIFICATIONS: bool = True
+    PAYMENT_NOTIFICATION_INTERVAL_SECONDS: int = 3600 * 6  # 6 hours
+    PAYMENT_DUE_LOOK_AHEAD_DAYS: int = 14
+
     # First admin seed
     FIRST_ADMIN_EMAIL: str = "admin@teenteched.kz"
     FIRST_ADMIN_PASSWORD: str = "Admin1234!"
