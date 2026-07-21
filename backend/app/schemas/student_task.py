@@ -12,6 +12,7 @@ class StudentTaskCreate(BaseModel):
     """Payload for creating a task linked to a student."""
 
     student_id: uuid.UUID
+    service_id: uuid.UUID | None = None
     task_text: str
 
 
@@ -20,6 +21,7 @@ class StudentTaskUpdate(BaseModel):
 
     status: TaskStatus | None = None
     task_text: str | None = None
+    service_id: uuid.UUID | None = None
 
 
 class StudentTaskResponse(BaseModel):
@@ -29,6 +31,7 @@ class StudentTaskResponse(BaseModel):
 
     id: uuid.UUID
     student_id: uuid.UUID
+    service_id: uuid.UUID | None = None
     task_text: str
     status: TaskStatus
     created_by: uuid.UUID

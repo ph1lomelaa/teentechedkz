@@ -4,7 +4,13 @@ const ENV_API_URL = import.meta.env.VITE_API_URL || ''
 const isBrowserLocalhost =
   typeof window !== 'undefined' &&
   ['localhost', '127.0.0.1'].includes(window.location.hostname)
-const API_URL = isBrowserLocalhost ? 'http://localhost:8001' : ENV_API_URL || 'http://localhost:8000'
+const API_URL =
+  isBrowserLocalhost && typeof window !== 'undefined'
+    ? `http://${window.location.hostname}:8001`
+    : ENV_API_URL || 'http://localhost:8000'
+
+// Base origin (without /api/v1) — used to build the WebSocket URL.
+export const API_BASE = API_URL
 
 interface ApiRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean

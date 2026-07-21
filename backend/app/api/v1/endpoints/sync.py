@@ -159,8 +159,13 @@ async def link_submission(
     mapped = map_row(list(submission.raw_data.keys()), list(submission.raw_data.values()), submission.source)
     changed = _backfill_student_fields(student, mapped)
     added_countries = await _apply_intake_countries(db, student, mapped)
-    if changed or added_countries:
-        detail = ", ".join(changed) + (f" + страны: {added_countries}" if added_countries else "")
+    changed_services = 0
+    if submission.source == IntakeSource.package:
+        changed_services = await _apply_intake_services(db, student, mapped)
+    if changed or added_countries or changed_services:
+        detail = ", ".join(changed)
+        detail += (f" + страны: {added_countries}" if added_countries else "")
+        detail += (f" + услуги: {changed_services}" if changed_services else "")
         await log_change(db, "student", student.id, "filled_from_intake", None, detail, str(current_user.id), "sheets_sync")
 
     await log_change(
@@ -209,6 +214,8 @@ async def link_all_submissions(
             mapped = map_row(list(submission.raw_data.keys()), list(submission.raw_data.values()), submission.source)
             _backfill_student_fields(submission.suggested_student, mapped)
             await _apply_intake_countries(db, submission.suggested_student, mapped)
+            if submission.source == IntakeSource.package:
+                await _apply_intake_services(db, submission.suggested_student, mapped)
 
         if submission.student_id:
             await log_change(
@@ -342,6 +349,69 @@ async def _apply_intake_countries(db: AsyncSession, student: Student, mapped: di
     return added
 
 
+async def _apply_intake_services(db: AsyncSession, student: Student, mapped: dict) -> int:
+    """Обновляет услуги только из package-анкеты менеджера.
+
+    Стоимость сопровождения и договорённости остаются ручными полями.
+    """
+    from app.models.service import Service, ServiceStatus, ServiceType
+
+    svc_map = {
+        "svc_proforientation": ServiceType.proforientation,
+        "svc_ielts_mock": ServiceType.ielts_mock,
+        "svc_ielts_prep": ServiceType.ielts_prep,
+        "svc_sat_prep": ServiceType.sat_prep,
+        "svc_portfolio": ServiceType.portfolio_improvement,
+    }
+
+    changed = 0
+    for field, svc_type in svc_map.items():
+        if field not in mapped:
+            continue
+        included = _service_included_from_answer(field, mapped.get(field))
+        if included is None:
+            continue
+
+        existing_services = (await db.execute(
+            select(Service).where(
+                Service.student_id == student.id,
+                Service.service_type == svc_type,
+            )
+            .order_by(Service.created_at.asc(), Service.id.asc())
+        )).scalars().all()
+        existing = existing_services[0] if existing_services else None
+
+        if existing:
+            if existing.included != included:
+                existing.included = included
+                changed += 1
+            if svc_type == ServiceType.portfolio_improvement and included and not existing.portfolio_directions_count:
+                existing.portfolio_directions_count = _portfolio_directions_count(mapped.get(field))
+        else:
+            extra = {}
+            if svc_type == ServiceType.portfolio_improvement and included:
+                extra["portfolio_directions_count"] = _portfolio_directions_count(mapped.get(field))
+            db.add(Service(
+                student_id=student.id,
+                service_type=svc_type,
+                included=included,
+                status=ServiceStatus.not_started,
+                **extra,
+            ))
+            changed += 1
+    return changed
+
+
+def _portfolio_directions_count(v) -> int | None:
+    t = _norm_cmp(v)
+    if any(x in t for x in ("все", "all")):
+        return 4
+    for token in t.replace(",", " ").split():
+        if token.isdigit() and int(token) > 0:
+            return int(token)
+    return None
+
+
 async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmission, user_id: uuid.UUID) -> Student:
     from migration.transformers.normalize import parse_degree
 
@@ -363,6 +433,8 @@ async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmis
 
     _backfill_student_fields(student, mapped)
     await _apply_intake_countries(db, student, mapped)
+    if source == IntakeSource.package:
+        await _apply_intake_services(db, student, mapped)
 
     submission.student_id = student.id
     submission.status = IntakeStatus.linked
@@ -474,11 +546,39 @@ def _get_normalizers() -> dict:
 def _svc_truthy(v) -> bool:
     """Значение услуги → есть/нет: «Нет, будут покупать тоефл» → нет,
     «Есть, по англ» / «Медицина» → есть."""
+    included = _service_included_from_answer("", v)
+    return bool(included)
+
+
+def _service_included_from_answer(field: str, v) -> bool | None:
+    """Интерпретация ответа менеджера по услуге из свободного текста."""
     t = _norm_cmp(v)
-    if not t or t in ("не включена", "-", "нет"):
+    if not t:
+        return None
+    if t in ("не включена", "-", "нет", "no", "none", "nan"):
         return False
-    if t == "включена":
+    if t in ("включена", "да", "yes", "true", "1", "+", "есть"):
         return True
+    if t.startswith(("нет", "no", "не ")):
+        return False
+
+    if field == "svc_ielts_mock":
+        if "немец" in t and not any(x in t for x in ("ielts", "айлтс", "мок", "mock")):
+            return False
+        if "подготов" in t and not any(x in t for x in ("мок", "mock")):
+            return False
+        return any(x in t for x in ("мок", "mock", "ielts mock", "айлтс мок"))
+
+    if field == "svc_ielts_prep":
+        if "немец" in t and not any(x in t for x in ("ielts", "айлтс")):
+            return False
+        return not t.startswith(("нет", "no", "не "))
+
+    if field == "svc_portfolio":
+        if any(x in t for x in ("все", "all")):
+            return True
+        return any(token.isdigit() and int(token) > 0 for token in t.replace(",", " ").split())
+
     return not t.startswith(("нет", "no", "не "))
 
 
@@ -495,7 +595,7 @@ def _values_same(field: str, a, b) -> bool:
         sa, sb = countries_set(str(a)), countries_set(str(b))
         return bool(sa) and bool(sb) and (sa <= sb or sb <= sa)
     if field.startswith("svc_"):
-        return _svc_truthy(a) == _svc_truthy(b)
+        return _service_included_from_answer(field, a) == _service_included_from_answer(field, b)
     norm = _get_normalizers().get(field, _norm_cmp)
     return norm(a) == norm(b)
 
@@ -643,7 +743,7 @@ async def student_intake(
     if pkg.get("agreements") or cs.get("agreements"):
         comparison.append(
             await row("agreements", "Договорённости", pkg.get("agreements"), cs.get("agreements"),
-                "см. конфиденциальные заметки", comparable=True, human_only=True)
+                "см. конфиденциальные заметки", human_only=True)
         )
 
     # Полностью пустые строки — шум

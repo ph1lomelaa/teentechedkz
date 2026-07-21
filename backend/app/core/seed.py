@@ -8,6 +8,7 @@ from app.core.security import hash_password
 from app.core.config import settings
 from app.models.user import User, UserRole
 from app.models.country_reference import CountryReference
+from app.core.country_flags_data import flag_for, code_for
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,25 @@ async def run_seed():
             db.add(admin)
             logger.info(f"Created admin user: {settings.FIRST_ADMIN_EMAIL}")
 
-        # Seed countries
+        # Seed countries (+ flags). Also back-fill flags on existing rows that
+        # predate the flag columns, so create_all-first local stacks get flags too.
         for country_data in INITIAL_COUNTRIES:
+            name = country_data["country_name"]
+            emoji, url = flag_for(name)
             existing = await db.execute(
-                select(CountryReference).where(CountryReference.country_name == country_data["country_name"])
+                select(CountryReference).where(CountryReference.country_name == name)
             )
-            if not existing.scalar_one_or_none():
-                db.add(CountryReference(**country_data))
-                logger.info(f"Seeded country: {country_data['country_name']}")
+            row = existing.scalar_one_or_none()
+            if row is None:
+                db.add(CountryReference(
+                    **country_data, code=code_for(name), flag_emoji=emoji, flag_url=url,
+                ))
+                logger.info(f"Seeded country: {name}")
+            elif not row.flag_url:
+                row.code = code_for(name)
+                row.flag_emoji = emoji
+                row.flag_url = url
+                logger.info(f"Back-filled flag for country: {name}")
 
         await db.commit()
     logger.info("Seed completed.")

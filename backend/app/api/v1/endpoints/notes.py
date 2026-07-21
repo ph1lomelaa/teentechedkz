@@ -17,7 +17,14 @@ from app.models.confidential_note import ConfidentialNote, NoteVisibility
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.user import UserRole
-from app.schemas.student_note import StudentNoteCreate, StudentNoteResponse, StudentNoteReviewRequest
+from app.schemas.student_note import (
+    StudentNoteCreate,
+    StudentNoteImportanceRequest,
+    StudentNotePublishRequest,
+    StudentNoteResponse,
+    StudentNoteReviewRequest,
+)
+from app.services.note_blocks import block_headings
 from app.services.student_notes import (
     apply_student_updates,
     build_profile_diff,
@@ -78,6 +85,13 @@ def _note_to_response(note: StudentNote, student_name: str | None = None) -> Stu
         reviewed_by=note.reviewed_by,
         created_at=note.created_at,
         reviewed_at=note.reviewed_at,
+        published_to_student=note.published_to_student,
+        published_at=note.published_at,
+        student_title=note.student_title,
+        hidden_blocks=note.hidden_blocks or [],
+        blocks=block_headings(note.summary_markdown),
+        is_important=note.is_important,
+        source_kind=note.source_kind,
     )
 
 
@@ -185,11 +199,39 @@ async def create_note(
         created_by=current_user.id,
         reviewed_by=None,
         created_at=datetime.now(timezone.utc),
+        is_important=body.is_important,
+        source_kind=body.source_kind,
     )
     db.add(note)
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student.full_name if student else None)
+
+
+@router.patch("/{note_id}/importance", response_model=StudentNoteResponse)
+async def set_note_importance(
+    note_id: uuid.UUID,
+    body: StudentNoteImportanceRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    result = await db.execute(
+        select(StudentNote, Student.full_name)
+        .outerjoin(Student, Student.id == StudentNote.student_id)
+        .where(StudentNote.id == note_id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Заметка не найдена")
+    note, student_name = row
+    if note.student_id:
+        await _load_accessible_student(db, current_user, note.student_id)
+    elif note.created_by != current_user.id and not _is_staff_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    note.is_important = body.is_important
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_response(note, student_name)
 
 
 @router.delete("/{note_id}")
@@ -312,6 +354,77 @@ async def review_note(
 
     note.status = StudentNoteStatus.approved
     note.applied_changes = {"changes": applied_changes, "profile_notes_saved": saved_profile_notes}
+
+    # Bug #5 fix: auto-publish notes when they are approved (no separate publish step)
+    if note.student_id:
+        note.published_to_student = True
+        note.published_at = datetime.now(timezone.utc)
+        note.published_by = current_user.id
+
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_response(note, student_name)
+
+
+async def _load_note_in_scope(db: AsyncSession, current_user, note_id: uuid.UUID):
+    """Load a note with its student name, enforcing staff/mentor scope."""
+    result = await db.execute(
+        select(StudentNote, Student.full_name)
+        .outerjoin(Student, Student.id == StudentNote.student_id)
+        .where(StudentNote.id == note_id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Конспект не найден")
+    note, student_name = row
+    if note.student_id and not _is_staff_admin(current_user):
+        mentor_ids = await _mentor_student_ids(db, current_user.id)
+        if note.student_id not in mentor_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return note, student_name
+
+
+@router.post("/{note_id}/publish", response_model=StudentNoteResponse)
+async def publish_note(
+    note_id: uuid.UUID,
+    body: StudentNotePublishRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Make a reviewed конспект visible in the student's portal. Only approved
+    notes tied to a student can be published; the manager may set a personal
+    heading and hide individual blocks."""
+    note, student_name = await _load_note_in_scope(db, current_user, note_id)
+    if not note.student_id:
+        raise HTTPException(status_code=422, detail="Конспект не привязан к студенту")
+    if note.status != StudentNoteStatus.approved:
+        raise HTTPException(
+            status_code=409, detail="Опубликовать можно только проверенный конспект"
+        )
+
+    note.published_to_student = True
+    note.published_at = datetime.now(timezone.utc)
+    note.published_by = current_user.id
+    if body.student_title is not None:
+        note.student_title = body.student_title.strip() or None
+    if body.hidden_blocks is not None:
+        note.hidden_blocks = list(body.hidden_blocks)
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_response(note, student_name)
+
+
+@router.post("/{note_id}/unpublish", response_model=StudentNoteResponse)
+async def unpublish_note(
+    note_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Retract a конспект from the student's portal."""
+    note, student_name = await _load_note_in_scope(db, current_user, note_id)
+    note.published_to_student = False
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student_name)

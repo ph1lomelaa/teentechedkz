@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, Integer, Text, DateTime, ForeignKey, Enum as SAEnum
+from datetime import date, datetime, timezone
+from sqlalchemy import String, Boolean, Integer, Text, Date, DateTime, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -37,6 +37,7 @@ class Service(Base):
     )
     result: Mapped[str | None] = mapped_column(String(500), nullable=True)
     assigned_mentor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     portfolio_directions_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     portfolio_directions_types: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,6 +18,8 @@ class ServiceCreate(BaseModel):
     status: ServiceStatus = ServiceStatus.not_started
     result: str | None = None
     assigned_mentor_id: uuid.UUID | None = None
+    assigned_staff_id: uuid.UUID | None = None
+    deadline: date | None = None
     notes: str | None = None
     portfolio_directions_count: int | None = None
     portfolio_directions_types: str | None = None
@@ -33,6 +35,8 @@ class ServiceUpdate(BaseModel):
     status: ServiceStatus | None = None
     result: str | None = None
     assigned_mentor_id: uuid.UUID | None = None
+    assigned_staff_id: uuid.UUID | None = None
+    deadline: date | None = None
     notes: str | None = None
     portfolio_directions_count: int | None = None
     portfolio_directions_types: str | None = None
@@ -52,6 +56,8 @@ class ServiceResponse(BaseModel):
     status: ServiceStatus
     result: str | None = None
     assigned_mentor_id: uuid.UUID | None = None
+    assigned_staff_id: uuid.UUID | None = None
+    deadline: date | None = None
     assigned_mentor_name: str | None = None  # resolved from join / eager-loaded relation
     notes: str | None = None
     portfolio_directions_count: int | None = None

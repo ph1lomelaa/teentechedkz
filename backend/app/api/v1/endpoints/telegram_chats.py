@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import secrets
 import re
+import hashlib
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -20,31 +22,43 @@ from app.core.database import get_db
 from app.core.deps import AllStaff, CurrentUser
 from app.core.encryption import encrypt
 from app.models.ai_analysis_run import AiAnalysisRun
+from app.models.application import Application
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
 from app.models.confidential_note import ConfidentialNote, NoteVisibility
+from app.models.contract import Contract
 from app.models.pending_insight import InsightStatus, PendingInsight
+from app.models.roadmap import Roadmap, RoadmapStatus
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
+from app.models.student_task import StudentTask, TaskStatus
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from app.models.telegram_chat import TelegramChat, TelegramChatStatus
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
-from app.models.telegram_message import TelegramMessage
+from app.models.telegram_message import TelegramMessage, TelegramMessageType
 from app.models.telegram_pairing_code import TelegramPairingCode
+from app.models.telegram_invite_link import TelegramInviteLink
+from app.models.telegram_participant_identity import TelegramParticipantIdentity
+from app.models.audit_log import AuditAction
+from app.services.audit import record_audit
 from app.models.mentor_assignment import MentorAssignment
-from app.models.user import User
-from app.services.mentor_scope import mentor_assigned_student_ids
+from app.models.user import User, UserRole
+from app.services.mentor_scope import mentor_assigned_student_ids, require_student_access
 from app.services.minio_service import close_minio_object, get_minio
 from app.services.student_context_ai import generate_context_review_draft
 from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
+from app.services.telegram_bot import get_bot
 
 router = APIRouter(prefix="/telegram-chats", tags=["telegram-chats"])
 
 PAIRING_CODE_TTL_MINUTES = 30
+TELEGRAM_GROUP_TITLE_MAX_LENGTH = 128
 IMPORTANT_CONTEXT_RE = re.compile(
     r"ielts|айл[тт]с|toefl|sat|сертификат|документ|аттестат|транскрипт|дедлайн|"
     r"\b\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b",
     re.IGNORECASE,
 )
+
+MAX_TELEGRAM_EXPORT_BYTES = 30 * 1024 * 1024
 
 StaffUser = Annotated[User, AllStaff]
 
@@ -84,6 +98,14 @@ async def _student_responsibles(db: AsyncSession, student_id: uuid.UUID | None, 
         for a in assignments
     ]
     is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
+    if not is_mine:
+        contract_result = await db.execute(
+            select(Contract.id).where(
+                Contract.student_id == student_id,
+                Contract.mzk_manager_id == current_user_id,
+            )
+        )
+        is_mine = contract_result.scalar_one_or_none() is not None
     return responsibles, is_mine
 
 
@@ -98,13 +120,67 @@ async def _require_chat_access(db: AsyncSession, chat_id: uuid.UUID, current_use
         raise HTTPException(status_code=404, detail="Чат не найден")
 
 
+def _clean_group_title_part(value: object | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip(" —-")
+
+
+def build_group_title(full_name: str, country: str | None, intake_year: int) -> str:
+    parts = [
+        _clean_group_title_part(full_name),
+        _clean_group_title_part(country),
+        _clean_group_title_part(intake_year),
+    ]
+    title = " — ".join(part for part in parts if part)
+    return title[:TELEGRAM_GROUP_TITLE_MAX_LENGTH].rstrip(" —-")
+
+
+async def _suggested_group_title(db: AsyncSession, student: Student) -> str:
+    """Build `Student — country — year` from the shared CRM/workspace data."""
+    roadmap_country = (
+        await db.execute(
+            select(Roadmap.country_name)
+            .where(Roadmap.student_id == student.id, Roadmap.status == RoadmapStatus.active)
+            .order_by(Roadmap.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    application_country = None
+    if not roadmap_country:
+        application_country = (
+            await db.execute(
+                select(Application.country)
+                .where(Application.student_id == student.id)
+                .order_by(Application.is_primary.desc(), Application.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    return build_group_title(student.full_name, roadmap_country or application_country, student.intake_year)
+
+
 @router.get("/")
 async def list_chats(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: StaffUser,
     status: str | None = None,
-    scope: str = "all",
+    scope: str = Query("all", pattern="^(all|mine|assigned|unassigned)$"),
+    mentor_id: uuid.UUID | None = None,
 ):
+    if mentor_id and current_user.role == UserRole.mentor and mentor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    scoped_student_ids: set[uuid.UUID] | None = None
+    if mentor_id:
+        assigned = await db.execute(
+            select(MentorAssignment.student_id).where(
+                MentorAssignment.mentor_id == mentor_id,
+                MentorAssignment.is_active == True,  # noqa: E712
+            )
+        )
+        scoped_student_ids = {row[0] for row in assigned.all()}
+        if not scoped_student_ids:
+            return []
+
     query = select(TelegramChat).order_by(TelegramChat.created_at.desc())
     if status:
         try:
@@ -117,8 +193,14 @@ async def list_chats(
 
     dicts = []
     for c in chats:
+        if scoped_student_ids is not None:
+            student_id = await _current_student_id(db, c.id)
+            if student_id not in scoped_student_ids:
+                continue
         chat_dict = await _chat_to_dict(db, c, current_user=current_user)
         if scope == "mine" and not chat_dict["is_mine"]:
+            continue
+        if scope == "assigned" and chat_dict["responsible_count"] <= 0:
             continue
         if scope == "unassigned" and chat_dict["responsible_count"] > 0:
             continue
@@ -127,7 +209,7 @@ async def list_chats(
 
 
 @router.get("/unbound")
-async def list_unbound_chats(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+async def list_unbound_chats(db: Annotated[AsyncSession, Depends(get_db)], current_user: StaffUser):
     result = await db.execute(
         select(TelegramChat)
         .where(TelegramChat.status == TelegramChatStatus.unbound)
@@ -141,8 +223,9 @@ async def list_unbound_chats(db: Annotated[AsyncSession, Depends(get_db)], curre
 async def get_student_chat(
     student_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
+    await require_student_access(db, student_id, current_user)
     result = await db.execute(
         select(TelegramChatSession)
         .where(
@@ -177,7 +260,7 @@ async def attach_chat(
     chat_id: uuid.UUID,
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
     student_id = body.get("student_id")
     if not student_id:
@@ -190,6 +273,7 @@ async def attach_chat(
     student = await db.get(Student, uuid.UUID(str(student_id)))
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student.id, current_user)
 
     result = await db.execute(
         select(TelegramChatSession).where(
@@ -214,7 +298,7 @@ async def reassign_chat(
     chat_id: uuid.UUID,
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
     student_id = body.get("student_id")
     if not student_id:
@@ -224,10 +308,12 @@ async def reassign_chat(
     chat = await db.get(TelegramChat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Чат не найден")
+    await _require_chat_access(db, chat_id, current_user)
 
     student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student_id, current_user)
 
     result = await db.execute(
         select(TelegramChatSession).where(
@@ -260,8 +346,9 @@ async def reassign_chat(
 async def pause_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
+    await _require_chat_access(db, chat_id, current_user)
     chat = await db.get(TelegramChat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Чат не найден")
@@ -274,8 +361,9 @@ async def pause_chat(
 async def resume_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
+    await _require_chat_access(db, chat_id, current_user)
     chat = await db.get(TelegramChat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Чат не найден")
@@ -289,8 +377,9 @@ async def resume_chat(
 async def close_chat(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
+    await _require_chat_access(db, chat_id, current_user)
     chat = await db.get(TelegramChat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Чат не найден")
@@ -310,8 +399,362 @@ async def close_chat(
     return await _chat_to_dict(db, chat)
 
 
+@router.post("/{chat_id}/unbind")
+async def unbind_chat(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Detach a mistakenly attached group while keeping it available to reattach."""
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    student_id = await _current_student_id(db, chat.id)
+    result = await db.execute(
+        select(TelegramChatSession).where(
+            TelegramChatSession.chat_id == chat.id,
+            TelegramChatSession.status == TelegramSessionStatus.active,
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for session in result.scalars().all():
+        session.status = TelegramSessionStatus.closed
+        session.closed_at = now
+    chat.status = TelegramChatStatus.unbound
+    if student_id:
+        record_audit(
+            db,
+            action=AuditAction.telegram_unlinked,
+            actor=current_user,
+            target_type="student",
+            target_id=str(student_id),
+            meta={"kind": "telegram_group", "tg_chat_id": chat.chat_id},
+        )
+    await db.commit()
+    return await _chat_to_dict(db, chat, current_user=current_user)
+
+
 @router.get("/{chat_id}/messages")
 async def list_chat_messages(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=200, ge=1, le=500),
+    before_id: uuid.UUID | None = Query(default=None),
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    query = select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.where(
+            or_(
+                TelegramMessage.raw_text.ilike(pattern),
+                TelegramMessage.sender_name.ilike(pattern),
+            )
+        )
+    if before_id:
+        before_message = await db.get(TelegramMessage, before_id)
+        if before_message and before_message.chat_id == chat_id:
+            query = query.where(
+                or_(
+                    TelegramMessage.created_at < before_message.created_at,
+                    (
+                        (TelegramMessage.created_at == before_message.created_at)
+                        & (TelegramMessage.id < before_message.id)
+                    ),
+                )
+            )
+
+    result = await db.execute(
+        query
+        .options(selectinload(TelegramMessage.attachments))
+        .order_by(TelegramMessage.created_at.desc(), TelegramMessage.id.desc())
+        .limit(limit)
+    )
+    messages = result.scalars().all()
+    sender_ids = {message.sender_tg_id for message in messages if message.sender_tg_id is not None}
+    identities: dict[int, TelegramParticipantIdentity] = {}
+    if sender_ids:
+        identity_result = await db.execute(
+            select(TelegramParticipantIdentity).where(
+                TelegramParticipantIdentity.chat_id == chat_id,
+                TelegramParticipantIdentity.telegram_user_id.in_(sender_ids),
+            )
+        )
+        identities = {row.telegram_user_id: row for row in identity_result.scalars().all()}
+    return [
+        await _message_to_dict(message, identities.get(message.sender_tg_id), current_user.id)
+        for message in reversed(messages)
+    ]
+
+
+@router.post("/{chat_id}/messages")
+async def send_telegram_message(
+    chat_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat or chat.status != TelegramChatStatus.active:
+        raise HTTPException(status_code=409, detail="Telegram-чат не активен")
+    session_result = await db.execute(
+        select(TelegramChatSession)
+        .where(
+            TelegramChatSession.chat_id == chat_id,
+            TelegramChatSession.status == TelegramSessionStatus.active,
+        )
+        .order_by(TelegramChatSession.opened_at.desc())
+        .limit(1)
+    )
+    session = session_result.scalar_one_or_none()
+    if not session or not session.student_id:
+        raise HTTPException(status_code=422, detail="Чат не привязан к студенту")
+    await require_student_access(db, session.student_id, current_user)
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Пустое сообщение")
+    if len(text) > 4096:
+        raise HTTPException(status_code=422, detail="Telegram допускает не более 4096 символов")
+    try:
+        sent = await get_bot().send_message(chat_id=chat.chat_id, text=text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Telegram не принял сообщение") from exc
+    message = TelegramMessage(
+        chat_id=chat.id,
+        session_id=session.id,
+        telegram_message_id=sent.message_id,
+        update_id=None,
+        sent_by_user_id=current_user.id,
+        sender_tg_id=None,
+        sender_name=current_user.name,
+        message_type=TelegramMessageType.text,
+        raw_text=text,
+        raw_payload=sent.model_dump(mode="json", exclude_none=True),
+    )
+    chat.updated_at = datetime.now(timezone.utc)
+    db.add(message)
+    await db.flush()
+    await log_change(
+        db, "telegram_message", message.id, "outbound_sent", None, chat.chat_id,
+        str(current_user.id), source="workspace_telegram",
+    )
+    await db.commit()
+    await db.refresh(message)
+    return {
+        "id": str(message.id),
+        "telegram_message_id": message.telegram_message_id,
+        "sender_tg_id": None,
+        "sender_name": current_user.name,
+        "sender_role": "staff",
+        "sender_display_name": current_user.name,
+        "is_current_user": True,
+        "message_type": message.message_type.value,
+        "raw_text": message.raw_text,
+        "created_at": message.created_at.isoformat(),
+        "attachments": [],
+    }
+
+
+@router.get("/{chat_id}/participants")
+async def list_chat_participants(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    message_result = await db.execute(
+        select(TelegramMessage.sender_tg_id, TelegramMessage.sender_name)
+        .where(TelegramMessage.chat_id == chat_id, TelegramMessage.sender_tg_id.is_not(None))
+        .order_by(TelegramMessage.created_at.desc())
+    )
+    names: dict[int, str | None] = {}
+    for telegram_user_id, sender_name in message_result.all():
+        names.setdefault(telegram_user_id, sender_name)
+    identity_result = await db.execute(
+        select(TelegramParticipantIdentity).where(TelegramParticipantIdentity.chat_id == chat_id)
+    )
+    identities = {row.telegram_user_id: row for row in identity_result.scalars().all()}
+    return [
+        {
+            "telegram_user_id": telegram_user_id,
+            "sender_name": sender_name,
+            "display_name": identities[telegram_user_id].display_name if telegram_user_id in identities else None,
+            "role": identities[telegram_user_id].role if telegram_user_id in identities else "unknown",
+            "is_current_user": bool(
+                telegram_user_id in identities and identities[telegram_user_id].user_id == current_user.id
+            ),
+        }
+        for telegram_user_id, sender_name in names.items()
+    ]
+
+
+@router.post("/{chat_id}/participants/{telegram_user_id}/identify-self")
+async def identify_telegram_participant_as_self(
+    chat_id: uuid.UUID,
+    telegram_user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    sender = await db.execute(
+        select(TelegramMessage.id, TelegramMessage.sender_name).where(
+            TelegramMessage.chat_id == chat_id,
+            TelegramMessage.sender_tg_id == telegram_user_id,
+        ).limit(1)
+    )
+    sender_row = sender.first()
+    if sender_row is None:
+        raise HTTPException(status_code=404, detail="Участник не найден в истории чата")
+    sender_name = sender_row[1]
+
+    previous_result = await db.execute(
+        select(TelegramParticipantIdentity).where(
+            TelegramParticipantIdentity.chat_id == chat_id,
+            TelegramParticipantIdentity.user_id == current_user.id,
+            TelegramParticipantIdentity.telegram_user_id != telegram_user_id,
+        )
+    )
+    for previous in previous_result.scalars().all():
+        previous.user_id = None
+        previous.role = "unknown"
+
+    identity_result = await db.execute(
+        select(TelegramParticipantIdentity).where(
+            TelegramParticipantIdentity.chat_id == chat_id,
+            TelegramParticipantIdentity.telegram_user_id == telegram_user_id,
+        )
+    )
+    identity = identity_result.scalar_one_or_none()
+    if identity and identity.user_id and identity.user_id != current_user.id:
+        raise HTTPException(status_code=409, detail="Этот Telegram-аккаунт уже подтверждён другим сотрудником")
+    if not identity:
+        identity = TelegramParticipantIdentity(chat_id=chat_id, telegram_user_id=telegram_user_id)
+        db.add(identity)
+    previous_user_id = identity.user_id
+    identity.user_id = current_user.id
+    identity.role = current_user.role.value
+    identity.display_name = current_user.name
+    identity.confirmed_by = current_user.id
+    identity.confirmed_at = datetime.now(timezone.utc)
+    await db.flush()
+    await log_change(
+        db, "telegram_participant_identity", identity.id, "user_id",
+        previous_user_id, current_user.id, str(current_user.id),
+        source="workspace_telegram_identity",
+    )
+    await db.commit()
+    return {
+        "telegram_user_id": telegram_user_id,
+        "sender_name": sender_name,
+        "display_name": identity.display_name,
+        "role": identity.role,
+        "is_current_user": True,
+    }
+
+
+async def _telegram_message_for_action(
+    db: AsyncSession,
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: User,
+) -> tuple[TelegramMessage, uuid.UUID]:
+    message = await db.get(TelegramMessage, message_id)
+    if not message or message.chat_id != chat_id:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    session = await db.get(TelegramChatSession, message.session_id) if message.session_id else None
+    if not session or not session.student_id:
+        raise HTTPException(status_code=422, detail="Чат не привязан к студенту")
+    await require_student_access(db, session.student_id, current_user)
+    return message, session.student_id
+
+
+@router.post("/{chat_id}/messages/{message_id}/task")
+async def create_task_from_telegram_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    message, student_id = await _telegram_message_for_action(db, chat_id, message_id, current_user)
+    source_text = (message.raw_text or f"Telegram: {message.message_type.value}").strip()
+    task_text = str(body.get("task_text") or source_text).strip()
+    if not task_text:
+        raise HTTPException(status_code=422, detail="Текст задачи пуст")
+    task = StudentTask(
+        student_id=student_id,
+        task_text=task_text,
+        created_by=current_user.id,
+        status=TaskStatus.open,
+    )
+    db.add(task)
+    await db.flush()
+    await log_change(
+        db, "student_task", task.id, "created_from_message", None, message.id,
+        str(current_user.id), source="workspace_telegram",
+    )
+    await db.commit()
+    await db.refresh(task)
+    return {
+        "id": str(task.id),
+        "student_id": str(task.student_id),
+        "task_text": task.task_text,
+        "status": task.status.value,
+        "created_at": task.created_at.isoformat(),
+    }
+
+
+@router.post("/{chat_id}/messages/{message_id}/note")
+async def create_note_from_telegram_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    message, student_id = await _telegram_message_for_action(db, chat_id, message_id, current_user)
+    source_text = (message.raw_text or f"Telegram: {message.message_type.value}").strip()
+    title = str(body.get("title") or "Заметка из Telegram").strip()
+    student = await db.get(Student, student_id)
+    note = StudentNote(
+        student_id=student_id,
+        title=title,
+        source_text=source_text,
+        summary_markdown=f"## {title}\n\n{source_text}",
+        profile_snapshot=snapshot_student(student) if student else {},
+        suggested_changes={},
+        applied_changes={},
+        status=StudentNoteStatus.draft,
+        created_by=current_user.id,
+    )
+    db.add(note)
+    await db.flush()
+    await log_change(
+        db, "student_note", note.id, "created_from_message", None, message.id,
+        str(current_user.id), source="workspace_telegram",
+    )
+    await db.commit()
+    await db.refresh(note)
+    return {
+        "id": str(note.id),
+        "student_id": str(note.student_id),
+        "title": note.title,
+        "status": note.status.value,
+        "created_at": note.created_at.isoformat(),
+    }
+
+
+@router.get("/{chat_id}/sessions")
+async def list_chat_sessions(
     chat_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: StaffUser,
@@ -322,13 +765,146 @@ async def list_chat_messages(
         raise HTTPException(status_code=404, detail="Чат не найден")
 
     result = await db.execute(
-        select(TelegramMessage)
-        .where(TelegramMessage.chat_id == chat_id)
-        .options(selectinload(TelegramMessage.attachments))
-        .order_by(TelegramMessage.created_at)
+        select(TelegramChatSession, Student.full_name, User.name)
+        .outerjoin(Student, Student.id == TelegramChatSession.student_id)
+        .outerjoin(User, User.id == TelegramChatSession.opened_by)
+        .where(TelegramChatSession.chat_id == chat_id)
+        .order_by(TelegramChatSession.opened_at.desc())
     )
-    messages = result.scalars().all()
-    return [await _message_to_dict(m) for m in messages]
+    return [
+        {
+            "id": str(session.id),
+            "chat_id": str(session.chat_id),
+            "student_id": str(session.student_id) if session.student_id else None,
+            "student_name": student_name,
+            "status": session.status.value,
+            "opened_by": str(session.opened_by) if session.opened_by else None,
+            "opened_by_name": opened_by_name,
+            "opened_at": session.opened_at.isoformat(),
+            "closed_at": session.closed_at.isoformat() if session.closed_at else None,
+        }
+        for session, student_name, opened_by_name in result.all()
+    ]
+
+
+@router.get("/{chat_id}/import-capabilities")
+async def import_capabilities(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+    return {
+        "chat_id": str(chat.id),
+        "modes": [
+            {
+                "mode": "desktop_json",
+                "enabled": True,
+                "label": "Telegram Desktop result.json",
+                "description": "Импорт старой истории из экспортированного result.json без хранения user-session.",
+            },
+            {
+                "mode": "client_session",
+                "enabled": False,
+                "label": "Telegram client session",
+                "description": "Прямой импорт через Telethon/Pyrogram требует отдельной защищённой user-session инфраструктуры.",
+            },
+        ],
+        "active_mode": "desktop_json",
+    }
+
+
+@router.post("/{chat_id}/import-json")
+async def import_chat_json(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+    file: UploadFile = File(...),
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    content = await file.read()
+    if len(content) > MAX_TELEGRAM_EXPORT_BYTES:
+        raise HTTPException(status_code=413, detail="Файл экспорта слишком большой")
+    try:
+        payload = json.loads(content.decode("utf-8-sig"))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Ожидается Telegram Desktop export result.json")
+
+    raw_messages = payload.get("messages")
+    if not isinstance(raw_messages, list):
+        raise HTTPException(status_code=422, detail="В JSON нет массива messages")
+
+    session_result = await db.execute(
+        select(TelegramChatSession)
+        .where(
+            TelegramChatSession.chat_id == chat.id,
+            TelegramChatSession.status == TelegramSessionStatus.active,
+        )
+        .order_by(TelegramChatSession.opened_at.desc())
+        .limit(1)
+    )
+    session = session_result.scalar_one_or_none()
+
+    imported = 0
+    skipped = 0
+    for raw in raw_messages:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        message_id = raw.get("id")
+        if message_id is None:
+            skipped += 1
+            continue
+        try:
+            telegram_message_id = int(message_id)
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+
+        update_id = _import_update_id(chat.chat_id, telegram_message_id)
+        existing = await db.scalar(select(TelegramMessage.id).where(TelegramMessage.update_id == update_id))
+        if existing:
+            skipped += 1
+            continue
+
+        text = _telegram_export_text(raw.get("text"))
+        attachment_label = _telegram_export_attachment_label(raw)
+        if attachment_label:
+            text = f"{text}\n[вложение из экспорта: {attachment_label}]".strip()
+
+        row = TelegramMessage(
+            chat_id=chat.id,
+            session_id=session.id if session else None,
+            telegram_message_id=telegram_message_id,
+            update_id=update_id,
+            sender_tg_id=_telegram_export_sender_id(raw.get("from_id")),
+            sender_name=str(raw.get("from") or raw.get("actor") or "").strip() or None,
+            message_type=_telegram_export_message_type(raw),
+            raw_text=text or None,
+            raw_payload={"import_source": "telegram_desktop_json", "raw": raw},
+            created_at=_telegram_export_datetime(raw),
+        )
+        db.add(row)
+        imported += 1
+
+    chat.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {
+        "chat_id": str(chat.id),
+        "mode": "desktop_json",
+        "source": "telegram_desktop_json",
+        "status": "completed",
+        "imported": imported,
+        "skipped": skipped,
+        "total": len(raw_messages),
+    }
 
 
 @router.post("/{chat_id}/context-draft")
@@ -351,10 +927,20 @@ async def create_context_draft(
         raise HTTPException(status_code=404, detail="Студент не найден")
 
     limit = int(body.get("limit") or 30)
-    limit = max(5, min(limit, 80))
+    limit = max(5, min(limit, 120))
+    q = " ".join(str(body.get("q") or "").split())[:200]
+    query = select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
+    if q:
+        pattern = f"%{q}%"
+        query = query.where(
+            or_(
+                TelegramMessage.raw_text.ilike(pattern),
+                TelegramMessage.sender_name.ilike(pattern),
+            )
+        )
+
     result = await db.execute(
-        select(TelegramMessage)
-        .where(TelegramMessage.chat_id == chat_id)
+        query
         .options(selectinload(TelegramMessage.attachments))
         .order_by(TelegramMessage.created_at.desc(), TelegramMessage.id.desc())
         .limit(limit)
@@ -402,6 +988,7 @@ async def create_context_draft(
     draft["source_last_message_id"] = str(last_message.id)
     draft["prompt_version"] = str(ai_meta.get("prompt_version") or "unknown")
     draft["model"] = ai_meta.get("model")
+    draft["source_filter"] = {"q": q, "limit": limit}
     return draft
 
 
@@ -488,6 +1075,10 @@ async def apply_context_draft(
         reviewed_by=current_user.id,
         created_at=datetime.now(timezone.utc),
         reviewed_at=datetime.now(timezone.utc),
+        # Bug #5 fix: auto-publish context-draft notes
+        published_to_student=True,
+        published_at=datetime.now(timezone.utc),
+        published_by=current_user.id,
     )
     db.add(note)
     last_message_id = body.get("source_last_message_id")
@@ -615,7 +1206,7 @@ async def list_chat_insights(
 async def create_pairing_code(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: StaffUser,
 ):
     student_id = body.get("student_id")
     if not student_id:
@@ -624,6 +1215,7 @@ async def create_pairing_code(
     student = await db.get(Student, uuid.UUID(str(student_id)))
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student.id, current_user)
 
     if not settings.TELEGRAM_BOT_USERNAME:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_USERNAME не настроен")
@@ -643,6 +1235,289 @@ async def create_pairing_code(
         "deep_link": f"https://t.me/{settings.TELEGRAM_BOT_USERNAME}?start={code}",
         "expires_at": pairing.expires_at.isoformat(),
     }
+
+
+@router.post("/group-setup-link")
+async def create_group_setup_link(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Create the assisted `startgroup` link from variant A.
+
+    Telegram creates/selects the group. The `/start <code>` command delivered
+    with the deep-link silently consumes the pairing code and attaches the
+    registered group to this student.
+    """
+    student_id = body.get("student_id")
+    if not student_id:
+        raise HTTPException(status_code=422, detail="student_id обязателен")
+
+    student = await db.get(Student, uuid.UUID(str(student_id)))
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student.id, current_user)
+    if not settings.TELEGRAM_BOT_USERNAME:
+        raise HTTPException(status_code=503, detail="TELEGRAM_BOT_USERNAME не настроен")
+
+    code = secrets.token_urlsafe(9)
+    pairing = TelegramPairingCode(
+        code=code,
+        student_id=student.id,
+        created_by=current_user.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=PAIRING_CODE_TTL_MINUTES),
+    )
+    db.add(pairing)
+    suggested_title = await _suggested_group_title(db, student)
+    record_audit(
+        db,
+        action=AuditAction.invite_created,
+        actor=current_user,
+        target_type="student",
+        target_id=str(student.id),
+        meta={"kind": "telegram_startgroup"},
+    )
+    await db.commit()
+    return {
+        "code": code,
+        "startgroup_link": f"https://t.me/{settings.TELEGRAM_BOT_USERNAME}?startgroup={quote(code)}",
+        "suggested_title": suggested_title,
+        "expires_at": pairing.expires_at.isoformat(),
+    }
+
+
+@router.get("/{chat_id}/readiness")
+async def get_group_readiness(
+    chat_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Check the real Telegram state required for group ingestion."""
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    try:
+        telegram_bot = get_bot()
+        me = await telegram_bot.get_me()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Telegram-бот недоступен: {exc}")
+
+    privacy_off = bool(getattr(me, "can_read_all_group_messages", False))
+    bot_in_chat = False
+    bot_is_admin = False
+    can_change_info = False
+    can_invite_users = False
+    telegram_error = None
+    live_title = chat.title
+
+    try:
+        tg_chat = await telegram_bot.get_chat(chat.chat_id)
+        live_title = getattr(tg_chat, "title", None) or live_title
+        member = await telegram_bot.get_chat_member(chat.chat_id, me.id)
+        status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
+        bot_in_chat = status not in {None, "left", "kicked"}
+        bot_is_admin = status in {"administrator", "creator"}
+        can_change_info = status == "creator" or bool(getattr(member, "can_change_info", False))
+        can_invite_users = status == "creator" or bool(getattr(member, "can_invite_users", False))
+    except Exception as exc:
+        telegram_error = str(exc)
+
+    chat.privacy_mode_disabled = privacy_off
+    if live_title:
+        chat.title = live_title
+    await db.commit()
+
+    issues = []
+    if not bot_in_chat:
+        issues.append("Добавьте бота в группу")
+    elif not bot_is_admin:
+        issues.append("Назначьте бота администратором")
+    else:
+        if not can_change_info:
+            issues.append("Разрешите боту изменять данные группы")
+        if not can_invite_users:
+            issues.append("Разрешите боту приглашать пользователей")
+    if not privacy_off:
+        issues.append("Отключите Privacy Mode через BotFather")
+
+    return {
+        "chat_id": str(chat.id),
+        "telegram_chat_id": chat.chat_id,
+        "title": live_title,
+        "bot_in_chat": bot_in_chat,
+        "bot_is_admin": bot_is_admin,
+        "can_change_info": can_change_info,
+        "can_invite_users": can_invite_users,
+        "privacy_mode_disabled": privacy_off,
+        "ready": bot_in_chat and bot_is_admin and can_change_info and can_invite_users and privacy_off,
+        "issues": issues,
+        "telegram_error": telegram_error,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/{chat_id}/set-title")
+async def set_group_title(
+    chat_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+    if chat.chat_type.value not in {"group", "supergroup"}:
+        raise HTTPException(status_code=409, detail="Название можно менять только у Telegram-группы")
+
+    student_id = await _current_student_id(db, chat.id)
+    student = await db.get(Student, student_id) if student_id else None
+    requested_title = _clean_group_title_part(body.get("title"))
+    title = requested_title or (await _suggested_group_title(db, student) if student else "")
+    if not title:
+        raise HTTPException(status_code=422, detail="Укажите название группы")
+    if len(title) > TELEGRAM_GROUP_TITLE_MAX_LENGTH:
+        raise HTTPException(status_code=422, detail="Название Telegram-группы не может быть длиннее 128 символов")
+
+    try:
+        telegram_bot = get_bot()
+        me = await telegram_bot.get_me()
+        member = await telegram_bot.get_chat_member(chat.chat_id, me.id)
+        status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
+        is_admin = status in {"administrator", "creator"}
+        can_change_info = status == "creator" or bool(getattr(member, "can_change_info", False))
+        if not is_admin:
+            raise HTTPException(status_code=409, detail="Сначала назначьте бота администратором группы")
+        if not can_change_info:
+            raise HTTPException(status_code=409, detail="Дайте боту право изменять данные группы")
+        await telegram_bot.set_chat_title(chat.chat_id, title)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Telegram не изменил название группы: {exc}")
+
+    old_title = chat.title
+    chat.title = title
+    await log_change(
+        db,
+        "telegram_chat",
+        chat.id,
+        "title",
+        old_title,
+        title,
+        str(current_user.id),
+    )
+    await db.commit()
+    return await _chat_to_dict(db, chat, current_user=current_user)
+
+
+INVITE_LINK_TTL_HOURS = 72
+# `member_limit=1` made Telegram invalidate the link after a single use — even
+# the mentor's own test tap or the student's app double-joining — which is the
+# "ссылка недействительна" students kept hitting. We instead bind the first
+# valid joiner and revoke the link ourselves (telegram_bot.on_chat_member), so
+# the link stays usable until a real bind happens. None = no Telegram cap.
+GROUP_INVITE_MEMBER_LIMIT: int | None = None
+
+
+@router.post("/invite-link")
+async def create_group_invite_link(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Create a personal, single-use group invite link for a student (Приоритет 4).
+    When the student joins through it, the bot binds their Telegram id to this
+    student card in the background."""
+    student_id = body.get("student_id")
+    tg_chat_id = body.get("tg_chat_id")
+    if not student_id or tg_chat_id in (None, ""):
+        raise HTTPException(status_code=422, detail="student_id и tg_chat_id обязательны")
+
+    student = await db.get(Student, uuid.UUID(str(student_id)))
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student.id, current_user)
+
+    try:
+        tg_chat_id_int = int(tg_chat_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="tg_chat_id должен быть числом")
+
+    chat_result = await db.execute(select(TelegramChat).where(TelegramChat.chat_id == tg_chat_id_int))
+    chat = chat_result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Telegram-группа не зарегистрирована")
+    active_student_id = await _current_student_id(db, chat.id)
+    if active_student_id != student.id:
+        raise HTTPException(status_code=409, detail="Сначала привяжите эту группу к карточке студента")
+    await _require_chat_access(db, chat.id, current_user)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=INVITE_LINK_TTL_HOURS)
+    try:
+        bot = get_bot()
+        result = await bot.create_chat_invite_link(
+            chat_id=tg_chat_id_int,
+            member_limit=GROUP_INVITE_MEMBER_LIMIT,
+            expire_date=expires_at,
+            name=f"student:{student.id}",
+        )
+    except Exception as e:  # bot not configured / not admin / bad chat
+        raise HTTPException(status_code=503, detail=f"Не удалось создать ссылку в Telegram: {e}")
+
+    link = TelegramInviteLink(
+        student_id=student.id,
+        tg_chat_id=tg_chat_id_int,
+        invite_link=result.invite_link,
+        created_by=current_user.id,
+        expires_at=expires_at,
+    )
+    db.add(link)
+    record_audit(
+        db,
+        action=AuditAction.invite_created,
+        actor=current_user,
+        target_type="student",
+        target_id=str(student.id),
+        meta={"kind": "telegram_group", "tg_chat_id": tg_chat_id_int},
+    )
+    await db.commit()
+    return {
+        "invite_link": result.invite_link,
+        "expires_at": expires_at.isoformat(),
+        "expected_student_id": str(student.id),
+        "expected_student_name": student.full_name,
+    }
+
+
+@router.post("/students/{student_id}/telegram/unbind")
+async def unbind_student_telegram(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Cancel a wrong/auto Telegram binding on a student card (Приоритет 4)."""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    await require_student_access(db, student.id, current_user)
+
+    prev = student.telegram_user_id
+    student.telegram_user_id = None
+    student.telegram_username = None
+    student.telegram_linked_at = None
+    record_audit(
+        db,
+        action=AuditAction.telegram_unlinked,
+        actor=current_user,
+        target_type="student",
+        target_id=str(student.id),
+        meta={"prev_tg_user_id": prev},
+    )
+    await db.commit()
+    return {"ok": True}
 
 
 async def _chat_to_dict(
@@ -667,6 +1542,7 @@ async def _chat_to_dict(
     )
     last_message = last_message_result.first()
 
+    student = None
     student_name = None
     if session and session.student_id:
         student = await db.get(Student, session.student_id)
@@ -713,6 +1589,9 @@ async def _chat_to_dict(
         "session_id": str(session.id) if session else None,
         "student_id": str(session.student_id) if session and session.student_id else None,
         "student_name": student_name,
+        "student_telegram_user_id": student.telegram_user_id if student else None,
+        "student_telegram_username": student.telegram_username if student else None,
+        "student_telegram_linked_at": student.telegram_linked_at.isoformat() if student and student.telegram_linked_at else None,
         "last_message_preview": last_message[0] if last_message else None,
         "last_message_at": last_message[1].isoformat() if last_message else None,
         "pending_insight_count": pending_insight_count,
@@ -725,7 +1604,11 @@ async def _chat_to_dict(
     }
 
 
-async def _message_to_dict(m: TelegramMessage) -> dict:
+async def _message_to_dict(
+    m: TelegramMessage,
+    identity: TelegramParticipantIdentity | None = None,
+    current_user_id: uuid.UUID | None = None,
+) -> dict:
     attachments = []
     for a in m.attachments:
         attachments.append(
@@ -741,7 +1624,14 @@ async def _message_to_dict(m: TelegramMessage) -> dict:
     return {
         "id": str(m.id),
         "telegram_message_id": m.telegram_message_id,
+        "sender_tg_id": m.sender_tg_id,
         "sender_name": m.sender_name,
+        "sender_role": "staff" if m.sent_by_user_id else identity.role if identity else "unknown",
+        "sender_display_name": m.sender_name if m.sent_by_user_id else identity.display_name if identity else m.sender_name,
+        "is_current_user": bool(
+            (m.sent_by_user_id and current_user_id and m.sent_by_user_id == current_user_id)
+            or (identity and current_user_id and identity.user_id == current_user_id)
+        ),
         "message_type": m.message_type.value,
         "raw_text": m.raw_text,
         "created_at": m.created_at.isoformat(),
@@ -797,6 +1687,80 @@ def _messages_attachment_context(messages: list[TelegramMessage]) -> list[dict]:
                 }
             )
     return out[:20]
+
+
+def _import_update_id(chat_tg_id: int, telegram_message_id: int) -> int:
+    digest = hashlib.blake2b(f"{chat_tg_id}:{telegram_message_id}".encode("utf-8"), digest_size=7).hexdigest()
+    return -int(digest, 16)
+
+
+def _telegram_export_text(raw_text) -> str:
+    if isinstance(raw_text, str):
+        return raw_text.strip()
+    if isinstance(raw_text, list):
+        chunks: list[str] = []
+        for item in raw_text:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, dict):
+                chunks.append(str(item.get("text") or ""))
+        return "".join(chunks).strip()
+    return ""
+
+
+def _telegram_export_sender_id(raw_from_id) -> int | None:
+    if raw_from_id is None:
+        return None
+    match = re.search(r"-?\d+", str(raw_from_id))
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _telegram_export_datetime(raw: dict) -> datetime:
+    raw_unixtime = raw.get("date_unixtime")
+    if raw_unixtime is not None:
+        try:
+            return datetime.fromtimestamp(int(str(raw_unixtime)), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            pass
+    raw_date = raw.get("date")
+    if isinstance(raw_date, str):
+        try:
+            parsed = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _telegram_export_attachment_label(raw: dict) -> str:
+    for key in ("file", "photo", "thumbnail"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    media_type = str(raw.get("media_type") or "").strip()
+    if media_type:
+        return media_type
+    return ""
+
+
+def _telegram_export_message_type(raw: dict) -> TelegramMessageType:
+    media_type = str(raw.get("media_type") or "").lower()
+    if raw.get("photo") or "photo" in media_type:
+        return TelegramMessageType.photo
+    if raw.get("file") or "document" in media_type or "file" in media_type:
+        return TelegramMessageType.document
+    if "voice" in media_type:
+        return TelegramMessageType.voice
+    if "video" in media_type:
+        return TelegramMessageType.video_note
+    if _telegram_export_text(raw.get("text")):
+        return TelegramMessageType.text
+    return TelegramMessageType.other
 
 
 async def _context_signal_count(db: AsyncSession, chat_id: uuid.UUID) -> int:

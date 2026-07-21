@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookText, CircleDot, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { CircleDot, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import type { NoteSession, NoteSessionStatus, StudentListItem, StudentNote, StudentNoteStatus } from '@/types'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 const sessionStatusOptions: Array<{ value: NoteSessionStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все сессии' },
@@ -116,25 +117,17 @@ export const NotesPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-400">
-            <BookText className="w-4 h-4" />
-            Конспекты
-          </div>
-          <h1 className="mt-2 text-2xl font-black uppercase tracking-tight text-slate-950">
-            Сессии и конспекты
-          </h1>
-          <p className="mt-2 text-sm text-slate-500 max-w-2xl">
-            Откройте новую сессию, дайте доступ к микрофону или экрану, затем проверьте AI-черновик и примените изменения к профилю студента.
-          </p>
-        </div>
-
-        <Button onClick={() => setCreateOpen(true)}>
+      <CrmPageHeader
+        eyebrow="Конспекты"
+        title="Сессии и конспекты"
+        description="Откройте новую сессию, дайте доступ к микрофону или экрану, затем проверьте AI-черновик и примените изменения к профилю студента."
+        action={(
+          <Button onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Новая сессия
-        </Button>
-      </div>
+          </Button>
+        )}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Card className="border-slate-200 bg-white">

@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'mzk_manager' | 'lead_mentor' | 'mentor'
+export type UserRole = 'admin' | 'mzk_manager' | 'mentor' | 'student'
 export type NoteVisibility = 'admin_only' | 'admin_and_mzk' | 'all_mentors'
 
 export type PipelineStatus =
@@ -65,6 +65,63 @@ export interface StudentListItem {
   mzk_manager_name?: string | null
   responsible_count?: number
   responsibles?: ResponsibleUser[]
+  services_summary?: {
+    total: number
+    in_progress: number
+    scheduled: number
+    completed: number
+    items: Array<{
+      id: string
+      service_type: ServiceType
+      status: ServiceStatus
+      assigned_mentor_id?: string | null
+      assigned_staff_id?: string | null
+      assigned_mentor_name?: string | null
+      deadline?: string | null
+    }>
+  }
+  has_portal_access?: boolean
+  roadmap?: {
+    id?: string | null
+    name?: string | null
+    progress?: number | null
+    tasks_total?: number
+    tasks_done?: number
+  }
+  open_tasks_count?: number
+  next_meeting?: {
+    id: string
+    title: string
+    starts_at: string
+  } | null
+  telegram?: {
+    linked: boolean
+    chat_id?: string | null
+    pending_signals: number
+  }
+  documents_unverified?: number
+  last_contact?: {
+    source: string
+    at: string
+  } | null
+}
+
+export interface StudentTimelineItem {
+  id: string
+  at: string
+  kind: string
+  title: string
+  text?: string
+  href?: string | null
+  source?: string | null
+  meta?: Record<string, unknown>
+}
+
+export interface StudentTimelineResponse {
+  items: StudentTimelineItem[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface ResponsibleUser {
@@ -100,8 +157,12 @@ export interface Service {
   status: ServiceStatus
   result?: string
   assigned_mentor_id?: string
+  assigned_staff_id?: string
+  deadline?: string | null
   notes?: string
   portfolio_directions_count?: number
+  portfolio_directions_types?: string
+  proforientation_specialty?: string
 }
 
 export interface Payment {
@@ -150,6 +211,8 @@ export interface Guardian {
 export interface StudentTask {
   id: string
   student_id: string
+  service_id?: string | null
+  student_name?: string
   task_text: string
   status: 'open' | 'done'
   created_by: string
@@ -188,6 +251,7 @@ export interface Document {
   source: string
   ai_description?: string
   is_verified: boolean
+  visible_to_student?: boolean
   uploaded_at: string
 }
 
@@ -243,6 +307,13 @@ export interface StudentNote {
   reviewed_by?: string | null
   created_at: string
   reviewed_at?: string | null
+  published_to_student?: boolean
+  published_at?: string | null
+  student_title?: string | null
+  hidden_blocks?: string[]
+  blocks?: { key: string; heading: string }[]
+  is_important?: boolean
+  source_kind?: 'manual' | 'meeting' | 'telegram'
 }
 
 export interface NoteTranscript {
@@ -261,6 +332,7 @@ export interface NoteSession {
   student_id?: string | null
   student_name?: string | null
   note_id?: string | null
+  meeting_id?: string | null
   title: string
   source: string
   status: NoteSessionStatus
@@ -306,12 +378,15 @@ export interface NoteSessionDraft {
     old_value: unknown
     new_value: unknown
   }>
+  /** "provider_chain" = real AI model, "heuristic" = rule-based fallback. */
+  ai_model?: string | null
 }
 
 export interface ConfidentialNote {
   id: string
   note_text: string
   visible_to_role: NoteVisibility
+  visible_to_student?: boolean
   created_by?: string
   created_at: string
 }
@@ -351,6 +426,9 @@ export interface TelegramChat {
   session_id: string | null
   student_id: string | null
   student_name: string | null
+  student_telegram_user_id: string | null
+  student_telegram_username: string | null
+  student_telegram_linked_at: string | null
   last_message_preview: string | null
   last_message_at: string | null
   pending_insight_count: number
@@ -374,17 +452,70 @@ export interface TelegramAttachment {
 export interface TelegramMessage {
   id: string
   telegram_message_id: number
+  sender_tg_id: number | null
   sender_name: string | null
+  sender_display_name?: string | null
+  sender_role?: string
+  is_current_user?: boolean
   message_type: 'text' | 'photo' | 'document' | 'voice' | 'video_note' | 'other'
   raw_text: string | null
   created_at: string
   attachments: TelegramAttachment[]
 }
 
+export interface TelegramParticipant {
+  telegram_user_id: number
+  sender_name: string | null
+  display_name: string | null
+  role: string
+  is_current_user: boolean
+}
+
+export interface TelegramChatSessionHistory {
+  id: string
+  chat_id: string
+  student_id: string | null
+  student_name: string | null
+  status: 'active' | 'closed'
+  opened_by: string | null
+  opened_by_name: string | null
+  opened_at: string
+  closed_at: string | null
+}
+
 export interface TelegramPairingCode {
   code: string
   deep_link: string
   expires_at: string
+}
+
+export interface TelegramGroupSetupLink {
+  code: string
+  startgroup_link: string
+  suggested_title: string
+  expires_at: string
+}
+
+export interface TelegramGroupReadiness {
+  chat_id: string
+  telegram_chat_id: number
+  title: string | null
+  bot_in_chat: boolean
+  bot_is_admin: boolean
+  can_change_info: boolean
+  can_invite_users: boolean
+  privacy_mode_disabled: boolean
+  ready: boolean
+  issues: string[]
+  telegram_error: string | null
+  checked_at: string
+}
+
+export interface TelegramGroupInviteLink {
+  invite_link: string
+  expires_at: string
+  expected_student_id: string
+  expected_student_name: string
 }
 
 export type TelegramChatInsight = InsightWithDiff
@@ -397,6 +528,7 @@ export interface TelegramContextProfileUpdate {
 }
 
 export interface TelegramContextDraft {
+  draft_run_id?: string
   summary: string
   source_text: string
   student_id: string
@@ -405,6 +537,7 @@ export interface TelegramContextDraft {
   source_last_message_id?: string
   prompt_version?: string
   model?: string | null
+  source_filter?: { q?: string; limit?: number }
   profile_updates: TelegramContextProfileUpdate[]
   profile_notes: string[]
   follow_ups: string[]
@@ -418,6 +551,27 @@ export interface TelegramContextApplyResult {
   note_id: string
   applied_changes: Array<{ field: string; old_value: unknown; new_value: unknown }>
   profile_notes_saved: number
+}
+
+export interface TelegramImportResult {
+  chat_id: string
+  mode?: 'desktop_json' | 'client_session'
+  source?: string
+  status?: 'completed' | 'failed' | 'pending'
+  imported: number
+  skipped: number
+  total: number
+}
+
+export interface TelegramImportCapabilities {
+  chat_id: string
+  active_mode: 'desktop_json' | 'client_session'
+  modes: Array<{
+    mode: 'desktop_json' | 'client_session'
+    enabled: boolean
+    label: string
+    description: string
+  }>
 }
 
 export function hasReviewPending(chat: TelegramChat): boolean {
@@ -457,10 +611,16 @@ export const TELEGRAM_FIELD_LABELS_RU: Record<string, string> = {
 
 export interface StudentFull extends StudentListItem {
   is_archived: boolean
+  user_id?: string | null  // linked portal (student) account, if access was granted
   specialty?: string
+  age?: number | null
+  group_direction?: string | null
+  additional_sphere?: string | null
   gpa?: string
   achievements_text?: string
   budget_per_year?: string
+  transcript_resume_url?: string | null
+  intake_season?: 'fall' | 'spring' | 'summer' | null
   contracts: Contract[]
   applications: Application[]
   services: Service[]
@@ -483,6 +643,10 @@ export interface Country {
   vpp_required: boolean
   submission_deadline_notes?: string
   notes?: string
+  code?: string
+  flag_emoji?: string
+  flag_url?: string
+  degree_levels: Array<'undergraduate' | 'graduate'>
 }
 
 export interface FinanceSummary {
@@ -625,8 +789,8 @@ export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Администратор',
   mzk_manager: 'MZK Менеджер',
-  lead_mentor: 'Ведущий ментор',
   mentor: 'Ментор',
+  student: 'Студент',
 }
 
 export const PIPELINE_COLUMNS: PipelineStatus[] = [

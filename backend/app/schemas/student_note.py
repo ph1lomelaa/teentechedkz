@@ -15,12 +15,19 @@ class StudentNoteCreate(BaseModel):
     source_text: str
     summary_markdown: str | None = None
     suggested_changes: dict[str, Any] | None = None
+    is_important: bool = False
+    source_kind: Literal["manual", "meeting", "telegram"] = "manual"
 
 
 class StudentNoteReviewRequest(BaseModel):
     action: Literal["approve", "reject"]
     summary_markdown: str | None = None
     suggested_changes: dict[str, Any] | None = None
+
+
+class StudentNotePublishRequest(BaseModel):
+    student_title: str | None = None
+    hidden_blocks: list[str] | None = None
 
 
 class StudentNoteResponse(BaseModel):
@@ -40,3 +47,14 @@ class StudentNoteResponse(BaseModel):
     reviewed_by: uuid.UUID | None = None
     created_at: datetime
     reviewed_at: datetime | None = None
+    published_to_student: bool = False
+    published_at: datetime | None = None
+    student_title: str | None = None
+    hidden_blocks: list[str] = []
+    blocks: list[dict[str, str]] = []  # toggleable sections: [{key, heading}]
+    is_important: bool = False
+    source_kind: str = "manual"
+
+
+class StudentNoteImportanceRequest(BaseModel):
+    is_important: bool

@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getErrorMessage } from '@/lib/errorMessage'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 interface UserForm {
   name: string
@@ -41,6 +43,8 @@ interface UserForm {
   telegram_username: string
   password: string
 }
+
+const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
 
 function UserModal({
   user,
@@ -63,115 +67,167 @@ function UserModal({
     telegram_username: user?.telegram_username ?? '',
     password: '',
   })
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const mutation = useMutation({
-    mutationFn: async () => {
-      const payload: Partial<User> & { password?: string } = {
+    mutationFn: async (): Promise<string | null> => {
+      if (isEdit && user) {
+        const payload: Partial<User> & { password?: string } = {
+          name: form.name,
+          email: form.email,
+          role: form.role,
+          phone: form.phone || undefined,
+          telegram_username: form.telegram_username || undefined,
+        }
+        if (form.password) payload.password = form.password
+        await usersApi.update(user.id, payload)
+        return null
+      }
+      // Новый сотрудник: пароль задаёт сам по ссылке-приглашению (п.7).
+      const created = await usersApi.createInvite({
         name: form.name,
         email: form.email,
         role: form.role,
         phone: form.phone || undefined,
-        telegram_username: form.telegram_username || undefined,
-      }
-      if (form.password) {
-        payload.password = form.password
-      }
-
-      if (isEdit && user) {
-        return usersApi.update(user.id, payload)
-      }
-      return usersApi.create(payload)
+      })
+      return created.invite_url
     },
-    onSuccess: () => {
+    onSuccess: (link) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast({ title: isEdit ? 'Пользователь обновлён' : 'Пользователь создан' })
-      onClose()
+      if (isEdit) {
+        toast({ title: 'Пользователь обновлён' })
+        onClose()
+      } else {
+        setInviteLink(link)
+        toast({ title: 'Пользователь создан — отправьте ссылку для входа' })
+      }
     },
-    onError: () => {
-      toast({ title: 'Ошибка', variant: 'destructive' })
+    onError: (err) => {
+      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось сохранить пользователя'), variant: 'destructive' })
     },
   })
+
+  const copyLink = async () => {
+    if (!inviteLink) return
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast({ title: 'Не удалось скопировать ссылку', variant: 'destructive' })
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? 'Редактировать пользователя' : 'Новый пользователь'}
+            {isEdit ? 'Редактировать пользователя' : inviteLink ? 'Ссылка для входа' : 'Новый пользователь'}
           </DialogTitle>
+          {!isEdit && !inviteLink && (
+            <DialogDescription>
+              Пароль сотрудник задаёт сам по ссылке-приглашению — как ученик. Назначенная роль сохранится.
+            </DialogDescription>
+          )}
         </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label>Имя</Label>
-            <Input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Иванов Иван"
-            />
+
+        {inviteLink ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Отправьте эту одноразовую ссылку сотруднику. По ней он задаст пароль и войдёт в систему. Ссылка действует 72 часа.
+            </p>
+            <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3 text-sm break-all">
+              {inviteLink}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={copyLink}>{copied ? 'Скопировано' : 'Скопировать ссылку'}</Button>
+              <Button onClick={onClose}>Готово</Button>
+            </DialogFooter>
           </div>
-          <div>
-            <Label>Email</Label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="user@example.com"
-            />
-          </div>
-          <div>
-            <Label>Роль</Label>
-            <Select
-              value={form.role}
-              onValueChange={(v) => setForm({ ...form, role: v as UserRole })}
-              disabled={isSelf}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(ROLE_LABELS).map(([val, label]) => (
-                  <SelectItem key={val} value={val}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {isSelf && (
-              <p className="text-xs text-gray-500 mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
-            )}
-          </div>
-          <div>
-            <Label>Телефон</Label>
-            <Input
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="+7 777 000 00 00"
-            />
-          </div>
-          <div>
-            <Label>Telegram</Label>
-            <Input
-              value={form.telegram_username}
-              onChange={(e) => setForm({ ...form, telegram_username: e.target.value })}
-              placeholder="@username"
-            />
-          </div>
-          <div>
-            <Label>{isEdit ? 'Новый пароль (оставьте пустым, если не меняете)' : 'Пароль'}</Label>
-            <Input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="••••••••"
-              required={!isEdit}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={!form.name || !form.email || (!isEdit && !form.password) || mutation.isPending}
-          >
-            {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
-          </Button>
-        </DialogFooter>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div>
+                <Label>Имя</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Иванов Иван"
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  placeholder="user@example.com"
+                />
+              </div>
+              <div>
+                <Label>Роль</Label>
+                <Select
+                  value={form.role}
+                  onValueChange={(v) => setForm({ ...form, role: v as UserRole })}
+                  disabled={isSelf}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STAFF_ROLE_OPTIONS.map((val) => (
+                      <SelectItem key={val} value={val}>{ROLE_LABELS[val]}</SelectItem>
+                    ))}
+                    {isEdit && user?.role === 'student' && (
+                      <SelectItem value="student">{ROLE_LABELS.student}</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                {isSelf && (
+                  <p className="text-xs text-gray-500 mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
+                )}
+              </div>
+              <div>
+                <Label>Телефон</Label>
+                <Input
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  placeholder="+7 777 000 00 00"
+                />
+              </div>
+              {isEdit && (
+                <>
+                  <div>
+                    <Label>Telegram</Label>
+                    <Input
+                      value={form.telegram_username}
+                      onChange={(e) => setForm({ ...form, telegram_username: e.target.value })}
+                      placeholder="@username"
+                    />
+                  </div>
+                  <div>
+                    <Label>Новый пароль (оставьте пустым, если не меняете)</Label>
+                    <Input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>Отмена</Button>
+              <Button
+                onClick={() => mutation.mutate()}
+                disabled={!form.name || !form.email || mutation.isPending}
+              >
+                {mutation.isPending ? 'Сохранение...' : isEdit ? 'Сохранить' : 'Создать и получить ссылку'}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -210,16 +266,17 @@ export const SettingsUsersPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 pb-5 border-b border-gray-200">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Настройки</h1>
-          <p className="label-caps mt-1.5">Аккаунт и пользователи</p>
-        </div>
+      <CrmPageHeader
+        eyebrow="Управление"
+        title="Настройки"
+        description="Аккаунт и пользователи"
+        action={(
         <Button onClick={() => setAddOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Добавить
         </Button>
-      </div>
+        )}
+      />
 
       {currentUser && (
         <div className="mb-8 border border-gray-200 rounded-[2px] p-5">

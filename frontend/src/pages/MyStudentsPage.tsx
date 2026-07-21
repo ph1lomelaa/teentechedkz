@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search } from 'lucide-react'
+import { Search, Users } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import {
   PIPELINE_STATUS_LABELS,
@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { debounce } from '@/lib/utils'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 export const MyStudentsPage: React.FC = () => {
   const [search, setSearch] = useState('')
@@ -64,10 +65,22 @@ export const MyStudentsPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 pb-5 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Мои студенты</h1>
-        <span className="label-caps">Всего: {total}</span>
-      </div>
+      <CrmPageHeader
+        eyebrow="Студенты"
+        title="Мои студенты"
+        description="Студенты с активным назначением в CRM. Эти же студенты будут открываться в личном кабинете ментора."
+        action={(
+          <div className="flex items-center gap-3">
+          <span className="label-caps">Всего: {total}</span>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/students?scope=unassigned">
+              <Users className="w-4 h-4 mr-2" />
+              Назначить студентов
+            </Link>
+          </Button>
+          </div>
+        )}
+      />
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -121,7 +134,7 @@ export const MyStudentsPage: React.FC = () => {
             ) : students.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                  У вас пока нет студентов. Откройте общий список и нажмите «Взять» у нужного студента.
+                  У вас пока нет студентов. Откройте общий список и назначьте себя или нужного ментора ответственным.
                 </TableCell>
               </TableRow>
             ) : (
@@ -168,7 +181,8 @@ export const MyStudentsPage: React.FC = () => {
 
       {!isLoading && students.length === 0 && (
         <div className="mt-4 rounded-[2px] border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-          У вас нет активных ответственных назначений. Перейдите во «Все студенты» и отметьте нужных студентов как своих.
+          У вас нет активных ответственных назначений. В CRM откройте студента и назначьте ментора в блоке «Ответственные»
+          или нажмите «Взять» в общем списке.
         </div>
       )}
 

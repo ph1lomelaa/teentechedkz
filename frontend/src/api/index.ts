@@ -18,6 +18,7 @@ import {
   MentorAssignment,
   NoteVisibility,
   InsightWithDiff,
+  PaginatedResponse,
 } from '../types'
 
 export * from './client'
@@ -164,6 +165,18 @@ export const guardiansApi = {
 }
 
 export const tasksApi = {
+  listAll: async (params?: {
+    status?: 'open' | 'done'
+    mentor_id?: string | null
+    scope?: 'all' | 'mine'
+    page?: number
+    size?: number
+  }): Promise<PaginatedResponse<StudentTask>> => {
+    const response = await apiClient.get<PaginatedResponse<StudentTask>>('/tasks', {
+      params,
+    })
+    return response.data
+  },
   listByStudent: async (studentId: string): Promise<StudentTask[]> => {
     const response = await apiClient.get<StudentTask[]>(
       `/tasks/student/${studentId}`
@@ -203,6 +216,13 @@ export const confidentialNotesApi = {
     const response = await apiClient.post<ConfidentialNote>(
       `/confidential-notes`,
       { ...data, student_id: studentId }
+    )
+    return response.data
+  },
+  setStudentVisibility: async (noteId: string, visible: boolean): Promise<ConfidentialNote> => {
+    const response = await apiClient.patch<ConfidentialNote>(
+      `/confidential-notes/${noteId}/student-visibility`,
+      { visible_to_student: visible }
     )
     return response.data
   },
@@ -308,8 +328,8 @@ export const historyApi = {
     entity_type: string
     entity_id: string
   }): Promise<HistoryEntry[]> => {
-    const response = await apiClient.get<HistoryEntry[]>('/history', { params })
-    return response.data
+    const response = await apiClient.get<HistoryEntry[] | { items?: HistoryEntry[] }>('/history', { params })
+    return Array.isArray(response.data) ? response.data : response.data.items ?? []
   },
 }
 
@@ -322,11 +342,56 @@ export const usersApi = {
     const response = await apiClient.post<User>('/users', data)
     return response.data
   },
+  createInvite: async (
+    data: { name: string; email: string; role: string; phone?: string },
+  ): Promise<User & { invite_url: string; invite_code: string; invite_expires_at: string }> => {
+    const response = await apiClient.post<User & { invite_url: string; invite_code: string; invite_expires_at: string }>(
+      '/users/invite',
+      data,
+    )
+    return response.data
+  },
   update: async (
     id: string,
     data: Partial<User> & { password?: string }
   ): Promise<User> => {
     const response = await apiClient.patch<User>(`/users/${id}`, data)
+    return response.data
+  },
+}
+
+export interface Notification {
+  id: string
+  kind: string
+  title: string
+  body: string
+  link: string
+  is_read: boolean
+  priority: string
+  created_at: string
+}
+
+export const notificationsApi = {
+  list: async (params?: { unread_only?: boolean; limit?: number; offset?: number }): Promise<{
+    data: Notification[]
+    total: number
+    unread_count: number
+  }> => {
+    const response = await apiClient.get('/notifications', { params })
+    return response.data
+  },
+  markAsRead: async (notificationId: string): Promise<{ status: string }> => {
+    const response = await apiClient.post(`/notifications/${notificationId}/read`)
+    return response.data
+  },
+  bulkMarkAsRead: async (notificationIds: string[]): Promise<{ marked_count: number }> => {
+    const response = await apiClient.post('/notifications/bulk/read', {
+      notification_ids: notificationIds,
+    })
+    return response.data
+  },
+  delete: async (notificationId: string): Promise<{ status: string }> => {
+    const response = await apiClient.delete(`/notifications/${notificationId}`)
     return response.data
   },
 }

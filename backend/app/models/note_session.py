@@ -30,6 +30,12 @@ class NoteSession(Base):
         nullable=True,
         index=True,
     )
+    meeting_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        unique=True,
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False, default="deepgram")
     status: Mapped[NoteSessionStatus] = mapped_column(
@@ -52,6 +58,10 @@ class NoteSession(Base):
 
     student: Mapped["Student | None"] = relationship(back_populates="note_sessions")
     note: Mapped["StudentNote | None"] = relationship(foreign_keys=[note_id])
+    meeting: Mapped["Meeting | None"] = relationship(
+        back_populates="note_session",
+        foreign_keys=[meeting_id],
+    )
     transcripts: Mapped[list["NoteTranscript"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",

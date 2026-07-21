@@ -5,6 +5,7 @@ import { InsightCard } from '@/components/shared/InsightCard'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
 import { useState } from 'react'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 export default function StatusInboxPage() {
   const qc = useQueryClient()
@@ -57,11 +58,11 @@ export default function StatusInboxPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Статус</h1>
-      <p className="text-sm text-gray-500 max-w-3xl">
-        Единая очередь изменений по студентам: Telegram-инсайты, контекстные заметки и черновики конспектов.
-        Подтверждённые структурные изменения попадут в карточку, а планы и неподтверждённые детали сохранятся как заметки.
-      </p>
+      <CrmPageHeader
+        eyebrow="Проверка"
+        title="Статус"
+        description="Единая очередь изменений по студентам: Telegram-инсайты, контекстные заметки и черновики конспектов. Подтверждённые структурные изменения попадут в карточку, а планы и неподтверждённые детали сохранятся как заметки."
+      />
       <div className="flex gap-1 border-b border-gray-200">
         {[
           { value: 'all', label: 'Все' },

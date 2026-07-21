@@ -62,3 +62,8 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local temp files and media
+docs/
+*.jpg
+*.png

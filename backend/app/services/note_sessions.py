@@ -119,6 +119,37 @@ def _condense_transcript(transcript: str) -> str:
     return "\n\n".join(chunk[:CONDENSE_CHUNK_CHARS] for chunk in chunks)
 
 
+def _heuristic_note_draft(
+    source_title: str,
+    transcript: str,
+    snapshot: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Rule-based конспект used when no AI provider is configured or the
+    provider call fails. `reason` is surfaced in __ai_meta so the fallback is
+    never silently mistaken for a real AI run."""
+    summary = build_summary_markdown(source_title, transcript, snapshot, {})
+    quality_warnings = detect_quality_warnings(transcript)
+    summary, summary_quality_warnings = remove_quality_risky_summary_lines(summary)
+    quality_warnings.extend(
+        warning for warning in summary_quality_warnings if warning not in quality_warnings
+    )
+    summary = append_quality_warnings(summary, quality_warnings)
+    return {
+        "title": source_title,
+        "summary_markdown": summary,
+        "suggested_changes": {},
+        "__ai_meta": {
+            "prompt_version": PROMPT_VERSION,
+            "model": "heuristic",
+            "raw_output": None,
+            "parsed_output": {},
+            "filter_reasons": {"fallback": reason},
+        },
+    }
+
+
 async def generate_note_draft(
     *,
     transcript: str,
@@ -140,27 +171,19 @@ async def generate_note_draft(
 Верни JSON с title, summary_markdown и suggested_changes."""
 
     if not provider_chain():
-        summary = build_summary_markdown(source_title, transcript, snapshot, {})
-        quality_warnings = detect_quality_warnings(transcript)
-        summary, summary_quality_warnings = remove_quality_risky_summary_lines(summary)
-        quality_warnings.extend(
-            warning for warning in summary_quality_warnings if warning not in quality_warnings
+        return _heuristic_note_draft(
+            source_title, transcript, snapshot, reason="AI provider is not configured"
         )
-        summary = append_quality_warnings(summary, quality_warnings)
-        return {
-            "title": source_title,
-            "summary_markdown": summary,
-            "suggested_changes": {},
-            "__ai_meta": {
-                "prompt_version": PROMPT_VERSION,
-                "model": "heuristic",
-                "raw_output": None,
-                "parsed_output": {},
-                "filter_reasons": {"fallback": "AI provider is not configured"},
-            },
-        }
 
-    raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+    try:
+        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+    except Exception:
+        # Never 500 the конспект on a provider hiccup (timeout, quota, network) —
+        # degrade to the rule-based draft, clearly marked, so the UI keeps working.
+        logger.exception("Note draft AI provider failed; using heuristic fallback")
+        return _heuristic_note_draft(
+            source_title, transcript, snapshot, reason="AI provider error"
+        )
     parsed = json_block(raw)
     suggested_changes = parsed.get("suggested_changes")
     if not isinstance(suggested_changes, dict):

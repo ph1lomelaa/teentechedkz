@@ -13,6 +13,7 @@ from app.models.student_note import StudentNoteStatus
 
 class NoteSessionCreate(BaseModel):
     student_id: uuid.UUID | None = None
+    meeting_id: uuid.UUID | None = None
     title: str | None = None
     source: str = "deepgram"
 
@@ -31,6 +32,7 @@ class NoteSessionResponse(BaseModel):
     student_id: uuid.UUID | None = None
     student_name: str | None = None
     note_id: uuid.UUID | None = None
+    meeting_id: uuid.UUID | None = None
     title: str
     source: str
     status: NoteSessionStatus
@@ -84,6 +86,10 @@ class NoteSessionDraftResponse(BaseModel):
     profile_snapshot: dict[str, Any]
     suggested_changes: dict[str, Any]
     change_preview: list[dict[str, Any]]
+    # "provider_chain" when a real AI model produced the draft, "heuristic" when
+    # it fell back to rule-based generation (no key / provider error). Lets the
+    # UI flag a non-AI draft instead of it looking like a poor AI result.
+    ai_model: str | None = None
 
 
 class NoteSessionFinalizeResponse(BaseModel):

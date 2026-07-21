@@ -59,6 +59,25 @@ async def create_note(
     return _note_to_dict(note)
 
 
+@router.patch("/{note_id}/student-visibility")
+async def set_student_visibility(
+    note_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Publish/retract an important note into the student's portal «Заметки»
+    section. Staff who can see the note (per role) can toggle it."""
+    result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
+    note = result.scalar_one_or_none()
+    if not note or not note_visible_to_role(note.visible_to_role, current_user.role):
+        raise HTTPException(status_code=404, detail="Заметка не найдена")
+    note.visible_to_student = bool(body.get("visible_to_student"))
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_dict(note)
+
+
 @router.delete("/{note_id}")
 async def delete_note(
     note_id: uuid.UUID,
@@ -88,6 +107,7 @@ def _note_to_dict(n: ConfidentialNote) -> dict:
         "student_id": str(n.student_id),
         "note_text": plain,
         "visible_to_role": n.visible_to_role.value,
+        "visible_to_student": n.visible_to_student,
         "created_by": str(n.created_by),
         "created_at": n.created_at.isoformat(),
     }

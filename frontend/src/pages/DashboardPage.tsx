@@ -20,7 +20,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { studentsApi } from '@/api/students'
-import { contractsApi } from '@/api/index'
+import { contractsApi, mentorAssignmentsApi, usersApi } from '@/api/index'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   StudentListItem,
@@ -30,6 +30,7 @@ import {
   DEGREE_LEVEL_COLORS,
   PIPELINE_COLUMNS,
 } from '@/types'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 import {
   Select,
   SelectContent,
@@ -39,6 +40,8 @@ import {
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { Button } from '@/components/ui/button'
+import { Check, UserPlus, X } from 'lucide-react'
 
 // Флаг по названию страны (данные в базе преимущественно на русском,
 // встречаются английские и составные значения — берём первый сегмент).
@@ -76,9 +79,13 @@ function countryFlag(country?: string | null): string {
 interface StudentCardProps {
   student: StudentListItem
   isDragging?: boolean
+  selectionMode?: boolean
+  selected?: boolean
+  alreadyAssigned?: boolean
+  onToggleSelected?: (studentId: string) => void
 }
 
-function StudentCard({ student, isDragging }: StudentCardProps) {
+function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssigned, onToggleSelected }: StudentCardProps) {
   // Имена менторов из Notion-снэпшота; фолбэк — активные назначения в CRM
   const mentors = (student.mentors && student.mentors.length > 0
     ? student.mentors
@@ -89,15 +96,38 @@ function StudentCard({ student, isDragging }: StudentCardProps) {
 
   return (
     <div
-      className={`bg-white rounded-[2px] border border-gray-200 p-3 cursor-grab active:cursor-grabbing transition-colors hover:border-gray-300 ${isDragging ? 'opacity-40 scale-95' : ''}`}
+      className={`relative bg-white rounded-[2px] border p-3 transition-colors ${selectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'border-brand bg-brand/10' : 'border-gray-200 hover:border-gray-300'} ${isDragging ? 'opacity-40 scale-95' : ''}`}
+      onClick={selectionMode && !alreadyAssigned ? () => onToggleSelected?.(student.id) : undefined}
     >
-      <Link
-        to={`/students/${student.id}`}
-        className="font-medium text-sm text-gray-900 hover:text-black transition-colors line-clamp-2 leading-snug"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {student.full_name}
-      </Link>
+      <div className="flex items-start gap-2">
+        <Link
+          to={`/students/${student.id}`}
+          className="min-w-0 flex-1 font-medium text-sm text-gray-900 hover:text-black transition-colors line-clamp-2 leading-snug"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {student.full_name}
+        </Link>
+        {selectionMode && (
+          alreadyAssigned ? (
+            <span className="shrink-0 rounded-[2px] border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
+              Уже мой
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleSelected?.(student.id)
+              }}
+              className={`grid h-5 w-5 shrink-0 place-items-center rounded-[4px] border transition-colors ${selected ? 'border-brand bg-brand text-black' : 'border-gray-300 bg-transparent text-transparent hover:border-brand'}`}
+              aria-label={selected ? `Убрать ${student.full_name} из выбора` : `Выбрать ${student.full_name}`}
+              aria-pressed={selected}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+          )
+        )}
+      </div>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
         <span className={`text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
@@ -136,9 +166,13 @@ function StudentCard({ student, isDragging }: StudentCardProps) {
 
 interface SortableStudentCardProps {
   student: StudentListItem
+  selectionMode?: boolean
+  selected?: boolean
+  alreadyAssigned?: boolean
+  onToggleSelected?: (studentId: string) => void
 }
 
-function SortableStudentCard({ student }: SortableStudentCardProps) {
+function SortableStudentCard({ student, selectionMode, selected, alreadyAssigned, onToggleSelected }: SortableStudentCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: student.id })
 
@@ -149,7 +183,14 @@ function SortableStudentCard({ student }: SortableStudentCardProps) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <StudentCard student={student} isDragging={isDragging} />
+      <StudentCard
+        student={student}
+        isDragging={isDragging}
+        selectionMode={selectionMode}
+        selected={selected}
+        alreadyAssigned={alreadyAssigned}
+        onToggleSelected={onToggleSelected}
+      />
     </div>
   )
 }
@@ -158,9 +199,13 @@ interface KanbanColumnProps {
   status: PipelineStatus
   students: StudentListItem[]
   canDrag: boolean
+  selectionMode?: boolean
+  selectedIds?: Set<string>
+  assignedIds?: Set<string>
+  onToggleSelected?: (studentId: string) => void
 }
 
-function KanbanColumn({ status, students, canDrag }: KanbanColumnProps) {
+function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, assignedIds, onToggleSelected }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status })
 
   return (
@@ -181,12 +226,26 @@ function KanbanColumn({ status, students, canDrag }: KanbanColumnProps) {
             strategy={verticalListSortingStrategy}
           >
             {students.map((student) => (
-              <SortableStudentCard key={student.id} student={student} />
+              <SortableStudentCard
+                key={student.id}
+                student={student}
+                selectionMode={selectionMode}
+                selected={selectedIds?.has(student.id)}
+                alreadyAssigned={Boolean(student.is_mine || assignedIds?.has(student.id))}
+                onToggleSelected={onToggleSelected}
+              />
             ))}
           </SortableContext>
         ) : (
           students.map((student) => (
-            <StudentCard key={student.id} student={student} />
+            <StudentCard
+              key={student.id}
+              student={student}
+              selectionMode={selectionMode}
+              selected={selectedIds?.has(student.id)}
+              alreadyAssigned={Boolean(student.is_mine || assignedIds?.has(student.id))}
+              onToggleSelected={onToggleSelected}
+            />
           ))
         )}
       </div>
@@ -195,9 +254,14 @@ function KanbanColumn({ status, students, canDrag }: KanbanColumnProps) {
 }
 
 export const DashboardPage: React.FC = () => {
-  const { hasRole } = useAuth()
+  const { hasRole, user } = useAuth()
   const queryClient = useQueryClient()
   const canDrag = hasRole('admin', 'mzk_manager')
+  const isAdmin = hasRole('admin')
+  const canSelectStudents = hasRole('admin', 'mentor', 'mzk_manager')
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [targetUserId, setTargetUserId] = useState('')
 
   const [mentorFilter, setMentorFilter] = useState<string>('')
   const [mzkFilter, setMzkFilter] = useState<string>('')
@@ -240,6 +304,25 @@ export const DashboardPage: React.FC = () => {
     queryFn: studentsApi.facets,
   })
 
+  const { data: assignmentUsers = [] } = useQuery({
+    queryKey: ['dashboard', 'assignment-users'],
+    queryFn: () => usersApi.list(),
+    enabled: isAdmin,
+  })
+  const availableAssignees = assignmentUsers.filter(
+    (candidate) => candidate.is_active && ['mentor', 'mzk_manager'].includes(candidate.role)
+  )
+  const assignedIds = useMemo(() => {
+    if (!isAdmin || !targetUserId) return new Set<string>()
+    return new Set(
+      students
+        .filter((student) => student.responsibles?.some(
+          (responsible) => responsible.id === targetUserId && responsible.is_active
+        ))
+        .map((student) => student.id)
+    )
+  }, [isAdmin, students, targetUserId])
+
   const updatePipelineMutation = useMutation({
     mutationFn: async ({
       studentId,
@@ -267,6 +350,54 @@ export const DashboardPage: React.FC = () => {
       toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось обновить статус'), variant: 'destructive' })
     },
   })
+
+  const assignSelectedMutation = useMutation({
+    mutationFn: async ({ studentIds, assigneeId }: { studentIds: string[]; assigneeId?: string }) => {
+      if (isAdmin) {
+        if (!assigneeId) throw new Error('Выберите ментора или менеджера')
+        await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.create(studentId, {
+          mentor_id: assigneeId,
+          role: 'lead',
+          is_active: true,
+        })))
+        return
+      }
+      await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.assignSelf(studentId)))
+    },
+    onSuccess: (_, variables) => {
+      setSelectedIds(new Set())
+      setSelectionMode(false)
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['my-students'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace'] })
+      toast({
+        title: isAdmin ? 'Ответственный назначен' : 'Студенты добавлены в «Мои»',
+        description: `Назначено: ${variables.studentIds.length}`,
+      })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Не удалось назначить студентов',
+        description: getErrorMessage(err),
+        variant: 'destructive',
+      })
+    },
+  })
+
+  const toggleSelected = (studentId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(studentId)) next.delete(studentId)
+      else next.add(studentId)
+      return next
+    })
+  }
+
+  const closeSelection = () => {
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+    setTargetUserId('')
+  }
 
   const filteredStudents = students
 
@@ -327,11 +458,69 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="relative mb-5 pb-5 border-b border-gray-200 overflow-hidden">
-        <h1 className="relative text-2xl md:text-[2rem] font-black uppercase tracking-tight text-gray-900 leading-none">
-          Студенты
-        </h1>
-      </div>
+      <CrmPageHeader
+        eyebrow="CRM"
+        title="Обзор студентов"
+        description={canSelectStudents
+          ? (isAdmin ? 'Выберите студентов и назначьте им ментора или менеджера.' : 'Выберите студентов на доске и добавьте их в «Мои».')
+          : 'Студенты и их текущие этапы поступления.'}
+        action={canSelectStudents ? (
+          <div className="flex items-center gap-2">
+            {selectionMode ? (
+              <Button variant="outline" size="sm" onClick={closeSelection}>
+                <X className="mr-1.5 h-3.5 w-3.5" /> Отменить
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setSelectionMode(true)}>
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" /> Выбрать студентов
+              </Button>
+            )}
+          </div>
+        ) : undefined}
+      />
+
+      {selectionMode && (
+        <div className="mb-4 flex flex-col gap-3 rounded-[2px] border border-brand/35 bg-brand/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-gray-900">Выбрано: {selectedIds.size}</div>
+            <p className="mt-0.5 text-xs text-gray-500">Студенты с отметкой «Уже мой» повторно не назначаются.</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {isAdmin && (
+              <Select
+                value={targetUserId || 'none'}
+                onValueChange={(value) => {
+                  setTargetUserId(value === 'none' ? '' : value)
+                  setSelectedIds(new Set())
+                }}
+              >
+                <SelectTrigger className="h-9 w-full text-xs sm:w-56">
+                  <SelectValue placeholder="Ментор или менеджер" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Выберите ответственного</SelectItem>
+                  {availableAssignees.map((assignee) => (
+                    <SelectItem key={assignee.id} value={assignee.id}>
+                      {assignee.name} · {assignee.role === 'mentor' ? 'ментор' : 'менеджер'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              size="sm"
+              disabled={selectedIds.size === 0 || assignSelectedMutation.isPending || (isAdmin && !targetUserId)}
+              onClick={() => assignSelectedMutation.mutate({
+                studentIds: Array.from(selectedIds),
+                assigneeId: isAdmin ? targetUserId : user?.id,
+              })}
+            >
+              <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+              {assignSelectedMutation.isPending ? 'Добавляем…' : isAdmin ? 'Назначить выбранных' : 'Добавить в мои'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -395,7 +584,7 @@ export const DashboardPage: React.FC = () => {
 
       {/* Kanban board */}
       <div className="kanban-container flex-1">
-        {canDrag ? (
+        {canDrag && !selectionMode ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -407,7 +596,11 @@ export const DashboardPage: React.FC = () => {
                 key={status}
                 status={status}
                 students={grouped[status] ?? []}
-                canDrag={canDrag}
+                canDrag={canDrag && !selectionMode}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                assignedIds={assignedIds}
+                onToggleSelected={toggleSelected}
               />
             ))}
             <DragOverlay>
@@ -423,6 +616,10 @@ export const DashboardPage: React.FC = () => {
               status={status}
               students={grouped[status] ?? []}
               canDrag={false}
+              selectionMode={selectionMode}
+              selectedIds={selectedIds}
+              assignedIds={assignedIds}
+              onToggleSelected={toggleSelected}
             />
           ))
         )}

@@ -1,22 +1,29 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
   DollarSign,
-  Globe,
   Settings,
   BookOpen,
   BookText,
   AlertTriangle,
   MessageCircle,
   ClipboardList,
+  Route,
+  GraduationCap,
   LogOut,
   Menu,
   X,
+  ChevronDown,
+  Moon,
+  Sun,
+  Globe,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { cn } from '@/lib/utils'
+import { applyThemeInstantly } from '@/lib/theme'
 
 interface NavItem {
   label: string
@@ -24,50 +31,122 @@ interface NavItem {
   icon: React.ReactNode
 }
 
-const adminNavItems: NavItem[] = [
-  { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-  { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
-  { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-  { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
-  { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
-  { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
-  { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
+interface NavGroup {
+  group: string
+  items: NavItem[]
+}
+
+type CrmTheme = 'dark' | 'light'
+
+const adminNavGroups: NavGroup[] = [
+  {
+    group: 'МОИ ДАННЫЕ',
+    items: [
+      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'БАЗА ДАННЫХ',
+    items: [
+      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
+      { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'РАБОТА',
+    items: [
+      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
+      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'СПРАВОЧНИКИ',
+    items: [
+      { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
+      { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'АДМИНИСТРАЦИЯ',
+    items: [
+      { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
+      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
+      { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
+    ],
+  },
 ]
 
-const mzkManagerNavItems: NavItem[] = [
-  { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-  { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
-  { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-  { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
-  { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
-  { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+const mzkManagerNavGroups: NavGroup[] = [
+  {
+    group: 'МОИ ДАННЫЕ',
+    items: [
+      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'БАЗА ДАННЫХ',
+    items: [
+      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
+      { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'РАБОТА',
+    items: [
+      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
+      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'СПРАВОЧНИКИ',
+    items: [
+      { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
+      { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'АДМИНИСТРАЦИЯ',
+    items: [
+      { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
+      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
+      { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
+    ],
+  },
 ]
 
-const leadMentorNavItems: NavItem[] = [
-  { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
-  { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+const mentorNavGroups: NavGroup[] = [
+  {
+    group: 'МОИ ДАННЫЕ',
+    items: [
+      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'БАЗА ДАННЫХ',
+    items: [
+      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
+    ],
+  },
+  {
+    group: 'РАБОТА',
+    items: [
+      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
+      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
+    ],
+  },
 ]
 
-const mentorNavItems: NavItem[] = [
-  { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
-  { label: 'Все студенты', path: '/students', icon: <Users className="w-4 h-4" /> },
-  { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-  { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-  { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
-  { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
-]
-
-function getNavItems(role: string): NavItem[] {
+function getNavGroups(role: string): NavGroup[] {
   switch (role) {
-    case 'admin': return adminNavItems
-    case 'mzk_manager': return mzkManagerNavItems
-    case 'lead_mentor': return leadMentorNavItems
-    case 'mentor': return mentorNavItems
+    case 'admin': return adminNavGroups
+    case 'mzk_manager': return mzkManagerNavGroups
+    case 'mentor': return mentorNavGroups
     default: return []
   }
 }
@@ -75,13 +154,15 @@ function getNavItems(role: string): NavItem[] {
 function getBreadcrumb(pathname: string): string {
   const map: Record<string, string> = {
     '/dashboard': 'Обзор',
-    '/students': 'Все студенты',
+    '/students': 'Общая база студентов',
     '/students/new': 'Новый студент',
     '/my-students': 'Мои студенты',
     '/notes': 'Конспекты',
     '/countries': 'Справочник стран',
     '/finances': 'Финансы',
     '/settings/users': 'Пользователи',
+    '/roadmap-templates': 'Roadmap-шаблоны',
+    '/universities': 'Университеты',
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',
     '/telegram-inbox': 'Telegram',
@@ -98,13 +179,19 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const { user, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [modeOpen, setModeOpen] = useState(false)
+  const [theme, setTheme] = useState<CrmTheme>(() => {
+    if (typeof window === 'undefined') return 'dark'
+    return window.localStorage.getItem('crm-theme') === 'light' ? 'light' : 'dark'
+  })
 
-  const navItems = user ? getNavItems(user.role) : []
+  const navGroups = user ? getNavGroups(user.role) : []
   const breadcrumb = getBreadcrumb(location.pathname)
 
   // Закрываем мобильное меню при переходе на другую страницу
   useEffect(() => {
     setMobileOpen(false)
+    setModeOpen(false)
   }, [location.pathname])
 
   // Блокируем прокрутку фона, пока открыт drawer
@@ -117,8 +204,21 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     }
   }, [mobileOpen])
 
+  useLayoutEffect(() => {
+    window.localStorage.setItem('crm-theme', theme)
+    document.documentElement.dataset.crmTheme = theme
+
+    return () => {
+      delete document.documentElement.dataset.crmTheme
+    }
+  }, [theme])
+
+  const toggleTheme = () => {
+    applyThemeInstantly(() => setTheme((current) => current === 'dark' ? 'light' : 'dark'))
+  }
+
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-white text-black">
+    <div data-theme={theme} className="crm-shell flex h-[100dvh] overflow-hidden">
       {/* Backdrop для мобильного меню */}
       {mobileOpen && (
         <div
@@ -134,20 +234,52 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           'fixed inset-y-0 left-0 z-50 flex flex-col w-64 max-w-[85vw] bg-sidebar border-r border-white/10',
           'transform transition-transform duration-200 ease-out',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
-          'lg:static lg:z-auto lg:w-56 lg:min-w-[224px] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:transition-none'
+          'lg:static lg:z-auto lg:w-[248px] lg:min-w-[248px] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:transition-none'
         )}
       >
-        {/* Logo */}
-        <div className="flex items-center justify-between px-5 py-6">
-          <Link to="/" className="block">
-            <span className="text-white font-black text-[15px] uppercase tracking-[0.22em]">
-              TeenTechEd
-            </span>
-          </Link>
+        {/* Logo / mode switcher */}
+        <div className="relative flex items-center justify-between px-4 py-5 border-b border-white/10">
+          <button
+            type="button"
+            onClick={() => setModeOpen((v) => !v)}
+            className="group flex items-center gap-2.5 text-left flex-1 min-w-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            aria-expanded={modeOpen}
+          >
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-brand">
+              <GraduationCap className="w-[22px] h-[22px] text-black" strokeWidth={2.2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-white font-display text-sm font-black uppercase tracking-wider block leading-none">
+                TEENTECHED
+              </span>
+              <span className="block mt-1 text-[9px] uppercase tracking-[0.22em] text-white/50">
+                CRM
+              </span>
+            </div>
+            <ChevronDown className="h-4 w-4 text-white/45 transition group-hover:text-white/70 shrink-0" />
+          </button>
+          {modeOpen && (
+            <div className="absolute left-4 right-4 top-[68px] z-20 overflow-hidden rounded-[11px] border border-white/10 bg-[#1C1C1C] shadow-xl">
+              <Link
+                to="/dashboard"
+                onClick={() => setModeOpen(false)}
+                className="block border-b border-white/10 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-white/[0.06]"
+              >
+                Общие данные / CRM
+              </Link>
+              <Link
+                to="/workspace"
+                onClick={() => setModeOpen(false)}
+                className="block px-3 py-2.5 text-xs font-bold text-brand transition hover:bg-white/[0.06]"
+              >
+                Кабинет ментора
+              </Link>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            className="p-1 -mr-1 text-white/60 hover:text-white lg:hidden"
+            className="p-1 -mr-1 text-white/60 hover:text-white lg:hidden ml-2"
             aria-label="Закрыть меню"
           >
             <X className="w-5 h-5" />
@@ -155,8 +287,8 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-2">
-          {navItems.map((item) => {
+        <nav className="flex-1 space-y-1 overflow-y-auto py-4">
+          {navGroups.flatMap((group) => group.items).map((item) => {
             const isActive =
               location.pathname === item.path ||
               (item.path !== '/' && location.pathname.startsWith(item.path))
@@ -165,13 +297,13 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  'flex items-center gap-2.5 px-5 py-3 lg:py-2.5 text-[15px] font-medium transition-colors duration-150 border-l-2',
+                  'flex items-center gap-2.5 mx-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium transition-colors duration-150',
                   isActive
-                    ? 'text-white border-white/80'
-                    : 'text-white/65 border-transparent hover:text-white/80'
+                    ? 'bg-brand text-black'
+                    : 'text-white/65 hover:bg-white/[0.06] hover:text-white/85'
                 )}
               >
-                <span className={isActive ? 'text-white' : 'text-white/50'}>
+                <span className={isActive ? 'text-black' : 'text-white/50'}>
                   {item.icon}
                 </span>
                 {item.label}
@@ -180,10 +312,17 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="mt-auto border-t border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
+          <button
+            onClick={() => toggleTheme()}
+            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium text-white/65 transition hover:bg-white/[0.06] hover:text-white/85"
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+          </button>
           <button
             onClick={() => logout()}
-            className="flex w-full items-center gap-2.5 text-left text-[13px] font-medium text-white/60 hover:text-white/85 transition-colors"
+            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium text-white/50 transition hover:bg-white/[0.06] hover:text-white/85"
           >
             <LogOut className="w-4 h-4" />
             Выйти
@@ -192,30 +331,53 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       </aside>
 
       {/* Main */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden bg-white text-black">
+      <div className="crm-content flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="flex items-center gap-3 px-4 md:px-6 py-4 bg-white border-b border-gray-200 shrink-0">
+        <header className="crm-header flex items-center gap-3 border-b px-4 py-4 shrink-0 md:px-6">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="p-1.5 -ml-1.5 text-gray-600 hover:text-black lg:hidden"
+            className="crm-muted p-1.5 -ml-1.5 hover:text-brand lg:hidden"
             aria-label="Открыть меню"
           >
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-caps min-w-0">
-            <span className="text-gray-400 hidden sm:inline">TeenTechEd</span>
+            <span className="crm-muted-secondary hidden sm:inline">TeenTechEd</span>
             {breadcrumb && (
               <>
-                <span className="text-gray-300 hidden sm:inline">/</span>
-                <span className="text-gray-900 font-medium truncate">{breadcrumb}</span>
+                <span className="crm-muted-secondary hidden sm:inline">/</span>
+                <span className="font-medium truncate">{breadcrumb}</span>
               </>
             )}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="crm-icon-button inline-flex h-10 w-10 items-center justify-center rounded-[8px] border transition-colors"
+              aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <NotificationsBell />
           </div>
         </header>
 
         {/* Content */}
-        <main className="app-main flex-1 overflow-y-auto bg-white p-4 md:p-6 text-black">{children}</main>
+        <main className="app-main flex-1 overflow-y-auto p-4 md:p-6">
+          <React.Suspense
+            fallback={(
+              <div className="flex min-h-[50vh] items-center justify-center text-sm crm-muted">
+                <span className="mr-3 h-2.5 w-2.5 animate-pulse rounded-full bg-brand" />
+                Загрузка…
+              </div>
+            )}
+          >
+            {children}
+          </React.Suspense>
+        </main>
       </div>
     </div>
   )

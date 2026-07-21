@@ -1,4 +1,5 @@
 from __future__ import annotations
+import secrets
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,8 +8,9 @@ import uuid
 
 from app.core.database import get_db
 from app.core.security import hash_password
-from app.core.deps import CurrentUser, AdminOnly
+from app.core.deps import CurrentUser, AdminOnly, AdminOrMZK
 from app.models.user import User, UserRole
+from app.services.invites import issue_invite, invite_url
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -20,7 +22,7 @@ async def list_users(
     role: str | None = None,
     is_active: bool | None = None,
 ):
-    if current_user.role != UserRole.admin:
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
         raise HTTPException(status_code=403, detail="Access denied")
 
     query = select(User)
@@ -37,7 +39,7 @@ async def list_users(
     return [_user_to_dict(u) for u in users]
 
 
-@router.post("", dependencies=[AdminOnly])
+@router.post("", dependencies=[AdminOrMZK])
 async def create_user(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -72,13 +74,66 @@ async def create_user(
     return _user_to_dict(user)
 
 
+@router.post("/invite", dependencies=[AdminOrMZK])
+async def create_user_invite(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Create a staff account (mentor/manager/admin) without a password and hand
+    back a single-use invite link — the invitee sets their own password, exactly
+    like a student (п.7). The account stays inactive until the invite is accepted."""
+    email = body.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email обязателен")
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email уже занят")
+
+    try:
+        role = UserRole(body.get("role", "mentor"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Неверная роль")
+    if role == UserRole.student:
+        raise HTTPException(status_code=422, detail="Ученику доступ выдаётся из карточки студента")
+
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Имя обязательно")
+
+    user = User(
+        name=name,
+        email=email,
+        # Placeholder secret so the row is never login-able until the invite is
+        # accepted (which replaces it with the user's own password).
+        hashed_password=hash_password(secrets.token_urlsafe(32)),
+        role=role,
+        phone=body.get("phone"),
+        is_active=False,
+        must_change_password=False,
+    )
+    db.add(user)
+    await db.flush()
+    invite, raw_token, raw_code = await issue_invite(
+        db, user_id=user.id, student_id=None, created_by=current_user.id
+    )
+    await db.commit()
+    await db.refresh(user)
+    return {
+        **_user_to_dict(user),
+        "invite_url": invite_url(raw_token),
+        "invite_code": raw_code,
+        "invite_expires_at": invite.expires_at.isoformat(),
+    }
+
+
 @router.get("/{user_id}")
 async def get_user(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -88,7 +143,7 @@ async def get_user(
     return _user_to_dict(user)
 
 
-@router.patch("/{user_id}", dependencies=[AdminOnly])
+@router.patch("/{user_id}", dependencies=[AdminOrMZK])
 async def update_user(
     user_id: uuid.UUID,
     body: dict,
@@ -134,7 +189,7 @@ async def update_user(
     return _user_to_dict(user)
 
 
-@router.delete("/{user_id}", dependencies=[AdminOnly])
+@router.delete("/{user_id}", dependencies=[AdminOrMZK])
 async def deactivate_user(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],

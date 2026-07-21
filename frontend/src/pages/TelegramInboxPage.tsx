@@ -33,6 +33,7 @@ import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 const TABS: { value: TelegramChatStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -55,7 +56,7 @@ export default function TelegramInboxPage() {
   const canManage = true
 
   const [tab, setTab] = useState<TelegramChatStatus | 'all'>('all')
-  const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
+  const [scope, setScope] = useState<'all' | 'mine' | 'assigned' | 'unassigned'>('all')
   const [attachTarget, setAttachTarget] = useState<TelegramChat | null>(null)
   const [reassignTarget, setReassignTarget] = useState<TelegramChat | null>(null)
   const [closeTarget, setCloseTarget] = useState<TelegramChat | null>(null)
@@ -168,14 +169,17 @@ export default function TelegramInboxPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Telegram</h1>
-      </div>
+      <CrmPageHeader
+        eyebrow="Коммуникации"
+        title="Telegram"
+        description="Диалоги со студентами и сообщения, требующие внимания команды."
+      />
 
       <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {[
           { value: 'all', label: 'Все' },
           { value: 'mine', label: 'Мои' },
+          { value: 'assigned', label: 'С ответственными' },
           { value: 'unassigned', label: 'Без ответственного' },
         ].map((s) => (
           <button

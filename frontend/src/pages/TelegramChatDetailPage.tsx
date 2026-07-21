@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FolderInput, Paperclip, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, FolderInput, History, Paperclip, Search, Sparkles, Upload, X } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
@@ -12,6 +12,7 @@ import {
   TELEGRAM_STATUS_LABELS,
 } from '@/types'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,7 @@ export default function TelegramChatDetailPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const canManage = true
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   const [reassignOpen, setReassignOpen] = useState(false)
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
@@ -80,6 +82,7 @@ export default function TelegramChatDetailPage() {
   const [saveAsDocType, setSaveAsDocType] = useState<DocType | ''>('')
   const [contextDraftOpen, setContextDraftOpen] = useState(false)
   const [contextDraft, setContextDraft] = useState<TelegramContextDraft | null>(null)
+  const [messageSearch, setMessageSearch] = useState('')
 
   const { data: chat } = useQuery({
     queryKey: ['telegram-chat', chatId],
@@ -88,8 +91,23 @@ export default function TelegramChatDetailPage() {
   })
 
   const { data: messages = [] } = useQuery({
-    queryKey: ['telegram-chat', chatId, 'messages'],
-    queryFn: () => telegramApi.listMessages(chatId!),
+    queryKey: ['telegram-chat', chatId, 'messages', messageSearch],
+    queryFn: () => telegramApi.listMessages(chatId!, {
+      q: messageSearch.trim() || undefined,
+      limit: messageSearch.trim() ? 500 : 200,
+    }),
+    enabled: !!chatId,
+  })
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['telegram-chat', chatId, 'sessions'],
+    queryFn: () => telegramApi.listSessions(chatId!),
+    enabled: !!chatId,
+  })
+
+  const { data: importCapabilities } = useQuery({
+    queryKey: ['telegram-chat', chatId, 'import-capabilities'],
+    queryFn: () => telegramApi.importCapabilities(chatId!),
     enabled: !!chatId,
   })
 
@@ -184,7 +202,10 @@ export default function TelegramChatDetailPage() {
   })
 
   const contextDraftMutation = useMutation({
-    mutationFn: () => telegramApi.createContextDraft(chatId!, 40),
+    mutationFn: () => telegramApi.createContextDraft(chatId!, {
+      limit: messageSearch.trim() ? 120 : 40,
+      q: messageSearch.trim() || undefined,
+    }),
     onSuccess: (draft) => {
       setContextDraft(draft)
       setContextDraftOpen(true)
@@ -205,6 +226,21 @@ export default function TelegramChatDetailPage() {
       })
     },
     onError: (err) => toast({ title: 'Не удалось сохранить заметки', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
+  const importJsonMutation = useMutation({
+    mutationFn: (file: File) => telegramApi.importJson(chatId!, file),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['telegram-chat', chatId, 'messages'] })
+      qc.invalidateQueries({ queryKey: ['telegram-chat', chatId, 'sessions'] })
+      qc.invalidateQueries({ queryKey: ['telegram-chats'] })
+      toast({
+        title: 'История импортирована',
+        description: `Добавлено: ${result.imported}, пропущено: ${result.skipped}`,
+      })
+      if (importInputRef.current) importInputRef.current.value = ''
+    },
+    onError: (err) => toast({ title: 'Не удалось импортировать историю', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const handleDownloadAttachment = async (a: TelegramAttachment) => {
@@ -270,12 +306,13 @@ export default function TelegramChatDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-3 border-b border-gray-200 pb-6">
         <Button variant="outline" size="sm" onClick={() => navigate('/telegram-inbox')}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-[200px]">
-          <h1 className="text-xl font-semibold text-gray-900">{chat.title || `Чат ${chat.chat_id}`}</h1>
+          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Telegram</div>
+          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-gray-900 md:text-4xl">{chat.title || `Чат ${chat.chat_id}`}</h1>
           <div className="flex items-center gap-2 mt-1">
             <span className={`px-2 py-0.5 rounded-[2px] text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
               {TELEGRAM_STATUS_LABELS[chat.status]}
@@ -302,9 +339,29 @@ export default function TelegramChatDetailPage() {
                 onClick={() => contextDraftMutation.mutate()}
               >
                 <Sparkles className="w-4 h-4" />
-                Создать заметки{chat.has_context_signal ? ` (${chat.context_signal_count})` : ''}
+                {messageSearch.trim() ? 'Заметки из поиска' : `Создать заметки${chat.has_context_signal ? ` (${chat.context_signal_count})` : ''}`}
               </Button>
             )}
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) importJsonMutation.mutate(file)
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={importJsonMutation.isPending}
+              onClick={() => importInputRef.current?.click()}
+              title="Импорт Telegram Desktop export result.json"
+            >
+              <Upload className="w-4 h-4" />
+              Импорт истории{importCapabilities?.active_mode === 'desktop_json' ? ' JSON' : ''}
+            </Button>
             {chat.status === 'active' && (
               <Button variant="outline" size="sm" disabled={pauseMutation.isPending} onClick={() => pauseMutation.mutate()}>
                 Пауза AI
@@ -326,8 +383,24 @@ export default function TelegramChatDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="border border-gray-200 rounded-[2px]">
-          <div className="px-4 py-2 border-b border-gray-200 font-medium text-sm text-gray-700">
-            Переписка ({messages.length})
+          <div className="px-4 py-2 border-b border-gray-200">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="font-medium text-sm text-gray-700">
+                Переписка ({messages.length}{messageSearch.trim() ? ' найдено' : ''})
+              </div>
+              <div className="relative sm:w-64">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <Input
+                  value={messageSearch}
+                  onChange={(event) => setMessageSearch(event.target.value)}
+                  placeholder="Поиск по истории"
+                  className="h-9 pl-8 text-xs"
+                />
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              История хранится на уровне Telegram-чата: при смене студента сообщения не удаляются.
+            </p>
           </div>
           <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
             {messages.length === 0 && <p className="text-sm text-gray-500">Сообщений пока нет</p>}
@@ -400,6 +473,40 @@ export default function TelegramChatDetailPage() {
         </div>
       </div>
 
+      <div className="border border-gray-200 rounded-[2px]">
+        <div className="px-4 py-2 border-b border-gray-200">
+          <div className="flex items-center gap-2 font-medium text-sm text-gray-700">
+            <History className="h-4 w-4 text-gray-400" />
+            История привязок
+          </div>
+          <p className="mt-0.5 text-xs text-gray-400">
+            При перепривязке старая сессия закрывается, новая открывается. Сообщения остаются в общей истории чата.
+          </p>
+        </div>
+        <div className="p-4">
+          {sessions.length === 0 ? (
+            <p className="text-sm text-gray-500">Истории привязок пока нет.</p>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map((session) => (
+                <div key={session.id} className="flex flex-col gap-1 rounded-[2px] border border-gray-100 p-3 text-sm md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">{session.student_name || 'Без студента'}</div>
+                    <div className="text-xs text-gray-500">
+                      Открыл: {session.opened_by_name || '—'} · {formatDate(session.opened_at)}
+                      {session.closed_at ? ` · закрыто ${formatDate(session.closed_at)}` : ''}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="w-fit text-[10px] font-medium">
+                    {session.status === 'active' ? 'Активна' : 'Закрыта'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <Dialog open={contextDraftOpen} onOpenChange={setContextDraftOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -410,6 +517,11 @@ export default function TelegramChatDetailPage() {
           </DialogHeader>
           {contextDraft && (
             <div className="space-y-5">
+              {contextDraft.source_filter?.q && (
+                <div className="rounded-[2px] border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                  AI-разбор создан только по сообщениям, найденным по запросу: “{contextDraft.source_filter.q}”.
+                </div>
+              )}
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Кратко</p>
                 <Textarea

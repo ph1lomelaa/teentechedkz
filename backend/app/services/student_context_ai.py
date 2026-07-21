@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import build_profile_diff, detect_quality_warnings, sanitize_suggested_changes
 
+logger = logging.getLogger(__name__)
+
 
 PROMPT_SYSTEM = """Ты ассистент образовательного консультанта.
-На входе текущий профиль студента и фрагмент Telegram-диалога.
+На входе текущий профиль студента и фрагмент диалога из одного или нескольких каналов.
 Твоя задача — подготовить редактируемый черновик действий для менеджера, а не применять изменения.
 
 Верни ТОЛЬКО JSON:
@@ -147,12 +150,17 @@ async def generate_context_review_draft(
 Вложения в диалоге:
 {json.dumps(attachments, ensure_ascii=False, indent=2)}
 
-Telegram-диалог:
+История диалога:
 {source_text}
 
 Верни JSON с summary, profile_updates, profile_notes, follow_ups, document_flags, contradictions, quality_warnings, ignored_as_noise."""
 
-    raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+    try:
+        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+    except Exception:
+        # Degrade gracefully on a provider hiccup instead of 500-ing the caller.
+        logger.exception("Context review AI provider failed; using heuristic fallback")
+        return _heuristic_context_draft(source_text, attachments, snapshot)
     parsed = json_block(raw)
     if not parsed:
         return _heuristic_context_draft(source_text, attachments, snapshot)

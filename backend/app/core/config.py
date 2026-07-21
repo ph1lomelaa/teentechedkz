@@ -1,8 +1,22 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Read the repo-root .env regardless of the process CWD. This file lives at
+# backend/app/core/config.py, so parents[3] is the repo root for a local run
+# (e.g. `uvicorn` launched from backend/). In Docker the repo root is
+# bind-mounted to /data (`- .:/data` in docker-compose), so /data/.env is the
+# in-container copy. Reading the FILE — not only os.environ — means a code
+# reload (uvicorn --reload) re-reads it, so a freshly added key is picked up
+# without a full container recreate. os.environ still wins over all of these.
+_REPO_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(".env", str(_REPO_ROOT_ENV), "/data/.env"),
+        extra="ignore",
+    )
 
     # App
     ENVIRONMENT: str = "development"
@@ -60,7 +74,19 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+        origins = {o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()}
+        if self.ENVIRONMENT != "production":
+            origins.update(
+                {
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                    "http://localhost:5174",
+                    "http://127.0.0.1:5174",
+                }
+            )
+        return sorted(origins)
 
 
 settings = Settings()

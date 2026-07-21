@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, X } from 'lucide-react'
 import { notesApi } from '@/api/notes'
@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Markdown } from '@/components/shared/Markdown'
-import { formatDate } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -85,11 +85,16 @@ function renderDiffPreview(
 
 export const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
+  const inWorkspace = location.pathname.startsWith('/workspace/')
+  const notesHome = inWorkspace ? '/workspace/meetings?tab=notes' : '/notes'
   const queryClient = useQueryClient()
   const { hasRole } = useAuth()
   const [editedSummary, setEditedSummary] = React.useState('')
   const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
   const [rejectConfirmOpen, setRejectConfirmOpen] = React.useState(false)
+  const [pubTitle, setPubTitle] = React.useState('')
+  const [hiddenBlocks, setHiddenBlocks] = React.useState<Set<string>>(new Set())
 
   const { data: note, isLoading } = useQuery({
     queryKey: ['note', id],
@@ -107,12 +112,14 @@ export const NoteDetailPage: React.FC = () => {
     if (!note) return
     const rawProfileNotes = (note.suggested_changes as { profile_notes?: unknown })?.profile_notes
     setEditedSummary(note.summary_markdown ?? '')
+    setPubTitle(note.student_title ?? '')
+    setHiddenBlocks(new Set(note.hidden_blocks ?? []))
     setEditedProfileNotes(
       Array.isArray(rawProfileNotes)
         ? rawProfileNotes.filter((n): n is string => typeof n === 'string' && n.trim() !== '')
         : [],
     )
-  }, [note?.id, note?.summary_markdown, note?.suggested_changes])
+  }, [note])
 
   const reviewMutation = useMutation({
     mutationFn: (payload: { action: 'approve' | 'reject'; summary_markdown?: string; suggested_changes?: Record<string, unknown> }) =>
@@ -130,6 +137,31 @@ export const NoteDetailPage: React.FC = () => {
     },
   })
 
+  const publishMutation = useMutation({
+    mutationFn: (payload: { student_title?: string | null; hidden_blocks?: string[] }) =>
+      notesApi.publish(id!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['note', id] })
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      toast({ title: 'Опубликовано ученику' })
+    },
+    onError: () => {
+      toast({ title: 'Ошибка', description: 'Не удалось опубликовать', variant: 'destructive' })
+    },
+  })
+
+  const unpublishMutation = useMutation({
+    mutationFn: () => notesApi.unpublish(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['note', id] })
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      toast({ title: 'Убрано из кабинета' })
+    },
+    onError: () => {
+      toast({ title: 'Ошибка', description: 'Не удалось убрать из кабинета', variant: 'destructive' })
+    },
+  })
+
   if (isLoading) {
     return <div className="py-12 text-center text-slate-400">Загрузка...</div>
   }
@@ -139,7 +171,7 @@ export const NoteDetailPage: React.FC = () => {
       <div className="py-12 text-center">
         <p className="text-slate-500">Конспект не найден</p>
         <Button variant="outline" className="mt-4" asChild>
-          <Link to="/notes">
+          <Link to={notesHome}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             Назад к списку
           </Link>
@@ -165,16 +197,21 @@ export const NoteDetailPage: React.FC = () => {
   const preview = diff ? renderDiffPreview(diff.preview) : renderEntries(fieldChanges, 'Нет предлагаемых изменений')
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    // NoteDetailPage is light-themed and shared with the CRM. In the dark
+    // workspace shell its slate text would be unreadable dark-on-dark, so we
+    // render the конспект on a clean light "document" surface there (the student
+    // portal does the same in PortalNotesPage).
+    <div className={cn('space-y-5 max-w-6xl', inWorkspace && 'rounded-[24px] border border-w-line bg-white p-6 text-slate-900')}>
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <Button variant="ghost" size="sm" asChild className="mb-3 px-0 text-slate-600 hover:text-slate-950">
-            <Link to="/notes">
+            <Link to={notesHome}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               К списку
             </Link>
           </Button>
-          <h1 className="text-2xl font-black uppercase tracking-tight text-slate-950">
+          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Конспект</div>
+          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-4xl">
             {note.title}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -291,8 +328,85 @@ export const NoteDetailPage: React.FC = () => {
                 )}
                 {note.student_id && (
                   <Button variant="outline" size="sm" className="w-full mt-2" asChild>
-                    <Link to={`/students/${note.student_id}`}>Открыть студента</Link>
+                    <Link to={inWorkspace ? `/workspace/students/${note.student_id}#meetings` : `/students/${note.student_id}`}>Открыть студента</Link>
                   </Button>
+                )}
+                {note.student_id && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-slate-500">В кабинете ученика</span>
+                      <span className={note.published_to_student ? 'text-emerald-600 font-medium' : 'text-slate-900'}>
+                        {note.published_to_student ? 'опубликован' : 'не опубликован'}
+                      </span>
+                    </div>
+                    {note.status === 'approved' ? (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-500 block mb-1">Заголовок для ученика</label>
+                          <input
+                            type="text"
+                            value={pubTitle}
+                            onChange={(e) => setPubTitle(e.target.value)}
+                            placeholder="напр. «Наша встреча»"
+                            className="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded-[2px] focus:outline-none focus:border-slate-500"
+                          />
+                        </div>
+                        {note.blocks && note.blocks.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-1.5">Показывать ученику блоки</p>
+                            <div className="space-y-1">
+                              {note.blocks.map((b) => (
+                                <label key={b.key} className="flex items-center gap-2 text-sm text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={!hiddenBlocks.has(b.key)}
+                                    onChange={() =>
+                                      setHiddenBlocks((prev) => {
+                                        const next = new Set(prev)
+                                        if (next.has(b.key)) next.delete(b.key)
+                                        else next.add(b.key)
+                                        return next
+                                      })
+                                    }
+                                  />
+                                  <span className="truncate">{b.heading}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() =>
+                              publishMutation.mutate({
+                                student_title: pubTitle.trim() || null,
+                                hidden_blocks: Array.from(hiddenBlocks),
+                              })
+                            }
+                            disabled={publishMutation.isPending}
+                          >
+                            {note.published_to_student ? 'Обновить публикацию' : 'Опубликовать ученику'}
+                          </Button>
+                          {note.published_to_student && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => unpublishMutation.mutate()}
+                              disabled={unpublishMutation.isPending}
+                            >
+                              Убрать
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-xs text-slate-400">
+                        Опубликовать можно после проверки конспекта.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </CardContent>

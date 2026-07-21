@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.ai_analysis_run import AiAnalysisRun
+from app.models.meeting import Meeting
 from app.models.note_session import NoteSession, NoteSessionStatus
 from app.models.note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from app.models.note_transcript import NoteTranscript
@@ -32,7 +33,7 @@ from app.schemas.note_session import (
 )
 from app.schemas.student_note import StudentNoteResponse
 from app.services.deepgram_rest import transcribe_audio_file
-from app.services.minio_service import minio_download, minio_upload_note_audio, minio_url
+from app.services.minio_service import minio_delete, minio_download, minio_upload_note_audio, minio_url
 from app.services.note_sessions import generate_note_draft
 from app.services.student_notes import render_change_preview, snapshot_student
 
@@ -44,6 +45,17 @@ router = APIRouter(prefix="/note-sessions", tags=["note-sessions"])
 
 def _ai_meta(draft: dict) -> dict:
     return draft.pop("__ai_meta", {}) if isinstance(draft, dict) else {}
+
+
+def _session_source_text(session: NoteSession, transcripts: list[NoteTranscript]) -> str:
+    parts = [
+        f"[{row.speaker}]: {row.text}" if row.speaker else row.text
+        for row in transcripts
+        if row.text and row.text.strip()
+    ]
+    if session.backup_transcript_text and session.backup_transcript_text.strip():
+        parts.append(f"[Восстановленная аудиозапись]: {session.backup_transcript_text.strip()}")
+    return "\n".join(parts).strip()
 
 
 def _add_note_ai_run(
@@ -135,6 +147,7 @@ def _session_response(session: NoteSession, student_name: str | None = None, tra
         student_id=session.student_id,
         student_name=student_name,
         note_id=session.note_id,
+        meeting_id=session.meeting_id,
         title=session.title,
         source=session.source,
         status=session.status,
@@ -187,12 +200,27 @@ async def create_session(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     student = None
-    if body.student_id:
-        student = await _load_accessible_student(db, current_user, body.student_id)
+    student_id = body.student_id
+    if body.meeting_id:
+        meeting = await db.get(Meeting, body.meeting_id)
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Встреча не найдена")
+        if body.student_id and body.student_id != meeting.student_id:
+            raise HTTPException(status_code=409, detail="Встреча относится к другому студенту")
+        student_id = meeting.student_id
+
+    if student_id:
+        student = await _load_accessible_student(db, current_user, student_id)
+
+    if body.meeting_id:
+        existing = await db.scalar(select(NoteSession).where(NoteSession.meeting_id == body.meeting_id))
+        if existing:
+            return _session_response(existing, student.full_name if student else None)
 
     title = (body.title or "").strip() or f"Конспект {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M')}"
     row = NoteSession(
-        student_id=body.student_id,
+        student_id=student_id,
+        meeting_id=body.meeting_id,
         title=title,
         source=(body.source or "deepgram").strip() or "deepgram",
         status=NoteSessionStatus.active,
@@ -201,7 +229,16 @@ async def create_session(
         created_by=current_user.id,
     )
     db.add(row)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if not body.meeting_id:
+            raise
+        existing = await db.scalar(select(NoteSession).where(NoteSession.meeting_id == body.meeting_id))
+        if not existing:
+            raise
+        return _session_response(existing, student.full_name if student else None)
     await db.refresh(row)
     return _session_response(row, student.full_name if student else None)
 
@@ -334,8 +371,21 @@ async def delete_session(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     session, _ = await _session_context(db, session_id, current_user)
+    chunk_result = await db.execute(
+        select(NoteSessionAudioChunk.storage_path).where(NoteSessionAudioChunk.session_id == session.id)
+    )
+    storage_paths = [row[0] for row in chunk_result.all()]
     await db.delete(session)
     await db.commit()
+    for storage_path in storage_paths:
+        try:
+            await minio_delete(storage_path)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Failed to delete audio chunk %s for removed session %s",
+                storage_path,
+                session_id,
+            )
     return {"ok": True}
 
 
@@ -376,8 +426,9 @@ async def upload_audio_chunk(
             NoteSessionAudioChunk.chunk_index == chunk_index,
         )
     )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="Этот фрагмент уже загружен")
+    existing_chunk = existing.scalar_one_or_none()
+    if existing_chunk is not None:
+        return await _chunk_to_response(existing_chunk)
 
     storage_path = await minio_upload_note_audio(
         content=content,
@@ -392,7 +443,30 @@ async def upload_audio_chunk(
         file_size=len(content),
     )
     db.add(chunk)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        try:
+            await minio_delete(storage_path)
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to clean up duplicate audio chunk %s", storage_path)
+        existing_chunk = await db.scalar(
+            select(NoteSessionAudioChunk).where(
+                NoteSessionAudioChunk.session_id == session_id,
+                NoteSessionAudioChunk.chunk_index == chunk_index,
+            )
+        )
+        if not existing_chunk:
+            raise
+        return await _chunk_to_response(existing_chunk)
+    except Exception:
+        await db.rollback()
+        try:
+            await minio_delete(storage_path)
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to clean up audio chunk %s", storage_path)
+        raise
     await db.refresh(chunk)
     return await _chunk_to_response(chunk)
 
@@ -526,10 +600,7 @@ async def draft_session(
         .order_by(NoteTranscript.sequence_no.asc(), NoteTranscript.id.asc())
     )
     transcripts = list(transcript_result.scalars())
-    source_text = "\n".join(
-        f"[{row.speaker}]: {row.text}" if row.speaker else row.text
-        for row in transcripts
-    )
+    source_text = _session_source_text(session, transcripts)
     snapshot = {}
     if session.student_id:
         student = await _load_accessible_student(db, current_user, session.student_id)
@@ -560,6 +631,7 @@ async def draft_session(
         profile_snapshot=snapshot,
         suggested_changes=draft["suggested_changes"],
         change_preview=render_change_preview(snapshot, draft["suggested_changes"]),
+        ai_model=ai_meta.get("model"),
     )
 
 
@@ -570,6 +642,12 @@ async def finalize_session(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     session, student_name = await _session_context(db, session_id, current_user)
+    locked_session = await db.scalar(
+        select(NoteSession).where(NoteSession.id == session_id).with_for_update()
+    )
+    if not locked_session:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    session = locked_session
     if session.note_id:
         note_result = await db.execute(
             select(StudentNote, Student.full_name)
@@ -591,10 +669,7 @@ async def finalize_session(
         .order_by(NoteTranscript.sequence_no.asc(), NoteTranscript.id.asc())
     )
     transcripts = list(transcript_result.scalars())
-    source_text = "\n".join(
-        f"[{row.speaker}]: {row.text}" if row.speaker else row.text
-        for row in transcripts
-    )
+    source_text = _session_source_text(session, transcripts)
 
     snapshot = {}
     student = None

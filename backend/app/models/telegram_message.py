@@ -31,7 +31,10 @@ class TelegramMessage(Base):
         ForeignKey("telegram_chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     telegram_message_id: Mapped[int] = mapped_column(BigInteger)
-    update_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    update_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True, nullable=True)
+    sent_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     sender_tg_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     sender_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     message_type: Mapped[TelegramMessageType] = mapped_column(

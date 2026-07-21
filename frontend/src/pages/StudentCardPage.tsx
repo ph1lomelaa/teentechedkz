@@ -6,16 +6,15 @@ import {
   Edit2,
   Plus,
   Check,
-  X,
   Eye,
   Shield,
   Download,
   Minus,
   BookText,
-  Send,
-  Pause,
+  UserRoundCheck,
   Link2Off,
   Trash2,
+  ListChecks,
 } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
 import { studentsApi } from '@/api/students'
@@ -34,6 +33,12 @@ import {
 import { syncApi } from '@/api/sync'
 import { notionApi } from '@/api/notion'
 import { stripMarkdown } from '@/components/shared/Markdown'
+import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection'
+import { StudentMeetingsSection } from '@/components/shared/StudentMeetingsSection'
+import { DocVisibilityToggle } from '@/components/shared/DocVisibilityToggle'
+import { StudentChatSection } from '@/components/shared/StudentChatSection'
+import { PortalAccessSection } from '@/components/shared/PortalAccessSection'
+import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DOC_TYPE_LABELS,
@@ -49,7 +54,7 @@ import {
   Guardian,
   Document,
   NoteVisibility,
-  TelegramPairingCode,
+  StudentTimelineItem,
 } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -327,6 +332,7 @@ function ServiceEditModal({
     result: service.result ?? '',
     notes: service.notes ?? '',
     assigned_mentor_id: service.assigned_mentor_id ?? '',
+    deadline: service.deadline ?? '',
     portfolio_directions_count: service.portfolio_directions_count ?? 0,
   })
 
@@ -335,6 +341,10 @@ function ServiceEditModal({
       return servicesApi.update(service.id, {
         ...form,
         assigned_mentor_id:
+          form.assigned_mentor_id && form.assigned_mentor_id !== 'none'
+            ? form.assigned_mentor_id
+            : undefined,
+        assigned_staff_id:
           form.assigned_mentor_id && form.assigned_mentor_id !== 'none'
             ? form.assigned_mentor_id
             : undefined,
@@ -384,6 +394,10 @@ function ServiceEditModal({
             <Input value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} />
           </div>
           <div>
+            <Label>Дедлайн</Label>
+            <Input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
+          </div>
+          <div>
             <Label>Примечания</Label>
             <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
@@ -397,6 +411,13 @@ function ServiceEditModal({
       </DialogContent>
     </Dialog>
   )
+}
+
+function serviceTone(status: Service['status']): string {
+  if (status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'in_progress' || status === 'scheduled') return 'border-blue-200 bg-blue-50 text-blue-700'
+  if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700'
+  return 'border-gray-200 bg-gray-50 text-gray-600'
 }
 
 export const StudentCardPage: React.FC = () => {
@@ -418,7 +439,7 @@ export const StudentCardPage: React.FC = () => {
   const [documentDeleteTarget, setDocumentDeleteTarget] = useState<Document | null>(null)
   const [documentDeletePending, setDocumentDeletePending] = useState(false)
   const [unlinkNotionConfirm, setUnlinkNotionConfirm] = useState<string | null>(null)
-  const [closeChatConfirm, setCloseChatConfirm] = useState<string | null>(null)
+  const [mentorToAssign, setMentorToAssign] = useState('')
 
   const { data: student, isLoading, error } = useQuery<StudentFull>({
     queryKey: ['student', id],
@@ -434,7 +455,13 @@ export const StudentCardPage: React.FC = () => {
   const { data: history = [] } = useQuery({
     queryKey: ['history', 'student', id],
     queryFn: () => historyApi.list({ entity_type: 'student', entity_id: id! }),
-    enabled: !!id && (hasRole('admin', 'mzk_manager', 'lead_mentor')),
+    enabled: !!id && (hasRole('admin', 'mzk_manager', 'mentor')),
+  })
+
+  const { data: timelineData } = useQuery({
+    queryKey: ['student-timeline', id],
+    queryFn: () => studentsApi.timeline(id!, { limit: 80 }),
+    enabled: !!id && (hasRole('admin', 'mzk_manager', 'mentor')),
   })
 
   const { data: intake } = useQuery({
@@ -488,59 +515,16 @@ export const StudentCardPage: React.FC = () => {
     },
   })
 
-  const [attachChatOpen, setAttachChatOpen] = useState(false)
-  const [selectedUnboundChatId, setSelectedUnboundChatId] = useState('')
-  const [pairingResult, setPairingResult] = useState<TelegramPairingCode | null>(null)
-
   const { data: telegramChat } = useQuery({
     queryKey: ['telegram-chat', 'student', id],
     queryFn: () => telegramApi.getForStudent(id!),
     enabled: !!id && hasRole('admin', 'mzk_manager'),
   })
 
-  const { data: unboundChats = [] } = useQuery({
-    queryKey: ['telegram-chats', 'unbound'],
-    queryFn: () => telegramApi.listUnbound(),
-    enabled: attachChatOpen,
-  })
-
   const { data: telegramMessages = [] } = useQuery({
     queryKey: ['telegram-chat', telegramChat?.id, 'messages'],
     queryFn: () => telegramApi.listMessages(telegramChat!.id),
     enabled: !!telegramChat?.id,
-  })
-
-  const attachChatMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.attach(chatId, id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['telegram-chat', 'student', id] })
-      setAttachChatOpen(false)
-      setSelectedUnboundChatId('')
-    },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось привязать чат', variant: 'destructive' }),
-  })
-
-  const pauseChatMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.pause(chatId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['telegram-chat', 'student', id] }),
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось поставить на паузу', variant: 'destructive' }),
-  })
-
-  const closeChatMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.close(chatId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['telegram-chat', 'student', id] }),
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось завершить сессию', variant: 'destructive' }),
-  })
-
-  const pairingCodeMutation = useMutation({
-    mutationFn: () => telegramApi.createPairingCode(id!),
-    onSuccess: (data) => setPairingResult(data),
-    onError: () =>
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось создать ссылку — проверьте, настроен ли TELEGRAM_BOT_USERNAME',
-        variant: 'destructive',
-      }),
   })
 
   const assignSelfMutation = useMutation({
@@ -552,6 +536,31 @@ export const StudentCardPage: React.FC = () => {
       toast({ title: 'Студент добавлен в ваши' })
     },
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
+
+  const assignMentorMutation = useMutation({
+    mutationFn: (mentorId: string) =>
+      mentorAssignmentsApi.create(id!, {
+        mentor_id: mentorId,
+        role: 'lead',
+        is_active: true,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['my-students'] })
+      setMentorToAssign('')
+      toast({
+        title: 'Ментор назначен',
+        description: 'Студент появится у этого ментора в CRM «Мои студенты» и в личном кабинете.',
+      })
+    },
+    onError: () =>
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось назначить ментора',
+        variant: 'destructive',
+      }),
   })
 
   const unassignSelfMutation = useMutation({
@@ -595,6 +604,16 @@ export const StudentCardPage: React.FC = () => {
       setNewNote('')
       setAddingNote(false)
     },
+  })
+
+  const noteVisibilityMutation = useMutation({
+    mutationFn: ({ noteId, visible }: { noteId: string; visible: boolean }) =>
+      confidentialNotesApi.setStudentVisibility(noteId, visible),
+    onSuccess: (_res, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      toast({ title: vars.visible ? 'Заметка видна ученику' : 'Заметка скрыта от ученика' })
+    },
+    onError: () => toast({ title: 'Не удалось изменить видимость', variant: 'destructive' }),
   })
 
   const revealIin = async (guardianId: string) => {
@@ -672,22 +691,80 @@ export const StudentCardPage: React.FC = () => {
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
   const openTasks = (student.student_tasks || []).filter((task) => task.status === 'open')
-  const intakeMismatchCount = intake?.comparison?.filter((row) => row.mismatch && row.ai_same_meaning !== true).length ?? 0
+  const intakeMismatchCount = intake?.comparison?.filter((row) => (
+    (row.mismatch && row.ai_same_meaning !== true) ||
+    (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
+  )).length ?? 0
   const notionMismatchCount = notion?.comparison?.filter((row) => row.matches === false).length ?? 0
   const latestTelegramMessage = telegramMessages[telegramMessages.length - 1]
   const latestHistoryEntry = history[0]
+  const fallbackTimeline: StudentTimelineItem[] = [
+    ...(student.documents || []).map((doc) => ({
+      id: `doc-${doc.id}`,
+      at: doc.uploaded_at,
+      kind: 'Документ',
+      title: doc.file_name,
+      text: `${DOC_TYPE_LABELS[doc.doc_type as keyof typeof DOC_TYPE_LABELS] || doc.doc_type}${doc.is_verified ? ' · проверен' : ' · на проверке'}`,
+      href: '#documents',
+    })),
+    ...(student.student_tasks || []).map((task) => ({
+      id: `task-${task.id}`,
+      at: task.done_at || task.created_at,
+      kind: task.status === 'done' ? 'Задача закрыта' : 'Задача',
+      title: task.task_text,
+      text: task.status === 'done' ? 'Выполнена' : 'Открыта',
+      href: '#tasks',
+    })),
+    ...(student.communication_logs || []).map((log) => ({
+      id: `comm-${log.id}`,
+      at: log.created_at,
+      kind: log.source,
+      title: log.ai_summary || log.raw_text || log.message_type,
+      text: log.raw_text || log.ai_summary || '',
+      href: '#timeline',
+    })),
+    ...(student.notes || []).map((note) => ({
+      id: `note-${note.id}`,
+      at: note.reviewed_at || note.created_at,
+      kind: note.status === 'draft' ? 'AI-черновик' : 'Конспект',
+      title: note.title,
+      text: note.status,
+      href: `/notes/${note.id}`,
+    })),
+    ...(student.pending_insights || []).map((insight) => ({
+      id: `insight-${insight.id}`,
+      at: insight.created_at,
+      kind: 'AI-сигнал',
+      title: insight.insight_type,
+      text: `${insight.status} · ${Math.round((insight.confidence || 0) * 100)}%`,
+      href: '#timeline',
+    })),
+    ...history.map((entry) => ({
+      id: `history-${entry.id}`,
+      at: entry.changed_at,
+      kind: 'Изменение CRM',
+      title: entry.field_changed,
+      text: `${entry.old_value ?? '—'} → ${entry.new_value ?? '—'}${entry.source ? ` · ${entry.source}` : ''}`,
+      href: '#history',
+    })),
+  ]
+    .filter((item) => item.at)
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 40)
+  const timeline = timelineData?.items?.length ? timelineData.items : fallbackTimeline
 
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 mb-6">
+      <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-gray-200 pb-6">
         <Link to="/students" className="flex items-center text-gray-500 hover:text-black text-sm transition-colors">
           <ChevronLeft className="w-4 h-4 mr-1" />
           Назад
         </Link>
         <div className="flex-1 min-w-[240px]">
+          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Карточка студента</div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-serif text-2xl md:text-3xl text-gray-900 tracking-tight">{student.full_name}</h1>
+            <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-gray-900 md:text-4xl">{student.full_name}</h1>
             {student.is_archived && (
               <span className="text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-gray-100 text-gray-500 border border-gray-200">
                 Архивирован
@@ -723,6 +800,18 @@ export const StudentCardPage: React.FC = () => {
           <Link to={`/notes?student_id=${student.id}&create=1`}>
             <BookText className="w-4 h-4 mr-2" />
             Конспекты
+          </Link>
+        </Button>
+        {canAccess('confidential') && (
+          <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => document.getElementById('student-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            <Shield className="w-4 h-4 mr-2" />
+            Заметки
+          </Button>
+        )}
+        <Button asChild variant="outline" size="sm" className="h-10 px-4">
+          <Link to={`/workspace/students/${student.id}`}>
+            <UserRoundCheck className="w-4 h-4 mr-2" />
+            Кабинет staff
           </Link>
         </Button>
       </div>
@@ -795,6 +884,42 @@ export const StudentCardPage: React.FC = () => {
               >
                 {student.is_mine ? 'Снять с моих' : 'Добавить себя'}
               </Button>
+              {hasRole('admin', 'mzk_manager') && (
+                <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3">
+                  <div className="mb-2">
+                    <p className="text-sm font-medium text-gray-900">Назначить ментора</p>
+                    <p className="text-xs text-gray-500">
+                      После назначения студент появится у выбранного ментора в CRM «Мои студенты» и в личном кабинете ментора.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Select value={mentorToAssign} onValueChange={setMentorToAssign}>
+                      <SelectTrigger className="sm:max-w-xs bg-white">
+                        <SelectValue placeholder="Выберите ментора" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {mentors.map((mentor) => {
+                          const alreadyActive = student.responsibles?.some(
+                            (responsible) => responsible.id === mentor.id && responsible.is_active
+                          )
+                          return (
+                            <SelectItem key={mentor.id} value={mentor.id} disabled={alreadyActive}>
+                              {mentor.name}{alreadyActive ? ' · уже назначен' : ''}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      disabled={!mentorToAssign || assignMentorMutation.isPending}
+                      onClick={() => assignMentorMutation.mutate(mentorToAssign)}
+                    >
+                      {assignMentorMutation.isPending ? 'Назначаем...' : 'Назначить'}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -839,11 +964,12 @@ export const StudentCardPage: React.FC = () => {
                       const crmMatches = row.crm_matches ?? false
                       const aiSuggestsSame = row.mismatch && row.ai_same_meaning === true
                       const realMismatch = row.mismatch && !aiSuggestsSame
+                      const crmMismatch = row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true
                       return (
                         <tr
                           key={row.field}
                           className={`border-b border-gray-100 last:border-0 ${
-                            realMismatch ? 'bg-amber-50' : ''
+                            realMismatch || crmMismatch ? 'bg-amber-50' : ''
                           }`}
                         >
                           <td className="px-3 py-2 text-gray-500 align-top whitespace-nowrap">
@@ -856,6 +982,11 @@ export const StudentCardPage: React.FC = () => {
                             {realMismatch && (
                               <span className="block text-[10px] text-amber-600 mt-0.5">
                                 расхождение
+                              </span>
+                            )}
+                            {crmMismatch && (
+                              <span className="block text-[10px] text-amber-600 mt-0.5">
+                                CRM расходится
                               </span>
                             )}
                             {aiSuggestsSame && (
@@ -1020,6 +1151,18 @@ export const StudentCardPage: React.FC = () => {
             </AccordionContent>
           </AccordionItem>
         )}
+
+        {/* 0. Portal access (staff cockpit for the student's cabinet) */}
+
+        {/* 0b. Roadmap control */}
+        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentRoadmapSection studentId={id!} />}
+
+        {/* 0c. Meetings */}
+        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentMeetingsSection studentId={id!} />}
+
+        {/* 0e. Chat with student */}
+        {hasRole('admin', 'mzk_manager', 'mentor') && <PortalAccessSection studentId={id!} />}
+        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentChatSection studentId={id!} />}
 
         {/* 1. Profile */}
         <AccordionItem value="profile" className="border border-gray-200 rounded-[2px] px-4">
@@ -1231,61 +1374,52 @@ export const StudentCardPage: React.FC = () => {
         {/* 6. Services */}
         <AccordionItem value="services" className="border border-gray-200 rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Услуги
+            Программы / услуги
           </AccordionTrigger>
           <AccordionContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Услуга</TableHead>
-                  <TableHead>Включена</TableHead>
-                  <TableHead>Статус</TableHead>
-                  <TableHead>Результат</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {student.services && student.services.length > 0 ? (
-                  student.services.map((svc) => (
-                    <TableRow key={svc.id}>
-                      <TableCell className="font-medium">
-                        {SERVICE_TYPE_LABELS[svc.service_type]}
-                      </TableCell>
-                      <TableCell>
-                        {svc.included ? (
-                          <Check className="w-4 h-4 text-green-600" />
-                        ) : (
-                          <X className="w-4 h-4 text-gray-500" />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-gray-600">
-                          {SERVICE_STATUS_LABELS[svc.status]}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-gray-500 text-sm">{svc.result ?? '—'}</TableCell>
-                      <TableCell>
-                        {canAccess('all_students') && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setEditService(svc)}
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
+            {student.services && student.services.length > 0 ? (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-gray-500 text-sm py-4">
-                      Услуги не настроены
-                    </TableCell>
+                    <TableHead>Программа</TableHead>
+                    <TableHead>Статус</TableHead>
+                    <TableHead>Ответственный</TableHead>
+                    <TableHead>Дедлайн</TableHead>
+                    <TableHead>Результат</TableHead>
+                    <TableHead>Заметки</TableHead>
+                    {canAccess('all_students') && <TableHead />}
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {student.services.map((svc) => {
+                    const assignedMentor = mentors.find((m) => m.id === svc.assigned_mentor_id)
+                    return (
+                      <TableRow key={svc.id} className={!svc.included ? 'opacity-60' : undefined}>
+                        <TableCell className="font-medium">{SERVICE_TYPE_LABELS[svc.service_type]}</TableCell>
+                        <TableCell>
+                          <span className={`rounded-[2px] border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${serviceTone(svc.status)}`}>
+                            {svc.included ? SERVICE_STATUS_LABELS[svc.status] : 'Не включена'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-gray-500">{assignedMentor?.name || 'Не назначен'}</TableCell>
+                        <TableCell className="whitespace-nowrap text-gray-500">{svc.deadline ? formatDate(svc.deadline) : '—'}</TableCell>
+                        <TableCell className="max-w-[180px] truncate">{svc.result || '—'}</TableCell>
+                        <TableCell className="max-w-[220px] truncate text-gray-500">{svc.notes || '—'}</TableCell>
+                        {canAccess('all_students') && (
+                          <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => setEditService(svc)}>
+                              <Edit2 className="mr-1.5 h-3 w-3" /> Править
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-gray-500 py-2">Услуги не настроены</p>
+            )}
           </AccordionContent>
         </AccordionItem>
 
@@ -1431,6 +1565,13 @@ export const StudentCardPage: React.FC = () => {
                         <Eye className="w-3.5 h-3.5 mr-1.5" />
                         {documentOpenId === doc.id ? 'Открытие…' : 'Открыть'}
                       </Button>
+                      {hasRole('admin', 'mzk_manager', 'mentor') && (
+                        <DocVisibilityToggle
+                          docId={doc.id}
+                          visible={!!doc.visible_to_student}
+                          studentId={id!}
+                        />
+                      )}
                       {hasRole('admin', 'mzk_manager') && (
                         <Button
                           variant="outline"
@@ -1469,101 +1610,30 @@ export const StudentCardPage: React.FC = () => {
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              {telegramChat && telegramChat.status !== 'closed' ? (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-gray-200 bg-gray-50 p-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800">
-                        {telegramChat.title || `Чат ${telegramChat.chat_id}`}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{telegramChat.chat_type}</p>
+              <div className="space-y-5">
+                <TelegramGroupManager
+                  studentId={student.id}
+                  studentName={student.full_name}
+                  chat={telegramChat && telegramChat.status !== 'closed' ? telegramChat : null}
+                  variant="crm"
+                />
+                {telegramChat && telegramChat.status !== 'closed' && (
+                  <div className="space-y-2 border-t border-gray-200 pt-4">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Последние сообщения: {telegramMessages.length}</span>
+                      <Link to={`/telegram-inbox/${telegramChat.id}`} className="text-gray-700 hover:text-black underline underline-offset-4">
+                        Вся переписка и AI-разбор
+                      </Link>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {telegramChat.status === 'active' ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => pauseChatMutation.mutate(telegramChat.id)}
-                          disabled={pauseChatMutation.isPending}
-                        >
-                          <Pause className="w-3.5 h-3.5 mr-1.5" />
-                          Пауза
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => attachChatMutation.mutate(telegramChat.id)}
-                          disabled={attachChatMutation.isPending}
-                        >
-                          Возобновить
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCloseChatConfirm(telegramChat.id)}
-                        disabled={closeChatMutation.isPending}
-                      >
-                        <Link2Off className="w-3.5 h-3.5 mr-1.5" />
-                        Завершить
-                      </Button>
-                    </div>
-                  </div>
-
-                  {telegramMessages.length > 0 ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Последние 5 из {telegramMessages.length}</span>
-                        <Link to={`/telegram-inbox/${telegramChat.id}`} className="text-gray-700 hover:text-black underline underline-offset-4">
-                          Вся переписка и логи
-                        </Link>
+                    {telegramMessages.length > 0 ? telegramMessages.slice(-5).map((message) => (
+                      <div key={message.id} className="rounded-[3px] border border-gray-200 bg-white p-2 text-sm">
+                        <p className="mb-0.5 text-[11px] text-gray-500">{message.sender_name || 'Без имени'} · {formatDate(message.created_at)}</p>
+                        <p className="text-gray-700">{message.raw_text || `[${message.message_type}]`}</p>
                       </div>
-                      {telegramMessages.slice(-5).map((m) => (
-                        <div key={m.id} className="text-sm border border-gray-200 rounded-[2px] p-2 bg-white">
-                          <p className="text-[11px] text-gray-500 mb-0.5">
-                            {m.sender_name || 'Без имени'} · {formatDate(m.created_at)}
-                          </p>
-                          <p className="text-gray-700">{m.raw_text || `[${m.message_type}]`}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 py-1">Сообщений пока нет</p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-500">
-                    Подключите чат, чтобы сообщения, файлы и AI-разбор попадали в эту карточку студента.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setAttachChatOpen(true)}>
-                      Привязать существующий чат
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => pairingCodeMutation.mutate()}
-                      disabled={pairingCodeMutation.isPending}
-                    >
-                      <Send className="w-3.5 h-3.5 mr-1.5" />
-                      Создать ссылку-код
-                    </Button>
+                    )) : <p className="text-sm text-gray-500">Сообщений пока нет. После проверки готовности новые сообщения появятся здесь.</p>}
                   </div>
-                  {pairingResult && (
-                    <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3 text-sm">
-                      <p className="text-gray-700 break-all">{pairingResult.deep_link}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Действует до {new Date(pairingResult.expires_at).toLocaleString('ru-RU')}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Отправьте эту ссылку студенту или родителю: после перехода чат привяжется к карточке автоматически.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </AccordionContent>
           </AccordionItem>
         )}
@@ -1616,7 +1686,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 11. Confidential notes */}
         {canAccess('confidential') && (
-          <AccordionItem value="confidential" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem id="student-notes" value="confidential" className="scroll-mt-6 border border-gray-200 rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-orange-600" />
@@ -1628,9 +1698,23 @@ export const StudentCardPage: React.FC = () => {
                 {student.confidential_notes && student.confidential_notes.map((note) => (
                   <div key={note.id} className="bg-orange-50 border border-orange-100 rounded-lg p-3">
                     <p className="text-sm text-gray-800">{note.note_text}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Видят: {note.visible_to_role} · {formatDate(note.created_at)}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-gray-500">
+                        Видят: {note.visible_to_role} · {formatDate(note.created_at)}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        disabled={noteVisibilityMutation.isPending}
+                        onClick={() => noteVisibilityMutation.mutate({ noteId: note.id, visible: !note.visible_to_student })}
+                      >
+                        {note.visible_to_student ? 'Скрыть от ученика' : 'Показать ученику'}
+                      </Button>
+                    </div>
+                    {note.visible_to_student && (
+                      <p className="mt-1 text-[11px] font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1741,8 +1825,54 @@ export const StudentCardPage: React.FC = () => {
           </AccordionContent>
         </AccordionItem>
 
-        {/* 12. History */}
-        {hasRole('admin', 'mzk_manager', 'lead_mentor') && (
+        {/* 12. Unified timeline */}
+        {hasRole('admin', 'mzk_manager', 'mentor') && (
+          <AccordionItem value="timeline" className="border border-gray-200 rounded-[2px] px-4">
+            <AccordionTrigger className="text-base font-semibold">
+              <span className="flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-gray-500" />
+                Единая история работы
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              {timelineData && (
+                <div className="mb-3 text-xs text-gray-500">
+                  Показано {timeline.length} из {timelineData.total} событий
+                </div>
+              )}
+              {timeline.length > 0 ? (
+                <div className="space-y-2">
+                  {timeline.map((item) => {
+                    const content = (
+                      <div className="border-l-2 border-gray-200 pl-3 py-1 transition hover:border-gray-400">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-[2px] border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                            {item.kind}
+                          </span>
+                          <span className="text-xs text-gray-500">{formatDate(item.at)}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-sm font-medium text-gray-900">{item.title || 'Событие'}</p>
+                        {item.text && <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{item.text}</p>}
+                      </div>
+                    )
+                    return item.href?.startsWith('/') ? (
+                      <Link key={item.id} to={item.href} className="block">{content}</Link>
+                    ) : item.href ? (
+                      <a key={item.id} href={item.href} className="block">{content}</a>
+                    ) : (
+                      <div key={item.id}>{content}</div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 py-2">Рабочей истории пока нет</p>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        {/* 13. History */}
+        {hasRole('admin', 'mzk_manager', 'mentor') && (
           <AccordionItem value="history" className="border border-gray-200 rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               История изменений
@@ -1865,70 +1995,6 @@ export const StudentCardPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!closeChatConfirm} onOpenChange={() => setCloseChatConfirm(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Завершить Telegram-чат?</DialogTitle>
-            <DialogDescription>
-              AI перестанет отвечать в этом чате, а сессия закроется. Чат можно будет открыть заново из Входящих.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCloseChatConfirm(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (closeChatConfirm) closeChatMutation.mutate(closeChatConfirm)
-                setCloseChatConfirm(null)
-              }}
-              disabled={closeChatMutation.isPending}
-            >
-              Завершить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Attach unbound Telegram chat dialog */}
-      <Dialog open={attachChatOpen} onOpenChange={setAttachChatOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Привязать Telegram-чат</DialogTitle>
-            <DialogDescription>
-              Выберите чат из списка непривязанных — бота должны были уже добавить в этот чат.
-            </DialogDescription>
-          </DialogHeader>
-          {unboundChats.length > 0 ? (
-            <Select value={selectedUnboundChatId} onValueChange={setSelectedUnboundChatId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите чат" />
-              </SelectTrigger>
-              <SelectContent>
-                {unboundChats.map((chat) => (
-                  <SelectItem key={chat.id} value={chat.id}>
-                    {chat.title || `Чат ${chat.chat_id}`} ({chat.chat_type})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <p className="text-sm text-gray-500">Непривязанных чатов пока нет.</p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttachChatOpen(false)}>
-              Отмена
-            </Button>
-            <Button
-              disabled={!selectedUnboundChatId || attachChatMutation.isPending}
-              onClick={() => attachChatMutation.mutate(selectedUnboundChatId)}
-            >
-              Привязать
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

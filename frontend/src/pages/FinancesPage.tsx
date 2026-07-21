@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/utils'
 import type { NotionFinanceSummary } from '@/api/notion'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 function StatBlock({
   label,
@@ -287,7 +288,7 @@ export const FinancesPage: React.FC = () => {
                   : ''
 
   const crmRows = financeBreakdown?.contracts ?? []
-  const notionRows = notionSummary?.rows ?? []
+  const notionRows = React.useMemo(() => notionSummary?.rows ?? [], [notionSummary?.rows])
 
   const selectedNotionRows = React.useMemo(() => {
     if (!selectedInsight || selectedInsight.source !== 'notion') return []
@@ -335,14 +336,13 @@ export const FinancesPage: React.FC = () => {
   }, [notionRows, selectedInsight])
 
   return (
-    <div>
-      <div className="mb-6 pb-5 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Финансы</h1>
-        <p className="text-xs text-gray-500 mt-1.5">
+    <div className="mx-auto w-full">
+      <CrmPageHeader eyebrow="CRM" title="Финансы" description={(
+        <>
           Верхний блок — договоры и платежи, внесённые в CRM. Блок «Из Notion» — живое зеркало
           Notion-таблицы, обновляется автоматически раз в час и кнопкой «Синк Notion».
-        </p>
-      </div>
+        </>
+      )} />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
@@ -383,10 +383,10 @@ export const FinancesPage: React.FC = () => {
       {/* Students with remaining balances */}
       <div className="mb-10">
         <p className="label-caps mb-3">Остатки по клиентам</p>
-        <div className="border-y border-gray-200">
+        <div className="border-y border-border">
           <Table>
             <TableHeader>
-              <TableRow className="border-gray-200 hover:bg-transparent">
+              <TableRow className="border-border hover:bg-transparent">
                 <TableHead>Студент</TableHead>
                 <TableHead>Год</TableHead>
                 <TableHead>Степень</TableHead>
@@ -410,7 +410,7 @@ export const FinancesPage: React.FC = () => {
                 </TableRow>
               ) : (
                 studentsWithBalance.map((student) => (
-                  <TableRow key={student.student_id} className="border-gray-100 hover:bg-gray-50">
+                  <TableRow key={student.student_id} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-gray-900">
                       <Link to={`/students/${student.student_id}`} className="hover:underline">
                         {student.full_name}
@@ -459,10 +459,10 @@ export const FinancesPage: React.FC = () => {
       {/* Mentor payouts */}
       <div>
         <p className="label-caps mb-3">Выплаты менторам</p>
-        <div className="border-y border-gray-200">
+        <div className="border-y border-border">
           <Table>
             <TableHeader>
-              <TableRow className="border-gray-200 hover:bg-transparent">
+              <TableRow className="border-border hover:bg-transparent">
                 <TableHead>Ментор</TableHead>
                 <TableHead>Начислено</TableHead>
                 <TableHead>Выплачено</TableHead>
@@ -485,7 +485,7 @@ export const FinancesPage: React.FC = () => {
                 </TableRow>
               ) : (
                 mentorPayouts.map((payout) => (
-                  <TableRow key={payout.mentor_id} className="border-gray-100 hover:bg-gray-50">
+                  <TableRow key={payout.mentor_id} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-gray-900">{payout.mentor_name}</TableCell>
                     <TableCell className="text-gray-600">
                       {formatCurrency(toNumber(payout.paid) + toNumber(payout.to_be_paid), payout.currency ?? moneyCurrency)}

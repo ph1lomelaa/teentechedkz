@@ -9,8 +9,8 @@ import enum
 class UserRole(str, enum.Enum):
     admin = "admin"
     mzk_manager = "mzk_manager"
-    lead_mentor = "lead_mentor"
     mentor = "mentor"
+    student = "student"  # client-facing portal account, linked to a students record
 
 
 class User(Base):
@@ -26,11 +26,13 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    extra_emails: Mapped[list["UserEmail"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class RefreshToken(Base):

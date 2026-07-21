@@ -12,6 +12,7 @@ class CountryReferenceCreate(BaseModel):
     vpp_required: bool = False
     submission_deadline_notes: str | None = None
     notes: str | None = None
+    degree_levels: list[str] = ["undergraduate", "graduate"]
 
 
 class CountryReferenceUpdate(BaseModel):
@@ -21,6 +22,7 @@ class CountryReferenceUpdate(BaseModel):
     vpp_required: bool | None = None
     submission_deadline_notes: str | None = None
     notes: str | None = None
+    degree_levels: list[str] | None = None
 
 
 class CountryReferenceResponse(BaseModel):
@@ -33,3 +35,7 @@ class CountryReferenceResponse(BaseModel):
     vpp_required: bool
     submission_deadline_notes: str | None = None
     notes: str | None = None
+    code: str = ""
+    flag_emoji: str = ""
+    flag_url: str = ""
+    degree_levels: list[str] = ["undergraduate", "graduate"]

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, DateTime, ForeignKey, Boolean, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -34,6 +34,9 @@ class ConfidentialNote(Base):
     visible_to_role: Mapped[NoteVisibility] = mapped_column(
         SAEnum(NoteVisibility, name="note_visibility"), default=NoteVisibility.admin_only
     )
+    # Published into the student's portal «Заметки» section (read-only for them).
+    # Independent of visible_to_role, which governs staff visibility.
+    visible_to_student: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -12,7 +12,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.student_task import StudentTask, TaskStatus
-from app.models.student import Student
+from app.models.contract import Contract
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import UserRole
 
@@ -24,20 +24,30 @@ async def list_all_tasks(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
     status: str | None = None,
+    mentor_id: uuid.UUID | None = None,
+    scope: str = Query("all", pattern="^(all|mine)$"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
 ):
     """Return all tasks the current user can see, with student name included."""
     query = select(StudentTask).options(joinedload(StudentTask.student))
 
-    if current_user.role in (UserRole.lead_mentor, UserRole.mentor):
+    if mentor_id and current_user.role == UserRole.mentor and mentor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    scoped_mentor_id = current_user.id if (current_user.role == UserRole.mentor or (scope == "mine" and mentor_id is None)) else mentor_id
+    if scoped_mentor_id is not None:
         assigned = await db.execute(
             select(MentorAssignment.student_id).where(
-                MentorAssignment.mentor_id == current_user.id,
+                MentorAssignment.mentor_id == scoped_mentor_id,
                 MentorAssignment.is_active == True,  # noqa: E712
             )
         )
-        student_ids = [row[0] for row in assigned.all()]
+        student_ids = {row[0] for row in assigned.all()}
+        contract_result = await db.execute(
+            select(Contract.student_id).where(Contract.mzk_manager_id == scoped_mentor_id)
+        )
+        student_ids.update(row[0] for row in contract_result.all())
         if not student_ids:
             return {"items": [], "total": 0, "page": page, "size": size, "pages": 0}
         query = query.where(StudentTask.student_id.in_(student_ids))
@@ -82,11 +92,12 @@ async def create_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     task = StudentTask(
         student_id=uuid.UUID(body["student_id"]),
+        service_id=uuid.UUID(body["service_id"]) if body.get("service_id") else None,
         task_text=body.get("task_text", "").strip(),
         created_by=current_user.id,
         status=TaskStatus.open,
@@ -111,6 +122,8 @@ async def update_task(
 
     if "task_text" in body:
         task.task_text = body["task_text"]
+    if "service_id" in body:
+        task.service_id = uuid.UUID(body["service_id"]) if body["service_id"] else None
 
     if "status" in body:
         try:
@@ -149,6 +162,7 @@ def _task_to_dict(t: StudentTask, include_student: bool = False) -> dict:
     d = {
         "id": str(t.id),
         "student_id": str(t.student_id),
+        "service_id": str(t.service_id) if t.service_id else None,
         "task_text": t.task_text,
         "created_by": str(t.created_by),
         "status": t.status.value,

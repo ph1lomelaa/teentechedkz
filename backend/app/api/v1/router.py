@@ -2,8 +2,11 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     auth,
+    audit,
     users,
     students,
+    student_access,
+    invites,
     contracts,
     applications,
     services,
@@ -25,13 +28,25 @@ from app.api.v1.endpoints import (
     telegram_chats,
     sync,
     notion,
+    roadmaps,
+    questionnaires,
+    meetings,
+    universities,
+    chat,
+    portal,
+    workspace,
+    public,
+    notifications,
 )
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router)
+api_router.include_router(audit.router)
 api_router.include_router(users.router)
 api_router.include_router(students.router)
+api_router.include_router(student_access.router)
+api_router.include_router(invites.router)
 api_router.include_router(contracts.router)
 api_router.include_router(applications.router)
 api_router.include_router(services.router)
@@ -53,3 +68,12 @@ api_router.include_router(telegram_webhook.router)
 api_router.include_router(telegram_chats.router)
 api_router.include_router(sync.router)
 api_router.include_router(notion.router)
+api_router.include_router(roadmaps.router)
+api_router.include_router(questionnaires.router)
+api_router.include_router(meetings.router)
+api_router.include_router(universities.router)
+api_router.include_router(chat.router)
+api_router.include_router(notifications.router)
+api_router.include_router(portal.router)
+api_router.include_router(workspace.router)
+api_router.include_router(public.router)

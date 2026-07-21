@@ -13,8 +13,12 @@ import {
   PIPELINE_STATUS_COLORS,
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
+  SERVICE_TYPE_LABELS,
+  SERVICE_STATUS_LABELS,
+  ServiceType,
 } from '@/types'
 import { Button } from '@/components/ui/button'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -51,6 +55,15 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
+type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review'
+const SERVICE_FILTER_OPTIONS: ServiceType[] = [
+  'proforientation',
+  'ielts_mock',
+  'ielts_prep',
+  'sat_prep',
+  'portfolio_improvement',
+  'english_general',
+]
 
 /** Диалог привязки входящей анкеты к студенту */
 function LinkDialog({
@@ -766,10 +779,14 @@ export const StudentsListPage: React.FC = () => {
   const { canAccess, hasRole } = useAuth()
   const isManager = hasRole('admin', 'mzk_manager')
   const canRunSync = hasRole('admin')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialScope = searchParams.get('scope')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
-  const [scope, setScope] = useState<'all' | 'mine' | 'unassigned'>('all')
+  const [scope, setScope] = useState<'all' | 'mine' | 'assigned' | 'unassigned'>(
+    initialScope === 'mine' || initialScope === 'assigned' || initialScope === 'unassigned' ? initialScope : 'all'
+  )
   const [mentorFilter, setMentorFilter] = useState('')
   const [leadMentorFilter, setLeadMentorFilter] = useState('')
   const [mzkManagerFilter, setMzkManagerFilter] = useState('')
@@ -777,9 +794,10 @@ export const StudentsListPage: React.FC = () => {
   const [intakeYearFilter, setIntakeYearFilter] = useState('')
   const [countryFilter, setCountryFilter] = useState('')
   const [degreeFilter, setDegreeFilter] = useState('')
+  const [serviceTypeFilter, setServiceTypeFilter] = useState('')
+  const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>('all')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [responsibleSearch, setResponsibleSearch] = useState('')
-  const [searchParams, setSearchParams] = useSearchParams()
   const showInbox = searchParams.get('inbox') === '1'
   const showNotion = searchParams.get('notion') === '1'
 
@@ -789,8 +807,8 @@ export const StudentsListPage: React.FC = () => {
   })
 
   const { data: leadMentorUsers = [] } = useQuery({
-    queryKey: ['users', 'lead_mentor'],
-    queryFn: () => usersApi.list({ role: 'lead_mentor' }),
+    queryKey: ['users', 'lead_mentor_as_mentor'],
+    queryFn: () => usersApi.list({ role: 'mentor' }),
   })
 
   const { data: mzkUsers = [] } = useQuery({
@@ -841,6 +859,7 @@ export const StudentsListPage: React.FC = () => {
       intakeYearFilter,
       countryFilter,
       degreeFilter,
+      serviceTypeFilter,
     ],
     queryFn: () =>
       studentsApi.list({
@@ -852,6 +871,7 @@ export const StudentsListPage: React.FC = () => {
         intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
         country: countryFilter.trim() || undefined,
         degree_level: degreeFilter || undefined,
+        service_type: serviceTypeFilter || undefined,
         page: 1,
         size: 2000,
       }),
@@ -926,14 +946,28 @@ export const StudentsListPage: React.FC = () => {
     },
   })
 
-  const allStudents = data?.items ?? []
-  const students = useMemo(
-    () =>
-      debouncedSearch.trim()
-        ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
-        : allStudents,
-    [allStudents, debouncedSearch]
-  )
+  const allStudents = useMemo(() => data?.items ?? [], [data?.items])
+  const students = useMemo(() => {
+    const searched = debouncedSearch.trim()
+      ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
+      : allStudents
+    return searched.filter((s) => {
+      switch (operationalFilter) {
+        case 'no_roadmap':
+          return !s.roadmap?.id
+        case 'no_meeting':
+          return !s.next_meeting
+        case 'telegram_unlinked':
+          return !s.telegram?.linked
+        case 'open_tasks':
+          return (s.open_tasks_count ?? 0) > 0
+        case 'docs_review':
+          return (s.documents_unverified ?? 0) > 0
+        default:
+          return true
+      }
+    })
+  }, [allStudents, debouncedSearch, operationalFilter])
   const total = students.length
   const newCount = syncStatus?.new_submissions ?? 0
   const activeFiltersCount =
@@ -944,7 +978,9 @@ export const StudentsListPage: React.FC = () => {
     (mzkManagerFilter ? 1 : 0) +
     (intakeYearFilter ? 1 : 0) +
     (countryFilter.trim() ? 1 : 0) +
-    (degreeFilter ? 1 : 0)
+    (degreeFilter ? 1 : 0) +
+    (serviceTypeFilter ? 1 : 0) +
+    (operationalFilter !== 'all' ? 1 : 0)
 
   const resetFilters = () => {
     setScope('all')
@@ -955,6 +991,8 @@ export const StudentsListPage: React.FC = () => {
     setIntakeYearFilter('')
     setCountryFilter('')
     setDegreeFilter('')
+    setServiceTypeFilter('')
+    setOperationalFilter('all')
     setStatusFilter('')
     setResponsibleSearch('')
   }
@@ -967,7 +1005,7 @@ export const StudentsListPage: React.FC = () => {
   if (scope !== 'all')
     activeFilterChips.push({
       key: 'scope',
-      label: scope === 'mine' ? 'Только мои' : 'Без ответственного',
+      label: scope === 'mine' ? 'Только мои' : scope === 'assigned' ? 'С ответственными' : 'Без ответственного',
       onRemove: () => setScope('all'),
     })
   if (statusFilter)
@@ -987,6 +1025,12 @@ export const StudentsListPage: React.FC = () => {
       key: 'degree',
       label: `Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`,
       onRemove: () => setDegreeFilter(''),
+    })
+  if (serviceTypeFilter)
+    activeFilterChips.push({
+      key: 'service',
+      label: `Программа: ${SERVICE_TYPE_LABELS[serviceTypeFilter as ServiceType] ?? serviceTypeFilter}`,
+      onRemove: () => setServiceTypeFilter(''),
     })
   if (countryFilter.trim())
     activeFilterChips.push({
@@ -1018,6 +1062,21 @@ export const StudentsListPage: React.FC = () => {
       label: `Ментор: ${responsibleName(mentorFilter)}`,
       onRemove: clearResponsible,
     })
+  if (operationalFilter !== 'all') {
+    const labels: Record<OperationalFilter, string> = {
+      all: 'Все',
+      no_roadmap: 'Нет roadmap',
+      no_meeting: 'Нет встречи',
+      telegram_unlinked: 'Нет Telegram',
+      open_tasks: 'Есть задачи',
+      docs_review: 'Документы на проверке',
+    }
+    activeFilterChips.push({
+      key: 'operational',
+      label: labels[operationalFilter],
+      onRemove: () => setOperationalFilter('all'),
+    })
+  }
 
   const currentResponsibleUsers =
     responsibleRole === 'mzk_manager'
@@ -1056,12 +1115,11 @@ export const StudentsListPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between pb-5 border-b border-gray-200">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Все студенты</h1>
-          <p className="label-caps mt-1.5">Всего: {total}</p>
-        </div>
+      <CrmPageHeader
+        eyebrow="Студенты"
+        title="Общая база"
+        description={`Все студенты CRM · всего: ${total}`}
+        action={(
         <div className="flex items-center gap-2 flex-wrap">
           {isManager && (
             <>
@@ -1123,7 +1181,8 @@ export const StudentsListPage: React.FC = () => {
             </button>
           )}
         </div>
-      </div>
+        )}
+      />
 
       {/* Inbox */}
       {isManager && showInbox && <IntakeInbox />}
@@ -1173,10 +1232,11 @@ export const StudentsListPage: React.FC = () => {
               <div className="p-3 space-y-4">
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Видимость</p>
-                  <div className="grid grid-cols-3 gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+                  <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
                     {[
                       { value: 'all', label: 'Все' },
                       { value: 'mine', label: 'Мои' },
+                      { value: 'assigned', label: 'С отв.' },
                       { value: 'unassigned', label: 'Без отв.' },
                     ].map((item) => (
                       <button
@@ -1211,6 +1271,26 @@ export const StudentsListPage: React.FC = () => {
                           {PIPELINE_STATUS_LABELS[opt.value as PipelineStatus] ?? opt.value} · {opt.count}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Контроль работы</p>
+                  <Select
+                    value={operationalFilter}
+                    onValueChange={(v) => setOperationalFilter(v as OperationalFilter)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Все сигналы" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все</SelectItem>
+                      <SelectItem value="no_roadmap">Нет roadmap</SelectItem>
+                      <SelectItem value="no_meeting">Нет ближайшей встречи</SelectItem>
+                      <SelectItem value="telegram_unlinked">Telegram не привязан</SelectItem>
+                      <SelectItem value="open_tasks">Есть открытые задачи</SelectItem>
+                      <SelectItem value="docs_review">Документы на проверке</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1277,6 +1357,26 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Программа / услуга</p>
+                  <Select
+                    value={serviceTypeFilter || 'all'}
+                    onValueChange={(v) => setServiceTypeFilter(v === 'all' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Все программы" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все программы</SelectItem>
+                      {SERVICE_FILTER_OPTIONS.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {SERVICE_TYPE_LABELS[type]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ответственный</p>
                   <Select
                     value={responsibleRole}
@@ -1288,7 +1388,7 @@ export const StudentsListPage: React.FC = () => {
                     <SelectContent>
                       <SelectItem value="any">Любая роль</SelectItem>
                       <SelectItem value="mzk_manager">MZK</SelectItem>
-                      <SelectItem value="lead_mentor">Lead mentor</SelectItem>
+                      <SelectItem value="lead_mentor">Lead mentor / ментор</SelectItem>
                       <SelectItem value="mentor">Ментор</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1396,9 +1496,10 @@ export const StudentsListPage: React.FC = () => {
           <TableHeader>
             <TableRow className="border-gray-200 hover:bg-transparent">
               <TableHead>Студент</TableHead>
-              <TableHead>Программа</TableHead>
+              <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead>Год</TableHead>
+              <TableHead>Программы</TableHead>
               <TableHead>Ответственные</TableHead>
               {isManager && <TableHead>Анкеты</TableHead>}
               <TableHead />
@@ -1407,13 +1508,13 @@ export const StudentsListPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 7 : 6} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-gray-500 text-sm">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 7 : 6} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-gray-500 text-sm">
                   Студенты не найдены
                 </TableCell>
               </TableRow>
@@ -1448,6 +1549,34 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-gray-600">{student.intake_year}</TableCell>
+                  <TableCell>
+                    <div className="flex max-w-[220px] flex-wrap gap-1.5">
+                      {(student.services_summary?.items ?? []).length > 0 ? (
+                        student.services_summary!.items.slice(0, 3).map((service) => (
+                          <span
+                            key={service.id}
+                            title={`${SERVICE_TYPE_LABELS[service.service_type]} · ${SERVICE_STATUS_LABELS[service.status]}${service.assigned_mentor_name ? ` · ${service.assigned_mentor_name}` : ''}`}
+                            className={`rounded-[2px] border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              service.status === 'completed'
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : service.status === 'in_progress' || service.status === 'scheduled'
+                                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                  : 'border-gray-200 bg-gray-50 text-gray-600'
+                            }`}
+                          >
+                            {SERVICE_TYPE_LABELS[service.service_type]}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                      {(student.services_summary?.items.length ?? 0) > 3 && (
+                        <span className="rounded-[2px] border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+                          +{(student.services_summary?.items.length ?? 0) - 3}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       {student.is_mine && (
@@ -1501,12 +1630,6 @@ export const StudentsListPage: React.FC = () => {
                       >
                         {student.is_mine ? '★ Мой' : '☆ Взять'}
                       </button>
-                      <Link
-                        to={`/students/${student.id}`}
-                        className="label-caps text-gray-500 hover:text-black transition-colors"
-                      >
-                        Открыть →
-                      </Link>
                     </div>
                   </TableCell>
                 </TableRow>

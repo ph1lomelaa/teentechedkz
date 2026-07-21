@@ -79,6 +79,7 @@ class StudentBase(BaseModel):
     transcript_resume_url: str | None = None
     intake_year: int
     intake_season: IntakeSeason | None = None
+    user_id: uuid.UUID | None = None  # linked portal (student) account, if access was granted
     created_at: datetime
     updated_at: datetime
 
@@ -124,7 +125,7 @@ class StudentFull(StudentBase):
 
 class StudentMentor(StudentBase):
     """
-    Limited student profile for lead_mentor / mentor roles.
+    Limited student profile for the mentor role.
 
     Contracts, guardians, confidential notes, and payment details are
     intentionally excluded.

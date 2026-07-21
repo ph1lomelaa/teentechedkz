@@ -44,13 +44,36 @@ async def lifespan(app: FastAPI):
             await bot.set_webhook(
                 webhook_url,
                 secret_token=settings.TELEGRAM_WEBHOOK_SECRET or None,
-                allowed_updates=["message", "my_chat_member"],
+                allowed_updates=["message", "my_chat_member", "chat_member"],
             )
             logger.info(f"Telegram webhook set: {webhook_url}")
             import asyncio
             webhook_health_task = asyncio.create_task(webhook_health_loop())
         except Exception as e:
-            logger.warning(f"Failed to set Telegram webhook: {e}")
+            # Bug #6 fix: emit admin notification on webhook failure
+            logger.error(f"Failed to set Telegram webhook: {e}")
+            try:
+                from app.core.database import AsyncSessionLocal
+                from app.models.user import User, UserRole
+                from app.models.notification import Notification
+                from sqlalchemy import select
+                async with AsyncSessionLocal() as db:
+                    # Find all admins
+                    admin_result = await db.execute(
+                        select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager]))
+                    )
+                    admins = list(admin_result.scalars())
+                    for admin in admins:
+                        db.add(Notification(
+                            user_id=admin.id,
+                            kind="telegram_webhook_failed",
+                            title="Telegram webhook initialization failed",
+                            body=f"Failed to register Telegram webhook at {webhook_url}: {str(e)[:200]}. Messages may not be received.",
+                            priority="high",
+                        ))
+                    await db.commit()
+            except Exception as notif_error:
+                logger.exception(f"Failed to create admin notification for webhook failure: {notif_error}")
 
     # Автосинк анкет из Google Sheets (если настроен service account)
     sheets_task = None

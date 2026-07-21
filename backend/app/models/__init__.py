@@ -1,4 +1,7 @@
 from .user import User, RefreshToken
+from .user_email import UserEmail
+from .audit_log import AuditLog, AuditAction
+from .student_invite import StudentInvite
 from .student import Student
 from .guardian import Guardian
 from .contract import Contract
@@ -26,11 +29,31 @@ from .telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from .telegram_message import TelegramMessage, TelegramMessageType
 from .telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from .telegram_pairing_code import TelegramPairingCode
+from .telegram_invite_link import TelegramInviteLink
+from .telegram_participant_identity import TelegramParticipantIdentity
+from .workspace_message_read import WorkspaceMessageRead
 from .notion_snapshot import NotionSnapshot, NotionMatchStatus
 from .ai_analysis_run import AiAnalysisRun
+from .roadmap import (
+    RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
+    Roadmap, Stage, RoadmapTask, RoadmapSubtask,
+    TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus,
+)
+from .meeting import Meeting, MeetingStatus
+from .university import University
+from .credential import UniversityCredential
+from .chat import Conversation, ConversationMember, Message, MessageAttachment, ConversationType
+from .notification import Notification
+from .questionnaire import (
+    Questionnaire, QuestionnaireQuestion, QuestionnaireResponse,
+    QuestionnaireStatus, QuestionKind,
+)
+from .questionnaire_template import QuestionnaireTemplate
 
 __all__ = [
-    "User", "RefreshToken",
+    "User", "RefreshToken", "UserEmail",
+    "AuditLog", "AuditAction",
+    "StudentInvite",
     "Student", "Guardian", "Contract", "Application",
     "MentorAssignment", "Service", "PortfolioProgress",
     "CountryReference", "ConfidentialNote", "StudentTask",
@@ -44,6 +67,19 @@ __all__ = [
     "TelegramMessage", "TelegramMessageType",
     "TelegramAttachment", "TelegramAttachmentStatus",
     "TelegramPairingCode",
+    "TelegramInviteLink",
+    "TelegramParticipantIdentity",
+    "WorkspaceMessageRead",
     "NotionSnapshot", "NotionMatchStatus",
     "AiAnalysisRun",
+    "RoadmapTemplate", "TemplateStage", "TemplateTask", "TemplateSubtask",
+    "Roadmap", "Stage", "RoadmapTask", "RoadmapSubtask",
+    "TaskPriority", "TaskAudience", "RoadmapItemStatus", "RoadmapStatus",
+    "Meeting", "MeetingStatus",
+    "University", "UniversityCredential",
+    "Conversation", "ConversationMember", "Message", "MessageAttachment", "ConversationType",
+    "Notification",
+    "Questionnaire", "QuestionnaireQuestion", "QuestionnaireResponse",
+    "QuestionnaireStatus", "QuestionKind",
+    "QuestionnaireTemplate",
 ]

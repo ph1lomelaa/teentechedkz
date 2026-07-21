@@ -88,11 +88,6 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         for key, value in proposed_changes.items()
         if key in NOTEABLE_FIELDS
     }
-    if not proposed_changes:
-        # The automatic per-message flow is intentionally limited to real
-        # structured profile updates. Context, documents, follow-ups and
-        # uncertain plans are handled by the manual dialog-level draft flow.
-        return None
 
     try:
         insight_type = InsightType(parsed.get("insight_type", "status_update"))
@@ -103,11 +98,30 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     confidence = float(confidence) if isinstance(confidence, (int, float)) else 0.5
 
     diff = build_profile_diff(snapshot, proposed_changes)
+
+    # Bug #1 fix: use context_unmatched instead of hardcoded {}
+    # Bug #2 fix: fallback path for conversational context (no structured field match)
     if not diff:
-        # LLM returned fields that don't actually differ from the current
-        # profile (hallucinated or no-op) — nothing worth surfacing.
+        # No structured profile update, but check for speculative/conversational context
+        if context_unmatched:
+            # Create lightweight insight for context (e.g., "думаю подаваться осенью")
+            # This preserves plans/concerns that don't map to structured fields
+            insight = PendingInsight(
+                student_id=student.id,
+                source_telegram_message_id=message.id,
+                insight_type=InsightType.status_update,
+                proposed_changes={},  # No structured changes
+                unmatched_fields=context_unmatched,
+                confidence=0.3,  # Lower confidence for context-only insights
+                risk_level=RiskLevel.low,
+                status=InsightStatus.pending,
+            )
+            db.add(insight)
+            return insight
+        # No structured changes and no context — nothing worth surfacing
         return None
-    unmatched_fields = {}
+
+    unmatched_fields = context_unmatched
 
     touches_phone = any(d["field"] == "phone" for d in diff)
     risk_level = (

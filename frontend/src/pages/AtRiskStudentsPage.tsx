@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Copy, Link2 } from 'lucide-react'
+import { Copy, Link2 } from 'lucide-react'
 import { useNavigate, Link } from 'react-router-dom'
 import { studentsApi } from '@/api/students'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 type DuplicatePair = {
   reason: 'phone' | 'name'
@@ -84,10 +85,11 @@ export const AtRiskStudentsPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6 pb-5 border-b border-gray-200">
-        <AlertTriangle className="w-5 h-5 text-orange-600" />
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Зона риска</h1>
-      </div>
+      <CrmPageHeader
+        eyebrow="Контроль"
+        title="Зона риска"
+        description="Студенты, чей процесс требует дополнительного внимания."
+      />
 
       <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-[2px] text-sm text-orange-800">
         Студенты, за процессом которых стоит следить внимательнее: виза в работе,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,7 +42,8 @@ async def create_service(
         included=body.get("included", False),
         status=status,
         result=body.get("result"),
-        assigned_mentor_id=uuid.UUID(body["assigned_mentor_id"]) if body.get("assigned_mentor_id") else None,
+        assigned_mentor_id=uuid.UUID(body.get("assigned_mentor_id") or body.get("assigned_staff_id")) if (body.get("assigned_mentor_id") or body.get("assigned_staff_id")) else None,
+        deadline=date.fromisoformat(body["deadline"]) if body.get("deadline") else None,
         notes=body.get("notes"),
         portfolio_directions_count=body.get("portfolio_directions_count"),
         portfolio_directions_types=body.get("portfolio_directions_types"),
@@ -79,6 +80,10 @@ async def update_service(
             pass
     if "assigned_mentor_id" in body:
         svc.assigned_mentor_id = uuid.UUID(body["assigned_mentor_id"]) if body["assigned_mentor_id"] else None
+    if "assigned_staff_id" in body:
+        svc.assigned_mentor_id = uuid.UUID(body["assigned_staff_id"]) if body["assigned_staff_id"] else None
+    if "deadline" in body:
+        svc.deadline = date.fromisoformat(body["deadline"]) if body["deadline"] else None
 
     svc.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -87,7 +92,7 @@ async def update_service(
 
 
 def _check_access(user, student_id: uuid.UUID):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
@@ -101,6 +106,8 @@ def _svc_to_dict(s: Service) -> dict:
         "status": s.status.value,
         "result": s.result,
         "assigned_mentor_id": str(s.assigned_mentor_id) if s.assigned_mentor_id else None,
+        "assigned_staff_id": str(s.assigned_mentor_id) if s.assigned_mentor_id else None,
+        "deadline": s.deadline.isoformat() if s.deadline else None,
         "notes": s.notes,
         "portfolio_directions_count": s.portfolio_directions_count,
         "portfolio_directions_types": s.portfolio_directions_types,

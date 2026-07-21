@@ -17,7 +17,7 @@ router = APIRouter(prefix="/applications", tags=["applications"])
 
 
 def _can_edit(user, student_id: uuid.UUID, mentor_ids: set[uuid.UUID]) -> bool:
-    if user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         return True
     return student_id in mentor_ids
 

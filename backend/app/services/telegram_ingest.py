@@ -10,7 +10,9 @@ from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmen
 from app.models.telegram_chat import TelegramChat
 from app.models.telegram_chat_session import TelegramChatSession
 from app.models.telegram_message import TelegramMessage, TelegramMessageType
-from app.services.minio_service import minio_upload_raw
+from app.models.document import Document, DocSource, DocType
+from app.services.minio_service import minio_upload, minio_upload_raw
+from app.services.deepgram_rest import transcribe_audio_file
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,10 @@ async def ingest_message(
     message: Message,
     update_id: int,
 ) -> TelegramMessage:
+    # Bug #3 fix: transcribe voice/video messages before creating the row
+    raw_text = message.text or message.caption or ""
+    message_type = _message_type(message)
+
     row = TelegramMessage(
         chat_id=chat.id,
         session_id=session.id if session else None,
@@ -44,8 +50,8 @@ async def ingest_message(
         update_id=update_id,
         sender_tg_id=message.from_user.id if message.from_user else None,
         sender_name=message.from_user.full_name if message.from_user else None,
-        message_type=_message_type(message),
-        raw_text=message.text or message.caption,
+        message_type=message_type,
+        raw_text=raw_text,
         raw_payload=message.model_dump(mode="json", exclude_none=True),
     )
     db.add(row)
@@ -85,11 +91,44 @@ async def ingest_message(
             tg_file = await bot.get_file(file_ref.file_id)
             buffer = await bot.download_file(tg_file.file_path)
             content = buffer.read()
+
+            # Bug #3 fix: transcribe voice/video messages
+            if message_type in (TelegramMessageType.voice, TelegramMessageType.video_note) and not raw_text:
+                try:
+                    transcript = await transcribe_audio_file(content, mime_type or "audio/ogg")
+                    if transcript:
+                        row.raw_text = transcript
+                except Exception:
+                    logger.exception("Failed to transcribe Telegram audio message %s", row.id)
+
             storage_path = await minio_upload_raw(
                 content=content, chat_id=chat.id, filename=filename, mime_type=mime_type or "application/octet-stream"
             )
             attachment.storage_path = storage_path
             attachment.status = TelegramAttachmentStatus.downloaded
+            if session and session.student_id and session.opened_by:
+                try:
+                    document_path = await minio_upload(
+                        content=content,
+                        student_id=session.student_id,
+                        filename=filename,
+                        mime_type=mime_type or "application/octet-stream",
+                    )
+                    db.add(
+                        Document(
+                            student_id=session.student_id,
+                            uploaded_by=session.opened_by,
+                            doc_type=DocType.other,
+                            file_name=filename,
+                            file_size=getattr(file_ref, "file_size", None) or len(content),
+                            mime_type=mime_type or "application/octet-stream",
+                            storage_path=document_path,
+                            source=DocSource.telegram,
+                            source_telegram_attachment_id=attachment.id,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to register Telegram attachment %s as document", attachment.id)
         except Exception:
             logger.exception("Failed to download Telegram attachment %s", file_ref.file_id)
             attachment.status = TelegramAttachmentStatus.failed

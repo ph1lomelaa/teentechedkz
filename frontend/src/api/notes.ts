@@ -17,6 +17,8 @@ export interface StudentNoteCreatePayload {
   source_text: string
   summary_markdown?: string
   suggested_changes?: Record<string, unknown>
+  is_important?: boolean
+  source_kind?: 'manual' | 'meeting' | 'telegram'
 }
 
 export interface StudentNoteReviewPayload {
@@ -27,6 +29,7 @@ export interface StudentNoteReviewPayload {
 
 export interface NoteSessionCreatePayload {
   student_id?: string | null
+  meeting_id?: string | null
   title?: string
   source?: string
 }
@@ -130,6 +133,21 @@ export const notesApi = {
   },
   diff: async (id: string): Promise<StudentNoteDiff> => {
     const response = await apiClient.get<StudentNoteDiff>(`/notes/${id}/diff`)
+    return response.data
+  },
+  publish: async (
+    id: string,
+    data?: { student_title?: string | null; hidden_blocks?: string[] },
+  ): Promise<StudentNote> => {
+    const response = await apiClient.post<StudentNote>(`/notes/${id}/publish`, data ?? {})
+    return response.data
+  },
+  unpublish: async (id: string): Promise<StudentNote> => {
+    const response = await apiClient.post<StudentNote>(`/notes/${id}/unpublish`)
+    return response.data
+  },
+  setImportance: async (id: string, isImportant: boolean): Promise<StudentNote> => {
+    const response = await apiClient.patch<StudentNote>(`/notes/${id}/importance`, { is_important: isImportant })
     return response.data
   },
   delete: async (id: string): Promise<void> => {

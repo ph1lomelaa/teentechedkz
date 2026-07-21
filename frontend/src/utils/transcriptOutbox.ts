@@ -35,3 +35,7 @@ export function removeTranscriptFromOutbox(sessionId: string, clientSegmentId: s
   const current = readTranscriptOutbox(sessionId).filter((item) => item.clientSegmentId !== clientSegmentId)
   window.localStorage.setItem(key(sessionId), JSON.stringify(current))
 }
+
+export function clearTranscriptOutbox(sessionId: string) {
+  window.localStorage.removeItem(key(sessionId))
+}

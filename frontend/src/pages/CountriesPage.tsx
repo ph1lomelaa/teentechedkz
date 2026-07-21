@@ -25,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 function CountryModal({
   country,
@@ -123,15 +124,17 @@ export const CountriesPage: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6 pb-5 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Справочник стран</h1>
-        {isAdmin && (
+      <CrmPageHeader
+        eyebrow="Справочник"
+        title="Страны"
+        description="Требования, дедлайны и примечания по направлениям поступления."
+        action={isAdmin ? (
           <Button onClick={() => setAddOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Добавить
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <div className="border-y border-gray-200">
         <Table>

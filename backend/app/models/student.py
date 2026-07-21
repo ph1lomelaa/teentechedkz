@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, Text, DateTime, Boolean, Enum as SAEnum
+from sqlalchemy import String, Integer, Text, DateTime, Boolean, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -39,6 +39,15 @@ class Student(Base):
         SAEnum(IntakeSeason, name="intake_season"), nullable=True
     )
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Bridge to a login-capable portal account (role=student). NULL = no portal access yet.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    # The student's personal Telegram account, captured when they join via a
+    # personal invite link (Приоритет 4). NULL = not linked yet.
+    telegram_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    telegram_linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -48,6 +57,7 @@ class Student(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    portal_user: Mapped["User | None"] = relationship(foreign_keys=[user_id])
     guardians: Mapped[list["Guardian"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     contracts: Mapped[list["Contract"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     applications: Mapped[list["Application"]] = relationship(back_populates="student", cascade="all, delete-orphan")

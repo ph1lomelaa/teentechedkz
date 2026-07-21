@@ -37,6 +37,7 @@ import { ToastAction } from '@/components/ui/toast'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
+import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 const STEPS = [
   'Студент',
@@ -274,7 +275,11 @@ export const NewStudentPage: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight mb-5">Новый студент</h1>
+        <CrmPageHeader
+          eyebrow="Студенты"
+          title="Новый студент"
+          description="Заполните основные данные и настройте сопровождение студента."
+        />
 
         {/* Progress indicator */}
         <div className="flex items-center gap-2">

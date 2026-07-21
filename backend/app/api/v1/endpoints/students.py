@@ -21,22 +21,26 @@ from app.models.mentor_assignment import MentorAssignment
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.application import Application
-from app.models.service import Service
+from app.models.service import Service, ServiceStatus, ServiceType
 from app.services.default_services import ensure_default_services
 from app.services.people_facets import build_people_index
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
-from app.models.pending_insight import PendingInsight
-from app.models.student_task import StudentTask
+from app.models.pending_insight import InsightStatus, PendingInsight
+from app.models.student_task import StudentTask, TaskStatus
+from app.models.status_history import StatusHistory
+from app.models.meeting import Meeting, MeetingStatus
+from app.models.roadmap import Roadmap, RoadmapStatus, RoadmapTask, RoadmapItemStatus
 from app.models.note_session import NoteSession
 from app.models.student_note import StudentNote
 from app.models.portfolio_progress import PortfolioProgress
 from app.models.sync_status import SyncStatus
-from app.models.telegram_chat_session import TelegramChatSession
+from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
+from app.models.telegram_message import TelegramMessage
 from app.models.telegram_pairing_code import TelegramPairingCode
 from app.models.intake_submission import IntakeSubmission
 from app.models.notion_snapshot import NotionSnapshot
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.student import StudentCreate, StudentUpdate
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -44,6 +48,29 @@ router = APIRouter(prefix="/students", tags=["students"])
 
 class MergeStudentBody(BaseModel):
     target_student_id: uuid.UUID
+
+
+def _timeline_item(
+    *,
+    item_id: uuid.UUID | str,
+    at: datetime | None,
+    kind: str,
+    title: str | None,
+    text: str | None = None,
+    href: str | None = None,
+    source: str | None = None,
+    meta: dict | None = None,
+) -> dict:
+    return {
+        "id": str(item_id),
+        "at": at.isoformat() if at else None,
+        "kind": kind,
+        "title": title or "Событие",
+        "text": text or "",
+        "href": href,
+        "source": source,
+        "meta": meta or {},
+    }
 
 
 def _can_see_student(current_user, student_id: uuid.UUID, mentor_student_ids: set[uuid.UUID]) -> bool:
@@ -60,6 +87,11 @@ async def _get_mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[u
         )
     )
     return {row[0] for row in result.all()}
+
+
+async def _count(db: AsyncSession, stmt) -> int:
+    result = await db.execute(stmt)
+    return int(result.scalar() or 0)
 
 
 async def _student_responsibles(
@@ -398,7 +430,8 @@ async def list_students(
     mentor_id: uuid.UUID | None = None,
     mentor_name: str | None = None,
     mzk_name: str | None = None,
-    scope: str = Query("all", pattern="^(all|mine|unassigned)$"),
+    service_type: str | None = None,
+    scope: str = Query("all", pattern="^(all|mine|assigned|unassigned)$"),
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=2000),
 ):
@@ -433,6 +466,11 @@ async def list_students(
             MentorAssignment.is_active == True,  # noqa: E712
         )
         query = query.where(Student.id.not_in(assigned_subquery))
+    elif scope == "assigned":
+        assigned_subquery = select(MentorAssignment.student_id).where(
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        query = query.where(Student.id.in_(assigned_subquery))
 
     if search:
         query = query.where(
@@ -465,6 +503,16 @@ async def list_students(
     if country:
         query = query.join(Application, Application.student_id == Student.id, isouter=True)
         query = query.where(Application.country.ilike(f"%{country}%"))
+
+    if service_type:
+        try:
+            svc_type = ServiceType(service_type)
+            query = query.join(Service, Service.student_id == Student.id).where(
+                Service.service_type == svc_type,
+                Service.included == True,  # noqa: E712
+            )
+        except ValueError:
+            query = query.where(False)
 
     if lead_mentor_id:
         query = query.join(Application, Application.student_id == Student.id, isouter=True)
@@ -520,6 +568,132 @@ async def list_students(
             pipeline_status_val = contract.pipeline_status.value if contract.pipeline_status else None
 
         responsibles, is_mine = await _student_responsibles(db, s.id, current_user.id)
+        services_result = await db.execute(
+            select(Service, User.name)
+            .join(User, User.id == Service.assigned_mentor_id, isouter=True)
+            .where(Service.student_id == s.id, Service.included == True)  # noqa: E712
+            .order_by(Service.service_type)
+        )
+        service_items = [
+            {
+                "id": str(service.id),
+                "service_type": service.service_type.value,
+                "status": service.status.value,
+                "assigned_mentor_id": str(service.assigned_mentor_id) if service.assigned_mentor_id else None,
+                "assigned_staff_id": str(service.assigned_mentor_id) if service.assigned_mentor_id else None,
+                "assigned_mentor_name": mentor_name,
+                "deadline": service.deadline.isoformat() if service.deadline else None,
+            }
+            for service, mentor_name in services_result.all()
+        ]
+        service_status_counts = Counter(item["status"] for item in service_items)
+
+        roadmap_result = await db.execute(
+            select(Roadmap)
+            .where(Roadmap.student_id == s.id, Roadmap.status == RoadmapStatus.active)
+            .order_by(Roadmap.created_at.desc())
+            .limit(1)
+        )
+        active_roadmap = roadmap_result.scalar_one_or_none()
+        roadmap_progress = None
+        roadmap_tasks_total = 0
+        roadmap_tasks_done = 0
+        if active_roadmap:
+            roadmap_tasks_total = await _count(
+                db,
+                select(func.count()).select_from(RoadmapTask).where(RoadmapTask.roadmap_id == active_roadmap.id),
+            )
+            roadmap_tasks_done = await _count(
+                db,
+                select(func.count()).select_from(RoadmapTask).where(
+                    RoadmapTask.roadmap_id == active_roadmap.id,
+                    RoadmapTask.status == RoadmapItemStatus.done,
+                ),
+            )
+            roadmap_progress = round((roadmap_tasks_done / roadmap_tasks_total) * 100) if roadmap_tasks_total else 0
+
+        open_tasks_count = await _count(
+            db,
+            select(func.count()).select_from(StudentTask).where(
+                StudentTask.student_id == s.id,
+                StudentTask.status == TaskStatus.open,
+            ),
+        )
+        next_meeting_result = await db.execute(
+            select(Meeting)
+            .where(
+                Meeting.student_id == s.id,
+                Meeting.status == MeetingStatus.scheduled,
+                Meeting.ends_at >= datetime.now(timezone.utc),
+            )
+            .order_by(Meeting.starts_at.asc())
+            .limit(1)
+        )
+        next_meeting = next_meeting_result.scalar_one_or_none()
+        telegram_session_result = await db.execute(
+            select(TelegramChatSession)
+            .where(
+                TelegramChatSession.student_id == s.id,
+                TelegramChatSession.status == TelegramSessionStatus.active,
+            )
+            .order_by(TelegramChatSession.opened_at.desc())
+            .limit(1)
+        )
+        telegram_session = telegram_session_result.scalar_one_or_none()
+        telegram_pending = await _count(
+            db,
+            select(func.count()).select_from(PendingInsight).where(
+                PendingInsight.student_id == s.id,
+                PendingInsight.status == InsightStatus.pending,
+                PendingInsight.source_telegram_message_id.is_not(None),
+            ),
+        )
+        documents_unverified = await _count(
+            db,
+            select(func.count()).select_from(Document).where(
+                Document.student_id == s.id,
+                Document.is_verified == False,  # noqa: E712
+            ),
+        )
+        last_contact: dict | None = None
+        comm_last = (
+            await db.execute(
+                select(CommunicationLog.source, CommunicationLog.created_at)
+                .where(CommunicationLog.student_id == s.id)
+                .order_by(CommunicationLog.created_at.desc())
+                .limit(1)
+            )
+        ).first()
+        if comm_last:
+            last_contact = {"source": comm_last[0].value, "at": comm_last[1].isoformat()}
+
+        telegram_last = None
+        if telegram_session:
+            telegram_last = (
+                await db.execute(
+                    select(TelegramMessage.created_at)
+                    .where(TelegramMessage.session_id == telegram_session.id)
+                    .order_by(TelegramMessage.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if telegram_last and (last_contact is None or telegram_last > datetime.fromisoformat(last_contact["at"])):
+                last_contact = {"source": "telegram", "at": telegram_last.isoformat()}
+
+        meeting_last = (
+            await db.execute(
+                select(Meeting.starts_at)
+                .where(
+                    Meeting.student_id == s.id,
+                    Meeting.status == MeetingStatus.completed,
+                )
+                .order_by(Meeting.starts_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if meeting_last and (last_contact is None or meeting_last > datetime.fromisoformat(last_contact["at"])):
+            last_contact = {"source": "meeting", "at": meeting_last.isoformat()}
+
         items.append({
             "id": str(s.id),
             "full_name": s.full_name,
@@ -538,6 +712,37 @@ async def list_students(
             ),
             "responsibles": responsibles,
             "responsible_count": len([r for r in responsibles if r["is_active"]]),
+            "services_summary": {
+                "total": len(service_items),
+                "in_progress": service_status_counts.get(ServiceStatus.in_progress.value, 0),
+                "scheduled": service_status_counts.get(ServiceStatus.scheduled.value, 0),
+                "completed": service_status_counts.get(ServiceStatus.completed.value, 0),
+                "items": service_items,
+            },
+            "has_portal_access": bool(s.user_id),
+            "roadmap": {
+                "id": str(active_roadmap.id) if active_roadmap else None,
+                "name": active_roadmap.name if active_roadmap else None,
+                "progress": roadmap_progress,
+                "tasks_total": roadmap_tasks_total,
+                "tasks_done": roadmap_tasks_done,
+            },
+            "open_tasks_count": open_tasks_count,
+            "next_meeting": (
+                {
+                    "id": str(next_meeting.id),
+                    "title": next_meeting.title,
+                    "starts_at": next_meeting.starts_at.isoformat(),
+                }
+                if next_meeting else None
+            ),
+            "telegram": {
+                "linked": bool(telegram_session),
+                "chat_id": str(telegram_session.chat_id) if telegram_session else None,
+                "pending_signals": telegram_pending,
+            },
+            "documents_unverified": documents_unverified,
+            "last_contact": last_contact,
         })
 
     return {
@@ -612,6 +817,229 @@ async def create_student(
     return _student_to_dict(result.scalar_one())
 
 
+@router.get("/{student_id}/timeline")
+async def get_student_timeline(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Unified staff timeline for CRM card and workspace.
+
+    This intentionally aggregates read-only operational events without changing
+    source tables. Pagination is applied after cross-source sorting.
+    """
+    student_result = await db.execute(
+        select(Student.id).where(
+            Student.id == student_id,
+            Student.is_archived == False,  # noqa: E712
+        )
+    )
+    if student_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        mentor_student_ids = await _get_mentor_student_ids(db, current_user.id)
+        if not _can_see_student(current_user, student_id, mentor_student_ids):
+            raise HTTPException(status_code=404, detail="Студент не найден")
+
+    fetch_limit = min(max(limit + offset, limit), 500)
+    events: list[dict] = []
+
+    documents = (
+        await db.execute(
+            select(Document)
+            .where(Document.student_id == student_id)
+            .order_by(Document.uploaded_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"document:{doc.id}",
+            at=doc.uploaded_at,
+            kind="Документ",
+            title=doc.file_name,
+            text=f"{doc.doc_type.value} · {'проверен' if doc.is_verified else 'на проверке'}",
+            href="#documents",
+            source=doc.source.value if doc.source else None,
+            meta={"document_id": str(doc.id), "visible_to_student": doc.visible_to_student},
+        )
+        for doc in documents
+    )
+
+    tasks = (
+        await db.execute(
+            select(StudentTask)
+            .where(StudentTask.student_id == student_id)
+            .order_by(StudentTask.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"task:{task.id}",
+            at=task.done_at or task.created_at,
+            kind="Задача закрыта" if task.status.value == "done" else "Задача",
+            title=task.task_text,
+            text="Выполнена" if task.status.value == "done" else "Открыта",
+            href="#tasks",
+            source="task",
+            meta={"task_id": str(task.id), "status": task.status.value},
+        )
+        for task in tasks
+    )
+
+    meetings = (
+        await db.execute(
+            select(Meeting)
+            .where(Meeting.student_id == student_id)
+            .order_by(Meeting.starts_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"meeting:{meeting.id}",
+            at=meeting.starts_at,
+            kind="Встреча",
+            title=meeting.title,
+            text=meeting.outcome or meeting.description or meeting.status.value,
+            href=f"/workspace/students/{student_id}?tab=meetings",
+            source="meeting",
+            meta={
+                "meeting_id": str(meeting.id),
+                "status": meeting.status.value,
+                "meeting_type": meeting.meeting_type.value,
+            },
+        )
+        for meeting in meetings
+    )
+
+    communication_logs = (
+        await db.execute(
+            select(CommunicationLog)
+            .where(CommunicationLog.student_id == student_id)
+            .order_by(CommunicationLog.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"communication:{log.id}",
+            at=log.created_at,
+            kind=log.source.value,
+            title=log.ai_summary or log.raw_text or log.message_type.value,
+            text=log.raw_text or log.ai_summary or "",
+            href="#timeline",
+            source=log.source.value,
+            meta={"communication_log_id": str(log.id), "message_type": log.message_type.value},
+        )
+        for log in communication_logs
+    )
+
+    telegram_messages = (
+        await db.execute(
+            select(TelegramMessage)
+            .join(TelegramChatSession, TelegramMessage.session_id == TelegramChatSession.id)
+            .where(TelegramChatSession.student_id == student_id)
+            .order_by(TelegramMessage.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"telegram:{message.id}",
+            at=message.created_at,
+            kind="Telegram",
+            title=message.raw_text or message.message_type.value,
+            text=message.sender_name or "",
+            href=f"/telegram-inbox/{message.chat_id}",
+            source="telegram",
+            meta={
+                "telegram_message_id": message.telegram_message_id,
+                "chat_id": str(message.chat_id),
+                "message_type": message.message_type.value,
+            },
+        )
+        for message in telegram_messages
+    )
+
+    notes = (
+        await db.execute(
+            select(StudentNote)
+            .where(StudentNote.student_id == student_id)
+            .order_by(StudentNote.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"note:{note.id}",
+            at=note.reviewed_at or note.created_at,
+            kind="AI-черновик" if note.status.value == "draft" else "Конспект",
+            title=note.title,
+            text=note.status.value,
+            href=f"/notes/{note.id}",
+            source="note",
+            meta={"note_id": str(note.id), "status": note.status.value},
+        )
+        for note in notes
+    )
+
+    insights = (
+        await db.execute(
+            select(PendingInsight)
+            .where(PendingInsight.student_id == student_id)
+            .order_by(PendingInsight.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"insight:{insight.id}",
+            at=insight.created_at,
+            kind="AI-сигнал",
+            title=insight.insight_type.value,
+            text=f"{insight.status.value} · {round(float(insight.confidence or 0) * 100)}%",
+            href="#timeline",
+            source="ai",
+            meta={"insight_id": str(insight.id), "status": insight.status.value},
+        )
+        for insight in insights
+    )
+
+    history_entries = (
+        await db.execute(
+            select(StatusHistory)
+            .where(
+                StatusHistory.entity_type == "student",
+                StatusHistory.entity_id == student_id,
+            )
+            .order_by(StatusHistory.changed_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"history:{entry.id}",
+            at=entry.changed_at,
+            kind="Изменение CRM",
+            title=entry.field_changed,
+            text=f"{entry.old_value or '—'} → {entry.new_value or '—'}",
+            href="#history",
+            source=entry.source,
+            meta={"history_id": str(entry.id), "changed_by": entry.changed_by},
+        )
+        for entry in history_entries
+    )
+
+    events = [event for event in events if event["at"]]
+    events.sort(key=lambda event: event["at"], reverse=True)
+    return {"items": events[offset:offset + limit], "total": len(events), "limit": limit, "offset": offset}
+
+
 @router.get("/{student_id}")
 async def get_student(
     student_id: uuid.UUID,
@@ -649,7 +1077,7 @@ async def get_student(
     data["is_mine"] = is_mine
 
     # Product mode: role is not an access boundary; "mine" is a work filter.
-    if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.lead_mentor, UserRole.mentor):
+    if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         guardian_result = await db.execute(
             select(Guardian).where(Guardian.student_id == student_id)
         )
@@ -678,6 +1106,7 @@ async def get_student(
                 "id": str(c.id),
                 "note_text": _decrypt_safe(c.note_text_encrypted),
                 "visible_to_role": c.visible_to_role.value,
+                "visible_to_student": c.visible_to_student,
                 "created_by": str(c.created_by),
                 "created_at": c.created_at.isoformat(),
             }
@@ -837,6 +1266,8 @@ def _student_to_dict(s: Student) -> dict:
                 "status": svc.status.value,
                 "result": svc.result,
                 "assigned_mentor_id": str(svc.assigned_mentor_id) if svc.assigned_mentor_id else None,
+                "assigned_staff_id": str(svc.assigned_mentor_id) if svc.assigned_mentor_id else None,
+                "deadline": svc.deadline.isoformat() if svc.deadline else None,
                 "notes": svc.notes,
                 "portfolio_directions_count": svc.portfolio_directions_count,
                 "portfolio_directions_types": svc.portfolio_directions_types,
@@ -865,6 +1296,7 @@ def _student_to_dict(s: Student) -> dict:
                 "source": d.source.value,
                 "ai_description": d.ai_description,
                 "is_verified": d.is_verified,
+                "visible_to_student": d.visible_to_student,
                 "uploaded_at": d.uploaded_at.isoformat(),
             }
             for d in (s.documents if s.documents else [])

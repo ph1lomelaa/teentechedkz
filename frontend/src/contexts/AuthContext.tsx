@@ -8,6 +8,7 @@ import React, {
 import { User, UserRole } from '../types'
 import { authApi } from '../api/auth'
 import { setAccessToken } from '../api/client'
+import { ws } from '../lib/ws'
 
 interface AuthState {
   user: User | null
@@ -19,6 +20,7 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
   hasRole: (...roles: UserRole[]) => boolean
   canAccess: (resource: 'finances' | 'guardians' | 'confidential' | 'users' | 'tasks_create' | 'all_students') => boolean
 }
@@ -37,6 +39,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const setAuth = useCallback((user: User | null, token: string | null) => {
     setAccessToken(token)
+    if (user && token) ws.start()
+    else ws.stop()
     setState({
       user,
       accessToken: token,
@@ -78,6 +82,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [setAuth])
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const user = await authApi.me()
+      setState((s) => ({ ...s, user }))
+    } catch {
+      // ignore — session refresh handles auth failures
+    }
+  }, [])
+
   const hasRole = useCallback(
     (...roles: UserRole[]): boolean => {
       return !!state.user && roles.includes(state.user.role)
@@ -99,13 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const role = state.user.role
       switch (resource) {
         case 'finances':
-          return true
+          return role === 'admin' || role === 'mzk_manager'
         case 'guardians':
           return true
         case 'confidential':
           return true
         case 'users':
-          return role === 'admin'
+          return role === 'admin' || role === 'mzk_manager'
         case 'tasks_create':
           return true
         case 'all_students':
@@ -118,7 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   )
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, hasRole, canAccess }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, hasRole, canAccess }}>
       {children}
     </AuthContext.Provider>
   )
