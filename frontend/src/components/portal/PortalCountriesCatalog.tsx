@@ -47,7 +47,7 @@ export const PortalCountriesCatalog: React.FC = () => {
   }
 
   return (
-    <div className="w-full animate-fade-in">
+    <div className="animate-fade-in">
       <div className="mb-6">
         <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Справочник</p>
         <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-p-text">Страны</h1>

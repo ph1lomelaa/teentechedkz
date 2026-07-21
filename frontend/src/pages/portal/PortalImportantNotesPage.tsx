@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { StickyNote } from 'lucide-react'
+import { PageShell } from '@/components/shared/PageShell'
 import { portalImportantNotesApi } from '@/api/portalImportantNotes'
 
 function fmt(iso: string): string {
@@ -18,7 +19,8 @@ export const PortalImportantNotesPage: React.FC = () => {
   })
 
   return (
-    <div className="mx-auto max-w-4xl animate-fade-in">
+    <PageShell maxWidth="lg" className="animate-fade-in">
+      <div>
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Заметки</h1>
 
@@ -44,6 +46,7 @@ export const PortalImportantNotesPage: React.FC = () => {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </PageShell>
   )
 }

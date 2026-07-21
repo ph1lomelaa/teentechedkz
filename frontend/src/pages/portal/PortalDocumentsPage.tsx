@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FileText, Upload, Download, Trash2 } from 'lucide-react'
+import { PageShell } from '@/components/shared/PageShell'
 import { documentsApi } from '@/api/documents'
 import { DOC_TYPE_LABELS } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -49,7 +50,8 @@ export const PortalDocumentsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl animate-fade-in">
+    <PageShell maxWidth="lg" className="animate-fade-in">
+      <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
@@ -122,6 +124,7 @@ export const PortalDocumentsPage: React.FC = () => {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </PageShell>
   )
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Map } from 'lucide-react'
+import { PageShell } from '@/components/shared/PageShell'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { PortalRoadmap } from '@/components/portal/PortalRoadmap'
 
@@ -14,7 +15,8 @@ export const PortalRoadmapPage: React.FC = () => {
   if (isLoading) return <div className="text-p-muted text-sm">Загрузка…</div>
 
   return (
-    <div className="max-w-[1100px] mx-auto">
+    <PageShell maxWidth="full">
+      <div>
       <p className="font-display text-[11px] tracking-[0.24em] uppercase text-brand mb-3">
         Дорожная карта поступления
       </p>
@@ -33,6 +35,7 @@ export const PortalRoadmapPage: React.FC = () => {
       ) : (
         <PortalRoadmap roadmap={roadmap} onChanged={setRoadmap} />
       )}
-    </div>
+      </div>
+    </PageShell>
   )
 }
