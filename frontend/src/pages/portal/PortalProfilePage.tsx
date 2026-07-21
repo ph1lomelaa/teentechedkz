@@ -38,7 +38,7 @@ export const PortalProfilePage: React.FC = () => {
   const s = data?.student
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in">
+    <PageShell maxWidth="md" className="animate-fade-in">
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Профиль</h1>
 
@@ -77,7 +77,7 @@ export const PortalProfilePage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }
 

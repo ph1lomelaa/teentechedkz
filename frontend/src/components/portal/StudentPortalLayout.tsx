@@ -204,8 +204,11 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   )
 
   return (
-    <div className="portal min-h-[100dvh]" data-theme={theme}>
-      <div className="lg:grid lg:grid-cols-[248px_1fr] min-h-[100dvh]">
+    <div className="portal min-h-[100dvh] relative" data-theme={theme}>
+      {/* Yellow radial blur glow background */}
+      <div className="pointer-events-none absolute left-1/2 top-20 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-brand/[0.05] blur-3xl" />
+
+      <div className="lg:grid lg:grid-cols-[248px_1fr] min-h-[100dvh] relative z-10">
         {/* mobile backdrop */}
         {mobileOpen && (
           <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />

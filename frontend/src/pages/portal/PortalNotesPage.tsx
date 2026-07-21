@@ -57,7 +57,7 @@ export const PortalNotesPage: React.FC = () => {
   }, [notes, deferredSearch])
 
   return (
-    <div className="mx-auto max-w-4xl animate-fade-in">
+    <PageShell maxWidth="lg" className="animate-fade-in">
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
       <div className="flex items-center justify-between gap-4">
         <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Конспекты</h1>
@@ -158,6 +158,6 @@ export const PortalNotesPage: React.FC = () => {
           )}
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }
