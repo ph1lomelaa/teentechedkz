@@ -546,7 +546,8 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 }
 .auth-secondary-button:hover { border-color: #C9A800; background: rgb(255 212 0 / 0.06); color: #FFD400; }
 
-/* Scrollbar global */
+/* Scrollbar global — цвет из темы, а не фиксированный светло-серый,
+   иначе на тёмной теме ползунок светится. */
 ::-webkit-scrollbar {
   width: 4px;
 }
@@ -554,9 +555,15 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
+  background: #3A3A3A;
   border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+  background: #555555;
+}
+html[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #d4d4cf;
+}
+html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #b8b8b3;
 }

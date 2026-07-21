@@ -40,3 +40,4 @@ if [ -n "$PUBLIC_URL" ]; then
 else
   echo "ngrok started (pid $(cat "$PID_FILE")) but couldn't confirm the public URL yet — check $LOG_FILE"
 fi
+

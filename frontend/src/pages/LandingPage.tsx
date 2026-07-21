@@ -35,7 +35,7 @@ export function LandingPage() {
               href="#features"
               className="text-xs tracking-wide text-white/50 transition-colors hover:text-white"
             >
-              
+              Возможности
             </a>
           </nav>
           <Link to="/login" className="auth-secondary-button h-9 px-4 text-xs font-bold uppercase tracking-[0.14em]">
