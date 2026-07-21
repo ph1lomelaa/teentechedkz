@@ -41,6 +41,24 @@ docker compose -f docker-compose.prod.yml up -d --build
   При переносе на новый сервер копировать вручную.
 - Старая папка деплоя `/home/deploy/teenteched` — устаревшая, деплоим из `~/teentechedkz`.
 
+## Автодеплой через GitHub Actions
+
+Workflow `.github/workflows/deploy.yml` деплоит **автоматически при каждом push в main**
+(сначала проверяет сборку frontend/backend, потом заходит на сервер по SSH и делает
+`git pull` + `docker compose up -d --build`).
+
+Нужные секреты (GitHub → Settings → Secrets and variables → Actions):
+
+| Секрет | Значение |
+|---|---|
+| `DEPLOY_HOST` | `65.21.188.181` |
+| `DEPLOY_USER` | `root` |
+| `DEPLOY_PATH` | `/root/teentechedkz` |
+| `DEPLOY_SSH_KEY` | приватный deploy-ключ **без пароля**, целиком с строками BEGIN/END |
+
+Ошибка `ssh: no key found` в логе Action = секрет `DEPLOY_SSH_KEY` пустой или обрезан —
+перевставить ключ целиком.
+
 ## Диагностика на сервере
 
 ```bash
