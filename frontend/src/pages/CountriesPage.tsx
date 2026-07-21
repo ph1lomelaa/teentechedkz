@@ -136,10 +136,10 @@ export const CountriesPage: React.FC = () => {
         ) : undefined}
       />
 
-      <div className="border-y border-gray-200">
+      <div className="border-y border-p-line">
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Страна</TableHead>
               <TableHead>УП нужно?</TableHead>
               <TableHead>Дедлайн</TableHead>
@@ -150,33 +150,33 @@ export const CountriesPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={5} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : countries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={5} className="text-center py-8 text-p-muted">
                   Страны не добавлены
                 </TableCell>
               </TableRow>
             ) : (
               countries.map((country) => (
-                <TableRow key={country.id} className="border-gray-100 hover:bg-gray-50">
-                  <TableCell className="font-medium text-gray-900">{country.country_name}</TableCell>
+                <TableRow key={country.id} className="border-p-line hover:bg-p-bg">
+                  <TableCell className="font-medium text-p-text">{country.country_name}</TableCell>
                   <TableCell>
                     {country.vpp_required ? (
                       <span className="px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 text-[11px] rounded-[2px] font-medium uppercase tracking-wide">
                         Нужно
                       </span>
                     ) : (
-                      <span className="text-gray-500 text-xs">Нет</span>
+                      <span className="text-p-muted text-xs">Нет</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-gray-600">
+                  <TableCell className="text-p-muted">
                     {country.submission_deadline_notes ?? '—'}
                   </TableCell>
-                  <TableCell className="text-gray-600 text-sm max-w-xs truncate">
+                  <TableCell className="text-p-muted text-sm max-w-xs truncate">
                     {country.notes ?? '—'}
                   </TableCell>
                   {isAdmin && (

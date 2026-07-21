@@ -95,9 +95,9 @@ import { toast } from '@/hooks/use-toast'
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm text-gray-500 sm:w-48 shrink-0">{label}</span>
-      <span className="text-sm text-gray-900 font-medium mt-0.5 sm:mt-0">
+    <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-p-line last:border-0">
+      <span className="text-sm text-p-muted sm:w-48 shrink-0">{label}</span>
+      <span className="text-sm text-p-text font-medium mt-0.5 sm:mt-0">
         {value ?? '—'}
       </span>
     </div>
@@ -149,16 +149,16 @@ function EditableInfoRow({
   }
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm text-gray-500 sm:w-48 shrink-0">{label}</span>
+    <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-p-line last:border-0">
+      <span className="text-sm text-p-muted sm:w-48 shrink-0">{label}</span>
       {!editing && !canEdit ? (
-        <span className="text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 min-w-0 break-words">
+        <span className="text-sm text-p-text font-medium mt-0.5 sm:mt-0 min-w-0 break-words">
           {display ?? '—'}
         </span>
       ) : !editing ? (
         <button
           type="button"
-          className="group flex min-w-0 cursor-pointer items-center rounded-[2px] -mx-1 px-1 text-left text-sm text-gray-900 font-medium mt-0.5 sm:mt-0 hover:bg-amber-50/70"
+          className="group flex min-w-0 cursor-pointer items-center rounded-[2px] -mx-1 px-1 text-left text-sm text-p-text font-medium mt-0.5 sm:mt-0 hover:bg-amber-50/70"
           title="Редактировать"
           onClick={start}
           onDoubleClick={start}
@@ -417,7 +417,7 @@ function serviceTone(status: Service['status']): string {
   if (status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (status === 'in_progress' || status === 'scheduled') return 'border-blue-200 bg-blue-50 text-blue-700'
   if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700'
-  return 'border-gray-200 bg-gray-50 text-gray-600'
+  return 'border-p-line bg-p-bg text-p-muted'
 }
 
 export const StudentCardPage: React.FC = () => {
@@ -672,7 +672,7 @@ export const StudentCardPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Загрузка...</div>
+        <div className="text-p-muted">Загрузка...</div>
       </div>
     )
   }
@@ -681,7 +681,7 @@ export const StudentCardPage: React.FC = () => {
     return (
       <div className="text-center py-12">
         <p className="text-red-500">Студент не найден</p>
-        <Link to="/students" className="text-gray-600 hover:text-black underline underline-offset-4 text-sm mt-2 block">
+        <Link to="/students" className="text-p-muted hover:text-black underline underline-offset-4 text-sm mt-2 block">
           Вернуться к списку
         </Link>
       </div>
@@ -756,17 +756,17 @@ export const StudentCardPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-gray-200 pb-6">
-        <Link to="/students" className="flex items-center text-gray-500 hover:text-black text-sm transition-colors">
+      <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-p-line pb-6">
+        <Link to="/students" className="flex items-center text-p-muted hover:text-black text-sm transition-colors">
           <ChevronLeft className="w-4 h-4 mr-1" />
           Назад
         </Link>
         <div className="flex-1 min-w-[240px]">
           <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Карточка студента</div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-gray-900 md:text-4xl">{student.full_name}</h1>
+            <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text md:text-4xl">{student.full_name}</h1>
             {student.is_archived && (
-              <span className="text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-gray-100 text-gray-500 border border-gray-200">
+              <span className="text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
                 Архивирован
               </span>
             )}
@@ -817,36 +817,36 @@ export const StudentCardPage: React.FC = () => {
       </div>
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
-        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Следующее действие</p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">
+        <div className="rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
+          <p className="mt-1 text-sm font-semibold text-p-text">
             {openTasks[0]?.task_text || (student.is_mine ? 'Открытых задач нет' : 'Назначьте ответственного')}
           </p>
         </div>
-        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Риски данных</p>
+        <div className="rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
           <p className={`mt-1 text-sm font-semibold ${intakeMismatchCount + notionMismatchCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
             {intakeMismatchCount + notionMismatchCount > 0
               ? `${intakeMismatchCount + notionMismatchCount} расхожд.`
               : 'Расхождений нет'}
           </p>
         </div>
-        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Последний контакт</p>
-          <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+        <div className="rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Последний контакт</p>
+          <p className="mt-1 truncate text-sm font-semibold text-p-text">
             {latestTelegramMessage?.raw_text || latestTelegramMessage?.message_type || 'Нет сообщений'}
           </p>
         </div>
-        <div className="rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Последнее изменение</p>
-          <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+        <div className="rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Последнее изменение</p>
+          <p className="mt-1 truncate text-sm font-semibold text-p-text">
             {latestHistoryEntry ? `${latestHistoryEntry.field_changed}: ${formatDate(latestHistoryEntry.changed_at)}` : 'История пуста'}
           </p>
         </div>
       </div>
 
       <Accordion type="multiple" defaultValue={['profile', 'applications', 'services', 'tasks']} className="space-y-2">
-        <AccordionItem value="responsibles" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="responsibles" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Ответственные
           </AccordionTrigger>
@@ -860,7 +860,7 @@ export const StudentCardPage: React.FC = () => {
                       className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-1 text-xs ${
                         responsible.is_active
                           ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-400'
+                          : 'border-p-line bg-p-bg text-p-muted2'
                       }`}
                     >
                       {responsible.name || 'Без имени'}
@@ -871,7 +871,7 @@ export const StudentCardPage: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">Ответственные не назначены</p>
+                <p className="text-sm text-p-muted">Ответственные не назначены</p>
               )}
               <Button
                 variant={student.is_mine ? 'outline' : 'default'}
@@ -885,10 +885,10 @@ export const StudentCardPage: React.FC = () => {
                 {student.is_mine ? 'Снять с моих' : 'Добавить себя'}
               </Button>
               {hasRole('admin', 'mzk_manager') && (
-                <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3">
+                <div className="rounded-[2px] border border-p-line bg-p-bg p-3">
                   <div className="mb-2">
-                    <p className="text-sm font-medium text-gray-900">Назначить ментора</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm font-medium text-p-text">Назначить ментора</p>
+                    <p className="text-xs text-p-muted">
                       После назначения студент появится у выбранного ментора в CRM «Мои студенты» и в личном кабинете ментора.
                     </p>
                   </div>
@@ -926,12 +926,12 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 0. Сверка анкет: менеджер vs студент vs CRM */}
         {intake && (intake.package || intake.cases) && (
-          <AccordionItem value="intake" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="intake" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               Сверка анкет
             </AccordionTrigger>
             <AccordionContent>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-xs text-p-muted">
                 <span>
                   Пакет (менеджер):{' '}
                   {intake.package
@@ -945,10 +945,10 @@ export const StudentCardPage: React.FC = () => {
                     : 'анкеты нет'}
                 </span>
               </div>
-              <div className="border border-gray-200 rounded-[2px] overflow-x-auto">
+              <div className="border border-p-line rounded-[2px] overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
+                    <tr className="border-b border-p-line">
                       <th className="text-left px-3 py-2 label-caps font-medium w-44">Поле</th>
                       {intake.package && (
                         <th className="text-left px-3 py-2 label-caps font-medium">Менеджер · Пакет</th>
@@ -968,14 +968,14 @@ export const StudentCardPage: React.FC = () => {
                       return (
                         <tr
                           key={row.field}
-                          className={`border-b border-gray-100 last:border-0 ${
+                          className={`border-b border-p-line last:border-0 ${
                             realMismatch || crmMismatch ? 'bg-amber-50' : ''
                           }`}
                         >
-                          <td className="px-3 py-2 text-gray-500 align-top whitespace-nowrap">
+                          <td className="px-3 py-2 text-p-muted align-top whitespace-nowrap">
                             {row.label}
                             {row.human_only && (
-                              <span className="block text-[10px] text-gray-400 mt-0.5">
+                              <span className="block text-[10px] text-p-muted2 mt-0.5">
                                 🔒 вносится вручную
                               </span>
                             )}
@@ -996,16 +996,16 @@ export const StudentCardPage: React.FC = () => {
                             )}
                           </td>
                           {intake.package && (
-                            <td className="px-3 py-2 text-gray-800 align-top">
-                              {row.package ?? <span className="text-gray-400">—</span>}
+                            <td className="px-3 py-2 text-p-text align-top">
+                              {row.package ?? <span className="text-p-muted2">—</span>}
                             </td>
                           )}
                           {intake.cases && (
-                            <td className="px-3 py-2 text-gray-800 align-top">
-                              {row.cases ?? <span className="text-gray-400">—</span>}
+                            <td className="px-3 py-2 text-p-text align-top">
+                              {row.cases ?? <span className="text-p-muted2">—</span>}
                             </td>
                           )}
-                          <td className="px-3 py-2 text-gray-500 align-top">
+                          <td className="px-3 py-2 text-p-muted align-top">
                             {crmMatches ? (
                               <span className="text-emerald-600/80 text-xs">✓ совпадает</span>
                             ) : row.crm_ai_same_meaning ? (
@@ -1013,7 +1013,7 @@ export const StudentCardPage: React.FC = () => {
                                 ✓ вероятно совпадает{row.crm_ai_note ? ` · ${row.crm_ai_note}` : ''}
                               </span>
                             ) : (
-                              row.crm ?? <span className="text-gray-400">—</span>
+                              row.crm ?? <span className="text-p-muted2">—</span>
                             )}
                           </td>
                         </tr>
@@ -1022,7 +1022,7 @@ export const StudentCardPage: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-gray-400 mt-2.5">
+              <p className="text-xs text-p-muted2 mt-2.5">
                 Жёлтым подсвечены поля, где ответы менеджера и студента не совпадают. Стоимость и
                 договорённости в CRM вносятся только вручную.
               </p>
@@ -1032,7 +1032,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 0.5 Notion: сверка «Notion | CRM» + финансы из Notion */}
         {notion?.snapshot && (
-          <AccordionItem value="notion" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="notion" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               <span className="flex items-center gap-2.5">
                 Notion
@@ -1045,7 +1045,7 @@ export const StudentCardPage: React.FC = () => {
             </AccordionTrigger>
             <AccordionContent>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-p-muted">
                   Синхронизировано:{' '}
                   {notion.snapshot.synced_at
                     ? new Date(notion.snapshot.synced_at).toLocaleString('ru-RU', {
@@ -1061,7 +1061,7 @@ export const StudentCardPage: React.FC = () => {
                       href={notion.snapshot.notion_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-gray-500 underline hover:text-black"
+                      className="text-xs text-p-muted underline hover:text-black"
                     >
                       Открыть в Notion
                     </a>
@@ -1069,7 +1069,7 @@ export const StudentCardPage: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[11px] text-gray-500"
+                    className="h-6 text-[11px] text-p-muted"
                     disabled={unlinkNotionMutation.isPending}
                     title="Если запись Notion привязана не к тому студенту"
                     onClick={() => setUnlinkNotionConfirm(notion.snapshot!.id)}
@@ -1079,10 +1079,10 @@ export const StudentCardPage: React.FC = () => {
                   </Button>
                 </div>
               </div>
-              <div className="border border-gray-200 rounded-[2px] overflow-x-auto">
+              <div className="border border-p-line rounded-[2px] overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200">
+                    <tr className="border-b border-p-line">
                       <th className="text-left px-3 py-2 label-caps font-medium w-44">Поле</th>
                       <th className="text-left px-3 py-2 label-caps font-medium">Notion</th>
                       <th className="text-left px-3 py-2 label-caps font-medium">CRM</th>
@@ -1093,24 +1093,24 @@ export const StudentCardPage: React.FC = () => {
                     {notion.comparison.map((row) => (
                       <tr
                         key={row.field}
-                        className={`border-b border-gray-100 last:border-0 ${
+                        className={`border-b border-p-line last:border-0 ${
                           row.matches === false ? 'bg-amber-50' : ''
                         }`}
                       >
-                        <td className="px-3 py-2 text-gray-500 align-top whitespace-nowrap">
+                        <td className="px-3 py-2 text-p-muted align-top whitespace-nowrap">
                           {row.label}
                           {row.matches === false && (
                             <span className="block text-[10px] text-amber-600 mt-0.5">расхождение</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-gray-800 align-top">
-                          {row.notion ?? <span className="text-gray-400">—</span>}
+                        <td className="px-3 py-2 text-p-text align-top">
+                          {row.notion ?? <span className="text-p-muted2">—</span>}
                         </td>
                         <td className="px-3 py-2 align-top">
                           {row.matches ? (
                             <span className="text-emerald-600/80 text-xs">✓ совпадает</span>
                           ) : (
-                            <span className="text-gray-500">{row.crm ?? <span className="text-gray-400">—</span>}</span>
+                            <span className="text-p-muted">{row.crm ?? <span className="text-p-muted2">—</span>}</span>
                           )}
                         </td>
                         <td className="px-3 py-2 align-top text-right">
@@ -1134,17 +1134,17 @@ export const StudentCardPage: React.FC = () => {
               {notion.finance.length > 0 && (
                 <div className="mt-4">
                   <p className="label-caps mb-2">Финансы из Notion · только просмотр</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border border-gray-200 rounded-[2px] overflow-hidden">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-p-panel2 border border-p-line rounded-[2px] overflow-hidden">
                     {notion.finance.map((f) => (
                       <div key={f.label} className="bg-white px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-gray-400">{f.label}</p>
-                        <p className="text-sm text-gray-900 font-medium mt-0.5">{f.value}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-p-muted2">{f.label}</p>
+                        <p className="text-sm text-p-text font-medium mt-0.5">{f.value}</p>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              <p className="text-xs text-gray-400 mt-2.5">
+              <p className="text-xs text-p-muted2 mt-2.5">
                 Notion — источник по финансам, CRM назад в Notion не пишет. Кнопка «Принять из Notion»
                 переносит значение в карточку вручную, каждое изменение попадает в историю.
               </p>
@@ -1165,7 +1165,7 @@ export const StudentCardPage: React.FC = () => {
         {hasRole('admin', 'mzk_manager', 'mentor') && <StudentChatSection studentId={id!} />}
 
         {/* 1. Profile */}
-        <AccordionItem value="profile" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="profile" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Профиль студента
           </AccordionTrigger>
@@ -1190,12 +1190,12 @@ export const StudentCardPage: React.FC = () => {
             <InfoRow label="Дней в работе" value={student.days_in_work} />
 
             {canAccess('guardians') && (
-              <div className="mt-5 pt-4 border-t border-gray-100">
+              <div className="mt-5 pt-4 border-t border-p-line">
                 <div className="flex items-center justify-between gap-3 mb-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Родители / Опекуны</h3>
+                  <h3 className="text-sm font-semibold text-p-text">Родители / Опекуны</h3>
                 </div>
                 {student.guardians && student.guardians.length > 0 ? (
-                  <div className="overflow-hidden rounded-[2px] border border-gray-200">
+                  <div className="overflow-hidden rounded-[2px] border border-p-line">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -1233,7 +1233,7 @@ export const StudentCardPage: React.FC = () => {
                     </Table>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">Опекуны не добавлены</p>
+                  <p className="text-sm text-p-muted">Опекуны не добавлены</p>
                 )}
               </div>
             )}
@@ -1242,7 +1242,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 3. Contract */}
         {canAccess('finances') && contract && (
-          <AccordionItem value="contract" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="contract" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               Договор
             </AccordionTrigger>
@@ -1289,7 +1289,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 4. Finances */}
         {canAccess('finances') && contract && (
-          <AccordionItem value="finances" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="finances" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               Финансы
             </AccordionTrigger>
@@ -1316,20 +1316,20 @@ export const StudentCardPage: React.FC = () => {
                             {p.status}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-500">{formatDate(p.paid_at)}</TableCell>
+                        <TableCell className="text-p-muted">{formatDate(p.paid_at)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-sm text-gray-500 py-2">Платежи не найдены</p>
+                <p className="text-sm text-p-muted py-2">Платежи не найдены</p>
               )}
             </AccordionContent>
           </AccordionItem>
         )}
 
         {/* 5. Applications */}
-        <AccordionItem value="applications" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="applications" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Заявки в вузы
           </AccordionTrigger>
@@ -1350,14 +1350,14 @@ export const StudentCardPage: React.FC = () => {
                     <TableRow key={app.id}>
                       <TableCell className="font-medium">{app.country}</TableCell>
                       <TableCell>
-                        <span className="text-xs text-gray-600">
+                        <span className="text-xs text-p-muted">
                           {SUBMISSION_STATUS_LABELS[app.submission_status]}
                         </span>
                       </TableCell>
                       <TableCell>
                         {app.submissions_done}/{app.submissions_planned}
                       </TableCell>
-                      <TableCell className="text-gray-500">{app.visa_status ?? '—'}</TableCell>
+                      <TableCell className="text-p-muted">{app.visa_status ?? '—'}</TableCell>
                       <TableCell>
                         {app.is_primary && <Check className="w-4 h-4 text-green-600" />}
                       </TableCell>
@@ -1366,13 +1366,13 @@ export const StudentCardPage: React.FC = () => {
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-sm text-gray-500 py-2">Заявки не добавлены</p>
+              <p className="text-sm text-p-muted py-2">Заявки не добавлены</p>
             )}
           </AccordionContent>
         </AccordionItem>
 
         {/* 6. Services */}
-        <AccordionItem value="services" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="services" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Программы / услуги
           </AccordionTrigger>
@@ -1401,10 +1401,10 @@ export const StudentCardPage: React.FC = () => {
                             {svc.included ? SERVICE_STATUS_LABELS[svc.status] : 'Не включена'}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-500">{assignedMentor?.name || 'Не назначен'}</TableCell>
-                        <TableCell className="whitespace-nowrap text-gray-500">{svc.deadline ? formatDate(svc.deadline) : '—'}</TableCell>
+                        <TableCell className="text-p-muted">{assignedMentor?.name || 'Не назначен'}</TableCell>
+                        <TableCell className="whitespace-nowrap text-p-muted">{svc.deadline ? formatDate(svc.deadline) : '—'}</TableCell>
                         <TableCell className="max-w-[180px] truncate">{svc.result || '—'}</TableCell>
-                        <TableCell className="max-w-[220px] truncate text-gray-500">{svc.notes || '—'}</TableCell>
+                        <TableCell className="max-w-[220px] truncate text-p-muted">{svc.notes || '—'}</TableCell>
                         {canAccess('all_students') && (
                           <TableCell className="text-right">
                             <Button variant="outline" size="sm" onClick={() => setEditService(svc)}>
@@ -1418,13 +1418,13 @@ export const StudentCardPage: React.FC = () => {
                 </TableBody>
               </Table>
             ) : (
-              <p className="text-sm text-gray-500 py-2">Услуги не настроены</p>
+              <p className="text-sm text-p-muted py-2">Услуги не настроены</p>
             )}
           </AccordionContent>
         </AccordionItem>
 
         {/* 7. Portfolio UP */}
-        <AccordionItem value="portfolio" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="portfolio" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Portfolio UP
           </AccordionTrigger>
@@ -1438,8 +1438,8 @@ export const StudentCardPage: React.FC = () => {
                 {portfolio.special_notes && (
                   <InfoRow label="Особые заметки" value={portfolio.special_notes} />
                 )}
-                <div className="flex items-center gap-4 py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500 w-48 shrink-0">Достижения</span>
+                <div className="flex items-center gap-4 py-2 border-b border-p-line">
+                  <span className="text-sm text-p-muted w-48 shrink-0">Достижения</span>
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
@@ -1472,8 +1472,8 @@ export const StudentCardPage: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500 w-48 shrink-0">Звонки</span>
+                <div className="flex items-center gap-4 py-2 border-b border-p-line">
+                  <span className="text-sm text-p-muted w-48 shrink-0">Звонки</span>
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
@@ -1508,7 +1508,7 @@ export const StudentCardPage: React.FC = () => {
                 </div>
                 {portfolio.focus_areas && portfolio.focus_areas.length > 0 && (
                   <div className="py-2">
-                    <span className="text-sm text-gray-500 block mb-2">Направления</span>
+                    <span className="text-sm text-p-muted block mb-2">Направления</span>
                     <div className="flex flex-wrap gap-2">
                       {portfolio.focus_areas.map((area, i) => (
                         <span key={i} className="px-3 py-1 bg-sky-50 text-sky-700 border border-sky-200 text-xs rounded-[2px]">
@@ -1520,13 +1520,13 @@ export const StudentCardPage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 py-2">Portfolio UP не настроено</p>
+              <p className="text-sm text-p-muted py-2">Portfolio UP не настроено</p>
             )}
           </AccordionContent>
         </AccordionItem>
 
         {/* 8. Documents */}
-        <AccordionItem value="documents" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="documents" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Документы
           </AccordionTrigger>
@@ -1536,11 +1536,11 @@ export const StudentCardPage: React.FC = () => {
                 {student.documents.map((doc) => (
                   <div
                     key={doc.id}
-                    className="border border-gray-200 rounded-[2px] p-3 bg-gray-50 flex flex-col gap-3"
+                    className="border border-p-line rounded-[2px] p-3 bg-p-bg flex flex-col gap-3"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-sm font-medium text-p-text truncate">{doc.file_name}</p>
+                      <p className="text-xs text-p-muted mt-1">
                         {DOC_TYPE_LABELS[doc.doc_type as keyof typeof DOC_TYPE_LABELS] ?? doc.doc_type}
                         {' · '}
                         {formatFileSize(doc.file_size)}
@@ -1587,14 +1587,14 @@ export const StudentCardPage: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 py-2">Документы не загружены</p>
+              <p className="text-sm text-p-muted py-2">Документы не загружены</p>
             )}
           </AccordionContent>
         </AccordionItem>
 
         {/* 9b. Telegram */}
         {hasRole('admin', 'mzk_manager') && (
-          <AccordionItem value="telegram" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="telegram" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               <span className="flex items-center gap-2.5">
                 Telegram
@@ -1603,7 +1603,7 @@ export const StudentCardPage: React.FC = () => {
                     {telegramChat.status === 'active' ? 'подключён' : 'на паузе'}
                   </span>
                 ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-gray-50 text-gray-500 border border-gray-200">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium uppercase tracking-wide bg-p-bg text-p-muted border border-p-line">
                     не привязан
                   </span>
                 )}
@@ -1618,19 +1618,19 @@ export const StudentCardPage: React.FC = () => {
                   variant="crm"
                 />
                 {telegramChat && telegramChat.status !== 'closed' && (
-                  <div className="space-y-2 border-t border-gray-200 pt-4">
-                    <div className="flex items-center justify-between text-xs text-gray-500">
+                  <div className="space-y-2 border-t border-p-line pt-4">
+                    <div className="flex items-center justify-between text-xs text-p-muted">
                       <span>Последние сообщения: {telegramMessages.length}</span>
-                      <Link to={`/telegram-inbox/${telegramChat.id}`} className="text-gray-700 hover:text-black underline underline-offset-4">
+                      <Link to={`/telegram-inbox/${telegramChat.id}`} className="text-p-text hover:text-black underline underline-offset-4">
                         Вся переписка и AI-разбор
                       </Link>
                     </div>
                     {telegramMessages.length > 0 ? telegramMessages.slice(-5).map((message) => (
-                      <div key={message.id} className="rounded-[3px] border border-gray-200 bg-white p-2 text-sm">
-                        <p className="mb-0.5 text-[11px] text-gray-500">{message.sender_name || 'Без имени'} · {formatDate(message.created_at)}</p>
-                        <p className="text-gray-700">{message.raw_text || `[${message.message_type}]`}</p>
+                      <div key={message.id} className="rounded-[3px] border border-p-line bg-white p-2 text-sm">
+                        <p className="mb-0.5 text-[11px] text-p-muted">{message.sender_name || 'Без имени'} · {formatDate(message.created_at)}</p>
+                        <p className="text-p-text">{message.raw_text || `[${message.message_type}]`}</p>
                       </div>
-                    )) : <p className="text-sm text-gray-500">Сообщений пока нет. После проверки готовности новые сообщения появятся здесь.</p>}
+                    )) : <p className="text-sm text-p-muted">Сообщений пока нет. После проверки готовности новые сообщения появятся здесь.</p>}
                   </div>
                 )}
               </div>
@@ -1639,7 +1639,7 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {/* 10. Notes */}
-        <AccordionItem value="notes" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="notes" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Конспекты
           </AccordionTrigger>
@@ -1647,31 +1647,31 @@ export const StudentCardPage: React.FC = () => {
             {student.notes && student.notes.length > 0 ? (
               <div className="space-y-3">
                 {student.notes.map((note) => (
-                  <div key={note.id} className="border border-gray-200 rounded-[2px] p-3 bg-gray-50/50">
+                  <div key={note.id} className="border border-p-line rounded-[2px] p-3 bg-p-bg/50">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <Link
                           to={`/notes/${note.id}`}
-                          className="font-medium text-gray-900 hover:text-black underline underline-offset-4"
+                          className="font-medium text-p-text hover:text-black underline underline-offset-4"
                         >
                           {note.title}
                         </Link>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-p-muted mt-1">
                           {note.status} · {formatDate(note.created_at)}
                         </p>
                       </div>
-                      <Link to={`/notes/${note.id}`} className="text-xs text-gray-600 hover:text-black underline underline-offset-4">
+                      <Link to={`/notes/${note.id}`} className="text-xs text-p-muted hover:text-black underline underline-offset-4">
                         Открыть
                       </Link>
                     </div>
-                    <p className="text-sm text-gray-600 mt-2 line-clamp-3">
+                    <p className="text-sm text-p-muted mt-2 line-clamp-3">
                       {stripMarkdown(note.summary_markdown)}
                     </p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 py-2">Конспектов пока нет</p>
+              <p className="text-sm text-p-muted py-2">Конспектов пока нет</p>
             )}
             <div className="mt-3">
               <Button asChild variant="outline" size="sm">
@@ -1686,7 +1686,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 11. Confidential notes */}
         {canAccess('confidential') && (
-          <AccordionItem id="student-notes" value="confidential" className="scroll-mt-6 border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem id="student-notes" value="confidential" className="scroll-mt-6 border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-orange-600" />
@@ -1697,9 +1697,9 @@ export const StudentCardPage: React.FC = () => {
               <div className="space-y-3 mb-4">
                 {student.confidential_notes && student.confidential_notes.map((note) => (
                   <div key={note.id} className="bg-orange-50 border border-orange-100 rounded-lg p-3">
-                    <p className="text-sm text-gray-800">{note.note_text}</p>
+                    <p className="text-sm text-p-text">{note.note_text}</p>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-p-muted">
                         Видят: {note.visible_to_role} · {formatDate(note.created_at)}
                       </p>
                       <Button
@@ -1760,7 +1760,7 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {/* 12. Tasks */}
-        <AccordionItem value="tasks" className="border border-gray-200 rounded-[2px] px-4">
+        <AccordionItem value="tasks" className="border border-p-line rounded-[2px] px-4">
           <AccordionTrigger className="text-base font-semibold">
             Задачи
           </AccordionTrigger>
@@ -1768,17 +1768,17 @@ export const StudentCardPage: React.FC = () => {
             <div className="space-y-2 mb-3">
               {student.student_tasks && student.student_tasks.length > 0 ? (
                 student.student_tasks.map((task) => (
-                  <div key={task.id} className="flex items-start gap-3 py-2 border-b border-gray-100 last:border-0">
+                  <div key={task.id} className="flex items-start gap-3 py-2 border-b border-p-line last:border-0">
                     <Checkbox
                       checked={task.status === 'done'}
                       onCheckedChange={() => toggleTaskMutation.mutate(task)}
                       disabled={!canAccess('tasks_create')}
                     />
                     <div className="flex-1">
-                      <p className={`text-sm ${task.status === 'done' ? 'line-through text-gray-500' : 'text-gray-800'}`}>
+                      <p className={`text-sm ${task.status === 'done' ? 'line-through text-p-muted' : 'text-p-text'}`}>
                         {task.task_text}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-xs text-p-muted mt-0.5">
                         {formatDate(task.created_at)}
                         {task.done_at && ` · Выполнено ${formatDate(task.done_at)}`}
                       </p>
@@ -1786,7 +1786,7 @@ export const StudentCardPage: React.FC = () => {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-gray-500">Задач нет</p>
+                <p className="text-sm text-p-muted">Задач нет</p>
               )}
             </div>
 
@@ -1827,16 +1827,16 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 12. Unified timeline */}
         {hasRole('admin', 'mzk_manager', 'mentor') && (
-          <AccordionItem value="timeline" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="timeline" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               <span className="flex items-center gap-2">
-                <ListChecks className="w-4 h-4 text-gray-500" />
+                <ListChecks className="w-4 h-4 text-p-muted" />
                 Единая история работы
               </span>
             </AccordionTrigger>
             <AccordionContent>
               {timelineData && (
-                <div className="mb-3 text-xs text-gray-500">
+                <div className="mb-3 text-xs text-p-muted">
                   Показано {timeline.length} из {timelineData.total} событий
                 </div>
               )}
@@ -1844,15 +1844,15 @@ export const StudentCardPage: React.FC = () => {
                 <div className="space-y-2">
                   {timeline.map((item) => {
                     const content = (
-                      <div className="border-l-2 border-gray-200 pl-3 py-1 transition hover:border-gray-400">
+                      <div className="border-l-2 border-p-line pl-3 py-1 transition hover:border-gray-400">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-[2px] border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                          <span className="rounded-[2px] border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-p-muted">
                             {item.kind}
                           </span>
-                          <span className="text-xs text-gray-500">{formatDate(item.at)}</span>
+                          <span className="text-xs text-p-muted">{formatDate(item.at)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-sm font-medium text-gray-900">{item.title || 'Событие'}</p>
-                        {item.text && <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{item.text}</p>}
+                        <p className="mt-1 line-clamp-2 text-sm font-medium text-p-text">{item.title || 'Событие'}</p>
+                        {item.text && <p className="mt-0.5 line-clamp-2 text-xs text-p-muted">{item.text}</p>}
                       </div>
                     )
                     return item.href?.startsWith('/') ? (
@@ -1865,7 +1865,7 @@ export const StudentCardPage: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 py-2">Рабочей истории пока нет</p>
+                <p className="text-sm text-p-muted py-2">Рабочей истории пока нет</p>
               )}
             </AccordionContent>
           </AccordionItem>
@@ -1873,7 +1873,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 13. History */}
         {hasRole('admin', 'mzk_manager', 'mentor') && (
-          <AccordionItem value="history" className="border border-gray-200 rounded-[2px] px-4">
+          <AccordionItem value="history" className="border border-p-line rounded-[2px] px-4">
             <AccordionTrigger className="text-base font-semibold">
               История изменений
             </AccordionTrigger>
@@ -1881,23 +1881,23 @@ export const StudentCardPage: React.FC = () => {
               {history.length > 0 ? (
                 <div className="space-y-2">
                   {history.map((entry) => (
-                    <div key={entry.id} className="border-l-2 border-gray-200 pl-3 py-1">
-                      <p className="text-sm text-gray-600">
+                    <div key={entry.id} className="border-l-2 border-p-line pl-3 py-1">
+                      <p className="text-sm text-p-muted">
                         <span className="font-medium">{entry.field_changed}</span>
-                        <span className="text-gray-500">
+                        <span className="text-p-muted">
                           {' '}
                           {entry.old_value ?? '—'} → {entry.new_value ?? '—'}
                         </span>
                         {entry.source && (
-                          <span className="text-gray-500"> · {entry.source}</span>
+                          <span className="text-p-muted"> · {entry.source}</span>
                         )}
                       </p>
-                      <p className="text-xs text-gray-500">{formatDate(entry.changed_at)}</p>
+                      <p className="text-xs text-p-muted">{formatDate(entry.changed_at)}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 py-2">История пуста</p>
+                <p className="text-sm text-p-muted py-2">История пуста</p>
               )}
             </AccordionContent>
           </AccordionItem>

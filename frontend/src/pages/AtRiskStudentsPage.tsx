@@ -96,10 +96,10 @@ export const AtRiskStudentsPage: React.FC = () => {
         процесс подвешен или студента перевели. Статусы: «На визе», «Подвешено», «Перевели».
       </div>
 
-      <div className="border-y border-gray-200">
+      <div className="border-y border-p-line">
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Студент</TableHead>
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
@@ -111,13 +111,13 @@ export const AtRiskStudentsPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : atRiskStudents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   В зоне риска никого нет
                 </TableCell>
               </TableRow>
@@ -125,7 +125,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                 atRiskStudents.map((student) => (
                   <TableRow
                     key={student.id}
-                    className="border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    className="border-p-line hover:bg-p-bg cursor-pointer"
                     tabIndex={0}
                     role="link"
                     onClick={() => navigate(`/students/${student.id}`)}
@@ -136,7 +136,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                       }
                     }}
                   >
-                    <TableCell className="font-medium text-gray-900">{student.full_name}</TableCell>
+                    <TableCell className="font-medium text-p-text">{student.full_name}</TableCell>
                     <TableCell>
                       <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                         {DEGREE_LEVEL_LABELS[student.degree_level]}
@@ -149,13 +149,13 @@ export const AtRiskStudentsPage: React.FC = () => {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-gray-600">{student.intake_year}</TableCell>
-                  <TableCell className="text-gray-600">{student.days_in_work ?? '—'}</TableCell>
+                  <TableCell className="text-p-muted">{student.intake_year}</TableCell>
+                  <TableCell className="text-p-muted">{student.days_in_work ?? '—'}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
                       <Link
                         to={`/students/${student.id}`}
-                        className="label-caps text-gray-500 hover:text-black transition-colors"
+                        className="label-caps text-p-muted hover:text-black transition-colors"
                       >
                         Открыть →
                       </Link>
@@ -172,12 +172,12 @@ export const AtRiskStudentsPage: React.FC = () => {
         <div className="mt-10">
           <div className="flex items-center gap-3 mb-4">
             <Copy className="w-5 h-5 text-red-600" />
-            <h2 className="text-lg font-bold text-gray-900 tracking-tight">
+            <h2 className="text-lg font-bold text-p-text tracking-tight">
               Возможные дубли · {duplicates.total}
             </h2>
           </div>
           {duplicates.total === 0 ? (
-            <p className="text-sm text-gray-500">Дублей не найдено — все студенты уникальны.</p>
+            <p className="text-sm text-p-muted">Дублей не найдено — все студенты уникальны.</p>
           ) : (
             <>
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-[2px] text-sm text-red-800">
@@ -185,10 +185,10 @@ export const AtRiskStudentsPage: React.FC = () => {
                 написание на разных языках). Проверь каждую пару: можно соединить карточки
                 в одну. Архивный профиль не удаляется и останется доступен администратору.
               </div>
-              <div className="border-y border-gray-200">
+              <div className="border-y border-p-line">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-gray-200 hover:bg-transparent">
+                    <TableRow className="border-p-line hover:bg-transparent">
                       <TableHead>Студент А</TableHead>
                       <TableHead>Студент Б</TableHead>
                       <TableHead>Совпадение</TableHead>
@@ -198,18 +198,18 @@ export const AtRiskStudentsPage: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {duplicates.pairs.map((pair, i) => (
-                      <TableRow key={i} className="border-gray-100 hover:bg-gray-50">
+                      <TableRow key={i} className="border-p-line hover:bg-p-bg">
                         <TableCell>
-                          <Link to={`/students/${pair.a.id}`} className="font-medium text-gray-900 hover:underline">
+                          <Link to={`/students/${pair.a.id}`} className="font-medium text-p-text hover:underline">
                             {pair.a.full_name}
                           </Link>
-                          <span className="text-gray-400 text-xs ml-2">{pair.a.intake_year}</span>
+                          <span className="text-p-muted2 text-xs ml-2">{pair.a.intake_year}</span>
                         </TableCell>
                         <TableCell>
-                          <Link to={`/students/${pair.b.id}`} className="font-medium text-gray-900 hover:underline">
+                          <Link to={`/students/${pair.b.id}`} className="font-medium text-p-text hover:underline">
                             {pair.b.full_name}
                           </Link>
-                          <span className="text-gray-400 text-xs ml-2">{pair.b.intake_year}</span>
+                          <span className="text-p-muted2 text-xs ml-2">{pair.b.intake_year}</span>
                         </TableCell>
                         <TableCell>
                           <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${
@@ -220,7 +220,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                             {pair.reason === 'phone' ? 'Телефон' : 'Имя'}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-gray-500">
+                        <TableCell className="text-xs text-p-muted">
                           {pair.a.phone || '—'} · {pair.b.phone || '—'}
                         </TableCell>
                         {isAdmin && (
@@ -257,7 +257,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                   type="button"
                   onClick={() => setMainSide('a')}
                   className={`rounded-[2px] border p-3 text-left transition-colors ${
-                    mainSide === 'a' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white hover:bg-gray-50'
+                    mainSide === 'a' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg'
                   }`}
                 >
                   <div className="text-xs uppercase tracking-[0.18em] opacity-70">Главная карточка</div>
@@ -268,7 +268,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                   type="button"
                   onClick={() => setMainSide('b')}
                   className={`rounded-[2px] border p-3 text-left transition-colors ${
-                    mainSide === 'b' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white hover:bg-gray-50'
+                    mainSide === 'b' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg'
                   }`}
                 >
                   <div className="text-xs uppercase tracking-[0.18em] opacity-70">Главная карточка</div>

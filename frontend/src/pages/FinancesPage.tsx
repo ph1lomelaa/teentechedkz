@@ -49,13 +49,13 @@ function StatBlock({
       ? 'text-emerald-700'
       : tone === 'negative'
         ? 'text-red-600'
-        : 'text-gray-900'
+        : 'text-p-text'
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`min-w-0 border border-gray-200 rounded-[2px] p-5 text-left w-full ${
-        onClick ? 'cursor-pointer hover:bg-gray-50 transition-colors' : ''
+      className={`min-w-0 border border-p-line rounded-[2px] p-5 text-left w-full ${
+        onClick ? 'cursor-pointer hover:bg-p-bg transition-colors' : ''
       }`}
     >
       <p className="label-caps mb-3">{label}</p>
@@ -65,7 +65,7 @@ function StatBlock({
       >
         {value}
       </p>
-      <p className="text-xs text-gray-500 mt-2">{hint}</p>
+      <p className="text-xs text-p-muted mt-2">{hint}</p>
     </button>
   )
 }
@@ -99,10 +99,10 @@ function NotionMoneyTile({
       ? 'text-emerald-700'
       : tone === 'negative'
         ? 'text-red-600'
-        : 'text-gray-900'
+        : 'text-p-text'
   return (
     <div className="bg-white px-3 py-2.5 min-w-0 text-left w-full">
-      <p className="text-[10px] uppercase tracking-wide text-gray-400 truncate">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-p-muted2 truncate">{label}</p>
       <p
         className={`text-sm font-semibold mt-0.5 truncate ${value ? valueColor : 'text-gray-300'}`}
         title={value ? formatMoney(value) : undefined}
@@ -175,11 +175,11 @@ function NotionFinanceSection({
         <button
           type="button"
           onClick={() => onSelect({ source: 'notion', section: 'statuses' })}
-          className="label-caps text-left hover:text-gray-700 transition-colors"
+          className="label-caps text-left hover:text-p-text transition-colors"
         >
           Из Notion · {data.records} клиентов
         </button>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-p-muted2">
           только просмотр
           {data.synced_at &&
             ` · синхронизировано ${new Date(data.synced_at).toLocaleString('ru-RU', {
@@ -189,7 +189,7 @@ function NotionFinanceSection({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {groups.map((group) => (
-          <div key={group.title} className="border border-gray-200 rounded-[2px] overflow-hidden">
+          <div key={group.title} className="border border-p-line rounded-[2px] overflow-hidden">
             <button
               type="button"
               onClick={() => onSelect({
@@ -205,7 +205,7 @@ function NotionFinanceSection({
                           ? 'up'
                           : 'other',
               })}
-              className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 px-3 py-2 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-2 text-left w-full hover:bg-gray-100 transition-colors"
+              className="text-[11px] font-semibold uppercase tracking-wide text-p-muted px-3 py-2 border-b border-p-line bg-p-bg flex items-center justify-between gap-2 text-left w-full hover:bg-p-panel transition-colors"
             >
               {group.title}
               <ChevronRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
@@ -225,7 +225,7 @@ function NotionFinanceSection({
               key={s.status}
               type="button"
               onClick={() => onSelect({ source: 'notion', section: 'statuses' })}
-              className="text-[11px] px-2 py-0.5 rounded-[2px] border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+              className="text-[11px] px-2 py-0.5 rounded-[2px] border border-p-line bg-p-bg text-p-muted hover:bg-p-panel transition-colors"
             >
               {s.status} · {s.count}
             </button>
@@ -398,26 +398,26 @@ export const FinancesPage: React.FC = () => {
             <TableBody>
               {balancesLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                     Загрузка...
                   </TableCell>
                 </TableRow>
               ) : studentsWithBalance.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                     Нет клиентов с остатком
                   </TableCell>
                 </TableRow>
               ) : (
                 studentsWithBalance.map((student) => (
                   <TableRow key={student.student_id} className="border-border hover:bg-muted/50">
-                    <TableCell className="font-medium text-gray-900">
+                    <TableCell className="font-medium text-p-text">
                       <Link to={`/students/${student.student_id}`} className="hover:underline">
                         {student.full_name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-gray-600">{student.intake_year}</TableCell>
-                    <TableCell className="text-gray-600">
+                    <TableCell className="text-p-muted">{student.intake_year}</TableCell>
+                    <TableCell className="text-p-muted">
                       {DEGREE_LEVEL_LABELS[student.degree_level] ?? student.degree_level}
                     </TableCell>
                     <TableCell>
@@ -426,14 +426,14 @@ export const FinancesPage: React.FC = () => {
                           {PIPELINE_STATUS_LABELS[student.pipeline_status] ?? student.pipeline_status}
                         </span>
                       ) : (
-                        <span className="text-gray-500 text-xs">—</span>
+                        <span className="text-p-muted text-xs">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-gray-600">
+                    <TableCell className="text-p-muted">
                       {student.responsible_name ? (
                         <div>
-                          <div className="font-medium text-gray-900">{student.responsible_name}</div>
-                          <div className="text-[11px] uppercase tracking-wide text-gray-400">
+                          <div className="font-medium text-p-text">{student.responsible_name}</div>
+                          <div className="text-[11px] uppercase tracking-wide text-p-muted2">
                             {student.responsible_role === 'manager'
                               ? 'менеджер'
                               : student.responsible_role === 'mentor'
@@ -442,7 +442,7 @@ export const FinancesPage: React.FC = () => {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-gray-500 text-xs">—</span>
+                        <span className="text-p-muted text-xs">—</span>
                       )}
                     </TableCell>
                     <TableCell className="font-medium text-red-600">
@@ -472,13 +472,13 @@ export const FinancesPage: React.FC = () => {
             <TableBody>
               {payoutsLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={4} className="text-center py-8 text-p-muted">
                     Загрузка...
                   </TableCell>
                 </TableRow>
               ) : mentorPayouts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={4} className="text-center py-8 text-p-muted">
                     В CRM платежи менторам не вносились — фактические выплаты смотри
                     в блоке «Из Notion» выше (TOTAL / Выплачено / TBP)
                   </TableCell>
@@ -486,14 +486,14 @@ export const FinancesPage: React.FC = () => {
               ) : (
                 mentorPayouts.map((payout) => (
                   <TableRow key={payout.mentor_id} className="border-border hover:bg-muted/50">
-                    <TableCell className="font-medium text-gray-900">{payout.mentor_name}</TableCell>
-                    <TableCell className="text-gray-600">
+                    <TableCell className="font-medium text-p-text">{payout.mentor_name}</TableCell>
+                    <TableCell className="text-p-muted">
                       {formatCurrency(toNumber(payout.paid) + toNumber(payout.to_be_paid), payout.currency ?? moneyCurrency)}
                     </TableCell>
                     <TableCell className="text-emerald-700">
                       {formatCurrency(payout.paid, payout.currency ?? moneyCurrency)}
                     </TableCell>
-                    <TableCell className={toNumber(payout.to_be_paid) > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                    <TableCell className={toNumber(payout.to_be_paid) > 0 ? 'text-red-600 font-medium' : 'text-p-muted'}>
                       {formatCurrency(payout.to_be_paid, payout.currency ?? moneyCurrency)}
                     </TableCell>
                   </TableRow>
@@ -515,10 +515,10 @@ export const FinancesPage: React.FC = () => {
           </DialogHeader>
 
           {selectedInsight?.source === 'crm' ? (
-            <div className="max-h-[70vh] overflow-auto border border-gray-200 rounded-[2px]">
+            <div className="max-h-[70vh] overflow-auto border border-p-line rounded-[2px]">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-gray-200 hover:bg-transparent">
+                  <TableRow className="border-p-line hover:bg-transparent">
                     <TableHead>Студент</TableHead>
                     <TableHead>Ответственный</TableHead>
                     <TableHead>Статус</TableHead>
@@ -532,7 +532,7 @@ export const FinancesPage: React.FC = () => {
                 <TableBody>
                   {crmRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-p-muted">
                         Нет данных для разбора
                       </TableCell>
                     </TableRow>
@@ -543,18 +543,18 @@ export const FinancesPage: React.FC = () => {
                       const diff = Math.abs(remaining - calculatedRemaining)
                       const mismatch = diff > 0.01
                       return (
-                        <TableRow key={row.contract_id} className="border-gray-100">
-                          <TableCell className="font-medium text-gray-900">
+                        <TableRow key={row.contract_id} className="border-p-line">
+                          <TableCell className="font-medium text-p-text">
                             <Link to={`/students/${row.student_id}`} className="hover:underline">
                               {row.student_name}
                             </Link>
-                            <div className="text-[11px] text-gray-400">
+                            <div className="text-[11px] text-p-muted2">
                               {row.degree_level} · {row.intake_year}
                             </div>
                           </TableCell>
-                          <TableCell className="text-gray-600">
+                          <TableCell className="text-p-muted">
                             {row.responsible_name ?? row.manager_name ?? row.mentor_name ?? '—'}
-                            <div className="text-[11px] text-gray-400">
+                            <div className="text-[11px] text-p-muted2">
                               {row.responsible_role === 'manager'
                                 ? 'менеджер'
                                 : row.responsible_role === 'mentor'
@@ -570,10 +570,10 @@ export const FinancesPage: React.FC = () => {
                                 {PIPELINE_STATUS_LABELS[row.pipeline_status] ?? row.pipeline_status}
                               </span>
                             ) : (
-                              <span className="text-gray-500 text-xs">—</span>
+                              <span className="text-p-muted text-xs">—</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-gray-600">
+                          <TableCell className="text-p-muted">
                             {formatMoney(row.amount, row.currency)}
                           </TableCell>
                           <TableCell className="text-emerald-700">
@@ -582,7 +582,7 @@ export const FinancesPage: React.FC = () => {
                           <TableCell className="font-medium text-red-600">
                             {formatMoney(row.remaining_amount, row.currency)}
                           </TableCell>
-                          <TableCell className="text-gray-600">
+                          <TableCell className="text-p-muted">
                             {formatMoney(row.calculated_remaining_amount, row.currency)}
                           </TableCell>
                           <TableCell className={mismatch ? 'text-red-600 font-medium' : 'text-emerald-700'}>
@@ -599,17 +599,17 @@ export const FinancesPage: React.FC = () => {
             selectedInsight.section === 'statuses' ? (
               <div className="flex flex-wrap gap-2">
                 {notionSummary?.by_status.map((status) => (
-                  <div key={status.status} className="px-3 py-2 border border-gray-200 rounded-[2px]">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400">{status.status}</div>
-                    <div className="text-lg font-semibold text-gray-900">{status.count}</div>
+                  <div key={status.status} className="px-3 py-2 border border-p-line rounded-[2px]">
+                    <div className="text-[11px] uppercase tracking-wide text-p-muted2">{status.status}</div>
+                    <div className="text-lg font-semibold text-p-text">{status.count}</div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="max-h-[70vh] overflow-auto border border-gray-200 rounded-[2px]">
+              <div className="max-h-[70vh] overflow-auto border border-p-line rounded-[2px]">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-gray-200 hover:bg-transparent">
+                    <TableRow className="border-p-line hover:bg-transparent">
                       <TableHead>Клиент</TableHead>
                       <TableHead>Статус</TableHead>
                       <TableHead>Сумма 1</TableHead>
@@ -620,7 +620,7 @@ export const FinancesPage: React.FC = () => {
                   <TableBody>
                     {selectedNotionRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={5} className="text-center py-8 text-p-muted">
                           Нет данных для разбора
                         </TableCell>
                       </TableRow>
@@ -637,15 +637,15 @@ export const FinancesPage: React.FC = () => {
                                   ? [row.up_sum, row.up_paid, row.up_tbp]
                                   : [row.proforientation_sum, row.ielts_exam_fee, null]
                         return (
-                          <TableRow key={row.id} className="border-gray-100">
-                            <TableCell className="font-medium text-gray-900">
+                          <TableRow key={row.id} className="border-p-line">
+                            <TableCell className="font-medium text-p-text">
                               {row.full_name ?? '—'}
-                              <div className="text-[11px] text-gray-400">{row.intake ?? '—'}</div>
+                              <div className="text-[11px] text-p-muted2">{row.intake ?? '—'}</div>
                             </TableCell>
-                            <TableCell className="text-gray-600">{row.payment_status}</TableCell>
-                            <TableCell className="text-gray-600">{formatMoney(values[0])}</TableCell>
-                            <TableCell className="text-gray-600">{formatMoney(values[1])}</TableCell>
-                            <TableCell className="text-gray-600">
+                            <TableCell className="text-p-muted">{row.payment_status}</TableCell>
+                            <TableCell className="text-p-muted">{formatMoney(values[0])}</TableCell>
+                            <TableCell className="text-p-muted">{formatMoney(values[1])}</TableCell>
+                            <TableCell className="text-p-muted">
                               {values[2] === null ? '—' : formatMoney(values[2])}
                             </TableCell>
                           </TableRow>

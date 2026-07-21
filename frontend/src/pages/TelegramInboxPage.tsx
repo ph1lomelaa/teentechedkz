@@ -175,7 +175,7 @@ export default function TelegramInboxPage() {
         description="Диалоги со студентами и сообщения, требующие внимания команды."
       />
 
-      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+      <div className="flex gap-1 border-b border-p-line overflow-x-auto">
         {[
           { value: 'all', label: 'Все' },
           { value: 'mine', label: 'Мои' },
@@ -187,8 +187,8 @@ export default function TelegramInboxPage() {
             onClick={() => setScope(s.value as typeof scope)}
             className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               scope === s.value
-                ? 'border-black text-gray-900 font-medium'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
+                ? 'border-black text-p-text font-medium'
+                : 'border-transparent text-p-muted hover:text-p-text'
             }`}
           >
             {s.label}
@@ -196,8 +196,8 @@ export default function TelegramInboxPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-gray-200 bg-gray-50 px-3 py-2">
-        <div className="text-sm text-gray-600">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+        <div className="text-sm text-p-muted">
           {filtered.length} из {chats.length} чатов
           {quickFilter !== 'none' ? ' · включён быстрый фильтр' : ''}
         </div>
@@ -222,15 +222,15 @@ export default function TelegramInboxPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+      <div className="flex gap-1 border-b border-p-line overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
             className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               tab === t.value
-                ? 'border-black text-gray-900 font-medium'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
+                ? 'border-black text-p-text font-medium'
+                : 'border-transparent text-p-muted hover:text-p-text'
             }`}
           >
             {t.label}
@@ -239,11 +239,11 @@ export default function TelegramInboxPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Загрузка…</p>
+        <p className="text-sm text-p-muted">Загрузка…</p>
       ) : filtered.length === 0 ? (
         <div className="py-10 text-center">
-          <p className="text-sm font-medium text-gray-700">Чатов по этому фильтру нет</p>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="text-sm font-medium text-p-text">Чатов по этому фильтру нет</p>
+          <p className="mt-1 text-sm text-p-muted">
             Начните с фильтра «Требуют внимания» или «Новые без студента», если обрабатываете входящие сообщения.
           </p>
         </div>
@@ -264,12 +264,12 @@ export default function TelegramInboxPage() {
             {filtered.map((chat) => (
               <TableRow
                 key={chat.id}
-                className="cursor-pointer hover:bg-gray-50"
+                className="cursor-pointer hover:bg-p-bg"
                 onClick={() => navigate(`/telegram-inbox/${chat.id}`)}
               >
                 <TableCell>
-                  <div className="font-medium text-gray-900">{chat.title || `Чат ${chat.chat_id}`}</div>
-                  <div className="text-xs text-gray-500">{chat.chat_type}</div>
+                  <div className="font-medium text-p-text">{chat.title || `Чат ${chat.chat_id}`}</div>
+                  <div className="text-xs text-p-muted">{chat.chat_type}</div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -287,7 +287,7 @@ export default function TelegramInboxPage() {
                 <TableCell>
                   {chat.student_name ? (
                     <div className="space-y-1">
-                      <span className="text-gray-800">{chat.student_name}</span>
+                      <span className="text-p-text">{chat.student_name}</span>
                       {chat.is_mine && (
                         <span className="block w-fit text-[10px] px-1.5 py-0.5 rounded-[2px] border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
                           Мой чат
@@ -295,20 +295,20 @@ export default function TelegramInboxPage() {
                       )}
                     </div>
                   ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-p-muted2">—</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  <span className="text-xs text-gray-500 max-w-[160px] block truncate">
+                  <span className="text-xs text-p-muted max-w-[160px] block truncate">
                     {chat.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
                   </span>
                 </TableCell>
-                <TableCell className="text-sm text-gray-600">
+                <TableCell className="text-sm text-p-muted">
                   <div className="max-w-[240px] truncate">{chat.last_message_preview || '—'}</div>
-                  <div className="text-xs text-gray-400">{formatDate(chat.last_message_at)}</div>
+                  <div className="text-xs text-p-muted2">{formatDate(chat.last_message_at)}</div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex gap-2 text-xs text-gray-600">
+                  <div className="flex gap-2 text-xs text-p-muted">
                     {chat.pending_insight_count > 0 && (
                       <span className="flex items-center gap-1">
                         <MessageSquareWarning className="w-3.5 h-3.5" />

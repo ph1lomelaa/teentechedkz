@@ -84,7 +84,7 @@ export const MyStudentsPage: React.FC = () => {
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-4 h-4" />
           <Input
             placeholder="Поиск..."
             value={search}
@@ -112,10 +112,10 @@ export const MyStudentsPage: React.FC = () => {
         </Select>
       </div>
 
-      <div className="border-y border-gray-200">
+      <div className="border-y border-p-line">
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Имя</TableHead>
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
@@ -127,23 +127,23 @@ export const MyStudentsPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   У вас пока нет студентов. Откройте общий список и назначьте себя или нужного ментора ответственным.
                 </TableCell>
               </TableRow>
             ) : (
               students.map((student) => (
-                <TableRow key={student.id} className="border-gray-100 hover:bg-gray-50">
+                <TableRow key={student.id} className="border-p-line hover:bg-p-bg">
                   <TableCell className="font-medium">
                     <Link
                       to={`/students/${student.id}`}
-                      className="text-gray-900 hover:text-black hover:underline underline-offset-4"
+                      className="text-p-text hover:text-black hover:underline underline-offset-4"
                     >
                       {student.full_name}
                     </Link>
@@ -159,15 +159,15 @@ export const MyStudentsPage: React.FC = () => {
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">—</span>
+                      <span className="text-p-muted2 text-xs">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-gray-600">{student.intake_year}</TableCell>
-                  <TableCell className="text-gray-600">{student.days_in_work ?? '—'}</TableCell>
+                  <TableCell className="text-p-muted">{student.intake_year}</TableCell>
+                  <TableCell className="text-p-muted">{student.days_in_work ?? '—'}</TableCell>
                   <TableCell>
                     <Link
                       to={`/students/${student.id}`}
-                      className="label-caps text-gray-500 hover:text-black transition-colors"
+                      className="label-caps text-p-muted hover:text-black transition-colors"
                     >
                       Открыть →
                     </Link>
@@ -180,7 +180,7 @@ export const MyStudentsPage: React.FC = () => {
       </div>
 
       {!isLoading && students.length === 0 && (
-        <div className="mt-4 rounded-[2px] border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+        <div className="mt-4 rounded-[2px] border border-p-line bg-p-bg px-4 py-3 text-sm text-p-muted">
           У вас нет активных ответственных назначений. В CRM откройте студента и назначьте ментора в блоке «Ответственные»
           или нажмите «Взять» в общем списке.
         </div>
@@ -188,7 +188,7 @@ export const MyStudentsPage: React.FC = () => {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-p-muted">
             Показано {students.length} из {total}
           </p>
           <div className="flex items-center gap-2">
@@ -200,7 +200,7 @@ export const MyStudentsPage: React.FC = () => {
             >
               Назад
             </Button>
-            <span className="text-sm text-gray-600">{page} / {totalPages}</span>
+            <span className="text-sm text-p-muted">{page} / {totalPages}</span>
             <Button
               variant="outline"
               size="sm"

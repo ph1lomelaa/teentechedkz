@@ -110,8 +110,8 @@ function LinkDialog({
           <DialogTitle>Привязать анкету</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            {SOURCE_LABELS[submission.source]} · <span className="text-gray-900">{submission.full_name}</span>
+          <p className="text-sm text-p-muted">
+            {SOURCE_LABELS[submission.source]} · <span className="text-p-text">{submission.full_name}</span>
           </p>
           {submission.suggested_student_name && (
             <p className="text-xs text-emerald-700">
@@ -125,7 +125,7 @@ function LinkDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-[2px] divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-[2px] divide-y divide-gray-100">
             {filtered.map((s) => (
               <button
                 key={s.id}
@@ -133,17 +133,17 @@ function LinkDialog({
                 className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   selectedId === s.id
                     ? 'bg-black text-white'
-                    : 'text-gray-800 hover:bg-gray-50'
+                    : 'text-p-text hover:bg-p-bg'
                 }`}
               >
                 {s.full_name}
-                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-gray-500 text-xs ml-2'}>
+                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-p-muted text-xs ml-2'}>
                   {s.intake_year}
                 </span>
               </button>
             ))}
             {filtered.length === 0 && (
-              <p className="px-3 py-4 text-sm text-gray-500">Не найдено</p>
+              <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
@@ -234,11 +234,11 @@ function IntakeInbox() {
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
-    <div className="border border-gray-200 rounded-[2px]">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
+    <div className="border border-p-line rounded-[2px]">
+      <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Входящие анкеты · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+          <div className="flex items-center gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
             {[
               { value: 'new', label: 'Новые' },
               { value: 'hidden', label: 'Скрытые' },
@@ -250,7 +250,7 @@ function IntakeInbox() {
                 className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
                   intakeView === item.value
                     ? 'bg-white text-black'
-                    : 'text-gray-600 hover:text-black hover:bg-gray-50'
+                    : 'text-p-muted hover:text-black hover:bg-p-bg'
                 }`}
               >
                 {item.label}
@@ -280,15 +280,15 @@ function IntakeInbox() {
         </div>
       </div>
       {isLoading ? (
-        <p className="text-center py-8 text-gray-500 text-sm">Загрузка...</p>
+        <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
-        <p className="text-center py-8 text-gray-500 text-sm">
+        <p className="text-center py-8 text-p-muted text-sm">
           {intakeView === 'hidden' ? 'Скрытых анкет нет' : 'Все анкеты обработаны'}
         </p>
       ) : (
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Форма</TableHead>
               <TableHead>ФИО из анкеты</TableHead>
               <TableHead>Менеджер</TableHead>
@@ -299,7 +299,7 @@ function IntakeInbox() {
           </TableHeader>
           <TableBody>
             {items.map((sub) => (
-              <TableRow key={sub.id} className="border-gray-100 hover:bg-gray-50">
+              <TableRow key={sub.id} className="border-p-line hover:bg-p-bg">
                 <TableCell>
                   <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${
                     sub.source === 'package'
@@ -309,9 +309,9 @@ function IntakeInbox() {
                     {sub.source === 'package' ? 'Пакет' : 'Кейс'}
                   </span>
                 </TableCell>
-                <TableCell className="text-sm text-gray-900 font-medium">{sub.full_name}</TableCell>
-                <TableCell className="text-sm text-gray-600">{sub.manager_name ?? '—'}</TableCell>
-                <TableCell className="text-xs text-gray-500">
+                <TableCell className="text-sm text-p-text font-medium">{sub.full_name}</TableCell>
+                <TableCell className="text-sm text-p-muted">{sub.manager_name ?? '—'}</TableCell>
+                <TableCell className="text-xs text-p-muted">
                   {sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString('ru-RU') : '—'}
                 </TableCell>
                 <TableCell className="text-sm">
@@ -320,13 +320,13 @@ function IntakeInbox() {
                       <Eye className="w-3.5 h-3.5" />
                       {sub.suggested_student_name}
                       {sub.suggested_confidence != null && (
-                        <span className="text-gray-500 text-xs ml-1">
+                        <span className="text-p-muted text-xs ml-1">
                           {Math.round(sub.suggested_confidence * 100)}%
                         </span>
                       )}
                     </span>
                   ) : (
-                    <span className="text-gray-400">нет</span>
+                    <span className="text-p-muted2">нет</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -340,7 +340,7 @@ function IntakeInbox() {
                       onClick={() => createMutation.mutate(sub.id)}>
                       Создать
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500"
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-p-muted"
                       disabled={ignoreMutation.isPending}
                       onClick={() => setIgnoreTarget(sub)}>
                       <EyeOff className="w-3.5 h-3.5 mr-1" />
@@ -468,8 +468,8 @@ function NotionLinkDialog({
           <DialogTitle>Привязать запись Notion</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            Notion · <span className="text-gray-900">{snapshot.full_name}</span>
+          <p className="text-sm text-p-muted">
+            Notion · <span className="text-p-text">{snapshot.full_name}</span>
           </p>
           {snapshot.suggested_student_name && (
             <p className="text-xs text-emerald-700">
@@ -483,7 +483,7 @@ function NotionLinkDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-[2px] divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-[2px] divide-y divide-gray-100">
             {filtered.map((s) => (
               <button
                 key={s.id}
@@ -491,17 +491,17 @@ function NotionLinkDialog({
                 className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   selectedId === s.id
                     ? 'bg-black text-white'
-                    : 'text-gray-800 hover:bg-gray-50'
+                    : 'text-p-text hover:bg-p-bg'
                 }`}
               >
                 {s.full_name}
-                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-gray-500 text-xs ml-2'}>
+                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-p-muted text-xs ml-2'}>
                   {s.intake_year}
                 </span>
               </button>
             ))}
             {filtered.length === 0 && (
-              <p className="px-3 py-4 text-sm text-gray-500">Не найдено</p>
+              <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
@@ -585,11 +585,11 @@ function NotionInbox() {
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
-    <div className="border border-gray-200 rounded-[2px]">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
+    <div className="border border-p-line rounded-[2px]">
+      <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+          <div className="flex items-center gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
             {[
               { value: 'new', label: 'Новые' },
               { value: 'ignored', label: 'Скрытые' },
@@ -601,7 +601,7 @@ function NotionInbox() {
                 className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
                   view === item.value
                     ? 'bg-white text-black'
-                    : 'text-gray-600 hover:text-black hover:bg-gray-50'
+                    : 'text-p-muted hover:text-black hover:bg-p-bg'
                 }`}
               >
                 {item.label}
@@ -631,15 +631,15 @@ function NotionInbox() {
         </div>
       </div>
       {isLoading ? (
-        <p className="text-center py-8 text-gray-500 text-sm">Загрузка...</p>
+        <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
-        <p className="text-center py-8 text-gray-500 text-sm">
+        <p className="text-center py-8 text-p-muted text-sm">
           {view === 'ignored' ? 'Скрытых записей нет' : 'Все записи Notion привязаны'}
         </p>
       ) : (
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>ФИО в Notion</TableHead>
               <TableHead>Статус выплат</TableHead>
               <TableHead>Intake</TableHead>
@@ -649,8 +649,8 @@ function NotionInbox() {
           </TableHeader>
           <TableBody>
             {items.map((snap) => (
-              <TableRow key={snap.id} className="border-gray-100 hover:bg-gray-50">
-                <TableCell className="text-sm text-gray-900 font-medium">
+              <TableRow key={snap.id} className="border-p-line hover:bg-p-bg">
+                <TableCell className="text-sm text-p-text font-medium">
                   {snap.notion_url ? (
                     <a href={snap.notion_url} target="_blank" rel="noreferrer" className="hover:underline">
                       {snap.full_name}
@@ -659,21 +659,21 @@ function NotionInbox() {
                     snap.full_name
                   )}
                 </TableCell>
-                <TableCell className="text-sm text-gray-600">{snap.payment_status ?? '—'}</TableCell>
-                <TableCell className="text-sm text-gray-600">{snap.intake ?? '—'}</TableCell>
+                <TableCell className="text-sm text-p-muted">{snap.payment_status ?? '—'}</TableCell>
+                <TableCell className="text-sm text-p-muted">{snap.intake ?? '—'}</TableCell>
                 <TableCell className="text-sm">
                   {snap.suggested_student_name ? (
                     <span className="text-emerald-700 inline-flex items-center gap-1">
                       <Eye className="w-3.5 h-3.5" />
                       {snap.suggested_student_name}
                       {snap.suggested_confidence != null && (
-                        <span className="text-gray-500 text-xs ml-1">
+                        <span className="text-p-muted text-xs ml-1">
                           {Math.round(snap.suggested_confidence * 100)}%
                         </span>
                       )}
                     </span>
                   ) : (
-                    <span className="text-gray-400">нет</span>
+                    <span className="text-p-muted2">нет</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -689,7 +689,7 @@ function NotionInbox() {
                           onClick={() => createMutation.mutate(snap.id)}>
                           Создать
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500"
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-p-muted"
                           disabled={ignoreMutation.isPending}
                           onClick={() => setIgnoreTarget(snap)}>
                           <EyeOff className="w-3.5 h-3.5 mr-1" />
@@ -1193,7 +1193,7 @@ export const StudentsListPage: React.FC = () => {
       {/* Filters */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-3.5 h-3.5" />
           <Input
             placeholder="Поиск студентов..."
             value={search}
@@ -1218,12 +1218,12 @@ export const StudentsListPage: React.FC = () => {
             )}
           </Button>
           {filtersOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-[2px] border border-gray-200 bg-white shadow-lg">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Фильтры</p>
+            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-[2px] border border-p-line bg-white shadow-lg">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
                 <button
                   type="button"
-                  className="text-gray-400 hover:text-gray-700"
+                  className="text-p-muted2 hover:text-p-text"
                   onClick={() => setFiltersOpen(false)}
                 >
                   <X className="w-4 h-4" />
@@ -1231,8 +1231,8 @@ export const StudentsListPage: React.FC = () => {
               </div>
               <div className="p-3 space-y-4">
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Видимость</p>
-                  <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-gray-200 bg-gray-50 p-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Видимость</p>
+                  <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
                     {[
                       { value: 'all', label: 'Все' },
                       { value: 'mine', label: 'Мои' },
@@ -1246,7 +1246,7 @@ export const StudentsListPage: React.FC = () => {
                         className={`px-2 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
                           scope === item.value
                             ? 'bg-white text-black shadow-sm'
-                            : 'text-gray-600 hover:text-black hover:bg-gray-50'
+                            : 'text-p-muted hover:text-black hover:bg-p-bg'
                         }`}
                       >
                         {item.label}
@@ -1256,7 +1256,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Статус договора</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Статус договора</p>
                   <Select
                     value={statusFilter || 'all'}
                     onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
@@ -1276,7 +1276,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Контроль работы</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Контроль работы</p>
                   <Select
                     value={operationalFilter}
                     onValueChange={(v) => setOperationalFilter(v as OperationalFilter)}
@@ -1297,7 +1297,7 @@ export const StudentsListPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Год</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Год</p>
                     <Select
                       value={intakeYearFilter || 'all'}
                       onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}
@@ -1316,7 +1316,7 @@ export const StudentsListPage: React.FC = () => {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ступень</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Ступень</p>
                     <Select
                       value={degreeFilter || 'all'}
                       onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}
@@ -1337,7 +1337,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Страна поступления</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Страна поступления</p>
                   <Select
                     value={countryFilter || 'all'}
                     onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}
@@ -1357,7 +1357,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Программа / услуга</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Программа / услуга</p>
                   <Select
                     value={serviceTypeFilter || 'all'}
                     onValueChange={(v) => setServiceTypeFilter(v === 'all' ? '' : v)}
@@ -1377,7 +1377,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ответственный</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Ответственный</p>
                   <Select
                     value={responsibleRole}
                     onValueChange={(v) => setResponsibleFilter(v as ResponsibleRoleFilter)}
@@ -1407,7 +1407,7 @@ export const StudentsListPage: React.FC = () => {
                           className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
                             selectedResponsibleId === ''
                               ? 'border-black bg-black text-white'
-                              : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                              : 'border-p-line bg-white hover:bg-p-bg text-p-text'
                           }`}
                         >
                           Все в выбранной роли
@@ -1422,14 +1422,14 @@ export const StudentsListPage: React.FC = () => {
                               className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
                                 selectedResponsibleId === user.id
                                   ? 'border-black bg-black text-white'
-                                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                                  : 'border-p-line bg-white hover:bg-p-bg text-p-text'
                               }`}
                             >
                               {user.name}
                             </button>
                           ))}
                         {currentResponsibleUsers.length === 0 && (
-                          <p className="px-2 py-2 text-sm text-gray-500">Пользователей нет</p>
+                          <p className="px-2 py-2 text-sm text-p-muted">Пользователей нет</p>
                         )}
                       </div>
                     </div>
@@ -1441,7 +1441,7 @@ export const StudentsListPage: React.FC = () => {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 px-2 text-xs text-gray-500"
+                    className="h-8 px-2 text-xs text-p-muted"
                     onClick={resetFilters}
                   >
                     Сбросить
@@ -1467,13 +1467,13 @@ export const StudentsListPage: React.FC = () => {
           {activeFilterChips.map((chip) => (
             <span
               key={chip.key}
-              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-[2px] border border-gray-300 bg-gray-50 text-gray-700"
+              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-[2px] border border-p-line bg-p-bg text-p-text"
             >
               {chip.label}
               <button
                 type="button"
                 onClick={chip.onRemove}
-                className="text-gray-400 hover:text-black transition-colors"
+                className="text-p-muted2 hover:text-black transition-colors"
                 aria-label={`Убрать фильтр ${chip.label}`}
               >
                 <X className="w-3 h-3" />
@@ -1483,7 +1483,7 @@ export const StudentsListPage: React.FC = () => {
           <button
             type="button"
             onClick={resetFilters}
-            className="text-[12px] text-gray-500 hover:text-black underline underline-offset-4 ml-1"
+            className="text-[12px] text-p-muted hover:text-black underline underline-offset-4 ml-1"
           >
             Сбросить всё
           </button>
@@ -1491,10 +1491,10 @@ export const StudentsListPage: React.FC = () => {
       )}
 
       {/* Table */}
-      <div className="border-y border-gray-200">
+      <div className="border-y border-p-line">
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Студент</TableHead>
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
@@ -1508,13 +1508,13 @@ export const StudentsListPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-p-muted text-sm">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-gray-500 text-sm">
+                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-p-muted text-sm">
                   Студенты не найдены
                 </TableCell>
               </TableRow>
@@ -1522,16 +1522,16 @@ export const StudentsListPage: React.FC = () => {
               students.map((student) => {
                 const intake = intakeOverview[student.id]
                 return (
-                <TableRow key={student.id} className="border-gray-100 hover:bg-gray-50 transition-colors">
+                <TableRow key={student.id} className="border-p-line hover:bg-p-bg transition-colors">
                   <TableCell>
                     <Link
                       to={`/students/${student.id}`}
-                      className="font-medium text-gray-900 hover:text-black hover:underline underline-offset-4 transition-colors text-sm"
+                      className="font-medium text-p-text hover:text-black hover:underline underline-offset-4 transition-colors text-sm"
                     >
                       {student.full_name}
                     </Link>
                     {student.city && (
-                      <p className="text-xs text-gray-500 mt-0.5">{student.city}</p>
+                      <p className="text-xs text-p-muted mt-0.5">{student.city}</p>
                     )}
                   </TableCell>
                   <TableCell>
@@ -1545,10 +1545,10 @@ export const StudentsListPage: React.FC = () => {
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">—</span>
+                      <span className="text-p-muted2 text-xs">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-gray-600">{student.intake_year}</TableCell>
+                  <TableCell className="text-sm text-p-muted">{student.intake_year}</TableCell>
                   <TableCell>
                     <div className="flex max-w-[220px] flex-wrap gap-1.5">
                       {(student.services_summary?.items ?? []).length > 0 ? (
@@ -1561,17 +1561,17 @@ export const StudentsListPage: React.FC = () => {
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : service.status === 'in_progress' || service.status === 'scheduled'
                                   ? 'border-blue-200 bg-blue-50 text-blue-700'
-                                  : 'border-gray-200 bg-gray-50 text-gray-600'
+                                  : 'border-p-line bg-p-bg text-p-muted'
                             }`}
                           >
                             {SERVICE_TYPE_LABELS[service.service_type]}
                           </span>
                         ))
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-p-muted2">—</span>
                       )}
                       {(student.services_summary?.items.length ?? 0) > 3 && (
-                        <span className="rounded-[2px] border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+                        <span className="rounded-[2px] border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-muted">
                           +{(student.services_summary?.items.length ?? 0) - 3}
                         </span>
                       )}
@@ -1584,7 +1584,7 @@ export const StudentsListPage: React.FC = () => {
                           Мой
                         </span>
                       )}
-                      <span className="text-xs text-gray-500 max-w-[180px] truncate">
+                      <span className="text-xs text-p-muted max-w-[180px] truncate">
                         {student.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
                       </span>
                     </div>
@@ -1597,7 +1597,7 @@ export const StudentsListPage: React.FC = () => {
                           className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-[2px] border font-semibold ${
                             intake?.has_package
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                              : 'border-gray-200 text-gray-400'
+                              : 'border-p-line text-p-muted2'
                           }`}
                         >
                           П
@@ -1607,7 +1607,7 @@ export const StudentsListPage: React.FC = () => {
                           className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-[2px] border font-semibold ${
                             intake?.has_cases
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                              : 'border-gray-200 text-gray-400'
+                              : 'border-p-line text-p-muted2'
                           }`}
                         >
                           К
@@ -1619,7 +1619,7 @@ export const StudentsListPage: React.FC = () => {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         className={`label-caps transition-colors ${
-                          student.is_mine ? 'text-emerald-700 hover:text-emerald-800' : 'text-gray-500 hover:text-black'
+                          student.is_mine ? 'text-emerald-700 hover:text-emerald-800' : 'text-p-muted hover:text-black'
                         }`}
                         disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
                         onClick={() =>
@@ -1639,7 +1639,7 @@ export const StudentsListPage: React.FC = () => {
         </Table>
       </div>
 
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-p-muted">
         {debouncedSearch.trim()
           ? `Найдено: ${students.length} из ${allStudents.length}`
           : `Всего студентов: ${students.length}`}

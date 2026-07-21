@@ -130,11 +130,11 @@ export const NotesPage: React.FC = () => {
       />
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card className="border-slate-200 bg-white">
+        <Card className="border-p-line bg-white">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-base text-slate-900">Сессии</CardTitle>
+                <CardTitle className="text-base text-p-text">Сессии</CardTitle>
                 <CardDescription>Живые и завершённые записи</CardDescription>
               </div>
               <Select value={sessionStatus} onValueChange={(v) => setSessionStatus(v as NoteSessionStatus | 'all')}>
@@ -153,33 +153,33 @@ export const NotesPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             {sessionsLoading ? (
-              <div className="py-12 text-center text-slate-400">Загрузка...</div>
+              <div className="py-12 text-center text-p-muted2">Загрузка...</div>
             ) : sessions.length === 0 ? (
-              <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Сессий пока нет. Создайте первую и начните запись.
               </div>
             ) : (
               <div className="grid gap-3">
                 {sessions.map((session) => (
-                  <div key={session.id} className="rounded-[2px] border border-slate-200 bg-slate-50 p-4">
+                  <div key={session.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs text-slate-400 uppercase tracking-[0.2em]">
-                          <CircleDot className={`w-3.5 h-3.5 ${session.status === 'active' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                        <div className="flex items-center gap-2 text-xs text-p-muted2 uppercase tracking-[0.2em]">
+                          <CircleDot className={`w-3.5 h-3.5 ${session.status === 'active' ? 'text-emerald-500' : 'text-p-muted2'}`} />
                           {session.status}
                         </div>
-                        <Link to={`/notes/session/${session.id}`} className="mt-1 block font-semibold text-slate-900 hover:underline underline-offset-4">
+                        <Link to={`/notes/session/${session.id}`} className="mt-1 block font-semibold text-p-text hover:underline underline-offset-4">
                           {session.title}
                         </Link>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-p-muted">
                           {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)}
                         </p>
-                        <p className="mt-2 text-sm text-slate-600 line-clamp-2">
+                        <p className="mt-2 text-sm text-p-muted line-clamp-2">
                           {session.latest_transcript || 'Пока нет транскрипта'}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-xs text-slate-400 uppercase tracking-[0.2em]">Фрагменты</p>
+                        <p className="text-xs text-p-muted2 uppercase tracking-[0.2em]">Фрагменты</p>
                         <p className="mt-1 text-2xl font-black text-slate-950">{session.transcript_count}</p>
                       </div>
                     </div>
@@ -210,11 +210,11 @@ export const NotesPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 bg-white">
+        <Card className="border-p-line bg-white">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-base text-slate-900">Конспекты</CardTitle>
+                <CardTitle className="text-base text-p-text">Конспекты</CardTitle>
                 <CardDescription>История AI-черновиков и проверок</CardDescription>
               </div>
               <Select value={noteStatus} onValueChange={(v) => setNoteStatus(v as StudentNoteStatus | 'all')}>
@@ -233,29 +233,29 @@ export const NotesPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             {notesLoading ? (
-              <div className="py-12 text-center text-slate-400">Загрузка...</div>
+              <div className="py-12 text-center text-p-muted2">Загрузка...</div>
             ) : notes.length === 0 ? (
-              <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Конспектов пока нет.
               </div>
             ) : (
               <div className="grid gap-3">
                 {notes.map((note) => (
-                  <div key={note.id} className="rounded-[2px] border border-slate-200 bg-slate-50 p-4">
+                  <div key={note.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <Link to={`/notes/${note.id}`} className="block font-semibold text-slate-900 hover:underline underline-offset-4">
+                        <Link to={`/notes/${note.id}`} className="block font-semibold text-p-text hover:underline underline-offset-4">
                           {note.title}
                         </Link>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-p-muted">
                           {note.student_name ?? 'Без привязки'} · {formatDate(note.created_at)}
                         </p>
-                        <p className="mt-2 text-sm text-slate-600 line-clamp-2">
+                        <p className="mt-2 text-sm text-p-muted line-clamp-2">
                           {stripMarkdown(note.summary_markdown)}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2">
-                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        <span className="rounded-full border border-p-line bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-p-muted">
                           {note.status}
                         </span>
                         <Button
@@ -276,9 +276,9 @@ export const NotesPage: React.FC = () => {
         </Card>
       </div>
 
-      <Card className="border-slate-200 bg-white">
+      <Card className="border-p-line bg-white">
         <CardHeader className="pb-4">
-          <CardTitle className="text-base text-slate-900">Короткий вход</CardTitle>
+          <CardTitle className="text-base text-p-text">Короткий вход</CardTitle>
           <CardDescription>Быстро создайте новую сессию для студента</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -301,7 +301,7 @@ export const NotesPage: React.FC = () => {
           </Button>
         </CardContent>
         {students.length === 0 && (
-          <div className="px-6 pb-5 text-sm text-slate-500">
+          <div className="px-6 pb-5 text-sm text-p-muted">
             Список студентов пуст. Для mentor это обычно означает, что ещё не создано или не активировано назначение MentorAssignment.
           </div>
         )}
@@ -316,7 +316,7 @@ export const NotesPage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <p className="text-sm text-slate-500">Студент</p>
+            <p className="text-sm text-p-muted">Студент</p>
             <Select value={studentSelect || 'all'} onValueChange={(v) => setStudentSelect(v === 'all' ? '' : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Без привязки" />

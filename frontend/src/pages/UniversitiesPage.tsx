@@ -54,7 +54,7 @@ export const UniversitiesPage: React.FC = () => {
       />
 
       <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
-        <h2 className="text-sm font-semibold text-gray-900 mb-3">Добавить университет</h2>
+        <h2 className="text-sm font-semibold text-p-text mb-3">Добавить университет</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <Input placeholder="Название" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           <Input placeholder="Страна" value={form.country_name ?? ''} onChange={(e) => set({ country_name: e.target.value })} />
@@ -69,7 +69,7 @@ export const UniversitiesPage: React.FC = () => {
           <Input placeholder="Сайт" value={form.website} onChange={(e) => set({ website: e.target.value })} />
         </div>
         <div className="flex items-center gap-4 mt-3">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2 text-sm text-p-text">
             <input type="checkbox" checked={form.has_grants} onChange={(e) => set({ has_grants: e.target.checked })} />
             Есть гранты
           </label>
@@ -85,22 +85,22 @@ export const UniversitiesPage: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Загрузка…</p>
+        <p className="text-sm text-p-muted">Загрузка…</p>
       ) : unis.length === 0 ? (
-        <p className="text-sm text-gray-400">Университетов пока нет.</p>
+        <p className="text-sm text-p-muted2">Университетов пока нет.</p>
       ) : (
         <div className="divide-y divide-border rounded-[2px] border border-border bg-card">
           {unis.map((u) => (
             <div key={u.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                <div className="text-sm font-medium text-p-text flex items-center gap-2">
                   {u.name}
                   {u.world_ranking != null && (
-                    <span className="text-[10px] font-bold tabular-nums bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">#{u.world_ranking}</span>
+                    <span className="text-[10px] font-bold tabular-nums bg-p-panel text-p-muted px-1.5 py-0.5 rounded">#{u.world_ranking}</span>
                   )}
                   {u.has_grants && <Award className="w-3.5 h-3.5 text-[#9a7d00]" />}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-xs text-p-muted mt-0.5">
                   {[u.country_name, u.city, u.tuition_range].filter(Boolean).join(' · ')}
                 </div>
               </div>

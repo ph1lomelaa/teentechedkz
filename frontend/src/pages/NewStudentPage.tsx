@@ -290,18 +290,18 @@ export const NewStudentPage: React.FC = () => {
                   className={cn(
                     'w-8 h-8 rounded-[2px] flex items-center justify-center text-sm font-semibold transition-colors border',
                     i < step
-                      ? 'border-gray-300 text-gray-600'
+                      ? 'border-p-line text-p-muted'
                       : i === step
                       ? 'bg-black text-white border-black'
-                      : 'border-gray-200 text-gray-400'
+                      : 'border-p-line text-p-muted2'
                   )}
                 >
                   {i < step ? <Check className="w-4 h-4" /> : i + 1}
                 </div>
-                <span className={cn('text-[10px] uppercase tracking-wide mt-1.5 hidden sm:block', i === step ? 'text-gray-800' : 'text-gray-500')}>{label}</span>
+                <span className={cn('text-[10px] uppercase tracking-wide mt-1.5 hidden sm:block', i === step ? 'text-p-text' : 'text-p-muted')}>{label}</span>
               </div>
               {i < STEPS.length - 1 && (
-                <div className={cn('flex-1 h-px -mt-3', i < step ? 'bg-gray-400' : 'bg-gray-200')} />
+                <div className={cn('flex-1 h-px -mt-3', i < step ? 'bg-gray-400' : 'bg-p-panel2')} />
               )}
             </React.Fragment>
           ))}
@@ -536,7 +536,7 @@ export const NewStudentPage: React.FC = () => {
           {step === 3 && (
             <div className="space-y-4">
               {services.map((svc, i) => (
-                <div key={svc.service_type} className="border border-gray-200 rounded-[2px] p-4">
+                <div key={svc.service_type} className="border border-p-line rounded-[2px] p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <Checkbox
                       checked={svc.included}
@@ -574,7 +574,7 @@ export const NewStudentPage: React.FC = () => {
           {step === 4 && (
             <div className="space-y-3">
               {countries.map((c, i) => (
-                <div key={i} className="flex items-center gap-3 border border-gray-200 rounded-[2px] p-3">
+                <div key={i} className="flex items-center gap-3 border border-p-line rounded-[2px] p-3">
                   <div className="flex-1">
                     <Select
                       value={c.country}
