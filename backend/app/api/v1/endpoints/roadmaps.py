@@ -40,7 +40,7 @@ from app.schemas.roadmap import (
 router = APIRouter(tags=["roadmap"])
 
 STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-TEMPLATE_ADMIN = (UserRole.admin, UserRole.mzk_manager)
+TEMPLATE_ADMIN = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 _FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Не найдено")
@@ -202,14 +202,12 @@ async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_
                 progress["template_total"] = event["total"]
 
         try:
-            result = await asyncio.to_thread(
-                lambda: asyncio.run(run_import_summary(
-                    dry_run=body.dry_run,
-                    only=body.only,
-                    discover_only=body.discover_only,
-                    skip_subtasks=body.skip_subtasks,
-                    on_event=on_event,
-                ))
+            result = await run_import_summary(
+                dry_run=body.dry_run,
+                only=body.only,
+                discover_only=body.discover_only,
+                skip_subtasks=body.skip_subtasks,
+                on_event=on_event,
             )
             job["result"] = result.as_dict()
             job["status"] = "done" if result.ok else "failed"

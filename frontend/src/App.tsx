@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
+import { ImportJobsProvider } from '@/contexts/ImportJobsContext'
 import { AppLayout } from '@/components/shared/Layout'
 import { Toaster } from '@/components/ui/toaster'
 
@@ -48,7 +49,6 @@ const WorkspaceRoadmapPage = React.lazy(() => import('@/pages/workspace/Workspac
 const WorkspaceUniversitiesPage = React.lazy(() => import('@/pages/workspace/WorkspaceUniversitiesPage').then((m) => ({ default: m.WorkspaceUniversitiesPage })))
 const WorkspaceCountriesPage = React.lazy(() => import('@/pages/workspace/WorkspaceCountriesPage').then((m) => ({ default: m.WorkspaceCountriesPage })))
 const WorkspaceQuestionnairesPage = React.lazy(() => import('@/pages/workspace/WorkspaceQuestionnairesPage').then((m) => ({ default: m.WorkspaceQuestionnairesPage })))
-const WorkspaceProfilePage = React.lazy(() => import('@/pages/workspace/WorkspaceProfilePage').then((m) => ({ default: m.WorkspaceProfilePage })))
 const WorkspaceNotificationsPage = React.lazy(() => import('@/pages/workspace/WorkspaceNotificationsPage').then((m) => ({ default: m.WorkspaceNotificationsPage })))
 const NewStudentPage = React.lazy(() =>
   import('@/pages/NewStudentPage').then((m) => ({ default: m.NewStudentPage }))
@@ -414,7 +414,7 @@ function AppRoutes() {
       <Route
         path="/status-inbox"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <StatusInboxPage />
@@ -498,7 +498,16 @@ function AppRoutes() {
       <Route path="/workspace/universities" element={<WorkspaceRoute><WorkspaceUniversitiesPage /></WorkspaceRoute>} />
       <Route path="/workspace/countries" element={<WorkspaceRoute><WorkspaceCountriesPage /></WorkspaceRoute>} />
       <Route path="/workspace/notifications" element={<WorkspaceRoute><WorkspaceNotificationsPage /></WorkspaceRoute>} />
-      <Route path="/workspace/profile" element={<WorkspaceRoute><WorkspaceProfilePage /></WorkspaceRoute>} />
+      <Route
+        path="/workspace/status"
+        element={
+          <WorkspaceRoute>
+            <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+              <StatusInboxPage />
+            </React.Suspense>
+          </WorkspaceRoute>
+        }
+      />
 
       <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
@@ -523,10 +532,12 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
-            <AppErrorBoundary>
-              <AppRoutes />
-              <Toaster />
-            </AppErrorBoundary>
+            <ImportJobsProvider>
+              <AppErrorBoundary>
+                <AppRoutes />
+                <Toaster />
+              </AppErrorBoundary>
+            </ImportJobsProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

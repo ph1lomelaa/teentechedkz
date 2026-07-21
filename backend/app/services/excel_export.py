@@ -110,7 +110,7 @@ def export_student_card(student: dict, role: UserRole) -> bytes:
     _autofit(ws3)
 
     # Finance sheet (admin/mzk only)
-    if role in (UserRole.admin, UserRole.mzk_manager):
+    if role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         for contract in student.get("contracts", []):
             ws4 = wb.create_sheet("Финансы")
             _header(ws4, ["Поле", "Значение"])

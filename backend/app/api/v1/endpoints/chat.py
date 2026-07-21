@@ -122,7 +122,7 @@ async def _conversation_student(db: AsyncSession, conv_id: uuid.UUID) -> Student
 async def _can_preview_conversation(db: AsyncSession, conv_id: uuid.UUID, user: User) -> bool:
     if await _is_member(db, conv_id, user.id):
         return True
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         return False
     return await _conversation_student(db, conv_id) is not None
 
@@ -196,7 +196,7 @@ async def list_conversations(
     if mentor_id:
         if current_user.role == UserRole.mentor and mentor_id != current_user.id:
             raise _FORBIDDEN
-        if current_user.role in (UserRole.admin, UserRole.mzk_manager):
+        if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
             mentor = await db.get(User, mentor_id)
             if not mentor or mentor.role != UserRole.mentor:
                 raise HTTPException(status_code=404, detail="Ментор не найден")
@@ -577,7 +577,7 @@ async def download_message_attachment(
 @router.post("/conversations/{conv_id}/read", status_code=204)
 async def mark_read(conv_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     if not await _is_member(db, conv_id, current_user.id):
-        if current_user.role in (UserRole.admin, UserRole.mzk_manager) and await _conversation_student(db, conv_id):
+        if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor) and await _conversation_student(db, conv_id):
             return
         raise _NOT_FOUND
     await db.execute(

@@ -778,7 +778,7 @@ export const StudentsListPage: React.FC = () => {
   const qc = useQueryClient()
   const { canAccess, hasRole } = useAuth()
   const isManager = hasRole('admin', 'mzk_manager')
-  const canRunSync = hasRole('admin')
+  const canRunSync = isManager
   const [searchParams, setSearchParams] = useSearchParams()
   const initialScope = searchParams.get('scope')
   const [search, setSearch] = useState('')

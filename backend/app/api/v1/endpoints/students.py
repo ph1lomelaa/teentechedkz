@@ -249,8 +249,8 @@ async def merge_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Только администратор может соединять студентов")
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(status_code=403, detail="Недостаточно прав для соединения студентов")
 
     if student_id == body.target_student_id:
         raise HTTPException(status_code=400, detail="Нельзя соединить студента сам с собой")
@@ -1228,8 +1228,8 @@ async def archive_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Только администратор может архивировать студентов")
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(status_code=403, detail="Недостаточно прав для архивирования студентов")
     result = await db.execute(select(Student).where(Student.id == student_id))
     student = result.scalar_one_or_none()
     if not student:

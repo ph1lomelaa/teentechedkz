@@ -51,7 +51,7 @@ async def _mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[uuid.
 
 
 def _is_staff_admin(current_user) -> bool:
-    return current_user.role in (UserRole.admin, UserRole.mzk_manager)
+    return current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 
 async def _load_accessible_student(db: AsyncSession, current_user, student_id: uuid.UUID) -> Student:
@@ -263,7 +263,7 @@ async def review_note(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = await db.execute(

@@ -17,7 +17,7 @@ from app.services.country_flags import attach_flags
 
 router = APIRouter(prefix="/universities", tags=["universities"])
 
-ADMIN = (UserRole.admin, UserRole.mzk_manager)
+ADMIN = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 _FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 
 

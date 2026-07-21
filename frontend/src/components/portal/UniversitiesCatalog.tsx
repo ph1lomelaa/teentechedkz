@@ -4,6 +4,171 @@ import { ExternalLink, Globe, Search } from 'lucide-react'
 import { universitiesApi, University } from '@/api/universities'
 import { useLocalState } from '@/lib/use-local-state'
 
+type UniversityPreset = University
+
+const CATALOG_COUNTRIES = [
+  { key: 'all', label: 'Все', emoji: '' },
+  { key: 'Великобритания', label: 'Великобритания', emoji: '🇬🇧' },
+  { key: 'Германия', label: 'Германия', emoji: '🇩🇪' },
+  { key: 'Китай', label: 'Китай', emoji: '🇨🇳' },
+  { key: 'Малайзия', label: 'Малайзия', emoji: '🇲🇾' },
+  { key: 'США', label: 'США', emoji: '🇺🇸' },
+  { key: 'Южная Корея', label: 'Южная Корея', emoji: '🇰🇷' },
+] as const
+
+const PRESET_UNIVERSITIES: UniversityPreset[] = [
+  {
+    id: 'preset-tsinghua',
+    country_ref_id: null,
+    country_name: 'Китай',
+    country_flag_emoji: '🇨🇳',
+    country_flag_url: '',
+    name: 'Tsinghua University',
+    city: 'Пекин',
+    description: 'Ведущий технический вуз Китая, сильные инженерные и CS-программы.',
+    website: 'https://www.tsinghua.edu.cn',
+    world_ranking: 12,
+    tuition_range: '$4 000–6 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-peking',
+    country_ref_id: null,
+    country_name: 'Китай',
+    country_flag_emoji: '🇨🇳',
+    country_flag_url: '',
+    name: 'Peking University',
+    city: 'Пекин',
+    description: 'Топ-университет Китая по естественным и гуманитарным наукам.',
+    website: 'https://www.pku.edu.cn',
+    world_ranking: 14,
+    tuition_range: '$4 000–6 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-tum',
+    country_ref_id: null,
+    country_name: 'Германия',
+    country_flag_emoji: '🇩🇪',
+    country_flag_url: '',
+    name: 'Technical University of Munich',
+    city: 'Мюнхен',
+    description: 'Ведущий технический вуз Германии; обучение почти бесплатное.',
+    website: 'https://www.tum.de',
+    world_ranking: 28,
+    tuition_range: '€0–3 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-snu',
+    country_ref_id: null,
+    country_name: 'Южная Корея',
+    country_flag_emoji: '🇰🇷',
+    country_flag_url: '',
+    name: 'Seoul National University',
+    city: 'Сеул',
+    description: 'Флагманский университет Кореи.',
+    website: 'https://en.snu.ac.kr',
+    world_ranking: 31,
+    tuition_range: '$2 500–6 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-zhejiang',
+    country_ref_id: null,
+    country_name: 'Китай',
+    country_flag_emoji: '🇨🇳',
+    country_flag_url: '',
+    name: 'Zhejiang University',
+    city: 'Ханчжоу',
+    description: 'Один из крупнейших исследовательских вузов, щедрые стипендии CSC.',
+    website: 'https://www.zju.edu.cn',
+    world_ranking: 44,
+    tuition_range: '$3 000–5 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-sjtu',
+    country_ref_id: null,
+    country_name: 'Китай',
+    country_flag_emoji: '🇨🇳',
+    country_flag_url: '',
+    name: 'Shanghai Jiao Tong University',
+    city: 'Шанхай',
+    description: 'Инженерия, медицина, бизнес; активные программы для иностранцев.',
+    website: 'https://www.sjtu.edu.cn',
+    world_ranking: 45,
+    tuition_range: '$3 500–5 500/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-kaist',
+    country_ref_id: null,
+    country_name: 'Южная Корея',
+    country_flag_emoji: '🇰🇷',
+    country_flag_url: '',
+    name: 'KAIST',
+    city: 'Тэджон',
+    description: 'Ведущий научно-технический вуз, полные стипендии для иностранцев.',
+    website: 'https://www.kaist.ac.kr',
+    world_ranking: 53,
+    tuition_range: 'полная стипендия',
+    has_grants: true,
+  },
+  {
+    id: 'preset-yonsei',
+    country_ref_id: null,
+    country_name: 'Южная Корея',
+    country_flag_emoji: '🇰🇷',
+    country_flag_url: '',
+    name: 'Yonsei University',
+    city: 'Сеул',
+    description: 'Частный топ-вуз, программы Global Leaders.',
+    website: 'https://www.yonsei.ac.kr',
+    world_ranking: 76,
+    tuition_range: '$5 000–9 000/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-heidelberg',
+    country_ref_id: null,
+    country_name: 'Германия',
+    country_flag_emoji: '🇩🇪',
+    country_flag_url: '',
+    name: 'Heidelberg University',
+    city: 'Гейдельберг',
+    description: 'Старейший университет Германии, сильные науки о жизни.',
+    website: 'https://www.uni-heidelberg.de',
+    world_ranking: 84,
+    tuition_range: '€0–1 500/год',
+    has_grants: true,
+  },
+  {
+    id: 'preset-rwth',
+    country_ref_id: null,
+    country_name: 'Германия',
+    country_flag_emoji: '🇩🇪',
+    country_flag_url: '',
+    name: 'RWTH Aachen University',
+    city: 'Ахен',
+    description: 'Крупнейший технический университет Германии.',
+    website: 'https://www.rwth-aachen.de',
+    world_ranking: 90,
+    tuition_range: '€0–1 000/год',
+    has_grants: true,
+  },
+]
+
+function mergeWithPresets(universities: University[]): University[] {
+  const existingKeys = new Set(
+    universities.map((u) => `${(u.name || '').trim().toLowerCase()}::${(u.country_name || '').trim().toLowerCase()}`),
+  )
+  const extras = PRESET_UNIVERSITIES.filter(
+    (u) => !existingKeys.has(`${u.name.trim().toLowerCase()}::${(u.country_name || '').trim().toLowerCase()}`),
+  )
+  return [...universities, ...extras]
+}
+
 export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 'База знаний' }) => {
   const { data: unis = [], isLoading } = useQuery({
     queryKey: ['universities'],
@@ -11,11 +176,16 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
   })
 
   const [q, setQ] = useLocalState('portal:universities:search', '')
+  const [countryFilter, setCountryFilter] = useLocalState('portal:universities:country', 'all')
+  const [grantsOnly, setGrantsOnly] = useLocalState('portal:universities:grants-only', false)
   const deferredQ = useDeferredValue(q)
+  const catalog = useMemo(() => mergeWithPresets(unis), [unis])
 
   const filtered = useMemo(() => {
     const needle = deferredQ.trim().toLowerCase()
-    const result = unis.filter((u) => {
+    const result = catalog.filter((u) => {
+      if (countryFilter !== 'all' && (u.country_name || '') !== countryFilter) return false
+      if (grantsOnly && !u.has_grants) return false
       if (needle) {
         const hay = `${u.name} ${u.city} ${u.country_name || ''} ${u.description || ''} ${u.tuition_range || ''}`.toLowerCase()
         if (!hay.includes(needle)) return false
@@ -23,7 +193,7 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
       return true
     })
     return result.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  }, [unis, deferredQ])
+  }, [catalog, countryFilter, deferredQ, grantsOnly])
 
   return (
     <div className="animate-fade-in">
@@ -43,6 +213,28 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
           className="h-12 w-full rounded-[13px] border border-p-line bg-p-panel2 pl-4 pr-12 text-sm text-p-text outline-none transition-colors placeholder:text-p-muted2 focus:border-brand-dim"
         />
         <Search className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-p-muted2" />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {CATALOG_COUNTRIES.map((country) => (
+          <button
+            key={country.key}
+            type="button"
+            onClick={() => setCountryFilter(country.key)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${countryFilter === country.key ? 'border-brand bg-brand text-black' : 'border-p-line bg-p-panel2 text-p-muted hover:text-p-text'}`}
+          >
+            {country.emoji ? `${country.emoji} ` : ''}
+            {country.label}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => setGrantsOnly(!grantsOnly)}
+          className={`ml-auto rounded-full border px-3 py-1.5 text-xs font-bold transition ${grantsOnly ? 'border-p-good bg-p-good/15 text-p-good' : 'border-p-line bg-p-panel2 text-p-muted hover:text-p-text'}`}
+        >
+          Только с грантами
+        </button>
       </div>
 
       {isLoading ? (

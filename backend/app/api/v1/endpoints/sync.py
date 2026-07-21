@@ -24,7 +24,7 @@ from app.services.sheets_sync import map_row, PACKAGE_FIELD_PATTERNS, CASES_FIEL
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager)
+_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 
 def _require_manager(user) -> None:
@@ -55,8 +55,7 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Только администратор может запускать синхронизацию")
+    _require_manager(current_user)
     try:
         counters = await sheets_sync.run_sync(db)
     except RuntimeError as e:

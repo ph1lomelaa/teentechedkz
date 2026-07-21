@@ -23,6 +23,7 @@ from app.core.audit import log_change
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract, MentorAssignment
 from app.models.contract import PipelineStatus
 from app.models.mentor_assignment import MentorRole
+from app.models.portfolio_progress import PortfolioProgress
 from app.models.student import DegreeLevel
 from app.models.user import UserRole
 from app.services import notion_sync
@@ -30,7 +31,7 @@ from app.services.default_services import ensure_default_services
 
 router = APIRouter(prefix="/notion", tags=["notion"])
 
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager)
+_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 
 def _require_manager(user) -> None:
@@ -118,8 +119,8 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Только администратор может запускать синхронизацию")
+    if current_user.role not in _MANAGE_ROLES:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для запуска синхронизации")
     try:
         counters = await notion_sync.run_sync(db)
     except RuntimeError as e:
@@ -177,6 +178,14 @@ async def finance_summary(
     )
     snapshots = result.scalars().all()
 
+    linked_student_ids = [s.student_id for s in snapshots if s.student_id]
+    portfolio_map: dict[uuid.UUID, PortfolioProgress] = {}
+    if linked_student_ids:
+        pf_result = await db.execute(
+            select(PortfolioProgress).where(PortfolioProgress.student_id.in_(linked_student_ids))
+        )
+        portfolio_map = {p.student_id: p for p in pf_result.scalars().all()}
+
     totals: dict[str, float] = {f: 0.0 for f in _FINANCE_TOTAL_FIELDS}
     by_status: dict[str, int] = {}
     rows: list[dict] = []
@@ -187,14 +196,26 @@ async def finance_summary(
             totals[f] += _as_float(d.get(f))
         status = d.get("payment_status_raw") or "Без статуса"
         by_status[status] = by_status.get(status, 0) + 1
+        pf = portfolio_map.get(s.student_id) if s.student_id else None
+        raw_remaining = d.get("client_remaining")
+        mentors_list = d.get("mentors") or []
         rows.append(
             {
                 "id": str(s.id),
+                "student_id": str(s.student_id) if s.student_id else None,
                 "full_name": s.full_name,
                 "payment_status": status,
                 "intake": d.get("intake_raw"),
+                "client_remaining_date": d.get("client_remaining_date") or None,
                 "client_fee": _as_float(d.get("client_fee")),
-                "client_remaining": _as_float(d.get("client_remaining")),
+                "client_remaining": _as_float(raw_remaining),
+                # В Notion «Остаток клиента» — числовое поле/формула, которую иногда просто не
+                # заполняют (Empty) — это НЕ то же самое, что подтверждённый 0 (полностью оплачено).
+                # Фронт должен показывать «нет данных», а не «0», когда client_remaining_filled=false.
+                "client_remaining_filled": raw_remaining not in (None, ""),
+                "lead_mentor": d.get("lead_mentor"),
+                "mentors": mentors_list,
+                "mzk": d.get("mzk"),
                 "mentor_total": _as_float(d.get("mentor_total")),
                 "mentor_paid": _as_float(d.get("mentor_paid")),
                 "mentor_tbp": _as_float(d.get("mentor_tbp")),
@@ -207,6 +228,9 @@ async def finance_summary(
                 "proforientation_sum": _as_float(d.get("proforientation_sum")),
                 "ielts_exam_fee": _as_float(d.get("ielts_exam_fee")),
                 "total_company": _as_float(d.get("total_company")),
+                "portfolio_status": pf.status.value if pf else None,
+                "portfolio_achievements": pf.achievements_count if pf else None,
+                "portfolio_calls": pf.calls_count if pf else None,
             }
         )
         if s.synced_at and (synced_at is None or s.synced_at > synced_at):

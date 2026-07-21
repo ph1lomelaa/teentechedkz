@@ -9,14 +9,15 @@ import {
   FileText,
   GraduationCap,
   Globe,
+  KeyRound,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Map,
   Menu,
   MessageCircle,
   Moon,
   Sun,
-  User,
   Users,
   X,
 } from 'lucide-react'
@@ -53,6 +54,7 @@ function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavG
         { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" /> },
         { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" /> },
         { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" /> },
+        { label: 'Статус', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" /> },
       ],
     },
     {
@@ -68,12 +70,6 @@ function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavG
       items: [
         { label: 'Чат', path: '/workspace/chat', icon: <MessageCircle className="h-4 w-4" /> },
         { label: 'Уведомления', path: '/workspace/notifications', icon: <Bell className="h-4 w-4" /> },
-      ],
-    },
-    {
-      group: 'АККАУНТ',
-      items: [
-        { label: 'Профиль', path: '/workspace/profile', icon: <User className="h-4 w-4" /> },
       ],
     },
   ]
@@ -209,6 +205,13 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
           </button>
+          <Link
+            to="/change-password"
+            className="mb-1 flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
+          >
+            <KeyRound className="h-4 w-4" />
+            Сменить пароль
+          </Link>
           <button
             onClick={() => logout()}
             className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/50 transition hover:bg-[#141414] hover:text-white"

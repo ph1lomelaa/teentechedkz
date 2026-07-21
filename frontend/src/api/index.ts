@@ -133,6 +133,14 @@ export const paymentsApi = {
     )
     return response.data
   },
+  upcoming: async (): Promise<any[]> => {
+    const response = await apiClient.get<any[]>('/payments/upcoming')
+    return response.data
+  },
+  documentsForPayment: async (paymentId: string): Promise<any[]> => {
+    const response = await apiClient.get<any[]>(`/payments/${paymentId}/documents`)
+    return response.data
+  },
 }
 
 export const guardiansApi = {

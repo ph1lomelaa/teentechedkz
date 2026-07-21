@@ -1175,7 +1175,7 @@ async def workspace_message_unread(
     mentor_id: uuid.UUID | None = Query(default=None),
 ):
     _require_staff(current_user)
-    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager):
+    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         mentor = await db.get(User, mentor_id)
         if not mentor or mentor.role != UserRole.mentor:
             raise HTTPException(status_code=404, detail="Ментор не найден")
@@ -1328,7 +1328,7 @@ async def workspace_student_messages(
     normalizes and sorts them, so CRM and workspace always show the same data.
     """
     _require_staff(current_user)
-    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager):
+    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         mentor = await db.get(User, mentor_id)
         if not mentor or mentor.role != UserRole.mentor:
             raise HTTPException(status_code=404, detail="Ментор не найден")

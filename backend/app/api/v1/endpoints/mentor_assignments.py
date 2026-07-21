@@ -16,7 +16,7 @@ router = APIRouter(prefix="/mentor-assignments", tags=["mentor_assignments"])
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 

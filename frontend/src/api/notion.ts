@@ -79,11 +79,17 @@ export interface NotionFinanceSummary {
   }
   rows: {
     id: string
+    student_id?: string | null
     full_name?: string | null
     payment_status: string
     intake?: string | null
+    client_remaining_date?: string | null
     client_fee: number
     client_remaining: number
+    client_remaining_filled?: boolean
+    lead_mentor?: string | null
+    mentors?: string[]
+    mzk?: string | null
     mentor_total: number
     mentor_paid: number
     mentor_tbp: number
@@ -96,6 +102,9 @@ export interface NotionFinanceSummary {
     proforientation_sum: number
     ielts_exam_fee: number
     total_company: number
+    portfolio_status?: 'not_started' | 'in_progress' | 'completed' | null
+    portfolio_achievements?: number | null
+    portfolio_calls?: number | null
   }[]
   by_status: { status: string; count: number }[]
 }

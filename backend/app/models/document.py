@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, Numeric, Enum as SAEnum
@@ -42,6 +44,7 @@ class Document(Base):
         index=True,
     )
     source: Mapped[DocSource] = mapped_column(SAEnum(DocSource, name="doc_source"), default=DocSource.manual_upload)
+    payment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True, index=True)
     ai_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_doc_type_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -53,3 +56,4 @@ class Document(Base):
 
     student: Mapped["Student"] = relationship(back_populates="documents")
     uploader: Mapped["User"] = relationship(foreign_keys=[uploaded_by])
+    payment: Mapped["Payment | None"] = relationship(foreign_keys=[payment_id])

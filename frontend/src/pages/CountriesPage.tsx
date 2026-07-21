@@ -113,7 +113,7 @@ function CountryModal({
 
 export const CountriesPage: React.FC = () => {
   const { hasRole } = useAuth()
-  const isAdmin = hasRole('admin')
+  const isAdmin = hasRole('admin', 'mzk_manager')
   const [editCountry, setEditCountry] = useState<Country | undefined>()
   const [addOpen, setAddOpen] = useState(false)
 

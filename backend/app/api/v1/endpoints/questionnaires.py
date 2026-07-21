@@ -414,7 +414,7 @@ def _sync_job_now() -> str:
 
 @router.post("/questionnaires/sync/notion", status_code=202)
 async def start_notion_questionnaire_sync(current_user: CurrentUser):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise _FORBIDDEN
     running = next((job for job in _SYNC_JOBS.values() if job.get("status") == "running"), None)
     if running:
@@ -454,7 +454,7 @@ async def start_notion_questionnaire_sync(current_user: CurrentUser):
 
 @router.get("/questionnaires/sync/notion/{job_id}")
 async def get_notion_questionnaire_sync_job(job_id: str, current_user: CurrentUser):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise _FORBIDDEN
     job = _SYNC_JOBS.get(job_id)
     if not job:

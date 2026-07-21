@@ -22,7 +22,7 @@ async def list_users(
     role: str | None = None,
     is_active: bool | None = None,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     query = select(User)
@@ -133,7 +133,7 @@ async def get_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = await db.execute(select(User).where(User.id == user_id))

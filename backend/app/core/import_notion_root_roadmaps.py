@@ -15,12 +15,11 @@ import argparse
 import asyncio
 import re
 import sys
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
-import requests
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,6 +139,10 @@ class NotionClient:
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
         self._page_cache: dict[str, dict[str, Any]] = {}
+        self._client = httpx.AsyncClient(timeout=45)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     @property
     def headers(self) -> dict[str, str]:
@@ -149,16 +152,16 @@ class NotionClient:
             "Content-Type": "application/json",
         }
 
-    def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         url = f"{NOTION_BASE}{path}"
         for attempt in range(5):
-            resp = requests.request(method, url, headers=self.headers, timeout=45, **kwargs)
+            resp = await self._client.request(method, url, headers=self.headers, **kwargs)
             if resp.status_code == 429:
                 wait = float(resp.headers.get("Retry-After", "1"))
-                time.sleep(max(wait, 1.0))
+                await asyncio.sleep(max(wait, 1.0))
                 continue
             if 500 <= resp.status_code < 600 and attempt < 4:
-                time.sleep(1 + attempt)
+                await asyncio.sleep(1 + attempt)
                 continue
             if resp.status_code >= 400:
                 try:
@@ -169,7 +172,7 @@ class NotionClient:
             return resp.json()
         raise RuntimeError("Notion API retries exhausted")
 
-    def search_databases(self, query: str) -> list[dict[str, Any]]:
+    async def search_databases(self, query: str) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "query": query,
             "filter": {"value": "database", "property": "object"},
@@ -177,29 +180,29 @@ class NotionClient:
         }
         out: list[dict[str, Any]] = []
         while True:
-            data = self.request("POST", "/search", json=payload)
+            data = await self.request("POST", "/search", json=payload)
             out.extend(data.get("results", []))
             if not data.get("has_more"):
                 break
             payload["start_cursor"] = data["next_cursor"]
         return out
 
-    def query_database(self, database_id: str, page_size: int = 100) -> list[dict[str, Any]]:
+    async def query_database(self, database_id: str, page_size: int = 100) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {"page_size": page_size}
         out: list[dict[str, Any]] = []
         while True:
-            data = self.request("POST", f"/databases/{database_id}/query", json=payload)
+            data = await self.request("POST", f"/databases/{database_id}/query", json=payload)
             out.extend(data.get("results", []))
             if not data.get("has_more"):
                 break
             payload["start_cursor"] = data["next_cursor"]
         return out
 
-    def get_page(self, page_id: str) -> dict[str, Any]:
+    async def get_page(self, page_id: str) -> dict[str, Any]:
         if page_id not in self._page_cache:
             # Notion limit is low; keep this conservative and deterministic.
-            time.sleep(0.34)
-            self._page_cache[page_id] = self.request("GET", f"/pages/{page_id}")
+            await asyncio.sleep(0.34)
+            self._page_cache[page_id] = await self.request("GET", f"/pages/{page_id}")
         return self._page_cache[page_id]
 
 
@@ -349,10 +352,10 @@ async def _ensure_country(db: AsyncSession, country_name: str | None) -> Country
     return res.scalar_one()
 
 
-def discover_candidates(client: NotionClient) -> list[DatabaseCandidate]:
+async def discover_candidates(client: NotionClient) -> list[DatabaseCandidate]:
     seen: dict[str, dict[str, Any]] = {}
     for query in SEARCH_QUERIES:
-        for db in client.search_databases(query):
+        for db in await client.search_databases(query):
             seen[db["id"]] = db
 
     candidates: list[DatabaseCandidate] = []
@@ -374,14 +377,14 @@ def discover_candidates(client: NotionClient) -> list[DatabaseCandidate]:
     return candidates
 
 
-def build_structure(
+async def build_structure(
     client: NotionClient,
     candidate: DatabaseCandidate,
     *,
     skip_subtasks: bool = False,
     on_task: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[TemplateStage]:
-    pages = client.query_database(candidate.id)
+    pages = await client.query_database(candidate.id)
     candidate.rows_count = len(pages)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for page in pages:
@@ -399,7 +402,7 @@ def build_structure(
             subtasks: list[TemplateSubtask] = []
             if not skip_subtasks:
                 for sub_pos, sub_id in enumerate(relation_ids):
-                    sub_page = client.get_page(sub_id)
+                    sub_page = await client.get_page(sub_id)
                     title = _title_prop(sub_page)
                     if title:
                         subtasks.append(
@@ -491,12 +494,12 @@ async def upsert_template(
     return action
 
 
-def _dedupe(candidates: list[DatabaseCandidate], client: NotionClient) -> list[DatabaseCandidate]:
+async def _dedupe(candidates: list[DatabaseCandidate], client: NotionClient) -> list[DatabaseCandidate]:
     by_key: dict[TemplateKey, DatabaseCandidate] = {}
     for candidate in candidates:
         # Count rows before choosing duplicates. This is slower but avoids importing
         # empty/partial duplicate databases.
-        candidate.rows_count = len(client.query_database(candidate.id))
+        candidate.rows_count = len(await client.query_database(candidate.id))
         current = by_key.get(candidate.key)
         if current is None:
             by_key[candidate.key] = candidate
@@ -528,93 +531,96 @@ async def run_import_summary(
         return ImportRunResult(ok=False, mode=mode, error="NOTION_API_KEY не задан в backend .env", templates=[])
 
     client = NotionClient(settings.NOTION_API_KEY)
-    candidates = discover_candidates(client)
-    if only:
-        needle = only.strip().lower()
-        candidates = [c for c in candidates if needle in c.key.label.lower() or needle in c.title.lower()]
-    if discover_only:
-        emit({"type": "discover", "found": len(candidates), "message": f"Discovered master roadmap candidates: {len(candidates)}"})
+    try:
+        candidates = await discover_candidates(client)
+        if only:
+            needle = only.strip().lower()
+            candidates = [c for c in candidates if needle in c.key.label.lower() or needle in c.title.lower()]
+        if discover_only:
+            emit({"type": "discover", "found": len(candidates), "message": f"Discovered master roadmap candidates: {len(candidates)}"})
+            items: list[ImportTemplateResult] = []
+            for c in sorted(candidates, key=lambda item: (item.key.track or "", item.key.country or "", item.key.degree, item.title)):
+                emit({"type": "candidate", "title": c.title, "label": c.key.label, "source_notion_db_id": c.id, "message": f"- {c.title} → {c.key.label} · {c.id}"})
+                items.append(ImportTemplateResult(c.title, c.key.label, c.id, "found", 0, 0, 0))
+            return ImportRunResult(ok=bool(candidates), mode=mode, found=len(candidates), templates=items)
+
+        candidates = await _dedupe(candidates, client)
+
+        emit({"type": "deduped", "found": len(candidates), "message": f"Found master roadmap templates: {len(candidates)}"})
+        if not candidates:
+            return ImportRunResult(ok=False, mode=mode, found=0, templates=[], error="Notion roadmap templates не найдены")
+
+        created = updated = total_tasks = total_subtasks = 0
         items: list[ImportTemplateResult] = []
-        for c in sorted(candidates, key=lambda item: (item.key.track or "", item.key.country or "", item.key.degree, item.title)):
-            emit({"type": "candidate", "title": c.title, "label": c.key.label, "source_notion_db_id": c.id, "message": f"- {c.title} → {c.key.label} · {c.id}"})
-            items.append(ImportTemplateResult(c.title, c.key.label, c.id, "found", 0, 0, 0))
-        return ImportRunResult(ok=bool(candidates), mode=mode, found=len(candidates), templates=items)
-
-    candidates = _dedupe(candidates, client)
-
-    emit({"type": "deduped", "found": len(candidates), "message": f"Found master roadmap templates: {len(candidates)}"})
-    if not candidates:
-        return ImportRunResult(ok=False, mode=mode, found=0, templates=[], error="Notion roadmap templates не найдены")
-
-    created = updated = total_tasks = total_subtasks = 0
-    items: list[ImportTemplateResult] = []
-    for idx, candidate in enumerate(candidates, start=1):
-        async with AsyncSessionLocal() as db:
-            emit({
-                "type": "template_start",
-                "index": idx,
-                "total": len(candidates),
-                "title": candidate.title,
-                "label": candidate.key.label,
-                "message": f"[{idx}/{len(candidates)}] {candidate.title} → {candidate.key.label}",
-            })
-            try:
-                def task_event(event: dict[str, Any]) -> None:
-                    event.update({
-                        "template_index": idx,
-                        "template_total": len(candidates),
-                        "template_title": candidate.title,
-                    })
-                    subtasks_part = "subtasks skipped" if event["subtasks_skipped"] else f"subtasks={event['subtasks']}"
-                    event["message"] = f"    task {event['task_index']}/{event['task_total']}: {event['title']} · {subtasks_part}"
-                    emit(event)
-
-                stages = build_structure(client, candidate, skip_subtasks=skip_subtasks, on_task=task_event)
-                task_count = sum(len(s.tasks) for s in stages)
-                subtask_count = sum(len(t.subtasks) for s in stages for t in s.tasks)
-                action = await upsert_template(db, candidate, stages, dry_run=dry_run)
-                if dry_run:
-                    await db.rollback()
-                else:
-                    await db.commit()
-                created += int(action == "created")
-                updated += int(action == "updated")
-                total_tasks += task_count
-                total_subtasks += subtask_count
-                items.append(ImportTemplateResult(
-                    title=candidate.title,
-                    label=candidate.key.label,
-                    source_notion_db_id=candidate.id,
-                    action=action,
-                    stages=len(stages),
-                    tasks=task_count,
-                    subtasks=subtask_count,
-                ))
+        for idx, candidate in enumerate(candidates, start=1):
+            async with AsyncSessionLocal() as db:
                 emit({
-                    "type": "template_done",
+                    "type": "template_start",
                     "index": idx,
                     "total": len(candidates),
-                    "action": action,
-                    "stages": len(stages),
-                    "tasks": task_count,
-                    "subtasks": subtask_count,
-                    "message": f"  {action}: stages={len(stages)} tasks={task_count} subtasks={subtask_count}",
+                    "title": candidate.title,
+                    "label": candidate.key.label,
+                    "message": f"[{idx}/{len(candidates)}] {candidate.title} → {candidate.key.label}",
                 })
-            except Exception:
-                await db.rollback()
-                raise
+                try:
+                    def task_event(event: dict[str, Any]) -> None:
+                        event.update({
+                            "template_index": idx,
+                            "template_total": len(candidates),
+                            "template_title": candidate.title,
+                        })
+                        subtasks_part = "subtasks skipped" if event["subtasks_skipped"] else f"subtasks={event['subtasks']}"
+                        event["message"] = f"    task {event['task_index']}/{event['task_total']}: {event['title']} · {subtasks_part}"
+                        emit(event)
 
-    emit({"type": "done", "message": f"{mode}: created={created} updated={updated} tasks={total_tasks} subtasks={total_subtasks}"})
-    return ImportRunResult(
-        ok=True,
-        mode=mode,
-        found=len(candidates),
-        created=created,
-        updated=updated,
-        tasks=total_tasks,
-        subtasks=total_subtasks,
-        templates=items,
-    )
+                    stages = await build_structure(client, candidate, skip_subtasks=skip_subtasks, on_task=task_event)
+                    task_count = sum(len(s.tasks) for s in stages)
+                    subtask_count = sum(len(t.subtasks) for s in stages for t in s.tasks)
+                    action = await upsert_template(db, candidate, stages, dry_run=dry_run)
+                    if dry_run:
+                        await db.rollback()
+                    else:
+                        await db.commit()
+                    created += int(action == "created")
+                    updated += int(action == "updated")
+                    total_tasks += task_count
+                    total_subtasks += subtask_count
+                    items.append(ImportTemplateResult(
+                        title=candidate.title,
+                        label=candidate.key.label,
+                        source_notion_db_id=candidate.id,
+                        action=action,
+                        stages=len(stages),
+                        tasks=task_count,
+                        subtasks=subtask_count,
+                    ))
+                    emit({
+                        "type": "template_done",
+                        "index": idx,
+                        "total": len(candidates),
+                        "action": action,
+                        "stages": len(stages),
+                        "tasks": task_count,
+                        "subtasks": subtask_count,
+                        "message": f"  {action}: stages={len(stages)} tasks={task_count} subtasks={subtask_count}",
+                    })
+                except Exception:
+                    await db.rollback()
+                    raise
+
+        emit({"type": "done", "message": f"{mode}: created={created} updated={updated} tasks={total_tasks} subtasks={total_subtasks}"})
+        return ImportRunResult(
+            ok=True,
+            mode=mode,
+            found=len(candidates),
+            created=created,
+            updated=updated,
+            tasks=total_tasks,
+            subtasks=total_subtasks,
+            templates=items,
+        )
+    finally:
+        await client.aclose()
 
 
 async def run_import(*, dry_run: bool, only: str | None, discover_only: bool, skip_subtasks: bool) -> int:

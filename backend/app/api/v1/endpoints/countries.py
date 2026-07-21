@@ -14,7 +14,7 @@ from app.models.country_reference import CountryReference
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/countries", tags=["countries"])
-COUNTRY_EDIT_ROLES = (UserRole.admin, UserRole.mzk_manager)
+COUNTRY_EDIT_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 COUNTRY_DEGREE_LEVELS = {"undergraduate", "graduate"}
 
 

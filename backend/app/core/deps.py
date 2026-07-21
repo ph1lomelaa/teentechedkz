@@ -63,7 +63,7 @@ def require_roles(*roles: UserRole):
     return Depends(_check)
 
 
-AdminOrMZK = require_roles(UserRole.admin, UserRole.mzk_manager)
+AdminOrMZK = require_roles(UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 AdminOnly = require_roles(UserRole.admin)
 # Any back-office employee (student portal accounts are excluded).
 StaffOnly = require_roles(UserRole.admin, UserRole.mzk_manager, UserRole.mentor)

@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast'
 import { knowledgeApi, KnowledgeArticleSummary } from '@/api/knowledge'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 import { useAuth } from '@/contexts/AuthContext'
+import { useImportJobs } from '@/contexts/ImportJobsContext'
 
 export const KnowledgeBasePage: React.FC = () => {
   const { toast } = useToast()
@@ -14,18 +15,11 @@ export const KnowledgeBasePage: React.FC = () => {
   const { user } = useAuth()
   const canSync = user?.role === 'admin' || user?.role === 'mzk_manager'
   const [openId, setOpenId] = useState<string | null>(null)
-  const [syncJobId, setSyncJobId] = useState<string | null>(null)
+  const { setKnowledgeJobId: setSyncJobId, knowledgeJob: syncJob } = useImportJobs()
 
   const { data: articles = [], isLoading } = useQuery({
     queryKey: ['knowledge-articles'],
     queryFn: () => knowledgeApi.list(),
-  })
-
-  const { data: syncJob } = useQuery({
-    queryKey: ['knowledge-notion-sync', syncJobId],
-    queryFn: () => knowledgeApi.notionSyncJob(syncJobId!),
-    enabled: Boolean(syncJobId),
-    refetchInterval: (query) => (query.state.data?.status === 'running' ? 2500 : false),
   })
 
   React.useEffect(() => {
@@ -84,6 +78,12 @@ export const KnowledgeBasePage: React.FC = () => {
           </div>
           {syncJob && (
             <div className="mt-3 rounded-[2px] border border-border bg-muted p-3 text-xs">
+              <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
+                <div
+                  className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' ? 'w-1/3 animate-pulse' : ''}`}
+                  style={syncJob.status === 'done' ? { width: '100%' } : undefined}
+                />
+              </div>
               <div className="font-semibold text-p-text">
                 {syncJob.status === 'running' ? 'Синхронизация идёт…' : syncJob.status === 'done' ? 'Готово' : 'Ошибка'}
               </div>

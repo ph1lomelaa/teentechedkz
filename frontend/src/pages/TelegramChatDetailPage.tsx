@@ -32,6 +32,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
+import { StudentChatSection } from '@/components/shared/StudentChatSection'
+import { Accordion } from '@/components/ui/accordion'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import { downloadBlob } from '@/lib/utils'
@@ -381,95 +383,99 @@ export default function TelegramChatDetailPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="border border-p-line rounded-[2px]">
-          <div className="px-4 py-2 border-b border-p-line">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="font-medium text-sm text-p-text">
-                Переписка ({messages.length}{messageSearch.trim() ? ' найдено' : ''})
-              </div>
-              <div className="relative sm:w-64">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-p-muted2" />
-                <Input
-                  value={messageSearch}
-                  onChange={(event) => setMessageSearch(event.target.value)}
-                  placeholder="Поиск по истории"
-                  className="h-9 pl-8 text-xs"
-                />
-              </div>
+      <div className="border border-p-line rounded-[2px]">
+        <div className="px-4 py-2 border-b border-p-line">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="font-medium text-sm text-p-text">
+              Переписка ({messages.length}{messageSearch.trim() ? ' найдено' : ''})
             </div>
-            <p className="mt-1 text-xs text-p-muted2">
-              История хранится на уровне Telegram-чата: при смене студента сообщения не удаляются.
-            </p>
-          </div>
-          <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 && <p className="text-sm text-p-muted">Сообщений пока нет</p>}
-            {messages.map((m) => (
-              <div key={m.id} className="text-sm border-b border-p-line pb-3 last:border-0">
-                <div className="flex items-center justify-between text-xs text-p-muted mb-1">
-                  <span className="font-medium text-p-text">{m.sender_name || 'Без имени'}</span>
-                  <span>{formatDate(m.created_at)}</span>
-                </div>
-                {m.raw_text && <p className="text-p-text whitespace-pre-wrap">{m.raw_text}</p>}
-                {m.attachments.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {m.attachments.map((a) => (
-                      <span key={a.id} className="inline-flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={!a.can_download}
-                          onClick={() => void handleDownloadAttachment(a)}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-[2px] text-xs border ${
-                            a.can_download
-                              ? 'border-p-line text-p-text hover:bg-p-bg'
-                              : 'border-p-line text-p-muted2 cursor-not-allowed'
-                          }`}
-                        >
-                          <Paperclip className="w-3 h-3" />
-                          {a.file_name || 'файл'}
-                        </button>
-                        {chat.student_id && (a.status === 'downloaded' || a.status === 'parsed') && (
-                          <button
-                            title="В документы"
-                            onClick={() => setSaveAsDocTarget(a.id)}
-                            className="inline-flex items-center px-1.5 py-1 rounded-[2px] text-xs border border-p-line text-p-muted hover:bg-p-bg"
-                          >
-                            <FolderInput className="w-3 h-3" />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="border border-p-line rounded-[2px]">
-          <div className="px-4 py-2 border-b border-p-line">
-            <div className="font-medium text-sm text-p-text">Авто-изменения полей ({insights.length})</div>
-            <p className="mt-0.5 text-xs text-p-muted2">
-              Здесь только структурные изменения карточки. Для заметок, документов и follow-up используйте «Создать заметки».
-            </p>
-          </div>
-          <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
-            {chat.has_context_signal && (
-              <div className="rounded-[2px] border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                В последних сообщениях есть потенциально важный контекст: экзамены, документы, даты или вложения.
-              </div>
-            )}
-            {insights.length === 0 && <p className="text-sm text-p-muted">Авто-изменений полей пока нет</p>}
-            {insights.map((insight) => (
-              <InsightCard
-                key={insight.id}
-                insight={insight}
-                isPending={reviewMutation.isPending}
-                onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
-                onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
+            <div className="relative sm:w-64">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-p-muted2" />
+              <Input
+                value={messageSearch}
+                onChange={(event) => setMessageSearch(event.target.value)}
+                placeholder="Поиск по истории"
+                className="h-9 pl-8 text-xs"
               />
-            ))}
+            </div>
           </div>
+          <p className="mt-1 text-xs text-p-muted2">
+            История хранится на уровне Telegram-чата: при смене студента сообщения не удаляются.
+          </p>
+        </div>
+        <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
+          {messages.length === 0 && <p className="text-sm text-p-muted">Сообщений пока нет</p>}
+          {messages.map((m) => (
+            <div key={m.id} className="text-sm border-b border-p-line pb-3 last:border-0">
+              <div className="flex items-center justify-between text-xs text-p-muted mb-1">
+                <span className="font-medium text-p-text">{m.sender_name || 'Без имени'}</span>
+                <span>{formatDate(m.created_at)}</span>
+              </div>
+              {m.raw_text && <p className="text-p-text whitespace-pre-wrap">{m.raw_text}</p>}
+              {m.attachments.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {m.attachments.map((a) => (
+                    <span key={a.id} className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={!a.can_download}
+                        onClick={() => void handleDownloadAttachment(a)}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-[2px] text-xs border ${
+                          a.can_download
+                            ? 'border-p-line text-p-text hover:bg-p-bg'
+                            : 'border-p-line text-p-muted2 cursor-not-allowed'
+                        }`}
+                      >
+                        <Paperclip className="w-3 h-3" />
+                        {a.file_name || 'файл'}
+                      </button>
+                      {chat.student_id && (a.status === 'downloaded' || a.status === 'parsed') && (
+                        <button
+                          title="В документы"
+                          onClick={() => setSaveAsDocTarget(a.id)}
+                          className="inline-flex items-center px-1.5 py-1 rounded-[2px] text-xs border border-p-line text-p-muted hover:bg-p-bg"
+                        >
+                          <FolderInput className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {chat.student_id && (
+        <Accordion type="single" collapsible defaultValue="chat">
+          <StudentChatSection studentId={chat.student_id} />
+        </Accordion>
+      )}
+
+      <div className="border border-p-line rounded-[2px]">
+        <div className="px-4 py-2 border-b border-p-line">
+          <div className="font-medium text-sm text-p-text">Авто-изменения полей ({insights.length})</div>
+          <p className="mt-0.5 text-xs text-p-muted2">
+            Здесь только структурные изменения карточки. Для заметок, документов и follow-up используйте «Создать заметки».
+          </p>
+        </div>
+        <div className="max-h-[400px] overflow-y-auto p-4 space-y-3">
+          {chat.has_context_signal && (
+            <div className="rounded-[2px] border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              В последних сообщениях есть потенциально важный контекст: экзамены, документы, даты или вложения.
+            </div>
+          )}
+          {insights.length === 0 && <p className="text-sm text-p-muted">Авто-изменений полей пока нет</p>}
+          {insights.map((insight) => (
+            <InsightCard
+              key={insight.id}
+              insight={insight}
+              isPending={reviewMutation.isPending}
+              onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
+              onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
+            />
+          ))}
         </div>
       </div>
 

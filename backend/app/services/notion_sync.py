@@ -11,13 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_cls
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import NotionSnapshot, NotionMatchStatus, Student
+from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract
 
 # migration/ монтируется в контейнер как /app/migration — переиспользуем читалку
 sys.path.insert(0, "/app") if "/app" not in sys.path else None
@@ -58,6 +59,42 @@ async def _load_students_index(db: AsyncSession) -> list[dict]:
         {"id": r.id, "full_name": r.full_name or "", "phone": r.phone or "", "intake_year": r.intake_year}
         for r in result.all()
     ]
+
+
+async def _sync_remaining_to_contract(db: AsyncSession, student_id, row: dict) -> None:
+    """Единственные два поля, которые авто-переносим из Notion в CRM без ручного
+    подтверждения: «Остаток клиента» и дата остатка. Они нужны всегда актуальными
+    для уведомлений о платежах и календаря на странице «Финансы». Остальные поля
+    Notion остаются read-only — перенос только вручную кнопкой «Принять из Notion»
+    (см. /notion/students/{id}/apply-field).
+    """
+    raw_amount = row.get("client_remaining")
+    raw_date = row.get("client_remaining_date")
+    if raw_amount is None and raw_date is None:
+        return
+
+    result = await db.execute(
+        select(Contract).where(Contract.student_id == student_id).order_by(Contract.created_at.desc()).limit(1)
+    )
+    contract = result.scalars().first()
+    if not contract:
+        return
+
+    if raw_amount is not None:
+        try:
+            new_amount = Decimal(str(raw_amount))
+        except (InvalidOperation, ValueError):
+            new_amount = None
+        if new_amount is not None and contract.client_remaining_amount != new_amount:
+            contract.client_remaining_amount = new_amount
+
+    if raw_date:
+        try:
+            new_date = date_cls.fromisoformat(str(raw_date)[:10])
+        except ValueError:
+            new_date = None
+        if new_date is not None and contract.client_remaining_date != new_date:
+            contract.client_remaining_date = new_date
 
 
 async def run_sync(db: AsyncSession) -> dict:
@@ -118,6 +155,8 @@ async def run_sync(db: AsyncSession) -> dict:
                     unchanged += 1
                     if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
                         auto_linked += 1
+                    if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
+                        await _sync_remaining_to_contract(db, snapshot.student_id, row)
                     continue
 
                 if snapshot is None:
@@ -143,6 +182,8 @@ async def run_sync(db: AsyncSession) -> dict:
 
                 if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
                     auto_linked += 1
+                if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
+                    await _sync_remaining_to_contract(db, snapshot.student_id, row)
 
             await db.commit()
 

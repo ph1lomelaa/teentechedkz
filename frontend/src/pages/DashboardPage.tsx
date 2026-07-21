@@ -257,7 +257,7 @@ export const DashboardPage: React.FC = () => {
   const { hasRole, user } = useAuth()
   const queryClient = useQueryClient()
   const canDrag = hasRole('admin', 'mzk_manager')
-  const isAdmin = hasRole('admin')
+  const isAdmin = hasRole('admin', 'mzk_manager')
   const canSelectStudents = hasRole('admin', 'mentor', 'mzk_manager')
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())

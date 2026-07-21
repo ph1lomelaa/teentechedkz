@@ -57,7 +57,7 @@ const adminNavGroups: NavGroup[] = [
     group: 'РАБОТА',
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
       { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
     ],
   },
@@ -99,7 +99,7 @@ const mzkManagerNavGroups: NavGroup[] = [
     group: 'РАБОТА',
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
       { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
     ],
   },
@@ -140,8 +140,7 @@ const mentorNavGroups: NavGroup[] = [
     group: 'РАБОТА',
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Telegram', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
+      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
     ],
   },
   {
@@ -177,7 +176,7 @@ function getBreadcrumb(pathname: string): string {
     '/universities': 'Университеты',
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',
-    '/telegram-inbox': 'Telegram',
+    '/telegram-inbox': 'Чаты',
     '/status-inbox': 'Статус',
   }
   if (pathname.match(/^\/students\/[^/]+$/)) return 'Карточка студента'

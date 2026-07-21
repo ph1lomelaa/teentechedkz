@@ -15,12 +15,15 @@ from app.models.contract import Contract
 from app.models.student import Student
 from app.models.user import UserRole, User
 from app.models.mentor_assignment import MentorAssignment
+from app.core.config import settings
+from datetime import timedelta
+from app.models.document import Document
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
@@ -237,6 +240,31 @@ async def mentor_payouts(
     ]
 
 
+@router.get("/{payment_id}/documents")
+async def payment_documents(
+    payment_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+
+    result = await db.execute(
+        select(Document).where(Document.payment_id == payment_id).order_by(Document.uploaded_at.desc())
+    )
+    docs = result.scalars().all()
+    return [
+        {
+            "id": str(d.id),
+            "file_name": d.file_name,
+            "mime_type": d.mime_type,
+            "storage_path": d.storage_path,
+            "uploaded_at": d.uploaded_at.isoformat(),
+            "student_id": str(d.student_id),
+        }
+        for d in docs
+    ]
+
+
 @router.get("/client-balances")
 async def client_balances(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -310,6 +338,72 @@ async def client_balances(
             "pipeline_status": r.pipeline_status.value if r.pipeline_status else None,
             "remaining": str(r.remaining or 0),
             "currency": r.currency,
+            "responsible_name": r.manager_name or r.mentor_name,
+            "responsible_role": "manager" if r.manager_name else ("mentor" if r.mentor_name else None),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/upcoming")
+async def upcoming_payments(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+
+    look_ahead_days = settings.PAYMENT_DUE_LOOK_AHEAD_DAYS
+    threshold_date = date.today() + timedelta(days=look_ahead_days)
+
+    manager_name_sq = (
+        select(User.name)
+        .where(User.id == Contract.mzk_manager_id)
+        .correlate(Contract)
+        .scalar_subquery()
+    )
+    mentor_name_sq = (
+        select(User.name)
+        .select_from(MentorAssignment)
+        .join(User, User.id == MentorAssignment.mentor_id)
+        .where(
+            MentorAssignment.student_id == Contract.student_id,
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        .order_by(MentorAssignment.assigned_at.desc())
+        .limit(1)
+        .correlate(Contract)
+        .scalar_subquery()
+    )
+
+    result = await db.execute(
+        select(
+            Contract.id,
+            Student.id.label("student_id"),
+            Student.full_name,
+            Contract.client_remaining_amount,
+            Contract.client_remaining_date,
+            Contract.currency,
+            manager_name_sq.label("manager_name"),
+            mentor_name_sq.label("mentor_name"),
+        )
+        .join(Student, Student.id == Contract.student_id)
+        .where(
+            Contract.client_remaining_date.isnot(None),
+            Contract.client_remaining_date <= threshold_date,
+            Contract.client_remaining_date >= date.today(),
+        )
+        .order_by(Contract.client_remaining_date.asc())
+    )
+    rows = result.all()
+
+    return [
+        {
+            "contract_id": str(r.id),
+            "student_id": str(r.student_id),
+            "student_name": r.full_name,
+            "remaining": float(r.client_remaining_amount) if r.client_remaining_amount is not None else 0.0,
+            "currency": r.currency,
+            "client_remaining_date": r.client_remaining_date.isoformat() if r.client_remaining_date else None,
             "responsible_name": r.manager_name or r.mentor_name,
             "responsible_role": "manager" if r.manager_name else ("mentor" if r.mentor_name else None),
         }

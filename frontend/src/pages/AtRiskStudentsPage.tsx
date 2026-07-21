@@ -39,7 +39,6 @@ export const AtRiskStudentsPage: React.FC = () => {
   const { hasRole } = useAuth()
   const navigate = useNavigate()
   const isManager = hasRole('admin', 'mzk_manager')
-  const isAdmin = hasRole('admin')
   const qc = useQueryClient()
 
   const [mergePair, setMergePair] = useState<DuplicatePair | null>(null)
@@ -312,7 +311,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                       <TableHead>Студент Б</TableHead>
                       <TableHead>Совпадение</TableHead>
                       <TableHead>Телефоны</TableHead>
-                      {isAdmin && <TableHead className="text-right">Действие</TableHead>}
+                      {isManager && <TableHead className="text-right">Действие</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -342,7 +341,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                         <TableCell className="text-xs text-p-muted">
                           {pair.a.phone || '—'} · {pair.b.phone || '—'}
                         </TableCell>
-                        {isAdmin && (
+                        {isManager && (
                           <TableCell className="text-right">
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1.5" onClick={() => openMergeDialog(pair)}>
                               <Link2 className="w-3.5 h-3.5" />

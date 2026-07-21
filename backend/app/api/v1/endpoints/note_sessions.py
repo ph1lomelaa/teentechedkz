@@ -92,7 +92,7 @@ def _add_note_ai_run(
 
 
 def _is_staff_admin(current_user) -> bool:
-    return current_user.role in (UserRole.admin, UserRole.mzk_manager)
+    return current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 
 async def _mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[uuid.UUID]:

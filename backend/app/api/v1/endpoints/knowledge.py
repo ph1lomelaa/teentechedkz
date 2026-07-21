@@ -22,7 +22,7 @@ from app.models.user import UserRole
 router = APIRouter(prefix="/knowledge-articles", tags=["knowledge"])
 
 STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager)
+_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 _FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Не найдено")
 

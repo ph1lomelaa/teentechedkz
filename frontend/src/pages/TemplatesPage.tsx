@@ -26,6 +26,7 @@ import {
 } from '@/api/roadmap'
 import { questionnairesApi } from '@/api/questionnaires'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { useImportJobs } from '@/contexts/ImportJobsContext'
 
 const PRIORITIES: { value: Priority; label: string }[] = [
   { value: 'required', label: 'Обязательно' },
@@ -48,28 +49,34 @@ function toStageInputs(tpl: RoadmapTemplate): StageInput[] {
   }))
 }
 
+function renderProgressPercent(current: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.min(100, Math.max(0, Math.round((current / total) * 100)))
+}
+
 export const TemplatesPage: React.FC = () => {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
-  const [importJobId, setImportJobId] = useState<string | null>(null)
   const [only, setOnly] = useState('')
-  const [syncJobId, setSyncJobId] = useState<string | null>(null)
+  const {
+    setRoadmapJobId: setImportJobId,
+    roadmapJob: importJob,
+    setQuestionnaireJobId: setSyncJobId,
+    questionnaireJob: syncJob,
+  } = useImportJobs()
+
+  const importPercent =
+    importJob?.status === 'done'
+      ? 100
+      : importJob?.progress?.template_total
+        ? renderProgressPercent(importJob.progress.template_index || 0, importJob.progress.template_total)
+        : null
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['roadmap-templates'],
     queryFn: roadmapApi.listTemplates,
-  })
-
-  const { data: importJob } = useQuery({
-    queryKey: ['roadmap-templates-notion-import', importJobId],
-    queryFn: () => roadmapApi.notionImportJob(importJobId!),
-    enabled: Boolean(importJobId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'running' ? 2500 : false
-    },
   })
 
   React.useEffect(() => {
@@ -77,16 +84,6 @@ export const TemplatesPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['roadmap-templates'] })
     }
   }, [importJob?.status, queryClient])
-
-  const { data: syncJob } = useQuery({
-    queryKey: ['questionnaire-notion-sync', syncJobId],
-    queryFn: () => questionnairesApi.notionSyncJob(syncJobId!),
-    enabled: Boolean(syncJobId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'running' ? 2500 : false
-    },
-  })
 
   const notionSyncMutation = useMutation({
     mutationFn: () => questionnairesApi.startNotionSync(),
@@ -218,6 +215,12 @@ export const TemplatesPage: React.FC = () => {
 
         {importJob && (
           <div className="mt-4 rounded-[2px] border border-border bg-muted p-3">
+            <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
+              <div
+                className={`h-full bg-amber-500 transition-all duration-300 ${importJob.status === 'running' && importPercent === null ? 'w-1/3 animate-pulse' : ''}`}
+                style={importPercent !== null ? { width: `${importPercent}%` } : undefined}
+              />
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold text-p-text">
@@ -277,6 +280,12 @@ export const TemplatesPage: React.FC = () => {
 
         {syncJob && (
           <div className="mt-4 rounded-[2px] border border-border bg-muted p-3">
+            <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
+              <div
+                className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' ? 'w-1/3 animate-pulse' : ''}`}
+                style={syncJob.status === 'done' ? { width: '100%' } : undefined}
+              />
+            </div>
             <div className="text-xs font-semibold text-p-text">
               Job {syncJob.job_id.slice(0, 8)} · {syncJob.status === 'running' ? 'идёт' : syncJob.status === 'done' ? 'готово' : 'ошибка'}
             </div>

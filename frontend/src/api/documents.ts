@@ -2,10 +2,11 @@ import apiClient from './client'
 import { Document, DocType } from '../types'
 
 export const documentsApi = {
-  upload: async (studentId: string, file: File, docType: DocType): Promise<Document> => {
+  upload: async (studentId: string, file: File, docType: DocType, paymentId?: string): Promise<Document> => {
     const form = new FormData()
     form.append('file', file)
     form.append('doc_type', docType)
+    if (paymentId) form.append('payment_id', paymentId)
     const response = await apiClient.post<Document>(`/documents/student/${studentId}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

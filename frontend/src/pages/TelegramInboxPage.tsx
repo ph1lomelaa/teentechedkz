@@ -230,8 +230,8 @@ export default function TelegramInboxPage() {
     <div className="space-y-4">
       <CrmPageHeader
         eyebrow="Коммуникации"
-        title="Telegram"
-        description="Диалоги со студентами и сообщения, требующие внимания команды."
+        title="Чаты"
+        description="Telegram-диалоги со студентами. Внутренний чат со студентом открывается прямо внутри диалога."
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">

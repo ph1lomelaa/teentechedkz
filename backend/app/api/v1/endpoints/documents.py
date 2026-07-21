@@ -43,6 +43,7 @@ async def upload_document(
     current_user: CurrentUser,
     doc_type: str = Form(...),
     file: UploadFile = File(...),
+    payment_id: str | None = Form(None),
 ):
     student = await db.get(Student, student_id)
     if not student:
@@ -83,6 +84,7 @@ async def upload_document(
         mime_type=mime,
         storage_path=storage_path,
         source=DocSource.manual_upload,
+        payment_id=uuid.UUID(payment_id) if payment_id else None,
     )
     db.add(doc)
     try:
@@ -109,6 +111,7 @@ async def save_telegram_attachment_as_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
     doc_type: str = Form(...),
+    payment_id: str | None = Form(None),
 ):
     attachment = await db.get(TelegramAttachment, attachment_id)
     if not attachment:
@@ -177,6 +180,7 @@ async def save_telegram_attachment_as_document(
         # Документ, пришедший из Telegram, сразу виден и в CRM, и в кабинете
         # ученика (п.2) — как файл, которым обменялись в переписке.
         visible_to_student=True,
+        payment_id=uuid.UUID(payment_id) if payment_id else None,
     )
     db.add(doc)
     await db.flush()
@@ -195,7 +199,7 @@ async def verify_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = await db.execute(select(Document).where(Document.id == doc_id))
@@ -259,7 +263,7 @@ async def delete_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     result = await db.execute(select(Document).where(Document.id == doc_id))
@@ -481,6 +485,7 @@ def _doc_to_dict(d: Document) -> dict:
         "mime_type": d.mime_type,
         "storage_path": d.storage_path,
         "source": d.source.value,
+        "payment_id": str(d.payment_id) if d.payment_id else None,
         "ai_description": d.ai_description,
         "ai_doc_type_confidence": float(d.ai_doc_type_confidence) if d.ai_doc_type_confidence else None,
         "is_verified": d.is_verified,

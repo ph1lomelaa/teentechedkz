@@ -15,7 +15,7 @@ from app.models.user import UserRole
 
 router = APIRouter(prefix="/scholarships", tags=["scholarships"])
 
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager)
+_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 
 
 @router.get("")

@@ -113,7 +113,7 @@ async def _load_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
 
 
 def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
 

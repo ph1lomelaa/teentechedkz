@@ -37,6 +37,7 @@ TARGETS: list[dict[str, str]] = [
     {"page_id": "1fe8111c-ac94-8210-8d69-01cc27468ae6", "category": "Регламенты"},            # Регламент «Компания - Ментор»
     {"page_id": "a078111c-ac94-8252-b5bb-81ef503386e6", "category": "Пакеты и выплаты"},      # Grand table Packages (Jun'2025)
     {"page_id": "ed78111c-ac94-836e-8a23-8168b4fb66b9", "category": "Пакеты и выплаты"},      # Grand table Packages (DEC'2025, junior mentors)
+    {"page_id": "5798111c-ac94-8359-a55d-819754e2ed05", "category": "Пакеты и выплаты"},      # Grand table Packages (AUG'2025)
     {"page_id": "ebb8111c-ac94-83f9-bafd-017d57f5a35a", "category": "Шаблоны"},               # SAMPLE_Counselor page
 ]
 
@@ -84,11 +85,11 @@ def _notion_link(target_id: str) -> str:
     return f"https://www.notion.so/{target_id.replace('-', '')}"
 
 
-def _list_block_children(client: NotionClient, block_id: str) -> list[dict[str, Any]]:
+async def _list_block_children(client: NotionClient, block_id: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     params: dict[str, Any] = {"page_size": 100}
     while True:
-        data = client.request("GET", f"/blocks/{block_id}/children", params=params)
+        data = await client.request("GET", f"/blocks/{block_id}/children", params=params)
         out.extend(data.get("results", []))
         if not data.get("has_more"):
             break
@@ -119,7 +120,7 @@ def _cell_value(page_props: dict[str, Any], col: str) -> str | None:
     return str(value)
 
 
-def _render_child_database(client: NotionClient, db_id: str, fallback_title: str) -> str:
+async def _render_child_database(client: NotionClient, db_id: str, fallback_title: str) -> str:
     """Render a linked database as collapsible cards, not a wide table.
 
     These databases (e.g. package/pricing tables) commonly have 10+ columns
@@ -129,7 +130,7 @@ def _render_child_database(client: NotionClient, db_id: str, fallback_title: str
     puts the rest behind a click.
     """
     try:
-        dbjson = client.request("GET", f"/databases/{db_id}")
+        dbjson = await client.request("GET", f"/databases/{db_id}")
     except Exception:
         return (
             f'<p class="kb-note">[Таблица Notion недоступна — '
@@ -143,7 +144,7 @@ def _render_child_database(client: NotionClient, db_id: str, fallback_title: str
     if not columns:
         return f"<h4>{html.escape(title)}</h4>"
 
-    rows = client.query_database(db_id, page_size=100)
+    rows = await client.query_database(db_id, page_size=100)
     if not rows:
         return f"<h4>{html.escape(title)}</h4><p><em>Пусто</em></p>"
 
@@ -171,7 +172,7 @@ def _render_child_database(client: NotionClient, db_id: str, fallback_title: str
     return f"<h4>{html.escape(title)}</h4><div class=\"kb-db-rows\">{''.join(items_html)}</div>{note}"
 
 
-def _render_blocks(client: NotionClient, blocks: list[dict[str, Any]], depth: int = 0) -> str:
+async def _render_blocks(client: NotionClient, blocks: list[dict[str, Any]], depth: int = 0) -> str:
     if depth > MAX_DEPTH:
         return ""
     parts: list[str] = []
@@ -190,7 +191,7 @@ def _render_blocks(client: NotionClient, blocks: list[dict[str, Any]], depth: in
         node = block.get(btype, {}) if btype else {}
         children_html = ""
         if block.get("has_children") and btype not in {"child_database", "child_page"}:
-            children_html = _render_blocks(client, _list_block_children(client, block["id"]), depth + 1)
+            children_html = await _render_blocks(client, await _list_block_children(client, block["id"]), depth + 1)
 
         if btype in ("bulleted_list_item", "numbered_list_item"):
             tag = "ul" if btype == "bulleted_list_item" else "ol"
@@ -228,10 +229,10 @@ def _render_blocks(client: NotionClient, blocks: list[dict[str, Any]], depth: in
             if children_html:
                 parts.append(children_html)
         elif btype == "table":
-            table_rows = _list_block_children(client, block["id"]) if block.get("has_children") else []
+            table_rows = await _list_block_children(client, block["id"]) if block.get("has_children") else []
             parts.append(_render_table_block(table_rows))
         elif btype == "child_database":
-            parts.append(_render_child_database(client, block["id"], node.get("title", "")))
+            parts.append(await _render_child_database(client, block["id"], node.get("title", "")))
         elif btype == "link_to_page":
             target = node.get("page_id") or node.get("database_id")
             if target:
@@ -257,9 +258,9 @@ class ArticleResult:
 
 
 async def _upsert_article(db: AsyncSession, client: NotionClient, page_id: str, category: str) -> ArticleResult:
-    page = client.get_page(page_id)
+    page = await client.get_page(page_id)
     title = _page_title(page) or category
-    body = _render_blocks(client, _list_block_children(client, page_id))
+    body = await _render_blocks(client, await _list_block_children(client, page_id))
 
     res = await db.execute(select(KnowledgeArticle).where(KnowledgeArticle.source_notion_page_id == page_id))
     article = res.scalar_one_or_none()
@@ -283,20 +284,23 @@ async def run_import(on_event: Callable[[dict[str, Any]], None] | None = None) -
 
     created = updated = failed = 0
     articles: list[dict[str, Any]] = []
-    async with AsyncSessionLocal() as db:
-        for idx, target in enumerate(TARGETS, start=1):
-            try:
-                result = await _upsert_article(db, client, target["page_id"], target["category"])
-                created += int(result.action == "created")
-                updated += int(result.action == "updated")
-                articles.append({"title": result.title, "action": result.action, "page_id": result.page_id})
-                if on_event:
-                    on_event({"message": f"[{idx}/{len(TARGETS)}] {result.action}: {result.title}"})
-            except Exception as exc:
-                failed += 1
-                if on_event:
-                    on_event({"message": f"[{idx}/{len(TARGETS)}] ошибка {target['page_id']}: {exc}"})
-        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            for idx, target in enumerate(TARGETS, start=1):
+                try:
+                    result = await _upsert_article(db, client, target["page_id"], target["category"])
+                    created += int(result.action == "created")
+                    updated += int(result.action == "updated")
+                    articles.append({"title": result.title, "action": result.action, "page_id": result.page_id})
+                    if on_event:
+                        on_event({"message": f"[{idx}/{len(TARGETS)}] {result.action}: {result.title}"})
+                except Exception as exc:
+                    failed += 1
+                    if on_event:
+                        on_event({"message": f"[{idx}/{len(TARGETS)}] ошибка {target['page_id']}: {exc}"})
+            await db.commit()
+    finally:
+        await client.aclose()
     return {"found": len(TARGETS), "created": created, "updated": updated, "failed": failed, "articles": articles}
 
 
