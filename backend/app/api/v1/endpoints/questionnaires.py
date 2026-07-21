@@ -11,12 +11,13 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.deps import CurrentUser
 from app.core.import_notion_questionnaires import (
     _form_question_configs,
@@ -112,6 +113,17 @@ async def _hydrate_notion_help_text(db: AsyncSession, q: Questionnaire) -> None:
         await db.commit()
 
 
+async def _hydrate_notion_help_text_bg(qid: uuid.UUID) -> None:
+    """Background-task entry point: opens its own session so it can outlive the request."""
+    async with AsyncSessionLocal() as db:
+        res = await db.execute(
+            select(Questionnaire).where(Questionnaire.id == qid).options(selectinload(Questionnaire.questions))
+        )
+        q = res.scalar_one_or_none()
+        if q:
+            await _hydrate_notion_help_text(db, q)
+
+
 async def _student_of_task(db: AsyncSession, task: RoadmapTask) -> uuid.UUID | None:
     res = await db.execute(select(Roadmap.student_id).where(Roadmap.id == task.roadmap_id))
     return res.scalar_one_or_none()
@@ -200,6 +212,7 @@ async def create_questionnaire(
 @router.get("/roadmap-tasks/{task_id}/questionnaire")
 async def get_task_questionnaire(
     task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ):
     res = await db.execute(
         select(Questionnaire).where(Questionnaire.roadmap_task_id == task_id).options(*_LOADER)
@@ -208,8 +221,10 @@ async def get_task_questionnaire(
     if q:
         await _assert_view(db, q, current_user)
         # Opening a saved questionnaire must not depend on a live Notion
-        # request. Imported questions are already stored locally; enrichment
-        # can happen in the importer without blocking students or mentors.
+        # request, so any caption backfill runs after the response is sent
+        # (its own DB session, no added latency for the viewer).
+        if q.source_notion_page_id:
+            background_tasks.add_task(_hydrate_notion_help_text_bg, q.id)
         return _serialize(q)
     # No questionnaire yet — still gate the probe on task access, then return null.
     task = await db.get(RoadmapTask, task_id)
@@ -229,11 +244,14 @@ async def get_task_questionnaire(
 @router.get("/questionnaires/{qid}")
 async def get_questionnaire(
     qid: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ):
     q = await _load(db, qid)
     if not q:
         raise _NOT_FOUND
     await _assert_view(db, q, current_user)
+    if q.source_notion_page_id:
+        background_tasks.add_task(_hydrate_notion_help_text_bg, q.id)
     return _serialize(q)
 
 
@@ -380,6 +398,68 @@ async def list_questionnaire_templates(
         }
         for t in res.scalars().all()
     ]
+
+
+# --------------------------------------------------------------------------
+# Notion sync — resolve form captions + attach questionnaires to tasks.
+# Same in-memory job pattern as /roadmap-templates/import/notion. Lets staff
+# refresh question descriptions from the workspace instead of a manual CLI run.
+# --------------------------------------------------------------------------
+_SYNC_JOBS: dict[str, dict] = {}
+
+
+def _sync_job_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@router.post("/questionnaires/sync/notion", status_code=202)
+async def start_notion_questionnaire_sync(current_user: CurrentUser):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise _FORBIDDEN
+    running = next((job for job in _SYNC_JOBS.values() if job.get("status") == "running"), None)
+    if running:
+        raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": running["job_id"]})
+
+    job_id = str(uuid.uuid4())
+    job = {
+        "job_id": job_id,
+        "status": "running",
+        "started_at": _sync_job_now(),
+        "finished_at": None,
+        "events": [],
+        "result": None,
+        "error": None,
+    }
+    _SYNC_JOBS[job_id] = job
+
+    async def runner() -> None:
+        from app.core.link_notion_questionnaires import run as run_link
+
+        def on_event(event: dict) -> None:
+            job["events"].append({"at": _sync_job_now(), **event})
+            job["events"] = job["events"][-80:]
+
+        try:
+            job["result"] = await run_link(on_event=on_event)
+            job["status"] = "done"
+        except Exception as exc:
+            job["status"] = "failed"
+            job["error"] = str(exc)
+        finally:
+            job["finished_at"] = _sync_job_now()
+
+    asyncio.create_task(runner())
+    return job
+
+
+@router.get("/questionnaires/sync/notion/{job_id}")
+async def get_notion_questionnaire_sync_job(job_id: str, current_user: CurrentUser):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise _FORBIDDEN
+    job = _SYNC_JOBS.get(job_id)
+    if not job:
+        raise _NOT_FOUND
+    return job
 
 
 @router.post("/roadmap-tasks/{task_id}/questionnaire/from-template/{template_id}")

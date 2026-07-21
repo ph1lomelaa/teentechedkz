@@ -3,8 +3,13 @@ import { applyThemeInstantly } from '@/lib/theme'
 
 export type Theme = 'dark' | 'light'
 
-export const THEME_STORAGE_KEY = 'teenteched-theme'
-const LEGACY_THEME_KEYS = ['crm-theme', 'workspace-theme', 'portal-theme']
+// v2: старый ключ 'teenteched-theme' мог получить 'light' от прежней
+// логики миграции (она читала 3 независимых ключа CRM/Workspace/Portal и
+// подхватывала light, если хоть один из них был light) — это и вызывало
+// «прыжки» темы. Новый ключ гарантирует всем чистый тёмный старт независимо
+// от того, что успело записаться раньше; сам переключатель работает как обычно.
+export const THEME_STORAGE_KEY = 'teenteched-theme-v2'
+const LEGACY_THEME_KEYS = ['crm-theme', 'workspace-theme', 'portal-theme', 'teenteched-theme']
 
 function readInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark'
@@ -12,18 +17,9 @@ function readInitialTheme(): Theme {
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
   if (stored === 'dark' || stored === 'light') return stored
 
-  // One-time migration: CRM/Workspace/Portal used to keep independent theme
-  // state, so pick up whichever legacy key was set instead of resetting
-  // returning users to dark.
-  let migrated: Theme = 'dark'
-  for (const key of LEGACY_THEME_KEYS) {
-    if (window.localStorage.getItem(key) === 'light') {
-      migrated = 'light'
-      break
-    }
-  }
+  // Тёмная тема — всегда дефолт для новых/старых браузеров без v2-ключа.
   LEGACY_THEME_KEYS.forEach((key) => window.localStorage.removeItem(key))
-  return migrated
+  return 'dark'
 }
 
 function applyThemeToDocument(theme: Theme) {

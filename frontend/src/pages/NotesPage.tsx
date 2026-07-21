@@ -1,19 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleDot, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { CircleDot, Plus, Search, Trash2 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import type { NoteSession, NoteSessionStatus, StudentListItem, StudentNote, StudentNoteStatus } from '@/types'
+import type { NoteSession, NoteSessionStatus, StudentListItem, StudentNote, StudentNoteStatus, DegreeLevel } from '@/types'
+import { DEGREE_LEVEL_LABELS } from '@/types'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
+import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 
 const sessionStatusOptions: Array<{ value: NoteSessionStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все сессии' },
@@ -39,6 +43,9 @@ export const NotesPage: React.FC = () => {
   const [noteStatus, setNoteStatus] = useState<StudentNoteStatus | 'all'>('all')
   const [sessionDeleteTarget, setSessionDeleteTarget] = useState<NoteSession | null>(null)
   const [noteDeleteTarget, setNoteDeleteTarget] = useState<StudentNote | null>(null)
+  const [search, setSearch] = useState('')
+  const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
+  const directory = useStudentDirectory()
 
   useEffect(() => {
     const studentId = searchParams.get('student_id')
@@ -71,6 +78,53 @@ export const NotesPage: React.FC = () => {
     () => students.find((student) => student.id === studentSelect),
     [studentSelect, students],
   )
+
+  // Свои студенты — в начале списка, чтобы не искать среди чужих
+  const sortedStudents = useMemo(
+    () =>
+      [...students].sort(
+        (a, b) => Number(b.is_mine ?? false) - Number(a.is_mine ?? false) || a.full_name.localeCompare(b.full_name, 'ru'),
+      ),
+    [students],
+  )
+
+  const q = search.trim().toLowerCase()
+  const filteredSessions = useMemo(
+    () =>
+      sessions
+        .filter((s) => !q || s.title.toLowerCase().includes(q) || (s.student_name ?? '').toLowerCase().includes(q))
+        .filter((s) => matchesDirectoryFilters(s.student_id ? directory.byId.get(s.student_id) : undefined, directoryFilters)),
+    [sessions, q, directoryFilters, directory.byId],
+  )
+  const filteredNotes = useMemo(
+    () =>
+      notes
+        .filter((n) => !q || n.title.toLowerCase().includes(q) || (n.student_name ?? '').toLowerCase().includes(q))
+        .filter((n) => matchesDirectoryFilters(n.student_id ? directory.byId.get(n.student_id) : undefined, directoryFilters)),
+    [notes, q, directoryFilters, directory.byId],
+  )
+
+  const activeFiltersCount =
+    (directoryFilters.year ? 1 : 0) +
+    (directoryFilters.country ? 1 : 0) +
+    (directoryFilters.degree ? 1 : 0) +
+    (directoryFilters.responsibleId ? 1 : 0)
+  const responsibleName = (id: string) => directory.responsibleUsers.find((u) => u.id === id)?.name ?? id
+  const resetDirectoryFilters = () => setDirectoryFilters(EMPTY_DIRECTORY_FILTERS)
+  const filterChips = [
+    directoryFilters.year && { key: 'year', label: `Год: ${directoryFilters.year}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, year: '' })) },
+    directoryFilters.country && { key: 'country', label: `Страна: ${directoryFilters.country}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, country: '' })) },
+    directoryFilters.degree && {
+      key: 'degree',
+      label: `Ступень: ${DEGREE_LEVEL_LABELS[directoryFilters.degree as DegreeLevel] ?? directoryFilters.degree}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, degree: '' })),
+    },
+    directoryFilters.responsibleId && {
+      key: 'responsible',
+      label: `Ответственный: ${responsibleName(directoryFilters.responsibleId)}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, responsibleId: '' })),
+    },
+  ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
   const createMutation = useMutation({
     mutationFn: async () =>
@@ -129,6 +183,83 @@ export const NotesPage: React.FC = () => {
         )}
       />
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-3.5 h-3.5" />
+          <Input
+            placeholder="Поиск по названию или студенту..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-9 text-sm"
+          />
+        </div>
+        <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterField label="Год">
+              <Select
+                value={directoryFilters.year || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, year: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все годы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все годы</SelectItem>
+                  {directory.years.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Ступень">
+              <Select
+                value={directoryFilters.degree || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, degree: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все ступени" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все ступени</SelectItem>
+                  {directory.degrees.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {DEGREE_LEVEL_LABELS[opt.value as DegreeLevel] ?? opt.value} · {opt.count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+          </div>
+          <FilterField label="Страна поступления">
+            <Select
+              value={directoryFilters.country || 'all'}
+              onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, country: v === 'all' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Все страны" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все страны</SelectItem>
+                {directory.countries.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          {directory.canFilterByResponsible && (
+            <FilterField label="Ответственный (ментор/МЗК)">
+              <ResponsiblePicker
+                users={directory.responsibleUsers}
+                value={directoryFilters.responsibleId}
+                onChange={(id) => setDirectoryFilters((f) => ({ ...f, responsibleId: id }))}
+              />
+            </FilterField>
+          )}
+        </FilterPopover>
+      </div>
+
+      <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
+
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Card className="border-p-line bg-white">
           <CardHeader className="pb-4">
@@ -158,9 +289,13 @@ export const NotesPage: React.FC = () => {
               <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Сессий пока нет. Создайте первую и начните запись.
               </div>
+            ) : filteredSessions.length === 0 ? (
+              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+                Ничего не найдено по текущим фильтрам.
+              </div>
             ) : (
               <div className="grid gap-3">
-                {sessions.map((session) => (
+                {filteredSessions.map((session) => (
                   <div key={session.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
@@ -238,9 +373,13 @@ export const NotesPage: React.FC = () => {
               <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Конспектов пока нет.
               </div>
+            ) : filteredNotes.length === 0 ? (
+              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+                Ничего не найдено по текущим фильтрам.
+              </div>
             ) : (
               <div className="grid gap-3">
-                {notes.map((note) => (
+                {filteredNotes.map((note) => (
                   <div key={note.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
@@ -276,37 +415,6 @@ export const NotesPage: React.FC = () => {
         </Card>
       </div>
 
-      <Card className="border-p-line bg-white">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base text-p-text">Короткий вход</CardTitle>
-          <CardDescription>Быстро создайте новую сессию для студента</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <Select value={studentSelect || 'all'} onValueChange={(v) => setStudentSelect(v === 'all' ? '' : v)}>
-            <SelectTrigger className="h-10">
-              <SelectValue placeholder="Выберите студента" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Без привязки</SelectItem>
-              {students.map((student: StudentListItem) => (
-                <SelectItem key={student.id} value={student.id}>
-                  {student.full_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Sparkles className="w-4 h-4 mr-2" />
-            Создать
-          </Button>
-        </CardContent>
-        {students.length === 0 && (
-          <div className="px-6 pb-5 text-sm text-p-muted">
-            Список студентов пуст. Для mentor это обычно означает, что ещё не создано или не активировано назначение MentorAssignment.
-          </div>
-        )}
-      </Card>
-
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -317,19 +425,12 @@ export const NotesPage: React.FC = () => {
           </DialogHeader>
           <div className="space-y-2">
             <p className="text-sm text-p-muted">Студент</p>
-            <Select value={studentSelect || 'all'} onValueChange={(v) => setStudentSelect(v === 'all' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Без привязки" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Без привязки</SelectItem>
-                {students.map((student: StudentListItem) => (
-                  <SelectItem key={student.id} value={student.id}>
-                    {student.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <StudentSearchPicker students={sortedStudents} value={studentSelect} onChange={setStudentSelect} />
+            {students.length === 0 && (
+              <p className="text-xs text-p-muted">
+                Список студентов пуст. Для mentor это обычно означает, что ещё не создано или не активировано назначение MentorAssignment.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
@@ -386,6 +487,66 @@ export const NotesPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** Поиск студента по имени вместо длинного выпадающего списка; свои студенты
+ * идут первыми (см. sortedStudents). value === '' — сессия без привязки. */
+function StudentSearchPicker({
+  students,
+  value,
+  onChange,
+}: {
+  students: StudentListItem[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const filtered = useMemo(
+    () => (q ? students.filter((s) => s.full_name.toLowerCase().includes(q)) : students).slice(0, 30),
+    [students, q],
+  )
+
+  return (
+    <div className="space-y-2">
+      <Input
+        placeholder="Поиск студента по имени..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="h-10"
+      />
+      <div className="max-h-56 overflow-y-auto rounded-[2px] border border-p-line divide-y divide-p-line">
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+            value === '' ? 'bg-black text-white' : 'text-p-text hover:bg-p-bg'
+          }`}
+        >
+          Без привязки
+        </button>
+        {filtered.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onChange(s.id)}
+            className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+              value === s.id ? 'bg-black text-white' : 'text-p-text hover:bg-p-bg'
+            }`}
+          >
+            {s.full_name}
+            {s.is_mine && (
+              <span className={`ml-2 text-[10px] uppercase tracking-wide ${value === s.id ? 'text-white/60' : 'text-p-muted2'}`}>
+                мой
+              </span>
+            )}
+            <span className={`ml-2 text-xs ${value === s.id ? 'text-white/60' : 'text-p-muted'}`}>{s.intake_year}</span>
+          </button>
+        ))}
+        {filtered.length === 0 && <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>}
+      </div>
     </div>
   )
 }

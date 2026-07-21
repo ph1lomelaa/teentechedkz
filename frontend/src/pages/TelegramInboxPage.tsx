@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, MessageSquareWarning, Paperclip, Sparkles } from 'lucide-react'
+import { Loader2, MessageSquareWarning, Paperclip, Search, Sparkles } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { mentorAssignmentsApi } from '@/api/index'
 import {
@@ -9,10 +9,14 @@ import {
   TelegramChatStatus,
   TELEGRAM_STATUS_COLORS,
   TELEGRAM_STATUS_LABELS,
+  DEGREE_LEVEL_LABELS,
+  DegreeLevel,
   hasReviewPending,
 } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -30,6 +34,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
+import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
+import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
@@ -61,6 +67,10 @@ export default function TelegramInboxPage() {
   const [reassignTarget, setReassignTarget] = useState<TelegramChat | null>(null)
   const [closeTarget, setCloseTarget] = useState<TelegramChat | null>(null)
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none')
+  const [search, setSearch] = useState('')
+  const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
+
+  const directory = useStudentDirectory()
 
   const { data: chats = [], isLoading } = useQuery({
     queryKey: ['telegram-chats', 'all', scope],
@@ -69,11 +79,60 @@ export default function TelegramInboxPage() {
 
   const filtered = useMemo(() => {
     const byStatus = tab === 'all' ? chats : chats.filter((c) => c.status === tab)
-    if (quickFilter === 'attention') return byStatus.filter(hasReviewPending)
-    if (quickFilter === 'unbound') return byStatus.filter((c) => c.status === 'unbound')
-    if (quickFilter === 'mine-active') return byStatus.filter((c) => c.is_mine && c.status === 'active')
-    return byStatus
-  }, [chats, quickFilter, tab])
+    let byQuick = byStatus
+    if (quickFilter === 'attention') byQuick = byStatus.filter(hasReviewPending)
+    else if (quickFilter === 'unbound') byQuick = byStatus.filter((c) => c.status === 'unbound')
+    else if (quickFilter === 'mine-active') byQuick = byStatus.filter((c) => c.is_mine && c.status === 'active')
+
+    const q = search.trim().toLowerCase()
+    const bySearch = q
+      ? byQuick.filter(
+          (c) =>
+            (c.title ?? '').toLowerCase().includes(q) ||
+            (c.student_name ?? '').toLowerCase().includes(q),
+        )
+      : byQuick
+
+    return bySearch.filter((c) =>
+      matchesDirectoryFilters(c.student_id ? directory.byId.get(c.student_id) : undefined, directoryFilters),
+    )
+  }, [chats, quickFilter, tab, search, directoryFilters, directory.byId])
+
+  const activeFiltersCount =
+    (scope !== 'all' ? 1 : 0) +
+    (directoryFilters.year ? 1 : 0) +
+    (directoryFilters.country ? 1 : 0) +
+    (directoryFilters.degree ? 1 : 0) +
+    (directoryFilters.responsibleId ? 1 : 0)
+
+  const responsibleName = (id: string) => directory.responsibleUsers.find((u) => u.id === id)?.name ?? id
+  const resetDirectoryFilters = () => {
+    setScope('all')
+    setDirectoryFilters(EMPTY_DIRECTORY_FILTERS)
+  }
+
+  const scopeLabels: Record<typeof scope, string> = {
+    all: 'Все',
+    mine: 'Только мои',
+    assigned: 'С ответственными',
+    unassigned: 'Без ответственного',
+  }
+
+  const filterChips = [
+    scope !== 'all' && { key: 'scope', label: scopeLabels[scope], onRemove: () => setScope('all') },
+    directoryFilters.year && { key: 'year', label: `Год: ${directoryFilters.year}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, year: '' })) },
+    directoryFilters.country && { key: 'country', label: `Страна: ${directoryFilters.country}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, country: '' })) },
+    directoryFilters.degree && {
+      key: 'degree',
+      label: `Ступень: ${DEGREE_LEVEL_LABELS[directoryFilters.degree as DegreeLevel] ?? directoryFilters.degree}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, degree: '' })),
+    },
+    directoryFilters.responsibleId && {
+      key: 'responsible',
+      label: `Ответственный: ${responsibleName(directoryFilters.responsibleId)}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, responsibleId: '' })),
+    },
+  ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['telegram-chats'] })
 
@@ -175,26 +234,105 @@ export default function TelegramInboxPage() {
         description="Диалоги со студентами и сообщения, требующие внимания команды."
       />
 
-      <div className="flex gap-1 border-b border-p-line overflow-x-auto">
-        {[
-          { value: 'all', label: 'Все' },
-          { value: 'mine', label: 'Мои' },
-          { value: 'assigned', label: 'С ответственными' },
-          { value: 'unassigned', label: 'Без ответственного' },
-        ].map((s) => (
-          <button
-            key={s.value}
-            onClick={() => setScope(s.value as typeof scope)}
-            className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-              scope === s.value
-                ? 'border-black text-p-text font-medium'
-                : 'border-transparent text-p-muted hover:text-p-text'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-3.5 h-3.5" />
+          <Input
+            placeholder="Поиск по названию чата или студенту..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-9 text-sm"
+          />
+        </div>
+        <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
+          <FilterField label="Видимость">
+            <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
+              {[
+                { value: 'all', label: 'Все' },
+                { value: 'mine', label: 'Мои' },
+                { value: 'assigned', label: 'С отв.' },
+                { value: 'unassigned', label: 'Без отв.' },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setScope(item.value as typeof scope)}
+                  className={`px-2 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                    scope === item.value
+                      ? 'bg-white text-black shadow-sm'
+                      : 'text-p-muted hover:text-black hover:bg-p-bg'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </FilterField>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterField label="Год">
+              <Select
+                value={directoryFilters.year || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, year: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все годы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все годы</SelectItem>
+                  {directory.years.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Ступень">
+              <Select
+                value={directoryFilters.degree || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, degree: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все ступени" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все ступени</SelectItem>
+                  {directory.degrees.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {DEGREE_LEVEL_LABELS[opt.value as DegreeLevel] ?? opt.value} · {opt.count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+          </div>
+          <FilterField label="Страна поступления">
+            <Select
+              value={directoryFilters.country || 'all'}
+              onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, country: v === 'all' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Все страны" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все страны</SelectItem>
+                {directory.countries.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          {directory.canFilterByResponsible && (
+            <FilterField label="Ответственный (ментор/МЗК)">
+              <ResponsiblePicker
+                users={directory.responsibleUsers}
+                value={directoryFilters.responsibleId}
+                onChange={(id) => setDirectoryFilters((f) => ({ ...f, responsibleId: id }))}
+              />
+            </FilterField>
+          )}
+        </FilterPopover>
       </div>
+
+      <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
         <div className="text-sm text-p-muted">

@@ -65,8 +65,14 @@ const FinancesPage = React.lazy(() =>
 const SettingsUsersPage = React.lazy(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
 )
+const StatisticsPage = React.lazy(() =>
+  import('@/pages/StatisticsPage').then((m) => ({ default: m.StatisticsPage }))
+)
 const TemplatesPage = React.lazy(() =>
   import('@/pages/TemplatesPage').then((m) => ({ default: m.TemplatesPage }))
+)
+const KnowledgeBasePage = React.lazy(() =>
+  import('@/pages/KnowledgeBasePage').then((m) => ({ default: m.KnowledgeBasePage }))
 )
 const UniversitiesPage = React.lazy(() =>
   import('@/pages/UniversitiesPage').then((m) => ({ default: m.UniversitiesPage }))
@@ -337,6 +343,19 @@ function AppRoutes() {
       />
 
       <Route
+        path="/statistics"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <StatisticsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/settings/users"
         element={
           <ProtectedRoute roles={['admin', 'mzk_manager']}>
@@ -412,6 +431,19 @@ function AppRoutes() {
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TemplatesPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/knowledge-base"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <KnowledgeBasePage />
               </React.Suspense>
             </AppLayout>
           </ProtectedRoute>

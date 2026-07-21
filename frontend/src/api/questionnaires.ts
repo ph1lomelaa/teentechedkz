@@ -49,6 +49,19 @@ export interface QuestionnaireTemplateItem {
   question_count: number
 }
 
+export interface NotionQuestionnaireSyncJob {
+  job_id: string
+  status: 'running' | 'done' | 'failed'
+  started_at: string
+  finished_at: string | null
+  events: { at: string; message?: string }[]
+  result: {
+    resolve?: { blocks: number; linked: number; imported: number; failed: number }
+    attach?: { tasks: number; created: number }
+  } | null
+  error: string | null
+}
+
 const data = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data)
 
 export const questionnairesApi = {
@@ -72,6 +85,11 @@ export const questionnairesApi = {
     data<QuestionnaireTemplateItem[]>(apiClient.get('/questionnaire-templates', { params })),
   applyTemplate: (taskId: string, templateId: string) =>
     data<Questionnaire>(apiClient.post(`/roadmap-tasks/${taskId}/questionnaire/from-template/${templateId}`)),
+  // notion sync — refresh question descriptions/captions from linked forms
+  startNotionSync: () =>
+    data<NotionQuestionnaireSyncJob>(apiClient.post('/questionnaires/sync/notion', {})),
+  notionSyncJob: (jobId: string) =>
+    data<NotionQuestionnaireSyncJob>(apiClient.get(`/questionnaires/sync/notion/${jobId}`)),
 }
 
 export const QUESTIONNAIRE_STATUS_LABEL: Record<QuestionnaireStatus, string> = {

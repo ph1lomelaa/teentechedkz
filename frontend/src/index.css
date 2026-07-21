@@ -48,6 +48,15 @@ html.theme-switching *::after {
   transition: none !important;
 }
 
+/* Native form controls (select dropdown lists, datetime pickers) follow the
+   app theme instead of the OS one — otherwise dark screens pop light popups. */
+html {
+  color-scheme: dark;
+}
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -546,6 +555,53 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 }
 .auth-secondary-button:hover { border-color: #C9A800; background: rgb(255 212 0 / 0.06); color: #FFD400; }
 
+/* ===================================================================
+   Нативные <select> по всему приложению: убираем системный виджет
+   (на macOS он рисуется светло-бежевой кнопкой с двойной стрелкой и
+   ломает обе темы) и рисуем свой шеврон цветом из темы. Цвета фона и
+   рамок селектам уже дают compat-слои оболочек выше.
+   =================================================================== */
+:root {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239A9A94' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+html[data-theme='light'] {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236E6E68' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+/* Экраны входа/заявок всегда тёмные независимо от темы приложения. */
+.auth-shell {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239A9A94' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 16px 16px;
+  padding-right: 2.4rem;
+  cursor: pointer;
+}
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Выпадающий список: на Windows/Linux он красится напрямую; на macOS
+   цвет задаёт color-scheme выше. */
+select option {
+  background-color: #1c1c1c;
+  color: #f5f5f3;
+}
+html[data-theme='light'] select option {
+  background-color: #ffffff;
+  color: #17170f;
+}
+html[data-theme='light'] .auth-shell select option {
+  background-color: #1c1c1c;
+  color: #f5f5f3;
+}
+
 /* Scrollbar global — цвет из темы, а не фиксированный светло-серый,
    иначе на тёмной теме ползунок светится. */
 ::-webkit-scrollbar {
@@ -566,4 +622,132 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb {
 }
 html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   background: #b8b8b3;
+}
+
+/* База знаний — HTML, отрендеренный из блоков Notion (см. import_notion_knowledge_pages.py) */
+.kb-content h2,
+.kb-content h3,
+.kb-content h4 {
+  font-weight: 700;
+  margin: 1.1em 0 0.4em;
+  line-height: 1.3;
+}
+.kb-content h2 { font-size: 1.15rem; }
+.kb-content h3 { font-size: 1.05rem; }
+.kb-content h4 { font-size: 0.95rem; }
+.kb-content p {
+  margin: 0.5em 0;
+  line-height: 1.6;
+  font-size: 0.875rem;
+}
+.kb-content ul,
+.kb-content ol {
+  margin: 0.4em 0 0.8em;
+  padding-left: 1.4em;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.kb-content li { margin: 0.2em 0; }
+.kb-content a { color: #C9A800; text-decoration: underline; text-underline-offset: 2px; }
+.kb-content hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.2em 0; }
+.kb-content blockquote {
+  margin: 0.6em 0;
+  padding: 0.5em 0.9em;
+  border-left: 3px solid hsl(var(--border));
+  font-style: italic;
+  font-size: 0.875rem;
+}
+.kb-content .kb-callout {
+  margin: 0.6em 0;
+  padding: 0.7em 0.9em;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  font-size: 0.875rem;
+}
+.kb-content .kb-note {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+.kb-content details {
+  margin: 0.5em 0;
+  padding: 0.5em 0.9em;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+.kb-content details summary { cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+
+/* Linked-database rows (e.g. package/pricing tables) — one collapsible card
+   per row instead of a <table>, so a single long cell (e.g. a country list)
+   doesn't stretch every other cell in that row to match its height. */
+.kb-content .kb-db-rows {
+  margin: 0.6em 0 1em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.kb-content .kb-row {
+  margin: 0;
+  padding: 0.6em 0.9em;
+}
+.kb-content .kb-row summary {
+  font-size: 0.875rem;
+  list-style: none;
+}
+.kb-content .kb-row summary::-webkit-details-marker { display: none; }
+.kb-content .kb-row summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.5em;
+  color: hsl(var(--muted-foreground));
+  transition: transform 0.15s ease;
+}
+.kb-content .kb-row[open] summary::before { transform: rotate(90deg); }
+.kb-content .kb-fields {
+  margin-top: 0.7em;
+  padding-top: 0.6em;
+  border-top: 1px solid hsl(var(--border));
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 0.4em 1em;
+}
+.kb-content .kb-field { display: contents; }
+.kb-content .kb-field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground));
+  padding-top: 0.1em;
+}
+.kb-content .kb-field-value {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.kb-content pre {
+  background: hsl(var(--muted));
+  border-radius: 8px;
+  padding: 0.8em;
+  overflow-x: auto;
+  font-size: 0.8rem;
+}
+.kb-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0 1em;
+  font-size: 0.8rem;
+  display: block;
+  overflow-x: auto;
+}
+.kb-content th,
+.kb-content td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.4em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.kb-content th {
+  background: hsl(var(--muted));
+  font-weight: 700;
+  white-space: nowrap;
 }

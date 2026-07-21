@@ -24,6 +24,7 @@ import {
   TaskInput,
   Priority,
 } from '@/api/roadmap'
+import { questionnairesApi } from '@/api/questionnaires'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
 
 const PRIORITIES: { value: Priority; label: string }[] = [
@@ -54,6 +55,7 @@ export const TemplatesPage: React.FC = () => {
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [importJobId, setImportJobId] = useState<string | null>(null)
   const [only, setOnly] = useState('')
+  const [syncJobId, setSyncJobId] = useState<string | null>(null)
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['roadmap-templates'],
@@ -75,6 +77,30 @@ export const TemplatesPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['roadmap-templates'] })
     }
   }, [importJob?.status, queryClient])
+
+  const { data: syncJob } = useQuery({
+    queryKey: ['questionnaire-notion-sync', syncJobId],
+    queryFn: () => questionnairesApi.notionSyncJob(syncJobId!),
+    enabled: Boolean(syncJobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'running' ? 2500 : false
+    },
+  })
+
+  const notionSyncMutation = useMutation({
+    mutationFn: () => questionnairesApi.startNotionSync(),
+    onSuccess: (job) => {
+      setSyncJobId(job.job_id)
+      toast({ title: 'Синхронизация анкет запущена', description: 'Описания вопросов подтянутся из связанных форм Notion.' })
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail
+      const message = typeof detail === 'string' ? detail : detail?.message
+      toast({ title: 'Не удалось запустить синхронизацию', description: message, variant: 'destructive' })
+      if (detail?.job_id) setSyncJobId(detail.job_id)
+    },
+  })
 
   // create form
   const [name, setName] = useState('')
@@ -226,6 +252,43 @@ export const TemplatesPage: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-p-text">Описания вопросов в анкетах</h2>
+            <p className="mt-1 text-xs leading-relaxed text-p-muted">
+              Подтягивает подписи/описания вопросов из связанных Notion-форм (не перезаписывает то, что менеджер уже вписал вручную).
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-3 text-xs"
+            disabled={notionSyncMutation.isPending || syncJob?.status === 'running'}
+            onClick={() => notionSyncMutation.mutate()}
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-2" /> Обновить из Notion
+          </Button>
+        </div>
+
+        {syncJob && (
+          <div className="mt-4 rounded-[2px] border border-border bg-muted p-3">
+            <div className="text-xs font-semibold text-p-text">
+              Job {syncJob.job_id.slice(0, 8)} · {syncJob.status === 'running' ? 'идёт' : syncJob.status === 'done' ? 'готово' : 'ошибка'}
+            </div>
+            {syncJob.result && (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <ImportStat label="Форм связано" value={syncJob.result.resolve?.linked ?? 0} />
+                <ImportStat label="Шаблонов создано" value={syncJob.result.resolve?.imported ?? 0} />
+                <ImportStat label="Не удалось" value={syncJob.result.resolve?.failed ?? 0} />
+                <ImportStat label="Анкет создано" value={syncJob.result.attach?.created ?? 0} />
+              </div>
+            )}
+            {syncJob.error && <p className="mt-3 text-xs text-red-600">{syncJob.error}</p>}
           </div>
         )}
       </div>

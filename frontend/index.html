@@ -10,15 +10,12 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem('teenteched-theme')
-          if (stored !== 'light' && stored !== 'dark') {
-            stored = localStorage.getItem('crm-theme') === 'light'
-              || localStorage.getItem('workspace-theme') === 'light'
-              || localStorage.getItem('portal-theme') === 'light'
-              ? 'light' : 'dark'
-          }
-          document.documentElement.dataset.theme = stored
-          document.documentElement.dataset.crmTheme = stored
+          // Тёмная тема — дефолт. Светлая только если пользователь явно
+          // выбрал её переключателем. Ключ версии v2 — старый 'teenteched-theme'
+          // мог хранить 'light', унаследованный от прежнего бага миграции.
+          var theme = localStorage.getItem('teenteched-theme-v2') === 'light' ? 'light' : 'dark'
+          document.documentElement.dataset.theme = theme
+          document.documentElement.dataset.crmTheme = theme
         } catch (e) {}
       })()
     </script>

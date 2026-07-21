@@ -3,13 +3,19 @@ import { Link } from 'react-router-dom'
 import { mentorAssignmentsApi, notesApi, pendingInsightsApi } from '@/api'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
+import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
+import { DEGREE_LEVEL_LABELS, DegreeLevel } from '@/types'
 
 export default function StatusInboxPage() {
   const qc = useQueryClient()
   const [scope, setScope] = useState<'all' | 'mine'>('all')
+  const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
+  const directory = useStudentDirectory()
 
   const { data: insights = [], isLoading } = useQuery({
     queryKey: ['pending-insights', 'all', scope],
@@ -43,9 +49,37 @@ export default function StatusInboxPage() {
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось обработать конспект', variant: 'destructive' }),
   })
 
-  const pending = insights.filter((i) => i.status === 'pending')
-  const resolved = insights.filter((i) => i.status !== 'pending')
-  const actionableCount = pending.length + draftNotes.length
+  const matchesDirectory = (studentId: string | null | undefined) =>
+    matchesDirectoryFilters(studentId ? directory.byId.get(studentId) : undefined, directoryFilters)
+
+  const filteredInsights = useMemo(() => insights.filter((i) => matchesDirectory(i.student_id)), [insights, directoryFilters, directory.byId])
+  const filteredDraftNotes = useMemo(() => draftNotes.filter((n) => matchesDirectory(n.student_id)), [draftNotes, directoryFilters, directory.byId])
+
+  const pending = filteredInsights.filter((i) => i.status === 'pending')
+  const resolved = filteredInsights.filter((i) => i.status !== 'pending')
+  const actionableCount = pending.length + filteredDraftNotes.length
+
+  const activeFiltersCount =
+    (directoryFilters.year ? 1 : 0) +
+    (directoryFilters.country ? 1 : 0) +
+    (directoryFilters.degree ? 1 : 0) +
+    (directoryFilters.responsibleId ? 1 : 0)
+  const responsibleName = (id: string) => directory.responsibleUsers.find((u) => u.id === id)?.name ?? id
+  const resetDirectoryFilters = () => setDirectoryFilters(EMPTY_DIRECTORY_FILTERS)
+  const filterChips = [
+    directoryFilters.year && { key: 'year', label: `Год: ${directoryFilters.year}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, year: '' })) },
+    directoryFilters.country && { key: 'country', label: `Страна: ${directoryFilters.country}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, country: '' })) },
+    directoryFilters.degree && {
+      key: 'degree',
+      label: `Ступень: ${DEGREE_LEVEL_LABELS[directoryFilters.degree as DegreeLevel] ?? directoryFilters.degree}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, degree: '' })),
+    },
+    directoryFilters.responsibleId && {
+      key: 'responsible',
+      label: `Ответственный: ${responsibleName(directoryFilters.responsibleId)}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, responsibleId: '' })),
+    },
+  ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
   const assignSelfMutation = useMutation({
     mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
@@ -82,6 +116,74 @@ export default function StatusInboxPage() {
         ))}
       </div>
 
+      <div className="flex items-center justify-end gap-3">
+        <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterField label="Год">
+              <Select
+                value={directoryFilters.year || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, year: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все годы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все годы</SelectItem>
+                  {directory.years.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Ступень">
+              <Select
+                value={directoryFilters.degree || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, degree: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все ступени" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все ступени</SelectItem>
+                  {directory.degrees.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {DEGREE_LEVEL_LABELS[opt.value as DegreeLevel] ?? opt.value} · {opt.count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+          </div>
+          <FilterField label="Страна поступления">
+            <Select
+              value={directoryFilters.country || 'all'}
+              onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, country: v === 'all' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Все страны" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все страны</SelectItem>
+                {directory.countries.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          {directory.canFilterByResponsible && (
+            <FilterField label="Ответственный (ментор/МЗК)">
+              <ResponsiblePicker
+                users={directory.responsibleUsers}
+                value={directoryFilters.responsibleId}
+                onChange={(id) => setDirectoryFilters((f) => ({ ...f, responsibleId: id }))}
+              />
+            </FilterField>
+          )}
+        </FilterPopover>
+      </div>
+
+      <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
+
       {isLoading || notesLoading ? (
         <p className="text-sm text-gray-500">Загрузка…</p>
       ) : (
@@ -92,7 +194,7 @@ export default function StatusInboxPage() {
               <p className="text-sm text-gray-500">Ничего не ждёт разбора</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {draftNotes.map((note) => (
+                {filteredDraftNotes.map((note) => (
                   <div key={note.id} className="border border-gray-100 rounded-[2px] p-3 text-sm space-y-2 bg-white">
                     <div className="flex items-start justify-between gap-3">
                       <div>

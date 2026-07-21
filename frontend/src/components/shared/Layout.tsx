@@ -19,6 +19,8 @@ import {
   Moon,
   Sun,
   Globe,
+  BarChart3,
+  BookMarked,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -64,11 +66,13 @@ const adminNavGroups: NavGroup[] = [
     items: [
       { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
       { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
     ],
   },
   {
     group: 'АДМИНИСТРАЦИЯ',
     items: [
+      { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
       { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
       { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
@@ -104,11 +108,13 @@ const mzkManagerNavGroups: NavGroup[] = [
     items: [
       { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
       { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
+      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
     ],
   },
   {
     group: 'АДМИНИСТРАЦИЯ',
     items: [
+      { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
       { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
       { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
@@ -138,6 +144,12 @@ const mentorNavGroups: NavGroup[] = [
       { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
     ],
   },
+  {
+    group: 'СПРАВОЧНИКИ',
+    items: [
+      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
+    ],
+  },
 ]
 
 function getNavGroups(role: string): NavGroup[] {
@@ -157,9 +169,11 @@ function getBreadcrumb(pathname: string): string {
     '/my-students': 'Мои студенты',
     '/notes': 'Конспекты',
     '/countries': 'Справочник стран',
+    '/statistics': 'Статистика',
     '/finances': 'Финансы',
     '/settings/users': 'Пользователи',
     '/roadmap-templates': 'Roadmap-шаблоны',
+    '/knowledge-base': 'База знаний',
     '/universities': 'Университеты',
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',

@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Link2 } from 'lucide-react'
+import { Copy, Link2, Search } from 'lucide-react'
 import { useNavigate, Link } from 'react-router-dom'
 import { studentsApi } from '@/api/students'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,6 +9,7 @@ import {
   DEGREE_LEVEL_COLORS,
   PIPELINE_STATUS_LABELS,
   PIPELINE_STATUS_COLORS,
+  DegreeLevel,
 } from '@/types'
 import {
   Table,
@@ -19,10 +20,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
+import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 
 type DuplicatePair = {
   reason: 'phone' | 'name'
@@ -39,6 +44,9 @@ export const AtRiskStudentsPage: React.FC = () => {
 
   const [mergePair, setMergePair] = useState<DuplicatePair | null>(null)
   const [mainSide, setMainSide] = useState<'a' | 'b'>('a')
+  const [search, setSearch] = useState('')
+  const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
+  const directory = useStudentDirectory()
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['students', 'all'],
@@ -70,10 +78,41 @@ export const AtRiskStudentsPage: React.FC = () => {
     onError: (err) => toast({ title: 'Не удалось соединить студентов', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
-  const atRiskStudents = students.filter((s) => {
-    const status = s.pipeline_status
-    return status === 'on_visa' || status === 'suspended' || status === 'transferred_pipeline'
-  })
+  const q = search.trim().toLowerCase()
+  const atRiskStudents = useMemo(
+    () =>
+      students
+        .filter((s) => {
+          const status = s.pipeline_status
+          return status === 'on_visa' || status === 'suspended' || status === 'transferred_pipeline'
+        })
+        .filter((s) => !q || s.full_name.toLowerCase().includes(q))
+        .filter((s) => matchesDirectoryFilters(s, directoryFilters))
+        .sort((a, b) => (b.days_in_work ?? 0) - (a.days_in_work ?? 0)),
+    [students, q, directoryFilters],
+  )
+
+  const activeFiltersCount =
+    (directoryFilters.year ? 1 : 0) +
+    (directoryFilters.country ? 1 : 0) +
+    (directoryFilters.degree ? 1 : 0) +
+    (directoryFilters.responsibleId ? 1 : 0)
+  const responsibleName = (id: string) => directory.responsibleUsers.find((u) => u.id === id)?.name ?? id
+  const resetDirectoryFilters = () => setDirectoryFilters(EMPTY_DIRECTORY_FILTERS)
+  const filterChips = [
+    directoryFilters.year && { key: 'year', label: `Год: ${directoryFilters.year}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, year: '' })) },
+    directoryFilters.country && { key: 'country', label: `Страна: ${directoryFilters.country}`, onRemove: () => setDirectoryFilters((f) => ({ ...f, country: '' })) },
+    directoryFilters.degree && {
+      key: 'degree',
+      label: `Ступень: ${DEGREE_LEVEL_LABELS[directoryFilters.degree as DegreeLevel] ?? directoryFilters.degree}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, degree: '' })),
+    },
+    directoryFilters.responsibleId && {
+      key: 'responsible',
+      label: `Ответственный: ${responsibleName(directoryFilters.responsibleId)}`,
+      onRemove: () => setDirectoryFilters((f) => ({ ...f, responsibleId: '' })),
+    },
+  ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
   const openMergeDialog = (pair: DuplicatePair) => {
     setMergePair(pair)
@@ -94,6 +133,86 @@ export const AtRiskStudentsPage: React.FC = () => {
       <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-[2px] text-sm text-orange-800">
         Студенты, за процессом которых стоит следить внимательнее: виза в работе,
         процесс подвешен или студента перевели. Статусы: «На визе», «Подвешено», «Перевели».
+        Отсортировано по дням в работе — сверху дольше всего висящие случаи.
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-3.5 h-3.5" />
+          <Input
+            placeholder="Поиск по имени..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-9 text-sm"
+          />
+        </div>
+        <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterField label="Год">
+              <Select
+                value={directoryFilters.year || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, year: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все годы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все годы</SelectItem>
+                  {directory.years.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Ступень">
+              <Select
+                value={directoryFilters.degree || 'all'}
+                onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, degree: v === 'all' ? '' : v }))}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Все ступени" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все ступени</SelectItem>
+                  {directory.degrees.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {DEGREE_LEVEL_LABELS[opt.value as DegreeLevel] ?? opt.value} · {opt.count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+          </div>
+          <FilterField label="Страна поступления">
+            <Select
+              value={directoryFilters.country || 'all'}
+              onValueChange={(v) => setDirectoryFilters((f) => ({ ...f, country: v === 'all' ? '' : v }))}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Все страны" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все страны</SelectItem>
+                {directory.countries.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          {directory.canFilterByResponsible && (
+            <FilterField label="Ответственный (ментор/МЗК)">
+              <ResponsiblePicker
+                users={directory.responsibleUsers}
+                value={directoryFilters.responsibleId}
+                onChange={(id) => setDirectoryFilters((f) => ({ ...f, responsibleId: id }))}
+              />
+            </FilterField>
+          )}
+        </FilterPopover>
+      </div>
+
+      <div className="mb-4">
+        <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
       </div>
 
       <div className="border-y border-p-line">

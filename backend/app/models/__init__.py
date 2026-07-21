@@ -50,6 +50,7 @@ from .questionnaire import (
     QuestionnaireStatus, QuestionKind,
 )
 from .questionnaire_template import QuestionnaireTemplate
+from .knowledge_article import KnowledgeArticle
 
 __all__ = [
     "User", "RefreshToken", "UserEmail",
@@ -84,4 +85,5 @@ __all__ = [
     "Questionnaire", "QuestionnaireQuestion", "QuestionnaireResponse",
     "QuestionnaireStatus", "QuestionKind",
     "QuestionnaireTemplate",
+    "KnowledgeArticle",
 ]
