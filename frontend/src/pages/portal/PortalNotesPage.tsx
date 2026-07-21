@@ -6,6 +6,7 @@ import { portalApi } from '@/api/portal'
 import { Markdown } from '@/components/shared/Markdown'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
+import { PageShell } from '@/components/shared/PageShell'
 
 function fmt(iso: string | null): string {
   if (!iso) return ''

@@ -5,7 +5,9 @@ import { roadmapApi, FlatTask } from '@/api/roadmap'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { cn } from '@/lib/utils'
+import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
+import { PageShell } from '@/components/shared/PageShell'
 
 const PRIORITY_LABEL: Record<string, string> = {
   required: 'Обязательно',
@@ -51,7 +53,7 @@ export const PortalTasksPage: React.FC = () => {
   const list = tab === 'open' ? open : done
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in">
+    <PageShell maxWidth="md" className="animate-fade-in">
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Задачи</h1>
 
@@ -124,7 +126,7 @@ export const PortalTasksPage: React.FC = () => {
       {openQ && (
         <PortalQuestionnaireDialog questionnaireId={openQ} open onClose={() => setOpenQ(null)} />
       )}
-    </div>
+    </PageShell>
   )
 }
 

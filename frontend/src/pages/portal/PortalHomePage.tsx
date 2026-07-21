@@ -7,6 +7,7 @@ import { meetingsApi, Meeting } from '@/api/meetings'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import { PageShell } from '@/components/shared/PageShell'
 
 function roadmapProgress(roadmap: Roadmap | null | undefined) {
   const tasks = roadmap?.stages.flatMap((s) => s.tasks) ?? []
@@ -45,7 +46,7 @@ export const PortalHomePage: React.FC = () => {
     .slice(0, 3)
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 animate-fade-in">
+    <PageShell maxWidth="lg" className="space-y-6 animate-fade-in">
       <section>
         <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Student portal</p>
         <h1 className="mt-2 font-display text-[28px] font-black leading-tight text-p-text md:text-[34px]">
@@ -111,7 +112,7 @@ export const PortalHomePage: React.FC = () => {
           )}
         </section>
       </div>
-    </div>
+    </PageShell>
   )
 }
 

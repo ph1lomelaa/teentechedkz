@@ -4,6 +4,7 @@ import { ClipboardList, ChevronRight, CheckCircle2, Clock } from 'lucide-react'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { useLocalState } from '@/lib/use-local-state'
+import { PageShell } from '@/components/shared/PageShell'
 
 export const PortalQuestionnairesPage: React.FC = () => {
   const [selectedId, setSelectedId] = useLocalState<string | null>('portal:questionnaires:selected', null)

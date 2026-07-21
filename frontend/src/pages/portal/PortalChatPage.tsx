@@ -5,8 +5,10 @@ import { chatApi } from '@/api/chat'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
 import { useWsEvent } from '@/lib/ws'
+import { PageShell } from '@/components/shared/PageShell'
 import { ChatThread } from '@/components/shared/ChatThread'
 import { cn, formatDate } from '@/lib/utils'
+import { PageShell } from '@/components/shared/PageShell'
 import {
   WorkspaceCard,
   WorkspaceEmptyState,

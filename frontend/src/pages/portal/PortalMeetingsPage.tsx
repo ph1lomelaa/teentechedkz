@@ -6,6 +6,7 @@ import { portalApi } from '@/api/portal'
 import { PortalMonthCalendar } from '@/components/portal/PortalMonthCalendar'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
+import { PageShell } from '@/components/shared/PageShell'
 
 function d(iso: string) {
   return new Date(iso)
