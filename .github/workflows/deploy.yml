@@ -40,7 +40,9 @@ jobs:
           python -m py_compile $(find backend -name '*.py' -not -path '*/tests/*')
 
       - name: Validate docker compose
-        run: docker compose -f docker-compose.prod.yml config
+        run: |
+          touch .env
+          docker compose -f docker-compose.prod.yml config
 
   deploy:
     needs: validate
