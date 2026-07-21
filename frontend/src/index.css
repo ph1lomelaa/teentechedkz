@@ -161,6 +161,18 @@ html.theme-switching *::after {
    still use literal gray/slate Tailwind utilities. This keeps every card,
    table, form and modal readable in both themes. */
 .crm-shell {
+  /* CRM-страницы после миграции P1.2 используют p-* токены (border-p-line,
+     bg-p-panel…). Сами переменные объявлены в .portal/.workspace-shell, поэтому
+     здесь их нужно проксировать на crm-эквиваленты — иначе var() невалиден и
+     бордеры красятся в currentColor (белые полосы в тёмной теме). */
+  --p-bg: var(--crm-bg);
+  --p-panel: var(--crm-panel);
+  --p-panel2: var(--crm-panel-soft);
+  --p-line: var(--crm-line);
+  --p-text: var(--crm-text);
+  --p-muted: var(--crm-muted);
+  --p-muted2: var(--crm-muted-secondary);
+  --p-good: #8BD46A;
   --crm-bg: #0A0A0A;
   --crm-panel: #141414;
   --crm-panel-soft: #1C1C1C;
@@ -187,6 +199,10 @@ html.theme-switching *::after {
   --ring: 50 100% 50%;
   background: var(--crm-bg);
   color: var(--crm-text);
+}
+
+.crm-shell[data-theme='light'] :where(.crm-header, .app-main) .text-brand {
+  color: #8A6F00;
 }
 
 .crm-shell[data-theme='light'] {

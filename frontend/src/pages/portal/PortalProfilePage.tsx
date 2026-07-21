@@ -39,15 +39,15 @@ export const PortalProfilePage: React.FC = () => {
   const s = data?.student
 
   return (
-    <PageShell maxWidth="md" className="animate-fade-in">
+    <PageShell maxWidth="lg" className="animate-fade-in">
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Профиль</h1>
 
       {isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : (
-        <div className="space-y-6">
-          <div className="border border-p-line rounded-[16px] bg-p-panel p-5">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="h-fit border border-p-line rounded-[16px] bg-p-panel p-5">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Мои данные</h2>
             <dl className="divide-y divide-p-line">
               <Row label="Имя" value={u?.name} />
@@ -60,14 +60,14 @@ export const PortalProfilePage: React.FC = () => {
             </dl>
           </div>
 
-          <div className="border border-p-line rounded-[16px] bg-p-panel p-5">
+          <div className="h-fit border border-p-line rounded-[16px] bg-p-panel p-5">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Смена пароля</h2>
             {msg && (
               <div className={`text-sm mb-3 px-3 py-2 rounded-[10px] ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-brand/10 text-brand'}`}>
                 {msg.text}
               </div>
             )}
-            <div className="space-y-2.5 max-w-sm">
+            <div className="space-y-2.5">
               <Input type="password" placeholder="Текущий пароль" value={current} onChange={(e) => setCurrent(e.target.value)} />
               <Input type="password" placeholder="Новый пароль" value={next} onChange={(e) => setNext(e.target.value)} />
               <Input type="password" placeholder="Повторите новый пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} />

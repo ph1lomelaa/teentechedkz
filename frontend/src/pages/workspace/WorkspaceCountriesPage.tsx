@@ -46,7 +46,7 @@ export const WorkspaceCountriesPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-5xl animate-fade-in">
+    <div className="animate-fade-in">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">База знаний</p>

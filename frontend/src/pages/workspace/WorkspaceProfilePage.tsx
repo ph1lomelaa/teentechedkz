@@ -44,11 +44,11 @@ export const WorkspaceProfilePage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in">
+    <div className="mx-auto max-w-5xl animate-fade-in">
       <WorkspacePageHeader eyebrow="Кабинет" title="Профиль" />
 
-      <div className="space-y-5">
-        <WorkspaceCard className="p-5">
+      <div className="grid gap-5 lg:grid-cols-2">
+        <WorkspaceCard className="h-fit p-5">
           <div className="mb-4 flex items-center gap-3">
             <WorkspaceAvatar name={user?.name || user?.email || ''} size={48} />
             <div className="min-w-0">
@@ -62,7 +62,7 @@ export const WorkspaceProfilePage: React.FC = () => {
           </dl>
         </WorkspaceCard>
 
-        <WorkspaceCard className="p-5">
+        <WorkspaceCard className="h-fit p-5">
           <h2 className="mb-3 text-sm font-extrabold text-w-ink">Смена пароля</h2>
           {msg && (
             <div
@@ -74,7 +74,7 @@ export const WorkspaceProfilePage: React.FC = () => {
               {msg.text}
             </div>
           )}
-          <div className="max-w-sm space-y-2.5">
+          <div className="space-y-2.5">
             <WorkspaceInput type="password" placeholder="Текущий пароль" value={current} onChange={(e) => setCurrent(e.target.value)} />
             <WorkspaceInput type="password" placeholder="Новый пароль" value={next} onChange={(e) => setNext(e.target.value)} />
             <WorkspaceInput type="password" placeholder="Повторите новый пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
