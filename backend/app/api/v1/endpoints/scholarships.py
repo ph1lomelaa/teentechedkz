@@ -20,10 +20,9 @@ _MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager)
 
 @router.get("")
 async def list_scholarships(
+    db: Annotated[AsyncSession, Depends(get_db)],
     country_id: str | None = Query(None),
-    db: Annotated[AsyncSession, Depends(get_db)] = None,
-    _: CurrentUser = Depends(lambda: None),  # Optional auth check
-):
+) -> list[dict]:
     """List available scholarships, optionally filtered by country ID."""
     query = select(Scholarship).order_by(Scholarship.created_at.desc())
 
