@@ -14,7 +14,7 @@ export function CrmPageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-5 border-b border-gray-200 pb-6">
       <div className="min-w-0">
-        <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">
+        <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">
           {eyebrow}
         </div>
         <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-gray-900 md:text-4xl">

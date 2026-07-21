@@ -261,7 +261,7 @@ export default function TelegramChatDetailPage() {
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">{title}</p>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">{title}</p>
           <Button
             type="button"
             size="sm"
@@ -273,7 +273,7 @@ export default function TelegramChatDetailPage() {
           </Button>
         </div>
         {items.length === 0 ? (
-          <p className="text-xs text-gray-400">Нет пунктов</p>
+          <p className="text-xs text-p-muted2">Нет пунктов</p>
         ) : (
           <div className="space-y-2">
             {items.map((item, index) => (
@@ -301,18 +301,18 @@ export default function TelegramChatDetailPage() {
   }
 
   if (!chat) {
-    return <p className="text-sm text-gray-500">Загрузка…</p>
+    return <p className="text-sm text-p-muted">Загрузка…</p>
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end gap-3 border-b border-gray-200 pb-6">
+      <div className="flex flex-wrap items-end gap-3 border-b border-p-line pb-6">
         <Button variant="outline" size="sm" onClick={() => navigate('/telegram-inbox')}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-[200px]">
           <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Telegram</div>
-          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-gray-900 md:text-4xl">{chat.title || `Чат ${chat.chat_id}`}</h1>
+          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text md:text-4xl">{chat.title || `Чат ${chat.chat_id}`}</h1>
           <div className="flex items-center gap-2 mt-1">
             <span className={`px-2 py-0.5 rounded-[2px] text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
               {TELEGRAM_STATUS_LABELS[chat.status]}
@@ -322,7 +322,7 @@ export default function TelegramChatDetailPage() {
                 {chat.student_name}
               </Link>
             ) : (
-              <span className="text-sm text-gray-400">не привязан</span>
+              <span className="text-sm text-p-muted2">не привязан</span>
             )}
           </div>
         </div>
@@ -382,14 +382,14 @@ export default function TelegramChatDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="border border-gray-200 rounded-[2px]">
-          <div className="px-4 py-2 border-b border-gray-200">
+        <div className="border border-p-line rounded-[2px]">
+          <div className="px-4 py-2 border-b border-p-line">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="font-medium text-sm text-gray-700">
+              <div className="font-medium text-sm text-p-text">
                 Переписка ({messages.length}{messageSearch.trim() ? ' найдено' : ''})
               </div>
               <div className="relative sm:w-64">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-p-muted2" />
                 <Input
                   value={messageSearch}
                   onChange={(event) => setMessageSearch(event.target.value)}
@@ -398,19 +398,19 @@ export default function TelegramChatDetailPage() {
                 />
               </div>
             </div>
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-p-muted2">
               История хранится на уровне Telegram-чата: при смене студента сообщения не удаляются.
             </p>
           </div>
           <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 && <p className="text-sm text-gray-500">Сообщений пока нет</p>}
+            {messages.length === 0 && <p className="text-sm text-p-muted">Сообщений пока нет</p>}
             {messages.map((m) => (
-              <div key={m.id} className="text-sm border-b border-gray-100 pb-3 last:border-0">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                  <span className="font-medium text-gray-700">{m.sender_name || 'Без имени'}</span>
+              <div key={m.id} className="text-sm border-b border-p-line pb-3 last:border-0">
+                <div className="flex items-center justify-between text-xs text-p-muted mb-1">
+                  <span className="font-medium text-p-text">{m.sender_name || 'Без имени'}</span>
                   <span>{formatDate(m.created_at)}</span>
                 </div>
-                {m.raw_text && <p className="text-gray-800 whitespace-pre-wrap">{m.raw_text}</p>}
+                {m.raw_text && <p className="text-p-text whitespace-pre-wrap">{m.raw_text}</p>}
                 {m.attachments.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {m.attachments.map((a) => (
@@ -421,8 +421,8 @@ export default function TelegramChatDetailPage() {
                           onClick={() => void handleDownloadAttachment(a)}
                           className={`inline-flex items-center gap-1 px-2 py-1 rounded-[2px] text-xs border ${
                             a.can_download
-                              ? 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                              : 'border-gray-100 text-gray-400 cursor-not-allowed'
+                              ? 'border-p-line text-p-text hover:bg-p-bg'
+                              : 'border-p-line text-p-muted2 cursor-not-allowed'
                           }`}
                         >
                           <Paperclip className="w-3 h-3" />
@@ -432,7 +432,7 @@ export default function TelegramChatDetailPage() {
                           <button
                             title="В документы"
                             onClick={() => setSaveAsDocTarget(a.id)}
-                            className="inline-flex items-center px-1.5 py-1 rounded-[2px] text-xs border border-gray-200 text-gray-500 hover:bg-gray-50"
+                            className="inline-flex items-center px-1.5 py-1 rounded-[2px] text-xs border border-p-line text-p-muted hover:bg-p-bg"
                           >
                             <FolderInput className="w-3 h-3" />
                           </button>
@@ -446,10 +446,10 @@ export default function TelegramChatDetailPage() {
           </div>
         </div>
 
-        <div className="border border-gray-200 rounded-[2px]">
-          <div className="px-4 py-2 border-b border-gray-200">
-            <div className="font-medium text-sm text-gray-700">Авто-изменения полей ({insights.length})</div>
-            <p className="mt-0.5 text-xs text-gray-400">
+        <div className="border border-p-line rounded-[2px]">
+          <div className="px-4 py-2 border-b border-p-line">
+            <div className="font-medium text-sm text-p-text">Авто-изменения полей ({insights.length})</div>
+            <p className="mt-0.5 text-xs text-p-muted2">
               Здесь только структурные изменения карточки. Для заметок, документов и follow-up используйте «Создать заметки».
             </p>
           </div>
@@ -459,7 +459,7 @@ export default function TelegramChatDetailPage() {
                 В последних сообщениях есть потенциально важный контекст: экзамены, документы, даты или вложения.
               </div>
             )}
-            {insights.length === 0 && <p className="text-sm text-gray-500">Авто-изменений полей пока нет</p>}
+            {insights.length === 0 && <p className="text-sm text-p-muted">Авто-изменений полей пока нет</p>}
             {insights.map((insight) => (
               <InsightCard
                 key={insight.id}
@@ -473,26 +473,26 @@ export default function TelegramChatDetailPage() {
         </div>
       </div>
 
-      <div className="border border-gray-200 rounded-[2px]">
-        <div className="px-4 py-2 border-b border-gray-200">
-          <div className="flex items-center gap-2 font-medium text-sm text-gray-700">
-            <History className="h-4 w-4 text-gray-400" />
+      <div className="border border-p-line rounded-[2px]">
+        <div className="px-4 py-2 border-b border-p-line">
+          <div className="flex items-center gap-2 font-medium text-sm text-p-text">
+            <History className="h-4 w-4 text-p-muted2" />
             История привязок
           </div>
-          <p className="mt-0.5 text-xs text-gray-400">
+          <p className="mt-0.5 text-xs text-p-muted2">
             При перепривязке старая сессия закрывается, новая открывается. Сообщения остаются в общей истории чата.
           </p>
         </div>
         <div className="p-4">
           {sessions.length === 0 ? (
-            <p className="text-sm text-gray-500">Истории привязок пока нет.</p>
+            <p className="text-sm text-p-muted">Истории привязок пока нет.</p>
           ) : (
             <div className="space-y-2">
               {sessions.map((session) => (
-                <div key={session.id} className="flex flex-col gap-1 rounded-[2px] border border-gray-100 p-3 text-sm md:flex-row md:items-center md:justify-between">
+                <div key={session.id} className="flex flex-col gap-1 rounded-[2px] border border-p-line p-3 text-sm md:flex-row md:items-center md:justify-between">
                   <div>
-                    <div className="font-medium text-gray-900">{session.student_name || 'Без студента'}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="font-medium text-p-text">{session.student_name || 'Без студента'}</div>
+                    <div className="text-xs text-p-muted">
                       Открыл: {session.opened_by_name || '—'} · {formatDate(session.opened_at)}
                       {session.closed_at ? ` · закрыто ${formatDate(session.closed_at)}` : ''}
                     </div>
@@ -523,7 +523,7 @@ export default function TelegramChatDetailPage() {
                 </div>
               )}
               <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Кратко</p>
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Кратко</p>
                 <Textarea
                   value={contextDraft.summary}
                   className="min-h-[84px]"
@@ -533,7 +533,7 @@ export default function TelegramChatDetailPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Изменения полей</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Изменения полей</p>
                   <Button
                     type="button"
                     size="sm"
@@ -548,11 +548,11 @@ export default function TelegramChatDetailPage() {
                   </Button>
                 </div>
                 {contextDraft.profile_updates.length === 0 ? (
-                  <p className="text-xs text-gray-400">Подтверждённых изменений полей нет</p>
+                  <p className="text-xs text-p-muted2">Подтверждённых изменений полей нет</p>
                 ) : (
                   <div className="space-y-2">
                     {contextDraft.profile_updates.map((item, index) => (
-                      <div key={index} className="grid gap-2 rounded-[2px] border border-gray-200 p-3 md:grid-cols-[1fr_1fr_auto]">
+                      <div key={index} className="grid gap-2 rounded-[2px] border border-p-line p-3 md:grid-cols-[1fr_1fr_auto]">
                         <Input
                           value={item.field}
                           placeholder="field"
@@ -605,16 +605,16 @@ export default function TelegramChatDetailPage() {
               {renderDraftTextList('Заметки профиля', 'profile_notes')}
               {renderDraftTextList('Follow-up', 'follow_ups')}
               {renderDraftTextList('Документы', 'document_flags')}
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-p-muted2">
                 Вложения пока не распознаются автоматически: AI видит факт файла, но не читает содержимое сертификата.
               </p>
               {renderDraftTextList('Противоречия / неясности', 'contradictions')}
               {renderDraftTextList('Предупреждения качества', 'quality_warnings')}
 
               {contextDraft.ignored_as_noise.length > 0 && (
-                <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-gray-500">Не сохранять</p>
-                  <ul className="mt-2 list-disc pl-5 text-sm text-gray-600">
+                <div className="rounded-[2px] border border-p-line bg-p-bg p-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Не сохранять</p>
+                  <ul className="mt-2 list-disc pl-5 text-sm text-p-muted">
                     {contextDraft.ignored_as_noise.map((item, index) => <li key={index}>{item}</li>)}
                   </ul>
                 </div>

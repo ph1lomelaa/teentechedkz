@@ -7,6 +7,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0A0A0A" />
     <title>TeenTechEd</title>
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('teenteched-theme')
+          if (stored !== 'light' && stored !== 'dark') {
+            stored = localStorage.getItem('crm-theme') === 'light'
+              || localStorage.getItem('workspace-theme') === 'light'
+              || localStorage.getItem('portal-theme') === 'light'
+              ? 'light' : 'dark'
+          }
+          document.documentElement.dataset.theme = stored
+          document.documentElement.dataset.crmTheme = stored
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

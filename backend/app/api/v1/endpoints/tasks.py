@@ -15,6 +15,8 @@ from app.models.student_task import StudentTask, TaskStatus
 from app.models.contract import Contract
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import UserRole
+from app.models.student import Student
+from app.models.notification import Notification
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -95,14 +97,27 @@ async def create_task(
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    student_id = uuid.UUID(body["student_id"])
     task = StudentTask(
-        student_id=uuid.UUID(body["student_id"]),
+        student_id=student_id,
         service_id=uuid.UUID(body["service_id"]) if body.get("service_id") else None,
         task_text=body.get("task_text", "").strip(),
         created_by=current_user.id,
         status=TaskStatus.open,
     )
     db.add(task)
+
+    student = await db.get(Student, student_id)
+    if student and student.user_id:
+        db.add(Notification(
+            user_id=student.user_id,
+            kind="task_assigned",
+            title="Новая задача",
+            body=task.task_text,
+            link="/portal/tasks",
+            priority="normal",
+        ))
+
     await db.commit()
     await db.refresh(task)
     return _task_to_dict(task)

@@ -7,7 +7,6 @@ import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnai
 import { cn } from '@/lib/utils'
 import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
-import { PageShell } from '@/components/shared/PageShell'
 
 const PRIORITY_LABEL: Record<string, string> = {
   required: 'Обязательно',

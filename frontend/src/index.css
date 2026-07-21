@@ -61,6 +61,12 @@ html.theme-switching *::after {
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Matches the inline pre-paint script in index.html: paints the correct
+     background before React mounts, so light-theme users don't see a dark flash. */
+  html[data-theme='light'] body {
+    background-color: #FAFAF7;
+  }
+
   h1, h2, h3, h4 {
     @apply tracking-tight;
   }
@@ -279,6 +285,26 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 .crm-shell :where(.crm-header, .app-main) :where(a, button):focus-visible { outline-color: #FFD400; }
 .crm-shell .kanban-column { background: var(--crm-panel); border-color: var(--crm-line); }
 .crm-shell .kanban-container::-webkit-scrollbar-thumb { background: #C9A800; }
+
+/* Same compatibility layer as .crm-shell above, for shared components (chat,
+   notifications, dialogs, roadmap, notes) that render inside the Workspace/
+   Portal shells and still use literal gray/slate/white utilities. */
+:is(.workspace-shell, .portal) :where(header, main) :where(.bg-white) { background-color: var(--w-panel) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.bg-gray-50, .bg-gray-100, .bg-slate-50, .bg-slate-100) { background-color: var(--w-panel2) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.bg-gray-200, .bg-slate-200) { background-color: var(--w-line) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.bg-gray-300, .bg-gray-400, .bg-slate-300, .bg-slate-400) { background-color: var(--w-muted2) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-gray-400, .border-gray-500, .border-gray-700, .border-slate-100, .border-slate-200, .border-slate-300, .border-slate-500) { border-color: var(--w-line) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.divide-gray-50, .divide-gray-100, .divide-gray-200) > :not([hidden]) ~ :not([hidden]) { border-color: var(--w-line) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-950, .text-gray-900, .text-gray-800, .text-slate-950, .text-slate-900, .text-slate-800, .text-black) { color: var(--w-ink) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-700, .text-gray-600, .text-gray-500, .text-slate-700, .text-slate-600, .text-slate-500) { color: var(--w-muted) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-400, .text-gray-300, .text-slate-400, .text-slate-300) { color: var(--w-muted2) !important; }
+:is(.workspace-shell, .portal) :where(header, main) :where(input, textarea, select) {
+  border-color: var(--w-line);
+  background-color: var(--w-panel2);
+  color: var(--w-ink);
+}
+:is(.workspace-shell, .portal) :where(header, main) :where(input, textarea)::placeholder { color: var(--w-muted2); }
+:is(.workspace-shell, .portal) :where(header, main) :where(.hover\:bg-gray-50:hover, .hover\:bg-gray-100:hover, .hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover) { background-color: var(--w-panel2) !important; }
 
 /* Legacy semantic utilities were designed for white screens and created pale
    islands in dark mode (status pills, warning banners and service blocks).

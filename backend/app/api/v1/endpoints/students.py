@@ -28,6 +28,7 @@ from app.models.document import Document
 from app.models.communication_log import CommunicationLog
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.student_task import StudentTask, TaskStatus
+from app.models.notification import Notification
 from app.models.status_history import StatusHistory
 from app.models.meeting import Meeting, MeetingStatus
 from app.models.roadmap import Roadmap, RoadmapStatus, RoadmapTask, RoadmapItemStatus
@@ -795,6 +796,23 @@ async def create_student(
         db, "student", student.id, "created", None, student.full_name,
         str(current_user.id), "manual"
     )
+
+    admins_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.admin, UserRole.mzk_manager]),
+            User.id != current_user.id,
+        )
+    )
+    for admin in admins_result.scalars():
+        db.add(Notification(
+            user_id=admin.id,
+            kind="student_created",
+            title="Новый студент добавлен",
+            body=f"{current_user.name} добавил(а) студента {student.full_name}",
+            link=f"/students/{student.id}",
+            priority="normal",
+        ))
+
     await db.commit()
 
     # Перечитываем с eager-load: _student_to_dict обходит relationships

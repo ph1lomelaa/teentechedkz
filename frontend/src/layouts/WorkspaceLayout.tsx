@@ -22,9 +22,9 @@ import {
 } from 'lucide-react'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { usersApi, notificationsApi } from '@/api/index'
 import { cn } from '@/lib/utils'
-import { applyThemeInstantly } from '@/lib/theme'
 
 interface NavItem {
   label: string
@@ -36,8 +36,6 @@ interface NavGroup {
   group: string
   items: NavItem[]
 }
-
-type Theme = 'dark' | 'light'
 
 function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavGroup[] {
   const baseGroups: NavGroup[] = [
@@ -97,9 +95,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem('workspace-theme') as Theme) || 'dark'
-  )
+  const { theme, toggleTheme } = useTheme()
   const mentorId = searchParams.get('mentor_id') || ''
   const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager'
   const isPreview = Boolean(mentorId)
@@ -137,16 +133,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const brandDestination = canPreviewMentor ? '/dashboard' : '/workspace'
 
   useEffect(() => {
-    localStorage.setItem('workspace-theme', theme)
-  }, [theme])
-
-  useEffect(() => {
     setMobileNavOpen(false)
   }, [location.pathname])
-
-  const toggleTheme = () => {
-    applyThemeInstantly(() => setTheme((current) => current === 'dark' ? 'light' : 'dark'))
-  }
 
   const setMentorFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)

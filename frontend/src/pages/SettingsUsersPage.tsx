@@ -135,10 +135,10 @@ function UserModal({
 
         {inviteLink ? (
           <div className="space-y-3">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-p-muted">
               Отправьте эту одноразовую ссылку сотруднику. По ней он задаст пароль и войдёт в систему. Ссылка действует 72 часа.
             </p>
-            <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3 text-sm break-all">
+            <div className="rounded-[2px] border border-p-line bg-p-bg p-3 text-sm break-all">
               {inviteLink}
             </div>
             <DialogFooter>
@@ -184,7 +184,7 @@ function UserModal({
                   </SelectContent>
                 </Select>
                 {isSelf && (
-                  <p className="text-xs text-gray-500 mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
+                  <p className="text-xs text-p-muted mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
                 )}
               </div>
               <div>
@@ -279,12 +279,12 @@ export const SettingsUsersPage: React.FC = () => {
       />
 
       {currentUser && (
-        <div className="mb-8 border border-gray-200 rounded-[2px] p-5">
+        <div className="mb-8 border border-p-line rounded-[2px] p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="label-caps mb-2">Текущий аккаунт</p>
-              <h2 className="text-lg font-semibold text-gray-900">{currentUser.name}</h2>
-              <p className="text-sm text-gray-600 mt-1">{currentUser.email}</p>
+              <h2 className="text-lg font-semibold text-p-text">{currentUser.name}</h2>
+              <p className="text-sm text-p-muted mt-1">{currentUser.email}</p>
               <span className="inline-flex mt-3 text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-[2px] font-medium uppercase tracking-wide">
                 {ROLE_LABELS[currentUser.role]}
               </span>
@@ -301,10 +301,10 @@ export const SettingsUsersPage: React.FC = () => {
         <p className="label-caps">Пользователи</p>
       </div>
 
-      <div className="border-y border-gray-200">
+      <div className="border-y border-p-line">
         <Table>
           <TableHeader>
-            <TableRow className="border-gray-200 hover:bg-transparent">
+            <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Имя</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Роль</TableHead>
@@ -316,27 +316,27 @@ export const SettingsUsersPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   Нет пользователей
                 </TableCell>
               </TableRow>
             ) : (
               users.map((user) => (
-                <TableRow key={user.id} className="border-gray-100 hover:bg-gray-50">
-                  <TableCell className="font-medium text-gray-900">{user.name}</TableCell>
-                  <TableCell className="text-gray-600">{user.email}</TableCell>
+                <TableRow key={user.id} className="border-p-line hover:bg-p-bg">
+                  <TableCell className="font-medium text-p-text">{user.name}</TableCell>
+                  <TableCell className="text-p-muted">{user.email}</TableCell>
                   <TableCell>
                     <span className="text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-[2px] font-medium uppercase tracking-wide">
                       {ROLE_LABELS[user.role]}
                     </span>
                   </TableCell>
-                  <TableCell className="text-gray-600 text-sm">
+                  <TableCell className="text-p-muted text-sm">
                     {user.telegram_username ?? '—'}
                   </TableCell>
                   <TableCell>

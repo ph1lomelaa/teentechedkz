@@ -128,9 +128,9 @@ async def portal_telegram(
     student: CurrentStudent,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Read-only зеркало Telegram-группы ученика: те же сообщения, что ученик и
-    так видит в своём Telegram, но внутри кабинета. Ученик ничего не отправляет
-    отсюда — переписка ведётся в самом Telegram."""
+    """Зеркало Telegram-группы ученика: те же сообщения, что ученик и так видит
+    в своём Telegram, но внутри кабинета. Отправка — см. portal_telegram_send
+    ниже, сообщения студента доставляются в группу через бота."""
     session_result = await db.execute(
         select(TelegramChatSession)
         .where(

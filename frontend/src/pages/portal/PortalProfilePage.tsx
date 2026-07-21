@@ -5,6 +5,7 @@ import { authApi } from '@/api/auth'
 import { DEGREE_LEVEL_LABELS } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageShell } from '@/components/shared/PageShell'
 
 export const PortalProfilePage: React.FC = () => {
   const { data, isLoading } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })

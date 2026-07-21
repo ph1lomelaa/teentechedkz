@@ -24,7 +24,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
   const completed = questionnaires.filter((q) => q.status !== 'sent')
 
   return (
-    <div className="mx-auto max-w-4xl animate-fade-in">
+    <PageShell maxWidth="lg" className="animate-fade-in">
       <div className="mb-6">
         <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
         <h1 className="mt-2 font-display text-2xl md:text-3xl font-black text-p-text">Анкеты</h1>
@@ -91,7 +91,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
           onClose={() => setSelectedId(null)}
         />
       )}
-    </div>
+    </PageShell>
   )
 }
 

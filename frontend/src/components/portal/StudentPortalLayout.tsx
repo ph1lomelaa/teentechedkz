@@ -22,12 +22,10 @@ import {
   Bell,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { cn } from '@/lib/utils'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { notificationsApi } from '@/api'
-import { applyThemeInstantly } from '@/lib/theme'
-
-type Theme = 'dark' | 'light'
 
 interface NavItem {
   label: string
@@ -98,13 +96,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   const { user, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem('portal-theme') as Theme) || 'dark'
-  )
-
-  useEffect(() => {
-    localStorage.setItem('portal-theme', theme)
-  }, [theme])
+  const { theme, toggleTheme } = useTheme()
 
   useEffect(() => setMobileOpen(false), [location.pathname])
   useEffect(() => {
@@ -115,10 +107,6 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
       }
     }
   }, [mobileOpen])
-
-  const toggleTheme = () => {
-    applyThemeInstantly(() => setTheme((current) => current === 'dark' ? 'light' : 'dark'))
-  }
 
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],

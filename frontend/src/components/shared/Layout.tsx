@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -21,9 +21,9 @@ import {
   Globe,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { cn } from '@/lib/utils'
-import { applyThemeInstantly } from '@/lib/theme'
 
 interface NavItem {
   label: string
@@ -35,8 +35,6 @@ interface NavGroup {
   group: string
   items: NavItem[]
 }
-
-type CrmTheme = 'dark' | 'light'
 
 const adminNavGroups: NavGroup[] = [
   {
@@ -180,10 +178,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [modeOpen, setModeOpen] = useState(false)
-  const [theme, setTheme] = useState<CrmTheme>(() => {
-    if (typeof window === 'undefined') return 'dark'
-    return window.localStorage.getItem('crm-theme') === 'light' ? 'light' : 'dark'
-  })
+  const { theme, toggleTheme } = useTheme()
 
   const navGroups = user ? getNavGroups(user.role) : []
   const breadcrumb = getBreadcrumb(location.pathname)
@@ -203,19 +198,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       }
     }
   }, [mobileOpen])
-
-  useLayoutEffect(() => {
-    window.localStorage.setItem('crm-theme', theme)
-    document.documentElement.dataset.crmTheme = theme
-
-    return () => {
-      delete document.documentElement.dataset.crmTheme
-    }
-  }, [theme])
-
-  const toggleTheme = () => {
-    applyThemeInstantly(() => setTheme((current) => current === 'dark' ? 'light' : 'dark'))
-  }
 
   return (
     <div data-theme={theme} className="crm-shell flex h-[100dvh] overflow-hidden">

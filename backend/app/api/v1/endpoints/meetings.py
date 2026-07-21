@@ -25,7 +25,7 @@ from app.services.note_sessions import generate_note_draft
 from app.services.student_notes import snapshot_student
 from app.models.student import Student
 from app.models.user import UserRole
-from app.models.meeting import Meeting
+from app.models.meeting import Meeting, MeetingStatus
 from app.models.chat import Conversation, ConversationMember, ConversationType, Message
 from app.models.notification import Notification
 from app.models.note_session import NoteSession, NoteSessionStatus
@@ -245,6 +245,18 @@ async def create_meeting(body: MeetingCreate, current_user: CurrentUser, db: Ann
         created_by=current_user.id,
     )
     db.add(meeting)
+
+    student = await db.get(Student, body.student_id)
+    if student and student.user_id:
+        db.add(Notification(
+            user_id=student.user_id,
+            kind="meeting_scheduled",
+            title="Назначена встреча",
+            body=f"{meeting.title} — {meeting.starts_at.strftime('%d.%m.%Y %H:%M')}",
+            link="/portal/meetings",
+            priority="normal",
+        ))
+
     await db.commit()
     await db.refresh(meeting)
     return meeting
@@ -259,8 +271,28 @@ async def update_meeting(meeting_id: uuid.UUID, body: MeetingUpdate, current_use
     if not meeting:
         raise _NOT_FOUND
     await _assert_staff(db, meeting.student_id, current_user)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(meeting, field, value)
+
+    if {"starts_at", "ends_at", "status"} & changes.keys():
+        student = await db.get(Student, meeting.student_id)
+        if student and student.user_id:
+            if changes.get("status") == MeetingStatus.cancelled:
+                title, kind = "Встреча отменена", "meeting_cancelled"
+            elif "starts_at" in changes or "ends_at" in changes:
+                title, kind = "Встреча перенесена", "meeting_rescheduled"
+            else:
+                title, kind = "Встреча обновлена", "meeting_updated"
+            db.add(Notification(
+                user_id=student.user_id,
+                kind=kind,
+                title=title,
+                body=f"{meeting.title} — {meeting.starts_at.strftime('%d.%m.%Y %H:%M')}",
+                link="/portal/meetings",
+                priority="normal",
+            ))
+
     await db.commit()
     await db.refresh(meeting)
     return meeting
