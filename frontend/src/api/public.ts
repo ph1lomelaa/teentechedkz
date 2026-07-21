@@ -18,9 +18,20 @@ export interface PublicApplicationResult {
   message: string
 }
 
+export interface MentorSignupInput {
+  name: string
+  email: string
+  phone?: string
+  password: string
+}
+
 export const publicApi = {
   createApplication: async (body: PublicApplicationInput): Promise<PublicApplicationResult> => {
     const response = await apiClient.post<PublicApplicationResult>('/public/applications', body)
+    return response.data
+  },
+  mentorSignup: async (body: MentorSignupInput): Promise<{ message: string }> => {
+    const response = await apiClient.post<{ message: string }>('/public/mentor-signup', body)
     return response.data
   },
 }

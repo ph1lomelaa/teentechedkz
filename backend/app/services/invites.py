@@ -45,6 +45,11 @@ def invite_url(raw_token: str) -> str:
     return f"{settings.FRONTEND_URL}/invite/{raw_token}"
 
 
+def student_invite_url(raw_token: str) -> str:
+    """Ученикам отправляем лендинг-приветствие, а не сразу форму пароля."""
+    return f"{settings.FRONTEND_URL}/welcome/{raw_token}"
+
+
 async def issue_invite(
     db: AsyncSession,
     *,

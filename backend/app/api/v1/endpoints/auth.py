@@ -85,7 +85,12 @@ async def login(
             meta={"reason": "inactive"},
         )
         await db.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Аккаунт деактивирован")
+        # 401, а не 403: глобальный handler маскирует 403 в «Access denied»,
+        # а ждущий одобрения ментор должен увидеть причину.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Аккаунт неактивен. Если вы недавно оставили заявку — дождитесь одобрения администратора.",
+        )
 
     user.last_login_at = datetime.now(timezone.utc)
 

@@ -9,6 +9,8 @@ import { Toaster } from '@/components/ui/toaster'
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ApplyPage } from '@/pages/ApplyPage'
+import { JoinMentorPage } from '@/pages/JoinMentorPage'
+import { StudentWelcomePage } from '@/pages/StudentWelcomePage'
 import { InvitePage } from '@/pages/InvitePage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { StudentPortalLayout } from '@/components/portal/StudentPortalLayout'
@@ -206,7 +208,9 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/apply" element={<ApplyPage />} />
       <Route path="/register" element={<ApplyPage />} />
+      <Route path="/join" element={<JoinMentorPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
+      <Route path="/welcome/:token" element={<StudentWelcomePage />} />
       <Route path="/app" element={<RootRedirect />} />
 
       <Route

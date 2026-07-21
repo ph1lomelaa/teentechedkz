@@ -24,7 +24,7 @@ from app.core.security import hash_password
 from app.services.mentor_scope import primary_mentor_id, require_student_access
 from app.services.audit import record_audit
 from app.services.sessions import revoke_all_sessions
-from app.services.invites import issue_invite, invite_url
+from app.services.invites import issue_invite, student_invite_url
 from app.services.user_emails import MAX_EXTRA_EMAILS, email_in_use, list_extra_emails, norm
 from app.models.audit_log import AuditAction
 from app.models.student import Student
@@ -229,7 +229,7 @@ async def grant_access(
         email=user.email,
         name=user.name,
         temp_password=temp_password,
-        invite_url=invite_url(raw_token),
+        invite_url=student_invite_url(raw_token),
         invite_code=raw_code,
         invite_expires_at=invite.expires_at,
     )
@@ -262,7 +262,7 @@ async def reissue_invite(
         meta={"reason": "reissue"},
     )
     await db.commit()
-    return InviteResponse(invite_url=invite_url(raw_token), invite_code=raw_code, invite_expires_at=invite.expires_at)
+    return InviteResponse(invite_url=student_invite_url(raw_token), invite_code=raw_code, invite_expires_at=invite.expires_at)
 
 
 @router.post("/{student_id}/reset-password", response_model=ResetPasswordResponse)

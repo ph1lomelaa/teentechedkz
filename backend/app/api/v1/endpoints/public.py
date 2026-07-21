@@ -4,12 +4,16 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import hash_password
 from app.models.intake_submission import IntakeSource, IntakeStatus, IntakeSubmission
+from app.models.user import User, UserRole
+from app.services import rate_limit
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -69,4 +73,50 @@ async def create_public_application(
         "id": str(submission.id),
         "status": submission.status.value,
         "message": "Заявка отправлена. Команда TeenTechEd свяжется с вами.",
+    }
+
+
+class MentorSignupCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str | None = None
+    password: str
+
+
+@router.post("/mentor-signup", status_code=status.HTTP_201_CREATED)
+async def mentor_signup(
+    body: MentorSignupCreate,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Самостоятельная заявка ментора: аккаунт создаётся неактивным,
+    доступ открывает администратор в настройках пользователей."""
+    await rate_limit.enforce(request, bucket="mentor_signup", limit=10, window_seconds=300)
+
+    name = body.name.strip()
+    if len(name) < 2:
+        raise HTTPException(status_code=422, detail="Укажите имя")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=422, detail="Пароль должен быть минимум 8 символов")
+
+    email = str(body.email).strip().lower()
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Пользователь с таким email уже существует. Попробуйте войти.",
+        )
+
+    user = User(
+        name=name,
+        email=email,
+        phone=body.phone.strip() if body.phone else None,
+        hashed_password=hash_password(body.password),
+        role=UserRole.mentor,
+        is_active=False,
+    )
+    db.add(user)
+    await db.commit()
+    return {
+        "message": "Заявка отправлена. Администратор проверит её и откроет доступ — после этого можно войти.",
     }
