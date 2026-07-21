@@ -42,6 +42,7 @@ from .roadmap import (
 from .meeting import Meeting, MeetingStatus
 from .university import University
 from .credential import UniversityCredential
+from .scholarship import Scholarship
 from .chat import Conversation, ConversationMember, Message, MessageAttachment, ConversationType
 from .notification import Notification
 from .questionnaire import (
@@ -77,6 +78,7 @@ __all__ = [
     "TaskPriority", "TaskAudience", "RoadmapItemStatus", "RoadmapStatus",
     "Meeting", "MeetingStatus",
     "University", "UniversityCredential",
+    "Scholarship",
     "Conversation", "ConversationMember", "Message", "MessageAttachment", "ConversationType",
     "Notification",
     "Questionnaire", "QuestionnaireQuestion", "QuestionnaireResponse",

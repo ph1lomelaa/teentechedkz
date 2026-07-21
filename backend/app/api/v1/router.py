@@ -32,6 +32,7 @@ from app.api.v1.endpoints import (
     questionnaires,
     meetings,
     universities,
+    scholarships,
     chat,
     portal,
     workspace,
@@ -72,6 +73,7 @@ api_router.include_router(roadmaps.router)
 api_router.include_router(questionnaires.router)
 api_router.include_router(meetings.router)
 api_router.include_router(universities.router)
+api_router.include_router(scholarships.router)
 api_router.include_router(chat.router)
 api_router.include_router(notifications.router)
 api_router.include_router(portal.router)
