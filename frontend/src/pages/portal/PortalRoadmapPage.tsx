@@ -4,6 +4,7 @@ import { Map } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { PortalRoadmap } from '@/components/portal/PortalRoadmap'
+import { EmptyState } from '@/components/ui'
 
 export const PortalRoadmapPage: React.FC = () => {
   const { data, isLoading } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmap })
@@ -22,16 +23,7 @@ export const PortalRoadmapPage: React.FC = () => {
       </p>
 
       {!roadmap ? (
-        <div className="mt-4 rounded-[16px] border border-p-line bg-p-panel p-10 text-center">
-          <div className="w-14 h-14 rounded-full bg-brand/15 grid place-items-center mx-auto">
-            <Map className="w-7 h-7 text-brand" />
-          </div>
-          <h2 className="mt-4 font-display text-[18px] font-extrabold text-p-text">Roadmap ещё не назначен</h2>
-          <p className="mt-2 text-[13.5px] text-p-muted max-w-md mx-auto">
-            Как только ментор назначит вам дорожную карту, здесь появится интерактивный таймлайн
-            этапов с задачами.
-          </p>
-        </div>
+        <EmptyState icon={<Map className="w-5 h-5" />} title="Roadmap ещё не назначен" description="Как только ментор назначит вам дорожную карту, здесь появится интерактивный таймлайн этапов с задачами." colorPrefix="p" />
       ) : (
         <PortalRoadmap roadmap={roadmap} onChanged={setRoadmap} />
       )}

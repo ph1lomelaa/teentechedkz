@@ -9,15 +9,12 @@ import {
   BookText,
   AlertTriangle,
   MessageCircle,
-  ClipboardList,
   Route,
   GraduationCap,
   LogOut,
   Menu,
   X,
   ChevronDown,
-  Moon,
-  Sun,
   Globe,
   BarChart3,
   BookMarked,
@@ -25,6 +22,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
+import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -58,7 +56,6 @@ const adminNavGroups: NavGroup[] = [
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
     ],
   },
   {
@@ -100,7 +97,6 @@ const mzkManagerNavGroups: NavGroup[] = [
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-      { label: 'Статус', path: '/status-inbox', icon: <ClipboardList className="w-4 h-4" /> },
     ],
   },
   {
@@ -177,7 +173,6 @@ function getBreadcrumb(pathname: string): string {
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',
     '/telegram-inbox': 'Чаты',
-    '/status-inbox': 'Статус',
   }
   if (pathname.match(/^\/students\/[^/]+$/)) return 'Карточка студента'
   if (pathname.match(/^\/notes\/session\/[^/]+$/)) return 'Сессия конспекта'
@@ -191,7 +186,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [modeOpen, setModeOpen] = useState(false)
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
 
   const navGroups = user ? getNavGroups(user.role) : []
   const breadcrumb = getBreadcrumb(location.pathname)
@@ -309,13 +304,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
 
         <div className="mt-auto border-t border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
           <button
-            onClick={() => toggleTheme()}
-            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium text-white/65 transition hover:bg-white/[0.06] hover:text-white/85"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-          </button>
-          <button
             onClick={() => logout()}
             className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium text-white/50 transition hover:bg-white/[0.06] hover:text-white/85"
           >
@@ -347,15 +335,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="crm-icon-button inline-flex h-10 w-10 items-center justify-center rounded-[8px] border transition-colors"
-              aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+            <ThemeToggle />
             <NotificationsBell />
           </div>
         </header>

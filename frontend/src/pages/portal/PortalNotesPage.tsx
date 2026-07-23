@@ -7,6 +7,7 @@ import { Markdown } from '@/components/shared/Markdown'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
+import { AppButton, EmptyState } from '@/components/ui'
 
 function fmt(iso: string | null): string {
   if (!iso) return ''
@@ -58,19 +59,21 @@ export const PortalNotesPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <div className="flex items-center justify-between gap-4">
         <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Конспекты</h1>
         {notes.length > 0 && !selectedId && (
-          <button
+          <AppButton
             onClick={() => downloadMutation.mutate()}
             disabled={downloadMutation.isPending}
-            className="mt-2 flex items-center gap-2 px-3 py-2 rounded-[11px] text-sm font-semibold bg-w-accent text-black hover:bg-w-accent/90 disabled:opacity-50 transition"
+            size="sm"
+            variant="primary"
+            className="mt-2"
             title="Скачать все конспекты в формате Markdown"
           >
             <Download className="w-4 h-4" />
             .md
-          </button>
+          </AppButton>
         )}
       </div>
 
@@ -86,7 +89,7 @@ export const PortalNotesPage: React.FC = () => {
           {detailLoading || !detail ? (
             <p className="text-sm text-p-muted">Загрузка…</p>
           ) : (
-            <article className="rounded-[16px] border border-p-line bg-p-panel p-6">
+            <article className="rounded-card border border-p-line bg-p-panel p-[22px]">
               <h2 className="font-display text-xl font-black text-p-text">{detail.title}</h2>
               <p className="mt-1 text-[12px] text-p-muted">{fmt(detail.published_at || detail.created_at)}</p>
               {/* Markdown component uses light-theme grays — render on a white
@@ -100,15 +103,7 @@ export const PortalNotesPage: React.FC = () => {
       ) : isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : notes.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="w-11 h-11 rounded-[13px] bg-brand/15 grid place-items-center mx-auto">
-            <ScrollText className="w-5 h-5 text-brand" />
-          </div>
-          <h2 className="mt-4 text-base font-extrabold text-p-text">Конспектов пока нет</h2>
-          <p className="mt-1.5 text-sm text-p-muted">
-            После встреч ментор публикует конспекты — они появятся здесь.
-          </p>
-        </div>
+        <EmptyState icon={<ScrollText className="w-5 h-5" />} title="Конспектов пока нет" description="После встреч ментор публикует конспекты — они появятся здесь." colorPrefix="p" />
       ) : (
         <div className="space-y-4">
           <div className="relative">
@@ -132,9 +127,7 @@ export const PortalNotesPage: React.FC = () => {
           </div>
 
           {filtered.length === 0 ? (
-            <div className="rounded-[16px] border border-dashed border-p-line bg-p-panel2 p-8 text-center">
-              <p className="text-sm text-p-muted">Конспекты не найдены</p>
-            </div>
+            <EmptyState title="Конспекты не найдены" colorPrefix="p" />
           ) : (
             <div className="space-y-2">
               {filtered.map((n) => (

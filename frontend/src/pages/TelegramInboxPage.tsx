@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, MessageSquareWarning, Paperclip, Search, Sparkles } from 'lucide-react'
+import { Loader2, MessageSquareWarning, Search } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { mentorAssignmentsApi } from '@/api/index'
 import {
@@ -14,17 +14,8 @@ import {
   hasReviewPending,
 } from '@/types'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import {
   Dialog,
   DialogContent,
@@ -386,156 +377,90 @@ export default function TelegramInboxPage() {
           </p>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Чат</TableHead>
-              <TableHead>Статус</TableHead>
-                <TableHead>Студент</TableHead>
-                <TableHead>Ответственные</TableHead>
-                <TableHead>Последнее сообщение</TableHead>
-              <TableHead>Не разобрано</TableHead>
-              {canManage && <TableHead className="text-right">Действия</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((chat) => (
-              <TableRow
-                key={chat.id}
-                className="cursor-pointer hover:bg-p-bg"
-                onClick={() => navigate(`/telegram-inbox/${chat.id}`)}
-              >
-                <TableCell>
-                  <div className="font-medium text-p-text">{chat.title || `Чат ${chat.chat_id}`}</div>
-                  <div className="text-xs text-p-muted">{chat.chat_type}</div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`px-2 py-0.5 rounded-[2px] text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
-                      {TELEGRAM_STATUS_LABELS[chat.status]}
-                    </span>
-                    {hasReviewPending(chat) && (
-                      <Badge variant="destructive" className="text-xs gap-1">
-                        <MessageSquareWarning className="w-3 h-3" />
-                        на проверку
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {chat.student_name ? (
-                    <div className="space-y-1">
-                      <span className="text-p-text">{chat.student_name}</span>
-                      {chat.is_mine && (
-                        <span className="block w-fit text-[10px] px-1.5 py-0.5 rounded-[2px] border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
-                          Мой чат
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-p-muted2">—</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <span className="text-xs text-p-muted max-w-[160px] block truncate">
-                    {chat.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
-                  </span>
-                </TableCell>
-                <TableCell className="text-sm text-p-muted">
-                  <div className="max-w-[240px] truncate">{chat.last_message_preview || '—'}</div>
-                  <div className="text-xs text-p-muted2">{formatDate(chat.last_message_at)}</div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2 text-xs text-p-muted">
-                    {chat.pending_insight_count > 0 && (
-                      <span className="flex items-center gap-1">
-                        <MessageSquareWarning className="w-3.5 h-3.5" />
-                        {chat.pending_insight_count} изм.
-                      </span>
-                    )}
-                    {chat.has_context_signal && (
-                      <span className="flex items-center gap-1 text-amber-700">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        {chat.context_signal_count} конт.
-                      </span>
-                    )}
-                    {chat.unresolved_attachment_count > 0 && (
-                      <span className="flex items-center gap-1">
-                        <Paperclip className="w-3.5 h-3.5" />
-                        {chat.unresolved_attachment_count} файл.
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
+        <div className="space-y-2">
+          {filtered.map((chat) => (
+            <div key={chat.id} className="rounded-[2px] border border-p-line bg-card px-3 py-2.5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-p-text">{chat.student_name || chat.title || `Чат ${chat.chat_id}`}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-p-muted">{chat.last_message_preview || 'Без сообщений'}</div>
+                </div>
+                <div className="text-[10px] text-p-muted2">{formatDate(chat.last_message_at)}</div>
+              </div>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className={`rounded-[2px] px-1.5 py-0.5 ${TELEGRAM_STATUS_COLORS[chat.status]}`}>{TELEGRAM_STATUS_LABELS[chat.status]}</span>
+                {hasReviewPending(chat) && <span className="rounded-[2px] border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-700">на проверку</span>}
+                <span className="text-p-muted">{chat.chat_type}</span>
+              </div>
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => navigate(`/telegram-inbox/${chat.id}`)}>
+                  Открыть карточку
+                </Button>
+
                 {canManage && (
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1.5 flex-wrap">
-                      {(chat.status === 'unbound' || chat.status === 'closed') && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAttachTarget(chat)}>
-                          {chat.status === 'closed' ? 'Открыть заново' : 'Привязать студента'}
-                        </Button>
-                      )}
-                      {chat.student_id && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setReassignTarget(chat)}>
-                          Сменить привязку
-                        </Button>
-                      )}
-                      {chat.student_id && !chat.is_mine && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          disabled={assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id}
-                          onClick={() => assignStudentMutation.mutate(chat.student_id!)}
-                        >
-                          {assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : 'Стать ответственным'}
-                        </Button>
-                      )}
-                      {chat.status === 'active' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          disabled={pauseMutation.isPending && pauseMutation.variables === chat.id}
-                          onClick={() => pauseMutation.mutate(chat.id)}
-                        >
-                          {pauseMutation.isPending && pauseMutation.variables === chat.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : 'Пауза AI'}
-                        </Button>
-                      )}
-                      {chat.status === 'paused' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          disabled={resumeMutation.isPending && resumeMutation.variables === chat.id}
-                          onClick={() => resumeMutation.mutate(chat.id)}
-                        >
-                          {resumeMutation.isPending && resumeMutation.variables === chat.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : 'Возобновить AI'}
-                        </Button>
-                      )}
-                      {(chat.status === 'active' || chat.status === 'paused') && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setCloseTarget(chat)}
-                        >
-                          Закрыть чат
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
+                  <>
+                    {(chat.status === 'unbound' || chat.status === 'closed') && (
+                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setAttachTarget(chat)}>
+                        {chat.status === 'closed' ? 'Открыть заново' : 'Привязать студента'}
+                      </Button>
+                    )}
+                    {chat.student_id && (
+                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setReassignTarget(chat)}>
+                        Сменить привязку
+                      </Button>
+                    )}
+                    {chat.student_id && !chat.is_mine && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        disabled={assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id}
+                        onClick={() => assignStudentMutation.mutate(chat.student_id!)}
+                      >
+                        {assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : 'Стать ответственным'}
+                      </Button>
+                    )}
+                    {chat.status === 'active' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        disabled={pauseMutation.isPending && pauseMutation.variables === chat.id}
+                        onClick={() => pauseMutation.mutate(chat.id)}
+                      >
+                        {pauseMutation.isPending && pauseMutation.variables === chat.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : 'Пауза AI'}
+                      </Button>
+                    )}
+                    {chat.status === 'paused' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        disabled={resumeMutation.isPending && resumeMutation.variables === chat.id}
+                        onClick={() => resumeMutation.mutate(chat.id)}
+                      >
+                        {resumeMutation.isPending && resumeMutation.variables === chat.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : 'Возобновить AI'}
+                      </Button>
+                    )}
+                    {(chat.status === 'active' || chat.status === 'paused') && (
+                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setCloseTarget(chat)}>
+                        Закрыть чат
+                      </Button>
+                    )}
+                  </>
                 )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       <StudentPickerDialog

@@ -100,7 +100,8 @@ async def get_portfolio(
 
 
 def _check_access(user, student_id: uuid.UUID):
-    pass  # All authenticated users can access; RBAC at student level is already enforced
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _pp_to_dict(pp: PortfolioProgress) -> dict:

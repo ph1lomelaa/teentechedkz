@@ -6,6 +6,7 @@ Create Date: 2026-07-18
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 
 revision = "015"
 down_revision = "014"
@@ -31,7 +32,7 @@ def upgrade() -> None:
         sa.Column("meeting_link", sa.String(2048), nullable=False, server_default=""),
         sa.Column("recording_url", sa.String(2048), nullable=False, server_default=""),
         sa.Column("transcript_url", sa.String(2048), nullable=False, server_default=""),
-        sa.Column("status", sa.Enum(*status_vals, name="meeting_status", create_type=False), nullable=False, server_default="scheduled"),
+        sa.Column("status", PGEnum(*status_vals, name="meeting_status", create_type=False), nullable=False, server_default="scheduled"),
         sa.Column("created_by", sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )

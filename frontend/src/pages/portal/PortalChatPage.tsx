@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { MessageCircle, Paperclip, Send, AlertCircle } from 'lucide-react'
+import { MessageCircle, Paperclip, Send, AlertCircle, Search } from 'lucide-react'
 import { chatApi } from '@/api/chat'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,6 +22,7 @@ export const PortalChatPage: React.FC = () => {
   const [channel, setChannel] = useState<Channel>('internal')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messageText, setMessageText] = useState('')
+  const [dialogSearch, setDialogSearch] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { data: conversations = [], isLoading } = useQuery({
@@ -64,6 +65,15 @@ export const PortalChatPage: React.FC = () => {
   }
 
   const activeConversation = conversations.find((item) => item.id === selectedId) || conversations[0] || null
+  const visibleConversations = useMemo(() => {
+    const q = dialogSearch.trim().toLowerCase()
+    if (!q) return conversations
+    return conversations.filter((conversation) => {
+      const title = (conversation.other?.name || conversation.title || '').toLowerCase()
+      const body = (conversation.last_message?.body || '').toLowerCase()
+      return title.includes(q) || body.includes(q)
+    })
+  }, [conversations, dialogSearch])
   const newContacts = useMemo(() => {
     const existing = new Set(conversations.map((item) => item.other?.id).filter(Boolean))
     return contacts.filter((contact) => !existing.has(contact.id))
@@ -126,7 +136,7 @@ export const PortalChatPage: React.FC = () => {
                               message.is_me ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
                             )}
                           >
-                            <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/60' : 'text-w-accentText')}>
+                            <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-w-accentText')}>
                               {message.sender_name || 'Участник'}
                             </div>
                             {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
@@ -139,7 +149,7 @@ export const PortalChatPage: React.FC = () => {
                                 <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
                               </div>
                             ))}
-                            <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/55' : 'text-w-muted2')}>
+                            <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/80' : 'text-w-muted2')}>
                               {formatDate(message.created_at)}
                             </div>
                           </div>
@@ -181,9 +191,20 @@ export const PortalChatPage: React.FC = () => {
       ) : (
         <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
           <WorkspaceCard className="p-3">
+            <div className="mb-2 px-1">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
+                <input
+                  value={dialogSearch}
+                  onChange={(e) => setDialogSearch(e.target.value)}
+                  placeholder="Поиск диалогов"
+                  className="h-9 w-full rounded-[10px] border border-w-line bg-w-panel2 pl-9 pr-3 text-sm text-w-ink placeholder:text-w-muted2 outline-none"
+                />
+              </div>
+            </div>
             {isLoading ? (
               <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
-            ) : conversations.length === 0 && newContacts.length === 0 ? (
+            ) : visibleConversations.length === 0 && newContacts.length === 0 ? (
               <WorkspaceEmptyState
                 icon={<MessageCircle className="h-5 w-5" />}
                 title="Диалогов пока нет"
@@ -191,7 +212,7 @@ export const PortalChatPage: React.FC = () => {
               />
             ) : (
               <div className="space-y-1.5">
-                {conversations.map((conversation) => {
+                {visibleConversations.map((conversation) => {
                   const active = activeConversation?.id === conversation.id
                   return (
                     <button
@@ -199,12 +220,13 @@ export const PortalChatPage: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedId(conversation.id)}
                       className={cn(
-                        'w-full rounded-[16px] border px-3 py-3 text-left transition',
+                        'w-full rounded-[16px] border px-3 py-3 text-left transition relative overflow-hidden',
                         active
                           ? 'border-w-accent bg-w-accent text-black'
                           : 'border-w-line bg-w-panel2 text-w-ink hover:border-w-accentDim',
                       )}
                     >
+                      {active && <span className="absolute inset-y-0 left-0 w-1 bg-w-accent" />}
                       <div className="flex items-center gap-2">
                         <MessageCircle className="h-4 w-4 shrink-0" />
                         <div className="min-w-0 flex-1 truncate text-sm font-black">
@@ -216,11 +238,11 @@ export const PortalChatPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className={cn('mt-1 truncate text-xs', active ? 'text-black/65' : 'text-w-muted')}>
+                      <div className={cn('mt-1 truncate text-xs', active ? 'text-black' : 'text-w-muted')}>
                         {conversation.last_message?.body || 'Нет сообщений'}
                       </div>
-                      <div className={cn('mt-1 text-[11px]', active ? 'text-black/55' : 'text-w-muted2')}>
-                        Внутренний чат · {formatDate(conversation.updated_at)}
+                      <div className={cn('mt-1 text-[11px]', active ? 'text-black/85' : 'text-w-muted2')}>
+                        {formatDate(conversation.updated_at)}
                       </div>
                     </button>
                   )
@@ -255,7 +277,7 @@ export const PortalChatPage: React.FC = () => {
                 <ChatThread
                   conversationId={activeConversation.id}
                   currentUserId={user.id}
-                  heightClass="h-[560px]"
+                  heightClass="h-[520px]"
                   variant="portal"
                   readOnly={activeConversation.can_write === false}
                 />

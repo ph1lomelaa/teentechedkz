@@ -95,13 +95,9 @@ async def on_my_chat_member(event: ChatMemberUpdated):
         logger.info(f"Telegram chat registered: chat_id={event.chat.id} status={chat.status}")
 
     if student:
-        try:
-            await get_bot().send_message(
-                chat_id=event.chat.id,
-                text="✅ Группа успешно подключена к TeenTechEd.",
-            )
-        except Exception:
-            logger.warning("Failed to send group-connected confirmation", exc_info=True)
+        # Бот молчит в клиентских группах без исключений — подтверждение
+        # подключения видно менторам в CRM (карточка студента), не в чате.
+        logger.info("Telegram group connected via startgroup: chat_id=%s student_id=%s", event.chat.id, student.id)
 
 
 async def consume_pairing_code(db, code: str, chat, now: datetime | None = None):
@@ -349,17 +345,10 @@ async def on_start_with_payload(message: Message, command):
         student = await consume_pairing_code(db, code, chat)
         await db.commit()
 
-    # Единственное сообщение, которое бот пишет в клиентскую группу (п.8):
-    # подтверждение успешного подключения. В остальных случаях он молчит, а
-    # причина неудачи уходит в логи (см. consume_pairing_code).
+    # Бот молчит в клиентских группах без исключений — подтверждение или
+    # причина неудачи видны менторам в CRM/логах, не в самом чате.
     if student:
-        try:
-            await get_bot().send_message(
-                chat_id=message.chat.id,
-                text="✅ Группа успешно подключена к TeenTechEd.",
-            )
-        except Exception:
-            logger.warning("Failed to send group-connected confirmation", exc_info=True)
+        logger.info("Telegram group connected via /start code: chat_id=%s student_id=%s", message.chat.id, student.id)
     else:
         logger.warning(
             "Telegram group did NOT connect: chat_id=%s code_present=%s — код истёк/"
@@ -502,6 +491,41 @@ async def cmd_tasks(message: Message):
     await message.answer("\n".join(lines), parse_mode="Markdown")
 
 
+@router.message(F.migrate_from_chat_id)
+async def on_migrate_from_chat_id(message: Message):
+    """Telegram silently reassigns a brand-new numeric chat_id when a basic
+    group is migrated to a supergroup (e.g. an admin enables a supergroup-only
+    setting). `telegram_chats.chat_id` is looked up by that numeric id
+    (`_upsert_chat`), so without this the old bound chat row is orphaned:
+    every later message arrives under the new id, doesn't match, and
+    `on_message` below creates a fresh *unbound* row for it — silently
+    dropping every real message from the group from then on. Rename the
+    existing row in place instead, so the binding, session and message
+    history all carry over to the new id."""
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    from app.models.telegram_chat import TelegramChat, TelegramChatType
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(TelegramChat).where(TelegramChat.chat_id == message.migrate_from_chat_id)
+        )
+        chat = result.scalar_one_or_none()
+        if chat is None:
+            logger.warning(
+                "Telegram migration event for unknown chat_id=%s (new_chat_id=%s)",
+                message.migrate_from_chat_id, message.chat.id,
+            )
+            return
+        chat.chat_id = message.chat.id
+        chat.chat_type = TelegramChatType.supergroup
+        await db.commit()
+        logger.info(
+            "Telegram group migrated to supergroup: old_chat_id=%s new_chat_id=%s chat=%s",
+            message.migrate_from_chat_id, message.chat.id, chat.id,
+        )
+
+
 @router.message()
 async def on_message(message: Message, update_id: int):
     """Catch-all: group messages (and any private message that isn't one of
@@ -512,6 +536,12 @@ async def on_message(message: Message, update_id: int):
     from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
     from app.models.telegram_message import TelegramMessage
     from app.services.telegram_ingest import ingest_message
+
+    if message.migrate_to_chat_id:
+        # System notice for the *old* chat_id, fired right before the actual
+        # migration message lands (see on_migrate_from_chat_id above) — no
+        # real content, just skip it instead of storing a blank message row.
+        return
 
     async with AsyncSessionLocal() as db:
         chat = await _upsert_chat(db, message.chat)
@@ -552,7 +582,10 @@ async def on_message(message: Message, update_id: int):
 async def webhook_health_loop(interval_seconds: int = 600) -> None:
     """Telegram delivers updates silently or not at all — if the tunnel/
     webhook breaks there's no error anywhere in the app, messages just stop
-    arriving. Poll getWebhookInfo periodically so breakage shows up in logs."""
+    arriving. Poll getWebhookInfo periodically; if the registered URL drifted
+    (e.g. after a tunnel/proxy restart), re-register it automatically rather
+    than just logging the drift and leaving the bot broken until someone
+    notices and restarts the backend by hand."""
     import asyncio
 
     b = get_bot()
@@ -568,10 +601,19 @@ async def webhook_health_loop(interval_seconds: int = 600) -> None:
                 )
             if info.url != settings.TELEGRAM_WEBHOOK_URL:
                 logger.warning(
-                    "Telegram webhook URL mismatch: registered=%s expected=%s — tunnel likely restarted",
+                    "Telegram webhook URL mismatch: registered=%s expected=%s — re-registering",
                     info.url,
                     settings.TELEGRAM_WEBHOOK_URL,
                 )
+                try:
+                    await b.set_webhook(
+                        settings.TELEGRAM_WEBHOOK_URL,
+                        secret_token=settings.TELEGRAM_WEBHOOK_SECRET or None,
+                        allowed_updates=["message", "my_chat_member", "chat_member"],
+                    )
+                    logger.info("Telegram webhook re-registered: %s", settings.TELEGRAM_WEBHOOK_URL)
+                except Exception:
+                    logger.exception("Failed to re-register Telegram webhook")
         except Exception:
             logger.exception("Failed to check Telegram webhook health")
 

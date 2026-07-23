@@ -2,12 +2,13 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CalendarDays, CheckCircle2, Clock3, Map, Trophy } from 'lucide-react'
-import { roadmapApi, FlatTask, Roadmap } from '@/api/roadmap'
+import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { meetingsApi, Meeting } from '@/api/meetings'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { PageShell } from '@/components/shared/PageShell'
+import { StatCard, EmptyState } from '@/components/ui'
 
 function roadmapProgress(roadmap: Roadmap | null | undefined) {
   const tasks = roadmap?.stages.flatMap((s) => s.tasks) ?? []
@@ -18,6 +19,11 @@ function roadmapProgress(roadmap: Roadmap | null | undefined) {
 function dueLabel(date: string | null) {
   if (!date) return 'без дедлайна'
   return new Date(date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
+}
+
+function isOverdue(task: { status: string; due_date: string | null }): boolean {
+  if (!task.due_date || task.status === 'done') return false
+  return new Date(task.due_date) < new Date(new Date().toDateString())
 }
 
 function meetingTime(m: Meeting) {
@@ -46,111 +52,130 @@ export const PortalHomePage: React.FC = () => {
     .slice(0, 3)
 
   return (
-    <PageShell maxWidth="lg" className="space-y-6 animate-fade-in">
-      <section>
-        <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Student portal</p>
-        <h1 className="mt-2 font-display text-[28px] font-black leading-tight text-p-text md:text-[34px]">
-          Привет, {firstName}. <span className="text-brand">Фокус на поступление.</span>
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-p-muted">
-          Здесь собраны ваши ближайшие задачи, встречи и общий прогресс по дорожной карте.{' '}
-          <Link to="/portal/roadmap" className="font-bold text-brand hover:underline">
-            Открыть roadmap →
-          </Link>
-        </p>
-      </section>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Roadmap" value={`${progress.pct}%`} note={`${progress.done}/${progress.total} задач`} icon={<Map className="h-5 w-5" />} />
-        <StatCard label="Открыто" value={String(openTasks.length)} note="активных задач" icon={<CheckCircle2 className="h-5 w-5" />} />
-        <StatCard label="Дедлайны" value={String(overdue)} note="требуют внимания" icon={<Clock3 className="h-5 w-5" />} tone={overdue > 0 ? 'warn' : 'good'} />
-        <StatCard label="Программа" value={String(profile?.student?.intake_year ?? '—')} note={profile?.student?.degree_level || 'профиль'} icon={<Trophy className="h-5 w-5" />} />
+    <PageShell maxWidth="lg" className="animate-fade-in">
+      {/* HERO */}
+      <div className="mb-7 flex flex-wrap items-end justify-between gap-5">
+        <div>
+          <div className="mb-2 font-display text-[11px] uppercase tracking-[.24em] text-p-accent">
+            Панель студента
+          </div>
+          <h1 className="font-display text-4xl font-black leading-[1.05] tracking-tight text-p-text">
+            Привет, <span className="text-p-accent">{firstName}</span>
+          </h1>
+          <p className="mt-2 max-w-[440px] text-sm text-p-muted">
+            Здесь собраны ваши ближайшие задачи, встречи и общий прогресс по дорожной карте.{' '}
+            <Link to="/portal/roadmap" className="font-bold text-p-accent hover:underline">
+              Открыть roadmap →
+            </Link>
+          </p>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-        <section className="rounded-[16px] border border-p-line bg-p-panel p-4">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-brand">Next steps</p>
-              <h2 className="mt-1 text-base font-extrabold text-p-text">Ближайшие задачи</h2>
-            </div>
-            <Link to="/portal/tasks" className="text-xs font-bold text-p-muted hover:text-brand">Все задачи</Link>
-          </div>
+      {/* Статистика */}
+      <div className="mb-6 grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard colorPrefix="p" label="Roadmap" value={`${progress.pct}%`} sub={`${progress.done}/${progress.total} задач`} icon={<Map className="h-4 w-4" />} />
+        <StatCard colorPrefix="p" label="Открыто" value={String(openTasks.length)} sub="активных задач" icon={<CheckCircle2 className="h-4 w-4" />} />
+        <StatCard colorPrefix="p" label="Дедлайны" value={String(overdue)} sub={overdue > 0 ? 'требуют внимания' : 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={overdue > 0} />
+        <StatCard colorPrefix="p" label="Программа" value={String(profile?.student?.intake_year ?? '—')} sub={profile?.student?.degree_level || 'профиль'} icon={<Trophy className="h-4 w-4" />} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+        {/* Ближайшие задачи */}
+        <div className="rounded-card border border-p-line bg-p-panel p-[22px]">
+          <h3 className="flex items-center gap-2 font-display text-base font-extrabold text-p-text">
+            <CheckCircle2 className="h-5 w-5 text-p-accent" />
+            Ближайшие задачи
+          </h3>
+          <div className="mb-4 mt-1 text-xs text-p-muted">Задачи с приоритетом и дедлайном</div>
+
           {nextTasks.length === 0 ? (
-            <EmptyLine text="Активных задач пока нет." />
+            <EmptyState
+              icon={<CheckCircle2 className="h-8 w-8" />}
+              title="Задач пока нет"
+              description="Новые задачи от ментора появятся здесь"
+              colorPrefix="p"
+            />
           ) : (
-            <div className="space-y-2">
-              {nextTasks.map((task) => <TaskLine key={task.id} task={task} />)}
+            <div>
+              {nextTasks.map((t, i) => (
+                <div
+                  key={t.id}
+                  className={cn(
+                    'flex w-full items-center gap-3.5 rounded-xl border border-p-line p-3.5 text-left transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
+                    i < nextTasks.length - 1 ? 'mb-2.5' : ''
+                  )}
+                >
+                  <span
+                    className="grid h-[22px] w-[22px] flex-none place-items-center rounded-md border-2"
+                    style={{
+                      borderColor: t.status === 'done' ? 'var(--p-accent)' : 'var(--p-muted2)',
+                      backgroundColor: t.status === 'done' ? 'var(--p-accent)' : 'transparent'
+                    }}
+                  >
+                    {t.status === 'done' && <CheckCircle2 className="h-3 w-3 text-black" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <b className="block truncate text-[13.5px] font-bold text-p-text">{t.title}</b>
+                    <small className={cn('block text-[11.5px]', isOverdue(t) ? 'text-p-danger' : 'text-p-muted')}>
+                      Этап: {t.stage_name} · дедлайн {dueLabel(t.due_date)}
+                    </small>
+                  </span>
+                </div>
+              ))}
             </div>
           )}
-        </section>
+        </div>
 
-        <section className="rounded-[16px] border border-p-line bg-p-panel p-4">
-          <div className="mb-4 flex items-center justify-between gap-3">
+        {/* Ближайшие встречи */}
+        <div className="rounded-card border border-p-line bg-p-panel p-[22px]">
+          <h3 className="flex items-center gap-2 font-display text-base font-extrabold text-p-text">
+            <CalendarDays className="h-5 w-5 text-p-accent" />
+            Ближайшие встречи
+          </h3>
+          <div className="mb-4 mt-1 text-xs text-p-muted">Запланированные сессии с ментором</div>
+
+          {upcoming.length === 0 ? (
+            <EmptyState
+              icon={<CalendarDays className="h-8 w-8" />}
+              title="Пока встреч не запланировано"
+              description="Ментор назначит созвон и он появится здесь"
+              colorPrefix="p"
+            />
+          ) : (
             <div>
-              <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-brand">Calendar</p>
-              <h2 className="mt-1 text-base font-extrabold text-p-text">Ближайшие встречи</h2>
-            </div>
-            <CalendarDays className="h-5 w-5 text-brand" />
-          </div>
-          {upcoming.length > 0 ? (
-            <div className="space-y-2">
-              {upcoming.map((m) => (
-                <div key={m.id} className="rounded-[13px] border border-p-line bg-p-panel2 p-4">
-                  <div className="text-sm font-extrabold text-p-text">{m.title}</div>
-                  <div className="mt-1 text-xs text-p-muted">{meetingTime(m)}</div>
+              {upcoming.map((m, i) => (
+                <div
+                  key={m.id}
+                  className={cn(
+                    'flex items-center gap-3.5 rounded-xl border border-p-line p-3.5 transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
+                    i < upcoming.length - 1 ? 'mb-2.5' : ''
+                  )}
+                >
+                  <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[9px] bg-p-panel2">
+                    <CalendarDays className="h-4 w-4 text-p-accent" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <b className="block truncate text-[13px] font-bold text-p-text">{m.title}</b>
+                    <small className="block truncate text-[11.5px] text-p-muted">
+                      {meetingTime(m)}
+                    </small>
+                  </span>
                   {m.meeting_link && (
-                    <a href={m.meeting_link} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-9 items-center rounded-[10px] bg-brand px-3 text-xs font-extrabold text-black hover:bg-brand-dark">
+                    <a
+                      href={m.meeting_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-none whitespace-nowrap rounded-[9px] bg-p-accent px-3.5 py-1.5 text-[11.5px] font-bold text-black transition hover:-translate-y-px"
+                    >
                       Подключиться
                     </a>
                   )}
                 </div>
               ))}
             </div>
-          ) : (
-            <EmptyLine text="Предстоящих встреч нет." />
           )}
-        </section>
+        </div>
       </div>
     </PageShell>
   )
 }
-
-const StatCard: React.FC<{ label: string; value: string; note: string; icon: React.ReactNode; tone?: 'good' | 'warn' }> = ({
-  label,
-  value,
-  note,
-  icon,
-  tone,
-}) => (
-  <div className="relative overflow-hidden rounded-[16px] border border-p-line bg-p-panel p-4">
-    <div className="absolute right-3 top-2 font-display text-[54px] font-black leading-none text-p-muted2 opacity-10" aria-hidden="true">
-      {value}
-    </div>
-    <div className={cn('mb-4 grid h-9 w-9 place-items-center rounded-[11px] bg-p-panel2 text-brand', tone === 'good' && 'text-p-good', tone === 'warn' && 'text-brand')}>
-      {icon}
-    </div>
-    <div className="font-display text-[34px] font-black leading-none text-p-text">{value}</div>
-    <div className="mt-2 text-[11px] font-bold uppercase tracking-[0.18em] text-p-muted2">{label}</div>
-    <div className="mt-1 text-xs text-p-muted">{note}</div>
-  </div>
-)
-
-const TaskLine: React.FC<{ task: FlatTask }> = ({ task }) => (
-  <div className="flex items-center gap-3 rounded-[12px] border border-p-line bg-p-panel2 px-3 py-3 transition-transform hover:translate-x-1">
-    <span className={cn('h-2.5 w-2.5 rounded-full', task.status === 'in_progress' ? 'bg-brand' : 'bg-p-muted2')} />
-    <div className="min-w-0 flex-1">
-      <div className="truncate text-sm font-bold text-p-text">{task.title}</div>
-      <div className="mt-0.5 text-[11.5px] text-p-muted">{task.stage_name}</div>
-    </div>
-    <span className="shrink-0 rounded-full border border-p-line px-2 py-1 text-[11px] font-semibold text-p-muted">
-      {dueLabel(task.due_date)}
-    </span>
-  </div>
-)
-
-const EmptyLine: React.FC<{ text: string }> = ({ text }) => (
-  <div className="rounded-[13px] border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
-    {text}
-  </div>
-)

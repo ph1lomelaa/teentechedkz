@@ -174,6 +174,7 @@ class RoadmapOut(BaseModel):
     id: uuid.UUID
     student_id: uuid.UUID
     mentor_id: uuid.UUID | None = None
+    mentor_name: str | None = None
     template_id: uuid.UUID | None = None
     name: str
     country_name: str | None = None

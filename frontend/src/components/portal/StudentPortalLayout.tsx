@@ -15,8 +15,6 @@ import {
   LogOut,
   Menu,
   X,
-  Sun,
-  Moon,
   FileText,
   ClipboardList,
   Bell,
@@ -25,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { cn } from '@/lib/utils'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
+import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { notificationsApi } from '@/api'
 
 interface NavItem {
@@ -96,7 +95,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   const { user, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
 
   useEffect(() => setMobileOpen(false), [location.pathname])
   useEffect(() => {
@@ -137,6 +136,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
         </button>
       </div>
 
+      <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">МЕНЮ СТУДЕНТА</div>
       <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto">
         {navGroups.flatMap((group) => group.items).map((item) => {
           const active = isActivePath(location.pathname, item.path)
@@ -169,24 +169,12 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
 
       <div className="mt-auto border-t border-white/10 pt-3">
         <button
-          onClick={toggleTheme}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-[12.5px] font-medium text-white/55 hover:text-white hover:bg-white/[0.06] transition-colors"
+          onClick={() => logout()}
+          className="w-full flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/55 transition hover:bg-white/[0.06] hover:text-white"
         >
-          {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+          <LogOut className="h-4 w-4" />
+          Выйти
         </button>
-        <div className="flex items-center gap-2.5 px-2 py-2 mt-1">
-          <div className="w-8 h-8 rounded-full grid place-items-center text-[12px] font-extrabold text-black shrink-0 bg-gradient-to-br from-brand to-[#8a7400]">
-            {initials(user?.name)}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-white text-[12.5px] font-semibold truncate">{user?.name}</div>
-            <div className="text-white/40 text-[10.5px]">Студент</div>
-          </div>
-          <button onClick={() => logout()} className="text-white/40 hover:text-white p-1" aria-label="Выйти" title="Выйти">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
       </div>
     </>
   )
@@ -229,14 +217,14 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
               <b className="text-p-text font-semibold">{breadcrumbFor(location.pathname)}</b>
             </div>
             <div className="ml-auto flex items-center gap-3">
+              <ThemeToggle variant="portal" />
               <NotificationsBell variant="portal" />
-              <button
-                onClick={toggleTheme}
-                className="w-[38px] h-[38px] rounded-[11px] bg-p-panel border border-p-line grid place-items-center text-p-text hover:border-brand-dim transition-colors"
-                aria-label="Сменить тему"
-              >
-                {theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
-              </button>
+              <div className="flex items-center gap-2 rounded-full border border-p-line bg-p-panel px-2 py-1.5">
+                <span className="max-w-[140px] truncate text-[11px] font-semibold text-p-muted">Студент · {user?.name || 'Пользователь'}</span>
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-brand text-[11px] font-black text-black">
+                  {initials(user?.name) || 'С'}
+                </span>
+              </div>
             </div>
           </header>
 

@@ -12,9 +12,16 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.student import Student
+from app.models.user import UserRole
 from app.services.excel_export import export_students_list, export_student_card
 
 router = APIRouter(prefix="/export", tags=["export"])
+
+
+def _require_staff(user):
+    from fastapi import HTTPException
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/students")
@@ -24,6 +31,7 @@ async def export_all_students(
     intake_year: int | None = None,
     pipeline_status: str | None = None,
 ):
+    _require_staff(current_user)
     from app.api.v1.endpoints.students import list_students
     result = await db.execute(select(Student).order_by(Student.full_name))
     students = result.scalars().all()
@@ -69,6 +77,7 @@ async def export_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_staff(current_user)
     from sqlalchemy.orm import selectinload
     from app.models.student import Student
     from app.models.contract import Contract

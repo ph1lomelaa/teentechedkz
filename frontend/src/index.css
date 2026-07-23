@@ -187,8 +187,8 @@ html[data-theme='light'] {
   --crm-panel-soft: #1C1C1C;
   --crm-line: #2A2A2A;
   --crm-text: #F5F5F3;
-  --crm-muted: #A3A39D;
-  --crm-muted-secondary: #74746E;
+  --crm-muted: #9A9A94;
+  --crm-muted-secondary: #6E6E68;
   --background: 0 0% 4%;
   --foreground: 60 9% 96%;
   --card: 0 0% 8%;
@@ -267,6 +267,11 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-slate-100, .border-slate-200, .border-slate-300) { border-color: #2A2A2A !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.text-gray-950, .text-gray-900, .text-gray-800, .text-slate-950, .text-slate-900, .text-slate-800, .text-black) { color: #F5F5F3 !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.text-gray-700, .text-gray-600, .text-gray-500, .text-slate-700, .text-slate-600, .text-slate-500) { color: #A3A39D !important; }
+/* The blanket .text-black remap above is for legacy components built for a
+   white background — it must not touch a .text-black that's deliberately
+   paired with a light accent/status chip on the same element (buttons, tabs,
+   pills), or that text goes near-white on yellow and becomes unreadable. */
+html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black) { color: #000 !important; }
 
 .crm-content,
 .crm-shell .app-main {
@@ -296,6 +301,9 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 .crm-shell :where(.crm-header, .app-main) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-gray-400, .border-gray-500, .border-gray-700, .border-slate-100, .border-slate-200, .border-slate-300, .border-slate-500) { border-color: var(--crm-line) !important; }
 .crm-shell :where(.crm-header, .app-main) :where(.divide-gray-50, .divide-gray-100, .divide-gray-200) > :not([hidden]) ~ :not([hidden]) { border-color: var(--crm-line) !important; }
 .crm-shell :where(.crm-header, .app-main) :where(.text-gray-950, .text-gray-900, .text-gray-800, .text-slate-950, .text-slate-900, .text-slate-800, .text-black) { color: var(--crm-text) !important; }
+/* Same exception as the dialog/menu block above: a .text-black that's paired
+   with a light accent/status chip on the same element must stay true black. */
+.crm-shell :where(.crm-header, .app-main) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black) { color: #000 !important; }
 .crm-shell :where(.crm-header, .app-main) :where(.text-gray-700, .text-gray-600, .text-gray-500, .text-slate-700, .text-slate-600, .text-slate-500) { color: var(--crm-muted) !important; }
 .crm-shell :where(.crm-header, .app-main) :where(.text-gray-400, .text-gray-300, .text-slate-400, .text-slate-300) { color: var(--crm-muted-secondary) !important; }
 .crm-shell :where(.crm-header, .app-main) :where(input, textarea, select) {
@@ -321,6 +329,13 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 :is(.workspace-shell, .portal) :where(header, main) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-gray-400, .border-gray-500, .border-gray-700, .border-slate-100, .border-slate-200, .border-slate-300, .border-slate-500) { border-color: var(--w-line) !important; }
 :is(.workspace-shell, .portal) :where(header, main) :where(.divide-gray-50, .divide-gray-100, .divide-gray-200) > :not([hidden]) ~ :not([hidden]) { border-color: var(--w-line) !important; }
 :is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-950, .text-gray-900, .text-gray-800, .text-slate-950, .text-slate-900, .text-slate-800, .text-black) { color: var(--w-ink) !important; }
+/* Exception to the remap above: buttons, tabs, pills and chat bubbles pair
+   .text-black with an accent/status background ON THE SAME ELEMENT quite
+   deliberately (black text on the bright yellow/good/danger chip). The
+   blanket rule was recoloring that to --w-ink (near-white in dark mode),
+   which inherits into any child text with no color class of its own —
+   e.g. a button label or a message body — making it unreadable on yellow. */
+:is(.workspace-shell, .portal) :where(header, main) :is(.bg-brand.text-black, .bg-w-accent.text-black, .bg-w-good.text-black, .bg-w-danger.text-black, .bg-p-accent.text-black, .bg-p-good.text-black, .bg-p-danger.text-black) { color: #000 !important; }
 :is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-700, .text-gray-600, .text-gray-500, .text-slate-700, .text-slate-600, .text-slate-500) { color: var(--w-muted) !important; }
 :is(.workspace-shell, .portal) :where(header, main) :where(.text-gray-400, .text-gray-300, .text-slate-400, .text-slate-300) { color: var(--w-muted2) !important; }
 :is(.workspace-shell, .portal) :where(header, main) :where(input, textarea, select) {
@@ -383,6 +398,9 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
   --p-muted: #9A9A94;
   --p-muted2: #6E6E68;
   --p-good: #8BD46A;
+  --p-accent: #FFD400;
+  --p-accent-dim: #C9A800;
+  --p-danger: #FF6B6B;
   font-family: 'Manrope', system-ui, -apple-system, sans-serif;
   background: var(--p-bg);
   color: var(--p-text);

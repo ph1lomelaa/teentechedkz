@@ -43,6 +43,7 @@ export interface Roadmap {
   id: string
   student_id: string
   mentor_id: string | null
+  mentor_name?: string | null
   template_id: string | null
   name: string
   country_name: string | null

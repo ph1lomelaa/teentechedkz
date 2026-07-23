@@ -3,8 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { portalApi } from '@/api/portal'
 import { authApi } from '@/api/auth'
 import { DEGREE_LEVEL_LABELS } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { AppButton, AppInput, AppCard } from '@/components/ui'
 import { PageShell } from '@/components/shared/PageShell'
 
 export const PortalProfilePage: React.FC = () => {
@@ -40,14 +39,14 @@ export const PortalProfilePage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Профиль</h1>
 
       {isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="h-fit border border-p-line rounded-[16px] bg-p-panel p-5">
+        <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+          <AppCard className="h-fit">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Мои данные</h2>
             <dl className="divide-y divide-p-line">
               <Row label="Имя" value={u?.name} />
@@ -58,24 +57,24 @@ export const PortalProfilePage: React.FC = () => {
               {s && <Row label="Год поступления" value={String(s.intake_year)} />}
               {s?.specialty && <Row label="Специальность" value={s.specialty} />}
             </dl>
-          </div>
+          </AppCard>
 
-          <div className="h-fit border border-p-line rounded-[16px] bg-p-panel p-5">
+          <AppCard className="h-fit">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Смена пароля</h2>
             {msg && (
-              <div className={`text-sm mb-3 px-3 py-2 rounded-[10px] ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-brand/10 text-brand'}`}>
+              <div className={`text-sm mb-3 px-3 py-2 rounded-[10px] ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-p-danger/10 text-p-danger'}`}>
                 {msg.text}
               </div>
             )}
             <div className="space-y-2.5">
-              <Input type="password" placeholder="Текущий пароль" value={current} onChange={(e) => setCurrent(e.target.value)} />
-              <Input type="password" placeholder="Новый пароль" value={next} onChange={(e) => setNext(e.target.value)} />
-              <Input type="password" placeholder="Повторите новый пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-              <Button size="sm" className="h-9 rounded-[10px] bg-brand px-4 text-xs font-extrabold text-black hover:bg-brand-dark" disabled={saving || !current || !next} onClick={changePassword}>
+              <AppInput type="password" placeholder="Текущий пароль" value={current} onChange={(e) => setCurrent(e.target.value)} />
+              <AppInput type="password" placeholder="Новый пароль" value={next} onChange={(e) => setNext(e.target.value)} />
+              <AppInput type="password" placeholder="Повторите новый пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+              <AppButton disabled={saving || !current || !next} onClick={changePassword}>
                 Сохранить пароль
-              </Button>
+              </AppButton>
             </div>
-          </div>
+          </AppCard>
         </div>
       )}
     </PageShell>

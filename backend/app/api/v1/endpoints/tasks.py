@@ -79,6 +79,8 @@ async def get_tasks(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
     result = await db.execute(
         select(StudentTask)
         .where(StudentTask.student_id == student_id)
@@ -130,6 +132,8 @@ async def update_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
     result = await db.execute(select(StudentTask).where(StudentTask.id == task_id))
     task = result.scalar_one_or_none()
     if not task:

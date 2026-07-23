@@ -6,6 +6,7 @@ Create Date: 2026-07-18
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 
 revision = "014"
 down_revision = "013"
@@ -19,7 +20,13 @@ roadmap_status_vals = ("active", "archived")
 
 
 def _enum(name, vals):
-    return sa.Enum(*vals, name=name, create_type=False)
+    # NB: the generic sa.Enum(create_type=False) does NOT reliably suppress a
+    # redundant CREATE TYPE when the same enum name is reused across several
+    # op.create_table() calls in one migration (SQLAlchemy 2.0.30) — it still
+    # emits CREATE TYPE on the first table that references it after the type
+    # was explicitly created below, raising DuplicateObjectError. The
+    # dialect-specific postgresql.ENUM does respect create_type=False here.
+    return PGEnum(*vals, name=name, create_type=False)
 
 
 def upgrade() -> None:

@@ -11,7 +11,7 @@ export interface PageShellProps {
 const MAX_WIDTH_CLASSES: Record<PageMaxWidth, string> = {
   sm: 'max-w-2xl',
   md: 'max-w-3xl',
-  lg: 'max-w-4xl',
+  lg: 'max-w-[1180px]',
   xl: 'max-w-5xl',
   full: 'w-full',
 };
@@ -24,7 +24,7 @@ export const PageShell: React.FC<PageShellProps> = ({
   const maxWidthClass = MAX_WIDTH_CLASSES[maxWidth];
 
   return (
-    <div className={`mx-auto w-full ${maxWidthClass} px-4 md:px-6 ${className}`}>
+    <div className={`mx-auto w-full ${maxWidthClass} px-5 py-7 md:px-8 ${className}`}>
       {children}
     </div>
   );

@@ -439,9 +439,8 @@ function CardListView({
     responsibles.find((r) => r.id === mentorId)?.name || (mentorId ? 'Назначен' : 'Не назначен')
 
   // «Что уже открыто» — как в CRM: профиль/заявки/услуги + сверки, если они есть.
-  const defaultOpen = ['profile', 'applications', 'services']
+  const defaultOpen = ['applications', 'services']
   if (showIntake) defaultOpen.push('intake')
-  if (showNotion) defaultOpen.push('notion')
 
   return (
     <div className="space-y-5">
@@ -502,21 +501,45 @@ function CardListView({
         )}
 
         <WSection value="profile" title="Профиль студента" icon={<UserRound className="h-4 w-4" />}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <InfoLine label="ФИО" value={student.full_name} />
-            <InfoLine label="Телефон" value={student.phone || '—'} />
-            <InfoLine label="Возраст" value={student.age ? String(student.age) : '—'} />
-            <InfoLine label="Город" value={student.city || '—'} />
-            <InfoLine label="Уровень" value={DEGREE_LEVEL_LABELS[student.degree_level] || student.degree_level} />
-            <InfoLine label="Год поступления" value={String(student.intake_year)} />
-            <InfoLine label="Специальность" value={student.specialty || '—'} />
-            <InfoLine label="Направление" value={student.group_direction || '—'} />
-            <InfoLine label="Доп. сфера" value={student.additional_sphere || '—'} />
-            <InfoLine label="GPA" value={student.gpa || '—'} />
-            <InfoLine label="Бюджет" value={student.budget_per_year || '—'} />
-            <InfoLine label="Сезон поступления" value={student.intake_season || '—'} />
-            <InfoLine label="MZK/менеджер" value={student.mzk_manager_name || '—'} />
-            <InfoLine label="Pipeline" value={student.pipeline_status ? (PIPELINE_STATUS_LABELS[student.pipeline_status] || student.pipeline_status) : '—'} />
+          <div className="grid gap-3 xl:grid-cols-2">
+            <div>
+              <SimpleList
+                rows={[
+                  { label: 'ФИО', value: student.full_name },
+                  { label: 'Телефон', value: student.phone || '—' },
+                  { label: 'Возраст', value: student.age ? String(student.age) : '—' },
+                  { label: 'Город', value: student.city || '—' },
+                  { label: 'Уровень', value: DEGREE_LEVEL_LABELS[student.degree_level] || student.degree_level },
+                  { label: 'Год поступления', value: String(student.intake_year) },
+                  { label: 'Специальность', value: student.specialty || '—' },
+                  { label: 'Направление', value: student.group_direction || '—' },
+                  { label: 'Доп. сфера', value: student.additional_sphere || '—' },
+                  { label: 'GPA', value: student.gpa || '—' },
+                  { label: 'Бюджет', value: student.budget_per_year || '—' },
+                  { label: 'Сезон поступления', value: student.intake_season || '—' },
+                  { label: 'MZK/менеджер', value: student.mzk_manager_name || '—' },
+                  { label: 'Pipeline', value: student.pipeline_status ? (PIPELINE_STATUS_LABELS[student.pipeline_status] || student.pipeline_status) : '—' },
+                ]}
+              />
+            </div>
+            {showNotion && notion?.finance?.length ? (
+              <div>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Финансы из Notion · только просмотр</p>
+                <div className="overflow-x-auto rounded-[16px] border border-w-line bg-w-panel2">
+                  <div className="min-w-[360px] divide-y divide-w-line">
+                    {notion.finance.map((f) => (
+                      <div key={f.label} className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2.5 text-sm">
+                        <span className="text-[11px] uppercase tracking-[0.12em] text-w-muted2">{f.label}</span>
+                        <span className="font-bold text-w-ink">{f.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-w-muted2">
+                  Notion — источник по финансам, CRM назад в Notion не пишет. «Принять из Notion» переносит значение в карточку вручную.
+                </p>
+              </div>
+            ) : null}
           </div>
           {student.achievements_text && (
             <div className="mt-4 rounded-[16px] border border-w-line bg-w-panel2 p-4">
@@ -527,40 +550,45 @@ function CardListView({
         </WSection>
 
         <WSection value="contract" title="Договор и оплаты" icon={<Briefcase className="h-4 w-4" />}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <InfoLine label="Договор" value={contract ? 'Есть' : 'Нет'} />
-            <InfoLine label="Пакет/статус" value={contract?.pipeline_status ? (PIPELINE_STATUS_LABELS[contract.pipeline_status] || contract.pipeline_status) : '—'} />
-            <InfoLine label="Дата подписания" value={contract?.signed_date ? formatDate(contract.signed_date) : '—'} />
-            <InfoLine label="Сумма договора" value={moneyLabel(contract?.amount, currency)} />
-            <InfoLine label="Оплачено" value={paidTotal} />
-            <InfoLine label="Остаток" value={moneyLabel(contract?.client_remaining_amount, currency)} />
-            <InfoLine label="План оплаты" value={contract?.payment_plan || '—'} />
-            <InfoLine label="AI-сигналы" value={String(student.pending_insights?.filter((item) => item.status === 'pending').length ?? 0)} />
-          </div>
+          <SimpleList
+            rows={[
+              { label: 'Договор', value: contract ? 'Есть' : 'Нет' },
+              { label: 'Пакет/статус', value: contract?.pipeline_status ? (PIPELINE_STATUS_LABELS[contract.pipeline_status] || contract.pipeline_status) : '—' },
+              { label: 'Дата подписания', value: contract?.signed_date ? formatDate(contract.signed_date) : '—' },
+              { label: 'Сумма договора', value: moneyLabel(contract?.amount, currency) },
+              { label: 'Оплачено', value: paidTotal },
+              { label: 'Остаток', value: moneyLabel(contract?.client_remaining_amount, currency) },
+              { label: 'План оплаты', value: contract?.payment_plan || '—' },
+              { label: 'AI-сигналы', value: String(student.pending_insights?.filter((item) => item.status === 'pending').length ?? 0) },
+            ]}
+          />
         </WSection>
 
         <WSection value="applications" title="Заявки на поступление" icon={<ExternalLink className="h-4 w-4" />}>
           {applications.length === 0 ? (
             <p className="text-sm text-w-muted">Заявки ещё не добавлены.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {applications.map((application) => (
-                <div key={application.id} className="rounded-[18px] border border-w-line bg-w-panel2 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-display font-black text-w-ink">{application.university || application.country}</div>
-                      <div className="mt-1 text-xs text-w-muted">{[application.country, application.program].filter(Boolean).join(' · ')}</div>
-                    </div>
-                    {application.is_primary && <WorkspaceStatusPill tone="accent">Основная</WorkspaceStatusPill>}
-                  </div>
-                  <div className="mt-4 grid gap-2">
-                    <InfoLine label="Статус" value={SUBMISSION_STATUS_LABELS[application.submission_status] || application.submission_status} />
-                    <InfoLine label="Подачи" value={`${application.submissions_done}/${application.submissions_planned}`} />
-                    <InfoLine label="Виза" value={application.visa_status || '—'} />
-                    <InfoLine label="Стипендия" value={application.scholarship_target ? 'Цель' : 'Нет'} />
-                  </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[760px]">
+                <div className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] gap-3 border-b border-w-line px-3 pb-3 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
+                  <span>Страна / вуз</span><span>Статус</span><span>Подачи</span><span>Виза</span><span>Стипендия</span>
                 </div>
-              ))}
+                {applications.map((application) => (
+                  <div key={application.id} className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] items-center gap-3 border-b border-w-line px-3 py-3 text-sm last:border-b-0">
+                    <div className="min-w-0">
+                      <div className="truncate font-bold text-w-ink">{application.university || application.country}</div>
+                      <div className="mt-0.5 truncate text-xs text-w-muted">
+                        {[application.country, application.program].filter(Boolean).join(' · ')}
+                        {application.is_primary ? ' · Основная' : ''}
+                      </div>
+                    </div>
+                    <span className="text-w-ink">{SUBMISSION_STATUS_LABELS[application.submission_status] || application.submission_status}</span>
+                    <span className="text-w-ink">{`${application.submissions_done}/${application.submissions_planned}`}</span>
+                    <span className="text-w-muted">{application.visa_status || '—'}</span>
+                    <span className="text-w-muted">{application.scholarship_target ? 'Цель' : 'Нет'}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </WSection>
@@ -821,22 +849,7 @@ function NotionBlock({
           </tbody>
         </table>
       </div>
-      {notion.finance.length > 0 && (
-        <div>
-          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Финансы из Notion · только просмотр</p>
-          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-            {notion.finance.map((f) => (
-              <div key={f.label} className="rounded-[14px] border border-w-line bg-w-panel2 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wide text-w-muted2">{f.label}</p>
-                <p className="mt-0.5 text-sm font-bold text-w-ink">{f.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <p className="text-xs text-w-muted2">
-        Notion — источник по финансам, CRM назад в Notion не пишет. «Принять из Notion» переносит значение в карточку вручную.
-      </p>
+      <p className="text-xs text-w-muted2">Сверка Notion: значения можно принять вручную в CRM кнопкой «Принять из Notion».</p>
     </div>
   )
 }
@@ -1030,22 +1043,44 @@ function TasksTab({
   onToggleRoadmapTask: (task: { id: string; status: string }) => void
   pendingRoadmapTaskId?: string
 }) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; title: string; status: string; priority: string; due_date: string | null; stageName: string }>>()
+    roadmapTasks.forEach((task) => {
+      const key = task.stageName || 'Без этапа'
+      const list = map.get(key)
+      if (list) list.push(task)
+      else map.set(key, [task])
+    })
+    return [...map.entries()]
+  }, [roadmapTasks])
+
   return (
     <div className="max-w-4xl">
       <Panel title="Задачи для студента" icon={<BookOpen className="h-4 w-4" />}>
         {roadmapTasks.length === 0 ? (
           <EmptyState title="Публичных задач нет" text="Они появятся после назначения roadmap." />
         ) : (
-          <div className="space-y-2">
-            {roadmapTasks.map((task) => (
-              <TaskRow
-                key={task.id}
-                title={task.title}
-                meta={`${task.stageName}${task.due_date ? ` · ${formatDate(task.due_date)}` : ''}`}
-                done={task.status === 'done'}
-                disabled={pendingRoadmapTaskId === task.id}
-                onToggle={() => onToggleRoadmapTask({ id: task.id, status: task.status })}
-              />
+          <div className="space-y-5">
+            {grouped.map(([stageName, tasks]) => (
+              <section key={stageName}>
+                <div className="mb-2.5 flex items-center gap-2.5">
+                  <span className="h-4 w-1 rounded bg-w-accent" />
+                  <b className="font-display text-xl font-extrabold leading-none text-w-ink">{stageName}</b>
+                  <span className="rounded-full bg-w-line/90 px-2.5 py-0.5 text-[10px] font-bold text-w-muted2">
+                    {tasks.length} задач
+                  </span>
+                </div>
+                <div className="space-y-2.5">
+                  {tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      disabled={pendingRoadmapTaskId === task.id}
+                      onToggle={() => onToggleRoadmapTask({ id: task.id, status: task.status })}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )}
@@ -1290,25 +1325,62 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
   )
 }
 
-function TaskRow({ title, meta, done, disabled, onToggle }: { title: string; meta: string; done: boolean; disabled?: boolean; onToggle?: () => void }) {
+function taskPriorityLabel(priority: string) {
+  if (priority === 'required') return 'Обязательно'
+  if (priority === 'recommended') return 'Рекомендуется'
+  return 'По желанию'
+}
+
+function taskPriorityTone(priority: string): 'accent' | 'neutral' {
+  return priority === 'required' ? 'accent' : 'neutral'
+}
+
+function taskStatusLabel(status: string) {
+  if (status === 'done') return 'Готово'
+  if (status === 'in_progress') return 'В работе'
+  return 'Запланировано'
+}
+
+function taskStatusTone(status: string): 'good' | 'accent' | 'neutral' {
+  if (status === 'done') return 'good'
+  if (status === 'in_progress') return 'accent'
+  return 'neutral'
+}
+
+function TaskRow({
+  task,
+  disabled,
+  onToggle,
+}: {
+  task: { id: string; title: string; status: string; priority: string; due_date: string | null; stageName: string }
+  disabled?: boolean
+  onToggle?: () => void
+}) {
+  const done = task.status === 'done'
+  const meta = task.due_date ? `Этап: ${task.stageName} · дедлайн ${formatDate(task.due_date)}` : `Этап: ${task.stageName} · без дедлайна`
+
   return (
-    <div className="flex items-start gap-3 rounded-[16px] border border-w-line bg-w-panel2 p-3">
+    <div className="flex items-center gap-3.5 rounded-[12px] border border-w-line bg-w-panel2 px-3.5 py-3 transition hover:border-w-accentDim">
       <button
         type="button"
         disabled={disabled || !onToggle}
         onClick={onToggle}
         className={cn(
-          'mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition',
-          done ? 'border-w-good bg-w-good text-black' : 'border-w-line text-w-muted hover:border-w-accentDim hover:text-w-accentText',
+          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border-2 transition',
+          done ? 'border-w-accent bg-w-accent text-black' : 'border-w-muted2/70 bg-transparent text-transparent hover:border-w-accentDim',
           disabled && 'cursor-wait opacity-60'
         )}
         aria-label={done ? 'Вернуть задачу в работу' : 'Закрыть задачу'}
       >
         {done && <CheckCircle2 className="h-3.5 w-3.5" />}
       </button>
-      <div className="min-w-0">
-        <div className={cn('text-sm font-bold', done ? 'text-w-muted line-through' : 'text-w-ink')}>{title}</div>
-        <div className="mt-1 text-xs text-w-muted">{meta}</div>
+      <div className="min-w-0 flex-1">
+        <div className={cn('truncate text-[14px] font-bold', done ? 'text-w-muted' : 'text-w-ink')}>{task.title}</div>
+        <div className="mt-0.5 truncate text-[11px] text-w-muted">{meta}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <WorkspaceStatusPill tone={taskPriorityTone(task.priority)}>{taskPriorityLabel(task.priority)}</WorkspaceStatusPill>
+        <WorkspaceStatusPill tone={taskStatusTone(task.status)}>{taskStatusLabel(task.status)}</WorkspaceStatusPill>
       </div>
     </div>
   )
@@ -1319,6 +1391,21 @@ function EmptyState({ title, text }: { title: string; text: string }) {
     <div className="rounded-[18px] border border-dashed border-w-line bg-w-panel2/50 p-6 text-center">
       <div className="font-bold text-w-ink">{title}</div>
       <div className="mx-auto mt-2 max-w-md text-sm text-w-muted">{text}</div>
+    </div>
+  )
+}
+
+function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="overflow-x-auto rounded-[16px] border border-w-line bg-w-panel2">
+      <div className="min-w-[560px] divide-y divide-w-line">
+        {rows.map((row) => (
+          <div key={row.label} className="grid grid-cols-[220px_1fr] items-start gap-4 px-3 py-2.5 text-sm">
+            <span className="text-[11px] uppercase tracking-[0.12em] text-w-muted2">{row.label}</span>
+            <span className="font-semibold text-w-ink">{row.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

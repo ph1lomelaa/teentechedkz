@@ -16,6 +16,21 @@ const CATALOG_COUNTRIES = [
   { key: 'Южная Корея', label: 'Южная Корея', emoji: '🇰🇷' },
 ] as const
 
+const COUNTRY_FLAG_BY_NAME: Record<string, string> = {
+  'Великобритания': '🇬🇧',
+  'Германия': '🇩🇪',
+  'Китай': '🇨🇳',
+  'Малайзия': '🇲🇾',
+  'США': '🇺🇸',
+  'Южная Корея': '🇰🇷',
+}
+
+function resolveCountryFlag(u: University): string {
+  if (u.country_flag_emoji && u.country_flag_emoji.trim()) return u.country_flag_emoji
+  const byName = (u.country_name && COUNTRY_FLAG_BY_NAME[u.country_name]) || ''
+  return byName
+}
+
 const PRESET_UNIVERSITIES: UniversityPreset[] = [
   {
     id: 'preset-tsinghua',
@@ -281,7 +296,7 @@ const UniversityCard: React.FC<{ u: University }> = ({ u }) => (
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className="text-xs text-p-muted">
-          {u.country_flag_emoji ? `${u.country_flag_emoji} ` : ''}{[u.country_name, u.city].filter(Boolean).join(' · ')}
+          {resolveCountryFlag(u) ? `${resolveCountryFlag(u)} ` : ''}{[u.country_name, u.city].filter(Boolean).join(' · ')}
         </span>
         {u.world_ranking != null && (
           <span className="whitespace-nowrap rounded-full border border-p-line bg-p-panel2 px-2.5 py-0.5 text-[10.5px] font-bold text-brand">

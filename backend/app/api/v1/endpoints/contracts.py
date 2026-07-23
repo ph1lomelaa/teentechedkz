@@ -27,6 +27,7 @@ async def create_contract(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_admin_mzk(current_user)
     contract = Contract(
         student_id=body.student_id,
         signed_date=body.signed_date,
@@ -95,6 +96,7 @@ async def get_contracts_for_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_admin_mzk(current_user)
     result = await db.execute(
         select(Contract)
         .options(joinedload(Contract.mzk_manager))

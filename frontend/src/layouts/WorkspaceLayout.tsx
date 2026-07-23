@@ -16,12 +16,11 @@ import {
   Map,
   Menu,
   MessageCircle,
-  Moon,
-  Sun,
   Users,
   X,
 } from 'lucide-react'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
+import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usersApi, notificationsApi } from '@/api/index'
@@ -91,7 +90,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
   const mentorId = searchParams.get('mentor_id') || ''
   const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager'
   const isPreview = Boolean(mentorId)
@@ -163,7 +162,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
           </div>
         </Link>
 
-        <nav aria-label="Разделы кабинета" className="mt-3 flex flex-1 flex-col gap-1 overflow-y-auto">
+        <div className="mt-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">КАБИНЕТ</div>
+        <nav aria-label="Разделы кабинета" className="flex flex-1 flex-col gap-1 overflow-y-auto">
           {navGroups.flatMap((group) => group.items).map((item) => {
             const active =
               location.pathname === item.path ||
@@ -198,13 +198,6 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         </nav>
 
         <div className="mt-auto border-t border-white/10 pt-3.5">
-          <button
-            onClick={toggleTheme}
-            className="mb-1 flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
-          >
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-          </button>
           <Link
             to="/change-password"
             className="mb-1 flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
@@ -263,15 +256,16 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <button
-              onClick={toggleTheme}
-              className="grid h-9 w-9 place-items-center rounded-[11px] border border-w-line bg-w-panel text-w-ink transition hover:border-w-accentDim"
-              aria-label="Сменить тему"
-              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-            >
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+            <ThemeToggle variant="portal" />
             <NotificationsBell variant="portal" />
+            <div className="flex items-center gap-2 rounded-full border border-w-line bg-w-panel px-2 py-1.5">
+              <span className="max-w-[180px] truncate text-[11px] font-semibold text-w-muted">
+                {(user?.role || 'mentor')} · {user?.name || user?.email || 'Пользователь'}
+              </span>
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-w-accent text-[11px] font-black text-black">
+                {(user?.name || 'M').trim().charAt(0).toUpperCase()}
+              </span>
+            </div>
           </div>
         </header>
 

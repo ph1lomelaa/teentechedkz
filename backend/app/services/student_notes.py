@@ -68,7 +68,9 @@ def append_quality_warnings(summary: str, warnings: list[str]) -> str:
     clean_warnings = [warning for warning in warnings if warning]
     if not clean_warnings:
         return summary
-    chunks = [summary.strip(), "", "**Требует проверки качества**"]
+    # "## " heading (not bold) so this is its own hideable block — see the
+    # note in build_summary_markdown above.
+    chunks = [summary.strip(), "", "## Требует проверки качества"]
     chunks.extend(f"- {warning}" for warning in clean_warnings)
     return "\n".join(chunks).strip()
 
@@ -190,15 +192,20 @@ def build_summary_markdown(title: str, source_text: str, snapshot: dict[str, Any
     """Конспект для менеджера: суть разговора + сравнение с текущей карточкой."""
     chunks: list[str] = [f"## {title.strip() or 'Конспект'}"]
 
+    # NB: these use "## " headings, not "**bold**" — note_blocks.split_blocks()
+    # only recognizes #/##/### lines as block boundaries. Bold text used to
+    # glue the whole note (including manager-only sections) into one
+    # unhideable block, so a mentor publishing this to a student could not
+    # hide "Контекст для менеджера" independently of the rest.
     body_lines = [line.strip(" -•\t") for line in source_text.splitlines() if line.strip()]
     if body_lines:
         chunks.append("")
-        chunks.append("**Что появилось**")
+        chunks.append("## Что появилось")
         for line in body_lines[:8]:
             chunks.append(f"- {line}")
 
     chunks.append("")
-    chunks.append("**Сравнение с текущей карточкой**")
+    chunks.append("## Сравнение с текущей карточкой")
     if suggested_changes:
         for key, value in suggested_changes.items():
             if key not in NOTEABLE_FIELDS:
@@ -210,14 +217,14 @@ def build_summary_markdown(title: str, source_text: str, snapshot: dict[str, Any
         chunks.append("- Подтверждённых изменений для полей карточки нет.")
 
     chunks.append("")
-    chunks.append("**Контекст для менеджера**")
+    chunks.append("## Контекст для менеджера")
     if body_lines:
         chunks.append("- Проверьте, какие детали стоит сохранить как отдельные заметки по статусу ученика.")
     else:
         chunks.append("- Источник не содержит текста для анализа.")
 
     chunks.append("")
-    chunks.append("**Рекомендуемые заметки в профиль**")
+    chunks.append("## Рекомендуемые заметки в профиль")
     recommendations = _build_profile_note_recommendations(source_text, suggested_changes)
     if recommendations:
         chunks.extend(f"- {item}" for item in recommendations)

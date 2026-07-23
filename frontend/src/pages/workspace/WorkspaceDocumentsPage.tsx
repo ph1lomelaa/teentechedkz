@@ -135,7 +135,16 @@ export const WorkspaceDocumentsPage: React.FC = () => {
           <WorkspaceSelect value={docType} onChange={(event) => setDocType(event.target.value as DocType)} className="bg-w-panel2">
             {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </WorkspaceSelect>
-          <input type="file" aria-label="Выберите документ для загрузки" onChange={(event) => setFile(event.target.files?.[0] || null)} className="min-h-10 rounded-[11px] border border-w-line bg-w-panel2 px-3 py-2 text-xs text-w-muted file:mr-3 file:rounded-[8px] file:border-0 file:bg-w-accent file:px-3 file:py-1 file:font-bold file:text-black" />
+          <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-[11px] border border-w-line bg-w-panel2 px-3 py-2 text-xs text-w-muted transition hover:border-w-accentDim">
+            <span className="rounded-[8px] bg-w-accent px-3 py-1 font-bold text-black">Выбрать файл</span>
+            <span className="truncate">{file?.name || 'Файл не выбран'}</span>
+            <input
+              type="file"
+              aria-label="Выберите документ для загрузки"
+              onChange={(event) => setFile(event.target.files?.[0] || null)}
+              className="hidden"
+            />
+          </label>
           <WorkspaceButton disabled={!uploadStudentId || !file || uploadMutation.isPending} onClick={() => uploadMutation.mutate()}>{uploadMutation.isPending ? 'Загружаем...' : 'Загрузить'}</WorkspaceButton>
         </div>
       </WorkspaceCard>

@@ -53,9 +53,12 @@ export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string 
         <span className="rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
           {roadmap.degree === 'masters' ? 'Магистратура' : 'Бакалавриат'}
         </span>
+        <span className="ml-auto rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
+          {roadmap.mentor_name ? `Ментор: ${roadmap.mentor_name}` : 'Ментор не назначен'}
+        </span>
       </div>
 
-      <div className="relative mt-4 flex flex-wrap gap-x-8 gap-y-3">
+      <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-3">
         <Metric value={String(stages)} label="этапов" />
         <Metric value={String(total)} label="задач" />
         <Metric value={String(done)} label="выполнено" />

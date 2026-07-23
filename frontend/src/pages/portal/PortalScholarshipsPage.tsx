@@ -2,6 +2,7 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Award } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { EmptyState } from '@/components/ui'
 
 interface Scholarship {
   id: string
@@ -28,19 +29,13 @@ export const PortalScholarshipsPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Стипендии</h1>
 
       {isLoading ? (
         <div className="text-center py-12 text-p-muted">Загрузка...</div>
       ) : scholarships.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="w-11 h-11 rounded-[13px] bg-brand/15 grid place-items-center mx-auto">
-            <Award className="w-5 h-5 text-brand" />
-          </div>
-          <h2 className="mt-4 text-base font-extrabold text-p-text">Стипендии пока не добавлены</h2>
-          <p className="mt-1.5 text-sm text-p-muted">Проверьте позже или обратитесь к менторам для получения информации.</p>
-        </div>
+        <EmptyState icon={<Award className="w-5 h-5" />} title="Стипендии пока не добавлены" description="Проверьте позже или обратитесь к менторам для получения информации." colorPrefix="p" />
       ) : (
         <div className="space-y-4">
           {scholarships.map((scholarship) => (

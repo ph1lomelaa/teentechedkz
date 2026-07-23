@@ -56,7 +56,7 @@ export const NotificationsFeed: React.FC<{ variant: 'portal' | 'workspace' }> = 
   }
 
   return (
-    <div className={cn('max-w-3xl animate-fade-in', !w && 'mx-auto')}>
+    <div className="w-full animate-fade-in">
       <p className={cn('font-display text-[11px] font-black uppercase tracking-[0.24em]', w ? 'text-w-accentText' : 'text-brand')}>Кабинет</p>
       <h1 className={cn('mt-2 mb-6 font-display text-[32px] font-black tracking-tight', w ? 'text-w-ink' : 'text-p-text')}>Уведомления</h1>
 

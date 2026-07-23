@@ -16,12 +16,14 @@ export const ChatThread: React.FC<{
   currentUserId: string
   heightClass?: string
   variant?: 'crm' | 'portal'
+  showSearch?: boolean
   readOnly?: boolean
 }> = ({
   conversationId,
   currentUserId,
   heightClass = 'h-[420px]',
   variant = 'crm',
+  showSearch = true,
   readOnly = false,
 }) => {
   const { data } = useQuery({
@@ -114,7 +116,7 @@ export const ChatThread: React.FC<{
       portal ? 'border-w-line rounded-[16px] bg-w-panel' : 'border-gray-200 rounded-[6px] bg-white'
     )}>
       {/* Search bar */}
-      {variant === 'portal' && (
+      {variant === 'portal' && showSearch && (
         <div className="border-b border-w-line bg-w-panel2 p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
@@ -183,7 +185,7 @@ export const ChatThread: React.FC<{
                       <Download className="h-3.5 w-3.5 shrink-0" />
                     </button>
                   ))}
-                  <div className={cn('text-[10px] mt-1 tabular-nums', mine ? 'text-black/60' : portal ? 'text-w-muted2' : 'text-gray-400')}>
+                  <div className={cn('text-[10px] mt-1 tabular-nums', mine ? 'text-black/80' : portal ? 'text-w-muted2' : 'text-gray-400')}>
                     {fmtTime(m.created_at)}
                   </div>
 

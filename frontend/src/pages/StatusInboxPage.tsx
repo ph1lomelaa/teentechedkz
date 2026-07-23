@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { mentorAssignmentsApi, notesApi, pendingInsightsApi } from '@/api'
 import { InsightCard } from '@/components/shared/InsightCard'
-import { Button } from '@/components/ui/button'
+import { AppButton } from '@/components/ui/AppButton'
+import { AppCard } from '@/components/ui/AppCard'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { useMemo, useState } from 'react'
@@ -13,6 +15,7 @@ import { DEGREE_LEVEL_LABELS, DegreeLevel } from '@/types'
 
 export default function StatusInboxPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [scope, setScope] = useState<'all' | 'mine'>('all')
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
@@ -97,24 +100,14 @@ export default function StatusInboxPage() {
         title="Статус"
         description="Единая очередь изменений по студентам: Telegram-инсайты, контекстные заметки и черновики конспектов. Подтверждённые структурные изменения попадут в карточку, а планы и неподтверждённые детали сохранятся как заметки."
       />
-      <div className="flex gap-1 border-b border-gray-200">
-        {[
+      <SegmentedTabs
+        value={scope}
+        onChange={(value) => setScope(value as typeof scope)}
+        tabs={[
           { value: 'all', label: 'Все' },
           { value: 'mine', label: 'Мои' },
-        ].map((item) => (
-          <button
-            key={item.value}
-            onClick={() => setScope(item.value as typeof scope)}
-            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
-              scope === item.value
-                ? 'border-black text-gray-900 font-medium'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+        ]}
+      />
 
       <div className="flex items-center justify-end gap-3">
         <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
@@ -185,60 +178,58 @@ export default function StatusInboxPage() {
       <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
 
       {isLoading || notesLoading ? (
-        <p className="text-sm text-gray-500">Загрузка…</p>
+        <p className="text-sm text-ds-muted">Загрузка…</p>
       ) : (
         <>
           <section className="space-y-3">
-            <h2 className="text-sm font-medium text-gray-700">На проверке ({actionableCount})</h2>
+            <h2 className="text-sm font-bold text-ds-ink">На проверке ({actionableCount})</h2>
             {actionableCount === 0 ? (
-              <p className="text-sm text-gray-500">Ничего не ждёт разбора</p>
+              <AppCard className="p-6 text-center text-sm text-ds-muted">Ничего не ждёт разбора</AppCard>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {filteredDraftNotes.map((note) => (
-                  <div key={note.id} className="border border-gray-100 rounded-[2px] p-3 text-sm space-y-2 bg-white">
+                  <AppCard key={note.id} className="space-y-2 p-3 text-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <Link to={`/notes/${note.id}`} className="text-blue-600 hover:underline">
+                        <Link to={`/notes/${note.id}`} className="text-ds-accent hover:underline">
                           {note.student_name || 'Без студента'}
                         </Link>
-                        <p className="font-medium text-gray-900 mt-1">{note.title}</p>
+                        <p className="mt-1 font-bold text-ds-ink">{note.title}</p>
                       </div>
-                      <span className="px-1.5 py-0.5 rounded-[2px] text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
+                      <span className="rounded-[6px] border border-ds-accent-dim/40 bg-ds-accent/10 px-1.5 py-0.5 text-[11px] text-ds-accent">
                         конспект
                       </span>
                     </div>
-                    <p className="text-xs text-gray-600 line-clamp-4">
+                    <p className="line-clamp-4 text-xs text-ds-muted">
                       {stripMarkdown(note.summary_markdown)}
                     </p>
                     {Object.keys(note.suggested_changes || {}).length > 0 && (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-ds-muted2">
                         Есть предложения к полям карточки: {Object.keys(note.suggested_changes).join(', ')}
                       </p>
                     )}
                     <div className="flex gap-1.5 pt-1">
-                      <Button
+                      <AppButton
                         size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
+                        variant="subtle"
                         disabled={noteReviewMutation.isPending}
                         onClick={() => noteReviewMutation.mutate({ id: note.id, action: 'approve' })}
                       >
                         Подтвердить
-                      </Button>
-                      <Button
+                      </AppButton>
+                      <AppButton
                         size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
+                        variant="subtle"
                         disabled={noteReviewMutation.isPending}
                         onClick={() => noteReviewMutation.mutate({ id: note.id, action: 'reject' })}
                       >
                         Отклонить
-                      </Button>
-                      <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
-                        <Link to={`/notes/${note.id}`}>Открыть</Link>
-                      </Button>
+                      </AppButton>
+                      <AppButton size="sm" variant="subtle" onClick={() => navigate(`/notes/${note.id}`)}>
+                        Открыть
+                      </AppButton>
                     </div>
-                  </div>
+                  </AppCard>
                 ))}
                 {pending.map((insight) => (
                   <div key={insight.id} className="space-y-2">
@@ -250,14 +241,14 @@ export default function StatusInboxPage() {
                       onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
                     />
                     {!insight.is_mine && (
-                      <Button
-                        variant="outline"
+                      <AppButton
+                        variant="subtle"
                         size="sm"
                         disabled={assignSelfMutation.isPending}
                         onClick={() => assignSelfMutation.mutate(insight.student_id)}
                       >
                         Взять студента
-                      </Button>
+                      </AppButton>
                     )}
                   </div>
                 ))}
@@ -267,8 +258,8 @@ export default function StatusInboxPage() {
 
           {resolved.length > 0 && (
             <section className="space-y-3">
-              <h2 className="text-sm font-medium text-gray-700">Разобранные ({resolved.length})</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <h2 className="text-sm font-bold text-ds-ink">Разобранные ({resolved.length})</h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {resolved.map((insight) => (
                   <InsightCard
                     key={insight.id}

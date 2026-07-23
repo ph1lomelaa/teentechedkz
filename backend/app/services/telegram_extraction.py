@@ -60,7 +60,8 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         return None
 
     if not provider_chain():
-        logger.info("No AI provider configured, skipping Telegram extraction for message %s", message.id)
+        logger.warning("No AI provider configured, skipping Telegram extraction for message %s", message.id)
+        await _notify_admins_ai_provider_missing(db)
         return None
 
     snapshot = snapshot_student(student)
@@ -143,3 +144,35 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
 
     db.add(insight)
     return insight
+
+
+async def _notify_admins_ai_provider_missing(db: AsyncSession) -> None:
+    """Surface "no AI provider configured" in the admin notification feed, not
+    just the logs — this used to be silent (INFO-only, no notification), which
+    is exactly why nobody noticed Telegram insight extraction had stopped
+    working. Throttled to one notification per day so a busy chat doesn't
+    spam this on every message."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.notification import Notification
+    from app.models.user import User, UserRole
+
+    kind = "ai_provider_missing"
+    recent = await db.execute(
+        select(Notification.id).where(
+            Notification.kind == kind,
+            Notification.created_at >= datetime.now(timezone.utc) - timedelta(days=1),
+        ).limit(1)
+    )
+    if recent.scalar_one_or_none():
+        return
+
+    admins = await db.execute(select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager])))
+    for admin in admins.scalars():
+        db.add(Notification(
+            user_id=admin.id,
+            kind=kind,
+            title="AI-провайдер не настроен",
+            body="OPENAI_API_KEY / ANTHROPIC_API_KEY не заданы на сервере — извлечение инсайтов из Telegram-сообщений отключено.",
+            priority="high",
+        ))

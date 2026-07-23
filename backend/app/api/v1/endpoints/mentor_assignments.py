@@ -41,6 +41,7 @@ async def assign_self(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_admin_mzk(current_user)
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))
@@ -77,6 +78,7 @@ async def update_self_assignment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_admin_mzk(current_user)
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))

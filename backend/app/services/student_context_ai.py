@@ -87,7 +87,19 @@ def _profile_updates(raw: Any, source_text: str, snapshot: dict[str, Any]) -> li
     ]
 
 
-def _heuristic_context_draft(source_text: str, attachments: list[dict[str, Any]], snapshot: dict[str, Any]) -> dict[str, Any]:
+_FALLBACK_SUMMARIES = {
+    "not_configured": "AI-провайдер не настроен; черновик собран по базовым правилам.",
+    "provider_error": "AI-провайдер временно недоступен; черновик собран по базовым правилам.",
+    "no_signal": "AI не нашёл значимых изменений в диалоге; черновик собран по базовым правилам.",
+}
+
+
+def _heuristic_context_draft(
+    source_text: str,
+    attachments: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+    reason: str = "not_configured",
+) -> dict[str, Any]:
     compact = _compact(source_text, 3000)
     lowered = compact.lower()
     notes: list[str] = []
@@ -115,7 +127,7 @@ def _heuristic_context_draft(source_text: str, attachments: list[dict[str, Any]]
         document_flags.append(f"В чате есть вложения для проверки: {names}.")
 
     draft = {
-        "summary": "AI-провайдер не настроен; черновик собран по базовым правилам.",
+        "summary": _FALLBACK_SUMMARIES.get(reason, _FALLBACK_SUMMARIES["not_configured"]),
         "profile_updates": [],
         "profile_notes": _list_of_strings(notes),
         "follow_ups": _list_of_strings(follow_ups),
@@ -129,7 +141,7 @@ def _heuristic_context_draft(source_text: str, attachments: list[dict[str, Any]]
         "model": "heuristic",
         "raw_output": None,
         "parsed_output": {key: value for key, value in draft.items() if key != "__ai_meta"},
-        "filter_reasons": {"fallback": "AI provider is not configured"},
+        "filter_reasons": {"fallback": reason},
     }
     return draft
 
@@ -142,7 +154,7 @@ async def generate_context_review_draft(
 ) -> dict[str, Any]:
     attachments = attachments or []
     if not provider_chain():
-        return _heuristic_context_draft(source_text, attachments, snapshot)
+        return _heuristic_context_draft(source_text, attachments, snapshot, reason="not_configured")
 
     user_message = f"""Текущий профиль студента:
 {json.dumps(snapshot, ensure_ascii=False, indent=2)}
@@ -160,10 +172,10 @@ async def generate_context_review_draft(
     except Exception:
         # Degrade gracefully on a provider hiccup instead of 500-ing the caller.
         logger.exception("Context review AI provider failed; using heuristic fallback")
-        return _heuristic_context_draft(source_text, attachments, snapshot)
+        return _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error")
     parsed = json_block(raw)
     if not parsed:
-        return _heuristic_context_draft(source_text, attachments, snapshot)
+        return _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error")
 
     draft = {
         "summary": _compact(parsed.get("summary"), 1000),
@@ -176,7 +188,7 @@ async def generate_context_review_draft(
         "ignored_as_noise": _list_of_strings(parsed.get("ignored_as_noise")),
     }
     if not any(draft[key] for key in ("profile_updates", "profile_notes", "follow_ups", "document_flags", "contradictions", "quality_warnings")):
-        return _heuristic_context_draft(source_text, attachments, snapshot)
+        return _heuristic_context_draft(source_text, attachments, snapshot, reason="no_signal")
     draft["__ai_meta"] = {
         "prompt_version": PROMPT_VERSION,
         "model": "provider_chain",

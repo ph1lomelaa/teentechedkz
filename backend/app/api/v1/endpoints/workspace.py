@@ -1634,6 +1634,13 @@ async def apply_workspace_context_draft(
         created_by=current_user.id,
         reviewed_by=current_user.id,
         reviewed_at=datetime.now(timezone.utc),
+        # Same fix as notes.py "Bug #5" — an approved note that never gets
+        # published_to_student=True is invisible everywhere (not in the draft
+        # queue, since it's already approved; not in the student portal, since
+        # that filters on published_to_student).
+        published_to_student=True,
+        published_at=datetime.now(timezone.utc),
+        published_by=current_user.id,
     )
     db.add(note)
     await db.flush()

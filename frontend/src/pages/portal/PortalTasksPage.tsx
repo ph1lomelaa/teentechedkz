@@ -1,18 +1,13 @@
 import React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, CheckSquare, ClipboardList } from 'lucide-react'
+import { Check, CheckSquare, ClipboardList, Search } from 'lucide-react'
 import { roadmapApi, FlatTask } from '@/api/roadmap'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { cn } from '@/lib/utils'
 import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
-
-const PRIORITY_LABEL: Record<string, string> = {
-  required: 'Обязательно',
-  recommended: 'Желательно',
-  optional: 'По желанию',
-}
+import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
 
 type TaskTab = 'open' | 'done'
 
@@ -25,6 +20,14 @@ function byDue(a: FlatTask, b: FlatTask): number {
   return (a.due_date || '9999').localeCompare(b.due_date || '9999')
 }
 
+function plural(n: number, forms: [string, string, string]): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return forms[0]
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return forms[1]
+  return forms[2]
+}
+
 export const PortalTasksPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { data: tasks = [], isLoading } = useQuery({
@@ -32,6 +35,7 @@ export const PortalTasksPage: React.FC = () => {
     queryFn: roadmapApi.myTasks,
   })
   const [tab, setTab] = useLocalState<TaskTab>('portal:tasks:tab', 'open')
+  const [search, setSearch] = useLocalState('portal:tasks:search', '')
   const [openQ, setOpenQ] = React.useState<string | null>(null)
   const { data: questionnaires = [] } = useQuery({
     queryKey: ['portal', 'questionnaires'],
@@ -49,12 +53,36 @@ export const PortalTasksPage: React.FC = () => {
 
   const open = tasks.filter((t) => t.status !== 'done').sort(byDue)
   const done = tasks.filter((t) => t.status === 'done').sort(byDue)
-  const list = tab === 'open' ? open : done
+  const list = (tab === 'open' ? open : done).filter((t) =>
+    t.title.toLowerCase().includes(search.trim().toLowerCase())
+  )
+  const grouped = list.reduce<Record<string, FlatTask[]>>((acc, task) => {
+    const key = task.stage_name || 'Без этапа'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(task)
+    return acc
+  }, {})
+  const orderedGroups = Object.entries(grouped).sort((a, b) => {
+    const pa = a[1][0]?.stage_position ?? 9999
+    const pb = b[1][0]?.stage_position ?? 9999
+    return pa - pb
+  })
 
   return (
-    <PageShell maxWidth="md" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
-      <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Задачи</h1>
+    <PageShell maxWidth="lg" className="animate-fade-in">
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Scrum-доска пути</p>
+      <div className="mt-2 mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <h1 className="font-display text-[40px] leading-none font-black tracking-tight text-p-text">Задачи</h1>
+        <label className="relative sm:ml-auto w-full sm:w-[280px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по названию..."
+            className="h-10 w-full rounded-[12px] border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 focus:border-p-accent-dim focus:outline-none"
+          />
+        </label>
+      </div>
 
       {questionnaires.length > 0 && (
         <div className="mb-6">
@@ -92,30 +120,49 @@ export const PortalTasksPage: React.FC = () => {
       {isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : tasks.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="w-11 h-11 rounded-[13px] bg-brand/15 grid place-items-center mx-auto">
-            <CheckSquare className="w-5 h-5 text-brand" />
-          </div>
-          <h2 className="mt-4 text-base font-extrabold text-p-text">Задач пока нет</h2>
-          <p className="mt-1.5 text-sm text-p-muted">
-            Задачи появятся, когда ментор назначит вам дорожную карту.
-          </p>
-        </div>
+        <EmptyState
+          icon={<CheckSquare className="w-5 h-5" />}
+          title="Задач пока нет"
+          description="Задачи появятся, когда ментор назначит вам дорожную карту."
+          colorPrefix="p"
+        />
       ) : (
         <>
-          <div className="mb-5 inline-flex rounded-[12px] border border-p-line bg-p-panel p-1">
-            <Tab active={tab === 'open'} onClick={() => setTab('open')}>Открытые · {open.length}</Tab>
-            <Tab active={tab === 'done'} onClick={() => setTab('done')}>Выполненные · {done.length}</Tab>
-          </div>
+          <SegmentedTabs
+            className="mb-5"
+            tabs={[
+              { value: 'open', label: `Открытые · ${open.length}` },
+              { value: 'done', label: `Выполненные · ${done.length}` }
+            ]}
+            value={tab}
+            onChange={(value) => setTab(value as TaskTab)}
+          />
 
           {list.length === 0 ? (
             <div className="rounded-[13px] border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
-              {tab === 'open' ? 'Открытых задач нет — всё сделано 🎉' : 'Выполненных задач пока нет.'}
+              {search.trim()
+                ? 'По вашему запросу задачи не найдены.'
+                : tab === 'open'
+                  ? 'Открытых задач нет — всё сделано.'
+                  : 'Выполненных задач пока нет.'}
             </div>
           ) : (
-            <div className="space-y-2">
-              {list.map((t) => (
-                <TaskCard key={t.id} task={t} onToggle={() => toggle.mutate(t)} />
+            <div className="space-y-5">
+              {orderedGroups.map(([stageName, stageTasks]) => (
+                <section key={stageName}>
+                  <div className="mb-2.5 flex items-center gap-2.5">
+                    <span className="h-4 w-1 rounded bg-p-accent" />
+                    <b className="font-display text-[27px] font-extrabold leading-none text-p-text">{stageName}</b>
+                    <span className="rounded-full bg-p-line/80 px-2.5 py-0.5 text-[10px] font-bold text-p-muted2">
+                      {stageTasks.length} {plural(stageTasks.length, ['задача', 'задачи', 'задач'])}
+                    </span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {stageTasks.map((task) => (
+                      <TaskCard key={task.id} task={task} onToggle={() => toggle.mutate(task)} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}
@@ -129,63 +176,58 @@ export const PortalTasksPage: React.FC = () => {
   )
 }
 
-const Tab: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode }> = ({ active, onClick, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'rounded-lg px-4 py-2 text-[12.5px] font-bold transition-colors',
-      active ? 'bg-brand text-black' : 'text-p-muted hover:text-p-text'
-    )}
-  >
-    {children}
-  </button>
-)
-
 const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, onToggle }) => {
   const done = task.status === 'done'
   const overdue = isOverdue(task)
-  const subDone = task.subtasks.filter((s) => s.is_done).length
+  const doneSubtasks = task.subtasks.filter((s) => s.is_done).length
+  const meta = done
+    ? `Этап: ${task.stage_name} · выполнено`
+    : task.due_date
+      ? `Этап: ${task.stage_name} · дедлайн ${formatDate(task.due_date)}`
+      : `Этап: ${task.stage_name} · без дедлайна`
   return (
-    <div className="flex items-start gap-3 border border-p-line rounded-[13px] bg-p-panel2 p-3 transition-transform hover:translate-x-1">
+    <div className="flex items-center gap-3.5 rounded-[12px] border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
       <button
         onClick={onToggle}
         className={cn(
-          'w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0 mt-0.5',
-          done ? 'bg-brand border-brand text-black' : 'bg-p-panel border-p-line text-transparent'
+          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border-2',
+          done ? 'border-p-accent bg-p-accent text-black' : 'border-p-muted2/70 bg-transparent text-transparent'
         )}
         aria-label={done ? 'Снять отметку' : 'Отметить готовым'}
       >
-        <Check className="w-3 h-3" strokeWidth={3.2} />
+        <Check className="h-3 w-3" strokeWidth={3.4} />
       </button>
       <div className="flex-1 min-w-0">
-        <div className={cn('text-sm font-bold', done ? 'line-through text-p-muted2' : 'text-p-text')}>
+        <div className={cn('truncate text-[15px] font-bold', done ? 'text-p-muted2' : 'text-p-text')}>
           {task.title}
         </div>
-        <div className="flex items-center gap-2.5 mt-1 text-[11.5px] flex-wrap">
-          <span className="text-p-muted">{task.stage_name}</span>
-          {task.due_date && (
-            <span className={cn('tabular-nums', overdue ? 'text-brand font-bold' : 'text-p-muted')}>
-              до {task.due_date}
-            </span>
-          )}
-          {task.subtasks.length > 0 && (
-            <span className="text-p-muted">
-              {subDone}/{task.subtasks.length} подзадач
-            </span>
-          )}
-        </div>
+        <small className={cn('mt-0.5 block truncate text-[11px]', overdue ? 'text-p-danger' : 'text-p-muted')}>
+          {meta}
+        </small>
       </div>
-      <span
-        className={cn(
-          'text-[9px] font-bold uppercase tracking-wide px-1.5 py-1 rounded shrink-0',
-          task.priority === 'required' && 'bg-brand text-black',
-          task.priority === 'recommended' && 'border border-brand/60 text-brand',
-          task.priority === 'optional' && 'border border-p-line text-p-muted'
+      <div className="flex shrink-0 items-center gap-1.5">
+        {task.subtasks.length > 0 && (
+          <span className="text-[11px] font-semibold text-p-muted2">
+            {doneSubtasks}/{task.subtasks.length}
+          </span>
         )}
-      >
-        {PRIORITY_LABEL[task.priority] || task.priority}
-      </span>
+        <PriorityPill
+          priority={task.priority as 'required' | 'recommended' | 'optional'}
+          colorPrefix="p"
+          showIcon={false}
+          className="shrink-0"
+        />
+        <StatusPill status={task.status} colorPrefix="p" className="shrink-0" showIcon={false} />
+      </div>
     </div>
   )
+}
+
+function formatDate(input: string): string {
+  const date = new Date(input)
+  if (Number.isNaN(date.getTime())) return input
+  const dd = String(date.getDate()).padStart(2, '0')
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const yyyy = date.getFullYear()
+  return `${dd}.${mm}.${yyyy}`
 }

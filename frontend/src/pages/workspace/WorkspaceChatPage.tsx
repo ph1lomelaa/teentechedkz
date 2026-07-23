@@ -50,33 +50,41 @@ export const WorkspaceChatPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const { mentorId, params, isPreview } = useWorkspaceScope()
+  const isManager = user?.role === 'admin' || user?.role === 'mzk_manager'
+  const effectiveWorkspaceParams: WorkspaceScopeParams = useMemo(() => {
+    if (mentorId) return { mentor_id: mentorId }
+    return isManager ? { scope: 'all' } : params
+  }, [isManager, mentorId, params])
+
   const searchParams = new URLSearchParams(window.location.search)
   const requestedStudentId = searchParams.get('student_id')
   const requestedChannel = searchParams.get('channel')
   const requestedMessageId = searchParams.get('message_id')
   const [channel, setChannel] = useState<Channel>(
-    requestedChannel === 'telegram' ? 'telegram' : 'internal',
+    requestedChannel === 'internal' ? 'internal' : 'telegram',
   )
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(requestedStudentId)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [connectGroupOpen, setConnectGroupOpen] = useState(false)
   const [connectStudentId, setConnectStudentId] = useState<string>(requestedStudentId || '')
+  const [createInternalOpen, setCreateInternalOpen] = useState(false)
+  const [createInternalStudentId, setCreateInternalStudentId] = useState<string>(requestedStudentId || '')
 
   const { data: conversations = [], isLoading: internalLoading } = useQuery({
     queryKey: ['workspace', 'chat', 'conversations', mentorId],
-    queryFn: () => chatApi.conversations(params),
+    queryFn: () => chatApi.conversations(mentorId ? { mentor_id: mentorId } : undefined),
   })
   const { data: telegramChats = [], isLoading: telegramLoading } = useQuery({
-    queryKey: ['workspace', 'chat', 'telegram', mentorId],
-    queryFn: () => telegramApi.listAll(undefined, mentorId ? 'all' : 'mine', mentorId),
+    queryKey: ['workspace', 'chat', 'telegram', mentorId, isManager ? 'all' : 'mine'],
+    queryFn: () => telegramApi.listAll(undefined, mentorId || isManager ? 'all' : 'mine', mentorId),
   })
   const { data: workspaceStudents, isLoading: studentsLoading } = useQuery({
-    queryKey: ['workspace', 'chat', 'students', mentorId],
-    queryFn: () => workspaceApi.students(params),
-    enabled: connectGroupOpen && !isPreview,
+    queryKey: ['workspace', 'chat', 'students', mentorId, effectiveWorkspaceParams.scope || 'preview'],
+    queryFn: () => workspaceApi.students(effectiveWorkspaceParams),
+    enabled: (connectGroupOpen || createInternalOpen) && !isPreview,
   })
   const { data: unreadData } = useQuery({
-    queryKey: ['workspace', 'chat', 'unread', mentorId],
-    queryFn: () => workspaceApi.messageUnread(params),
+    queryKey: ['workspace', 'chat', 'unread', mentorId, effectiveWorkspaceParams.scope || 'preview'],
+    queryFn: () => workspaceApi.messageUnread(effectiveWorkspaceParams),
     refetchInterval: 15_000,
   })
   const unread = useMemo(() => unreadData?.items ?? {}, [unreadData?.items])
@@ -135,19 +143,46 @@ export const WorkspaceChatPage: React.FC = () => {
 
   const items = channel === 'all'
     ? studentItems
-    : allItems.filter((item) => item.channel === channel && item.studentId)
-  const selected = items.find((item) => item.studentId === selectedStudentId)
+    : allItems.filter((item) => item.channel === channel)
+  const selected = items.find((item) => item.key === selectedKey)
     || items.find((item) => requestedStudentId && item.studentId === requestedStudentId)
     || items[0]
 
   useEffect(() => {
-    setSelectedStudentId(requestedStudentId)
+    if (requestedStudentId) {
+      const byStudent = items.find((item) => item.studentId === requestedStudentId)
+      setSelectedKey(byStudent?.key || null)
+      return
+    }
+    setSelectedKey(items[0]?.key || null)
   }, [mentorId, requestedStudentId])
 
   useEffect(() => {
-    if (!connectGroupOpen || connectStudentId || !workspaceStudents?.items.length) return
-    setConnectStudentId(requestedStudentId || workspaceStudents.items[0].student.id)
-  }, [connectGroupOpen, connectStudentId, requestedStudentId, workspaceStudents?.items])
+    if (!items.length) {
+      setSelectedKey(null)
+      return
+    }
+    if (!selectedKey || !items.some((item) => item.key === selectedKey)) {
+      setSelectedKey(items[0].key)
+    }
+  }, [items, selectedKey])
+
+  // Only students already taken on by a mentor — a fresh, unassigned lead
+  // has no one to run a Telegram group or internal chat with yet.
+  const assignedStudents = useMemo(
+    () => (workspaceStudents?.items || []).filter((item) => item.primary_mentor),
+    [workspaceStudents?.items],
+  )
+
+  useEffect(() => {
+    if (!connectGroupOpen || connectStudentId || !assignedStudents.length) return
+    setConnectStudentId(requestedStudentId || assignedStudents[0].student.id)
+  }, [connectGroupOpen, connectStudentId, requestedStudentId, assignedStudents])
+
+  useEffect(() => {
+    if (!createInternalOpen || createInternalStudentId || !assignedStudents.length) return
+    setCreateInternalStudentId(requestedStudentId || assignedStudents[0].student.id)
+  }, [createInternalOpen, createInternalStudentId, requestedStudentId, assignedStudents])
 
   useEffect(() => {
     if (isPreview || channel !== 'internal' || !selected?.studentId) return
@@ -157,8 +192,23 @@ export const WorkspaceChatPage: React.FC = () => {
   }, [channel, isPreview, queryClient, selected?.studentId])
 
   const loading = internalLoading || telegramLoading
-  const connectStudent = workspaceStudents?.items.find((item) => item.student.id === connectStudentId)?.student
+  const connectStudent = assignedStudents.find((item) => item.student.id === connectStudentId)?.student
   const connectChat = telegramChats.find((chat) => chat.student_id === connectStudentId && chat.status !== 'closed') || null
+  const createInternalStudent = assignedStudents.find((item) => item.student.id === createInternalStudentId)?.student
+
+  const createInternalMutation = useMutation({
+    mutationFn: () => chatApi.staffConversation(createInternalStudentId),
+    onSuccess: (conversation) => {
+      setCreateInternalOpen(false)
+      setCreateInternalStudentId('')
+      setChannel('internal')
+      setSelectedKey(`internal-${conversation.id}`)
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'unread'] })
+      toast({ title: 'Внутренний диалог открыт' })
+    },
+    onError: () => toast({ title: 'Не удалось открыть внутренний диалог', variant: 'destructive' }),
+  })
 
   return (
     <div className="fade-in">
@@ -206,7 +256,7 @@ export const WorkspaceChatPage: React.FC = () => {
               className="h-11 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
             >
               <option value="">Выберите ученика</option>
-              {(workspaceStudents?.items || []).map((item) => (
+              {assignedStudents.map((item) => (
                 <option key={item.student.id} value={item.student.id}>
                   {item.student.full_name} · {item.student.intake_year}
                 </option>
@@ -217,7 +267,7 @@ export const WorkspaceChatPage: React.FC = () => {
           <div className="mt-5 border-t border-w-line pt-5">
             {studentsLoading ? (
               <p className="text-sm text-w-muted">Загрузка учеников...</p>
-            ) : !workspaceStudents?.items.length ? (
+            ) : !assignedStudents.length ? (
               <WorkspaceEmptyState title="Нет доступных учеников" text="Сначала назначьте ученика себе или выберите ментора в режиме preview." />
             ) : connectStudent ? (
               <TelegramGroupManager
@@ -234,6 +284,58 @@ export const WorkspaceChatPage: React.FC = () => {
         </WorkspaceCard>
       )}
 
+      {createInternalOpen && !isPreview && (
+        <WorkspaceCard className="mb-5 p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-display text-xl font-black text-w-ink">Новый внутренний диалог</div>
+              <p className="mt-1 text-sm text-w-muted">
+                Это отдельный чат кабинета, он не зависит от Telegram-группы.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreateInternalOpen(false)}
+              className="text-w-muted hover:text-w-ink"
+              aria-label="Закрыть"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <label className="block max-w-xl">
+            <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-w-muted">Ученик</span>
+            <select
+              aria-label="Ученик для внутреннего чата"
+              value={createInternalStudentId}
+              onChange={(event) => setCreateInternalStudentId(event.target.value)}
+              disabled={studentsLoading}
+              className="h-11 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
+            >
+              <option value="">Выберите ученика</option>
+              {assignedStudents.map((item) => (
+                <option key={item.student.id} value={item.student.id}>
+                  {item.student.full_name} · {item.student.intake_year}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-w-line pt-4">
+            <div className="text-xs text-w-muted">
+              {createInternalStudent ? `Будет открыт диалог со студентом ${createInternalStudent.full_name}.` : 'Выберите студента для запуска чата.'}
+            </div>
+            <WorkspaceButton
+              size="sm"
+              disabled={!createInternalStudentId || createInternalMutation.isPending}
+              onClick={() => createInternalMutation.mutate()}
+            >
+              {createInternalMutation.isPending ? 'Открываем...' : 'Открыть чат'}
+            </WorkspaceButton>
+          </div>
+        </WorkspaceCard>
+      )}
+
       <div className="mb-5">
         <WorkspaceSegmentedTabs
           value={channel}
@@ -245,46 +347,57 @@ export const WorkspaceChatPage: React.FC = () => {
         />
       </div>
 
+      {!loading && items.length === 0 ? (
+        <WorkspaceEmptyState
+          title={channel === 'telegram' ? 'Telegram-диалогов пока нет' : 'Внутренних диалогов пока нет'}
+          text={channel === 'telegram'
+            ? 'Подключите Telegram-группу студента, чтобы сообщения появились в ленте.'
+            : 'Это отдельный чат кабинета. Откройте новый диалог со студентом.'}
+          action={!isPreview ? (
+            channel === 'telegram' ? (
+              <WorkspaceButton size="sm" onClick={() => setConnectGroupOpen(true)}>
+                <Plus className="h-4 w-4" /> Подключить группу
+              </WorkspaceButton>
+            ) : (
+              <WorkspaceButton size="sm" onClick={() => setCreateInternalOpen(true)}>
+                <Plus className="h-4 w-4" /> Открыть внутренний чат
+              </WorkspaceButton>
+            )
+          ) : undefined}
+        />
+      ) : (
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         <WorkspaceCard className="p-3">
           {loading ? (
             <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
-          ) : items.length === 0 ? (
-            <WorkspaceEmptyState
-              title="Диалогов пока нет"
-              text="Подключите Telegram или откройте внутренний диалог со студентом."
-              action={!isPreview ? (
-                <WorkspaceButton size="sm" onClick={() => setConnectGroupOpen(true)}>
-                  <Plus className="h-4 w-4" /> Подключить группу
-                </WorkspaceButton>
-              ) : undefined}
-            />
           ) : (
             <div className="space-y-1.5">
               {items.map((item) => {
-                const active = selected?.studentId === item.studentId
+                const active = selected?.key === item.key
                 const itemChannel = 'channel' in item ? item.channel : 'all'
                 return (
                   <button
                     key={item.key}
                     type="button"
-                    onClick={() => setSelectedStudentId(item.studentId)}
+                    onClick={() => setSelectedKey(item.key)}
                     className={cn(
-                      'w-full rounded-[16px] border px-3 py-3 text-left transition',
-                      active ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel2 text-w-ink hover:border-w-accentDim',
+                      'w-full rounded-[16px] border border-w-line px-3 py-3 text-left transition',
+                      active
+                        ? 'border-l-[3px] border-l-w-accent bg-w-accent/10 text-w-ink'
+                        : 'bg-w-panel2 text-w-ink hover:border-w-accentDim',
                     )}
                   >
                     <div className="flex items-center gap-2">
                       {itemChannel === 'telegram' ? <Send className="h-4 w-4 shrink-0" /> : <MessageCircle className="h-4 w-4 shrink-0" />}
-                      <div className="min-w-0 flex-1 truncate text-sm font-black">{item.title}</div>
+                      <div className={cn('min-w-0 flex-1 truncate text-sm font-black', active && 'text-w-accentText')}>{item.title}</div>
                       {item.unread > 0 && (
-                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', active ? 'bg-black text-w-accent' : 'bg-w-accent text-black')}>
+                        <span className="rounded-full bg-w-accent px-2 py-0.5 text-[10px] font-black text-black">
                           {item.unread}
                         </span>
                       )}
                     </div>
-                    {item.preview && <div className={cn('mt-1 truncate text-xs', active ? 'text-black/65' : 'text-w-muted')}>{item.preview}</div>}
-                    <div className={cn('mt-1 flex items-center gap-1.5 text-[11px]', active ? 'text-black/55' : 'text-w-muted2')}>
+                    {item.preview && <div className="mt-1 truncate text-xs text-w-muted">{item.preview}</div>}
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-w-muted2">
                       <span>{itemChannel === 'all' ? 'Telegram + внутренний' : itemChannel === 'telegram' ? 'Telegram' : 'Внутренний'}</span>
                       <span>·</span>
                       <span>{formatDate(item.updatedAt)}</span>
@@ -298,22 +411,22 @@ export const WorkspaceChatPage: React.FC = () => {
 
         <WorkspaceCard className="p-5">
           {!selected || !user ? (
-            // Когда диалогов нет, пустое состояние показывается только в списке
-            // слева — здесь не дублируем тот же текст.
-            items.length === 0 ? null : (
-              <WorkspaceEmptyState title="Выберите диалог" text="Сообщения откроются справа." />
-            )
+            <WorkspaceEmptyState title="Выберите диалог" text="Сообщения откроются справа." />
           ) : channel === 'all' ? (
-            <UnifiedThread
-              studentId={selected.studentId!}
-              title={selected.title}
-              internal={selected.internal}
-              telegram={selected.telegram}
-              scopeParams={params}
-              highlightedMessageId={requestedMessageId}
-              readOnly={isPreview}
-              onOpenChannel={setChannel}
-            />
+            selected.studentId ? (
+              <UnifiedThread
+                studentId={selected.studentId}
+                title={selected.title}
+                internal={selected.internal}
+                telegram={selected.telegram}
+                scopeParams={params}
+                highlightedMessageId={requestedMessageId}
+                readOnly={isPreview}
+                onOpenChannel={setChannel}
+              />
+            ) : selected.telegram ? (
+              <TelegramThread chat={selected.telegram} readOnly={isPreview} />
+            ) : null
           ) : 'channel' in selected && selected.channel === 'internal' && selected.internal ? (
             <>
               <ConversationHeader title={selected.title} channel="Внутренний чат" />
@@ -330,6 +443,7 @@ export const WorkspaceChatPage: React.FC = () => {
           ) : null}
         </WorkspaceCard>
       </div>
+      )}
     </div>
   )
 }
@@ -533,8 +647,8 @@ function UnifiedThread({
               message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
             )}>
               <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.08em]">
-                <span className={message.is_current_user ? 'text-black/60' : 'text-w-accentText'}>{message.sender_name || 'Участник'}</span>
-                <span className={cn('rounded-full px-1.5 py-0.5', message.is_current_user ? 'bg-black/10 text-black/60' : 'bg-w-panel2 text-w-muted')}>
+                <span className={message.is_current_user ? 'text-black/90' : 'text-w-accentText'}>{message.sender_name || 'Участник'}</span>
+                <span className={cn('rounded-full px-1.5 py-0.5', message.is_current_user ? 'bg-black/15 text-black/85' : 'bg-w-panel2 text-w-muted')}>
                   {message.source === 'telegram' ? 'Telegram' : 'Внутренний'}
                 </span>
               </div>
@@ -552,7 +666,7 @@ function UnifiedThread({
                   <Download className="h-3.5 w-3.5" />
                 </button>
               ))}
-              <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/55' : 'text-w-muted2')}>
+              <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/80' : 'text-w-muted2')}>
                 {formatDate(message.created_at)}
               </div>
             </div>
@@ -804,7 +918,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                 'max-w-[82%] rounded-[12px] border px-3 py-2 text-sm',
                 message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
               )}>
-                <div className={cn('mb-1 text-[11px] font-bold', message.is_current_user ? 'text-black/60' : 'text-w-accentText')}>
+                <div className={cn('mb-1 text-[11px] font-bold', message.is_current_user ? 'text-black/90' : 'text-w-accentText')}>
                   {message.sender_display_name || message.sender_name || 'Telegram'}
                 </div>
                 {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
@@ -821,7 +935,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                     <Download className="h-3.5 w-3.5" />
                   </button>
                 ))}
-                <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/55' : 'text-w-muted2')}>{formatDate(message.created_at)}</div>
+                <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/80' : 'text-w-muted2')}>{formatDate(message.created_at)}</div>
               </div>
             </div>
           ))

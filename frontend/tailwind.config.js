@@ -62,6 +62,20 @@ export default {
         },
         sidebar: '#0c0d10',
         brand: { DEFAULT: '#FFD400', dim: '#C9A800', dark: '#E6BE00', ink: '#000000' },
+        // Design system colors (dark theme)
+        ds: {
+          bg: '#0A0A0A',
+          panel: '#141414',
+          panel2: '#1C1C1C',
+          line: '#2A2A2A',
+          accent: '#FFD400',
+          'accent-dim': '#C9A800',
+          ink: '#F5F5F3',
+          muted: '#9A9A94',
+          muted2: '#6E6E68',
+          good: '#8BD46A',
+          danger: '#FF6B6B',
+        },
         // Student-portal tokens — driven by CSS vars under .portal (theme-aware)
         p: {
           bg: 'var(--p-bg)',
@@ -72,6 +86,9 @@ export default {
           muted: 'var(--p-muted)',
           muted2: 'var(--p-muted2)',
           good: 'var(--p-good)',
+          accent: 'var(--p-accent)',
+          'accent-dim': 'var(--p-accent-dim)',
+          danger: 'var(--p-danger)',
         },
         w: {
           bg: 'rgb(var(--w-bg-rgb) / <alpha-value>)',
@@ -92,6 +109,7 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        card: '16px',
       },
       keyframes: {
         'accordion-down': {

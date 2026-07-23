@@ -162,12 +162,12 @@ async def update_user(
     if "name" in body:
         user.name = body["name"].strip()
     if "role" in body:
+        if is_self:
+            raise HTTPException(status_code=400, detail="Нельзя менять собственную роль — попросите другого администратора")
         try:
             new_role = UserRole(body["role"])
         except ValueError:
             raise HTTPException(status_code=422, detail="Неверная роль")
-        if is_self and new_role != UserRole.admin:
-            raise HTTPException(status_code=400, detail="Нельзя понизить собственную роль — попросите другого администратора")
         user.role = new_role
     if "phone" in body:
         user.phone = body["phone"]

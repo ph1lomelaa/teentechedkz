@@ -26,7 +26,7 @@ from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
 from app.services.questionnaire_seed import seed_questionnaire_for_task
 from app.models.student import Student
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.models.roadmap import (
     RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
     Roadmap, Stage, RoadmapTask, RoadmapSubtask, RoadmapStatus,
@@ -110,6 +110,7 @@ async def _load_roadmap(db: AsyncSession, roadmap_id: uuid.UUID) -> Roadmap | No
     )
     roadmap = res.scalar_one_or_none()
     await attach_flags(db, roadmap)
+    await _attach_mentor_name(db, roadmap)
     return roadmap
 
 
@@ -555,4 +556,16 @@ async def _active_roadmap(db: AsyncSession, student_id: uuid.UUID) -> Roadmap | 
     )
     roadmap = res.scalars().first()
     await attach_flags(db, roadmap)
+    await _attach_mentor_name(db, roadmap)
     return roadmap
+
+
+async def _attach_mentor_name(db: AsyncSession, roadmap: Roadmap | None) -> None:
+    """Stamp a transient `mentor_name` attribute for RoadmapOut serialisation."""
+    if roadmap is None:
+        return
+    roadmap.mentor_name = None
+    if roadmap.mentor_id is None:
+        return
+    res = await db.execute(select(User.name).where(User.id == roadmap.mentor_id))
+    roadmap.mentor_name = res.scalar_one_or_none()

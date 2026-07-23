@@ -5,6 +5,7 @@ import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnai
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
+import { EmptyState } from '@/components/ui'
 
 export const PortalQuestionnairesPage: React.FC = () => {
   const [selectedId, setSelectedId] = useLocalState<string | null>('portal:questionnaires:selected', null)
@@ -26,7 +27,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
       <div className="mb-6">
-        <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
+        <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
         <h1 className="mt-2 font-display text-2xl md:text-3xl font-black text-p-text">Анкеты</h1>
         <p className="mt-2 text-sm text-p-muted">
           Заполняй анкеты, которые отправил тебе ментор. Это помогает лучше понять твои цели и ускорить подготовку.
@@ -38,15 +39,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
           Загрузка анкет…
         </div>
       ) : questionnaires.length === 0 ? (
-        <div className="rounded-[16px] border border-dashed border-p-line bg-p-panel2 p-12 text-center">
-          <div className="w-12 h-12 rounded-full bg-brand/15 grid place-items-center mx-auto">
-            <ClipboardList className="w-6 h-6 text-brand" />
-          </div>
-          <h2 className="mt-4 text-base font-black text-p-text">Анкет нет</h2>
-          <p className="mt-2 text-sm text-p-muted">
-            Когда ментор отправит анкету, она появится здесь.
-          </p>
-        </div>
+        <EmptyState icon={<ClipboardList className="w-6 h-6" />} title="Анкет нет" description="Когда ментор отправит анкету, она появится здесь." colorPrefix="p" />
       ) : (
         <div className="space-y-7">
           {new_questionnaires.length > 0 && (

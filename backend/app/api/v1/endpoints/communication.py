@@ -28,12 +28,18 @@ from app.services.student_notes import (
 router = APIRouter(prefix="/communications", tags=["communications"])
 
 
+def _require_staff(user):
+    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
 @router.get("/student/{student_id}")
 async def get_logs(
     student_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_staff(current_user)
     result = await db.execute(
         select(CommunicationLog)
         .where(CommunicationLog.student_id == student_id)
@@ -49,6 +55,7 @@ async def create_log(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_staff(current_user)
     try:
         source = CommSource(body.get("source", "manual"))
         msg_type = MessageType(body.get("message_type", "text_event"))
@@ -77,6 +84,7 @@ async def list_all_pending_insights(
     status: str | None = None,
     scope: str = "all",
 ):
+    _require_staff(current_user)
     query = select(PendingInsight).order_by(PendingInsight.created_at.desc())
     if status:
         try:
@@ -114,6 +122,7 @@ async def get_pending_insights(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_staff(current_user)
     result = await db.execute(
         select(PendingInsight)
         .where(
@@ -133,6 +142,7 @@ async def review_insight(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    _require_staff(current_user)
     result = await db.execute(select(PendingInsight).where(PendingInsight.id == insight_id))
     insight = result.scalar_one_or_none()
     if not insight:
@@ -196,6 +206,12 @@ async def review_insight(
                     reviewed_by=current_user.id,
                     created_at=datetime.now(timezone.utc),
                     reviewed_at=datetime.now(timezone.utc),
+                    # Same fix as notes.py "Bug #5" — without this the note is
+                    # approved but invisible everywhere (not in the draft queue,
+                    # not in the student portal).
+                    published_to_student=True,
+                    published_at=datetime.now(timezone.utc),
+                    published_by=current_user.id,
                 )
             )
 

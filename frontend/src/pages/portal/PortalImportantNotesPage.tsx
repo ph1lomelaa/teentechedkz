@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { StickyNote } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { portalImportantNotesApi } from '@/api/portalImportantNotes'
+import { EmptyState } from '@/components/ui'
 
 function fmt(iso: string): string {
   try {
@@ -21,21 +22,13 @@ export const PortalImportantNotesPage: React.FC = () => {
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
       <div>
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Заметки</h1>
 
       {isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : notes.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-brand/15">
-            <StickyNote className="h-5 w-5 text-brand" />
-          </div>
-          <h2 className="mt-4 text-base font-extrabold text-p-text">Заметок пока нет</h2>
-          <p className="mt-1.5 text-sm text-p-muted">
-            Здесь появятся важные заметки, которыми с вами поделится ваш ментор.
-          </p>
-        </div>
+        <EmptyState icon={<StickyNote className="h-5 w-5" />} title="Заметок пока нет" description="Здесь появятся важные заметки, которыми с вами поделится ваш ментор." colorPrefix="p" />
       ) : (
         <div className="space-y-3">
           {notes.map((note) => (

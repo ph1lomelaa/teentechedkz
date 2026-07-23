@@ -74,6 +74,12 @@ async def lifespan(app: FastAPI):
                     await db.commit()
             except Exception as notif_error:
                 logger.exception(f"Failed to create admin notification for webhook failure: {notif_error}")
+    else:
+        logger.warning(
+            "Telegram integration disabled: TELEGRAM_BOT_TOKEN=%s TELEGRAM_WEBHOOK_URL=%s (both required)",
+            "set" if settings.TELEGRAM_BOT_TOKEN else "MISSING",
+            "set" if settings.TELEGRAM_WEBHOOK_URL else "MISSING",
+        )
 
     # Автосинк анкет из Google Sheets (если настроен service account)
     sheets_task = None

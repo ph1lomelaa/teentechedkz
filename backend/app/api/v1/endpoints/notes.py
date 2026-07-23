@@ -360,6 +360,7 @@ async def review_note(
         note.published_to_student = True
         note.published_at = datetime.now(timezone.utc)
         note.published_by = current_user.id
+        await _notify_student_note_published(db, note)
 
     await db.commit()
     await db.refresh(note)
@@ -384,6 +385,27 @@ async def _load_note_in_scope(db: AsyncSession, current_user, note_id: uuid.UUID
     elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
         raise HTTPException(status_code=403, detail="Access denied")
     return note, student_name
+
+
+async def _notify_student_note_published(db: AsyncSession, note: StudentNote) -> None:
+    """Publishing a note used to be silent — the student only found out by
+    happening to open «Конспекты». Mirrors the Notification pattern already
+    used for new tasks/meetings elsewhere in the app."""
+    from app.models.notification import Notification
+
+    if not note.student_id:
+        return
+    student = await db.get(Student, note.student_id)
+    if not student or not student.user_id:
+        return
+    db.add(Notification(
+        user_id=student.user_id,
+        kind="note_published",
+        title="Новый конспект",
+        body=note.student_title or note.title,
+        link="/portal/notes",
+        priority="normal",
+    ))
 
 
 @router.post("/{note_id}/publish", response_model=StudentNoteResponse)
@@ -411,6 +433,7 @@ async def publish_note(
         note.student_title = body.student_title.strip() or None
     if body.hidden_blocks is not None:
         note.hidden_blocks = list(body.hidden_blocks)
+    await _notify_student_note_published(db, note)
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student_name)

@@ -6,6 +6,7 @@ Create Date: 2026-07-18
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 
 revision = "018"
 down_revision = "017"
@@ -22,7 +23,7 @@ def upgrade() -> None:
     op.create_table(
         "conversations",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("type", sa.Enum(*conv_type_vals, name="conversation_type", create_type=False), nullable=False, server_default="direct"),
+        sa.Column("type", PGEnum(*conv_type_vals, name="conversation_type", create_type=False), nullable=False, server_default="direct"),
         sa.Column("title", sa.String(300), nullable=False, server_default=""),
         sa.Column("created_by", sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("direct_key", sa.String(80), nullable=True),
