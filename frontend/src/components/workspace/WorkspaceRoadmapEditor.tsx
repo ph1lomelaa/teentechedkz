@@ -89,7 +89,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     setBusy(true)
     try {
       await roadmapApi.deleteTask(t.id)
-      const rm = await roadmapApi.studentRoadmap(roadmap.student_id)
+      const rm = await roadmapApi.getRoadmap(roadmap.id)
       if (rm) onChanged(rm)
     } finally {
       setBusy(false)
@@ -100,7 +100,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     setBusy(true)
     try {
       await roadmapApi.deleteSubtask(subId)
-      const rm = await roadmapApi.studentRoadmap(roadmap.student_id)
+      const rm = await roadmapApi.getRoadmap(roadmap.id)
       if (rm) onChanged(rm)
     } finally {
       setBusy(false)
@@ -182,7 +182,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
                     <button
                       type="button"
                       onClick={() => addTask(s)}
-                      className="inline-flex items-center gap-1.5 rounded-[10px] px-2 py-1.5 text-xs font-bold text-w-muted transition hover:text-w-accentText"
+                      className="inline-flex items-center gap-1.5 rounded-ctl px-2 py-1.5 text-xs font-bold text-w-muted transition hover:text-w-accentText"
                     >
                       <Plus className="h-3.5 w-3.5" /> Добавить задачу
                     </button>
@@ -256,13 +256,13 @@ const TaskCard: React.FC<{
 }> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire }) => {
   const isDone = task.status === 'done'
   return (
-    <div className="rounded-[14px] border border-w-line bg-w-panel2">
+    <div className="rounded-panel border border-w-line bg-w-panel2">
       <div className="flex items-start gap-3 p-3">
         <button
           type="button"
           onClick={onToggle}
           className={cn(
-            'mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[6px] border transition',
+            'mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-ctl border transition',
             isDone ? 'border-w-good bg-w-good text-black' : 'border-w-line text-transparent hover:border-w-accentDim'
           )}
           aria-label={isDone ? 'Снять отметку' : 'Отметить готовым'}

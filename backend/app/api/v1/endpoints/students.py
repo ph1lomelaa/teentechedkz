@@ -1,7 +1,7 @@
 from __future__ import annotations
 import uuid
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from typing import Annotated
 
@@ -551,32 +551,43 @@ async def list_students(
             if sid not in country_map and app_country:
                 country_map[sid] = app_country
 
-    items = []
-    for s in students:
-        contract_result = await db.execute(
+    # Батч-запросы вместо N+1: раньше здесь был цикл с ~14 отдельными запросами
+    # к БД на каждого студента (до ~28000 запросов при size=2000, из-за чего
+    # ответ мог занимать десятки секунд). Теперь один запрос на каждую связь
+    # сразу по всем student_ids текущей страницы — по тому же принципу, что и
+    # у country_map выше.
+    contracts_by_student: dict[uuid.UUID, Contract] = {}
+    if student_ids:
+        contracts_result = await db.execute(
             select(Contract)
             .options(selectinload(Contract.mzk_manager))
-            .where(Contract.student_id == s.id)
-            .order_by(Contract.created_at.desc())
-            .limit(1)
+            .where(Contract.student_id.in_(student_ids))
+            .order_by(Contract.student_id, Contract.created_at.desc())
         )
-        contract = contract_result.scalar_one_or_none()
-        days_in_work = None
-        pipeline_status_val = None
-        if contract:
-            if contract.signed_date:
-                days_in_work = (date.today() - contract.signed_date).days
-            pipeline_status_val = contract.pipeline_status.value if contract.pipeline_status else None
+        for c in contracts_result.scalars().all():
+            contracts_by_student.setdefault(c.student_id, c)
 
-        responsibles, is_mine = await _student_responsibles(db, s.id, current_user.id)
+    assignments_by_student: dict[uuid.UUID, list[MentorAssignment]] = defaultdict(list)
+    if student_ids:
+        assignments_result = await db.execute(
+            select(MentorAssignment)
+            .options(selectinload(MentorAssignment.mentor))
+            .where(MentorAssignment.student_id.in_(student_ids))
+            .order_by(MentorAssignment.student_id, MentorAssignment.assigned_at.desc())
+        )
+        for a in assignments_result.scalars().all():
+            assignments_by_student[a.student_id].append(a)
+
+    services_by_student: dict[uuid.UUID, list[dict]] = defaultdict(list)
+    if student_ids:
         services_result = await db.execute(
             select(Service, User.name)
             .join(User, User.id == Service.assigned_mentor_id, isouter=True)
-            .where(Service.student_id == s.id, Service.included == True)  # noqa: E712
-            .order_by(Service.service_type)
+            .where(Service.student_id.in_(student_ids), Service.included == True)  # noqa: E712
+            .order_by(Service.student_id, Service.service_type)
         )
-        service_items = [
-            {
+        for service, mentor_name in services_result.all():
+            services_by_student[service.student_id].append({
                 "id": str(service.id),
                 "service_type": service.service_type.value,
                 "status": service.status.value,
@@ -584,114 +595,176 @@ async def list_students(
                 "assigned_staff_id": str(service.assigned_mentor_id) if service.assigned_mentor_id else None,
                 "assigned_mentor_name": mentor_name,
                 "deadline": service.deadline.isoformat() if service.deadline else None,
-            }
-            for service, mentor_name in services_result.all()
-        ]
-        service_status_counts = Counter(item["status"] for item in service_items)
+            })
 
+    roadmap_by_student: dict[uuid.UUID, Roadmap] = {}
+    if student_ids:
         roadmap_result = await db.execute(
             select(Roadmap)
-            .where(Roadmap.student_id == s.id, Roadmap.status == RoadmapStatus.active)
-            .order_by(Roadmap.created_at.desc())
-            .limit(1)
+            .where(Roadmap.student_id.in_(student_ids), Roadmap.status == RoadmapStatus.active)
+            .order_by(Roadmap.student_id, Roadmap.created_at.desc())
         )
-        active_roadmap = roadmap_result.scalar_one_or_none()
+        for r in roadmap_result.scalars().all():
+            roadmap_by_student.setdefault(r.student_id, r)
+
+    roadmap_tasks_total_by_roadmap: dict[uuid.UUID, int] = {}
+    roadmap_tasks_done_by_roadmap: dict[uuid.UUID, int] = {}
+    roadmap_ids = [r.id for r in roadmap_by_student.values()]
+    if roadmap_ids:
+        totals_result = await db.execute(
+            select(RoadmapTask.roadmap_id, func.count())
+            .where(RoadmapTask.roadmap_id.in_(roadmap_ids))
+            .group_by(RoadmapTask.roadmap_id)
+        )
+        roadmap_tasks_total_by_roadmap = dict(totals_result.all())
+        done_result = await db.execute(
+            select(RoadmapTask.roadmap_id, func.count())
+            .where(
+                RoadmapTask.roadmap_id.in_(roadmap_ids),
+                RoadmapTask.status == RoadmapItemStatus.done,
+            )
+            .group_by(RoadmapTask.roadmap_id)
+        )
+        roadmap_tasks_done_by_roadmap = dict(done_result.all())
+
+    open_tasks_by_student: dict[uuid.UUID, int] = {}
+    if student_ids:
+        open_tasks_result = await db.execute(
+            select(StudentTask.student_id, func.count())
+            .where(StudentTask.student_id.in_(student_ids), StudentTask.status == TaskStatus.open)
+            .group_by(StudentTask.student_id)
+        )
+        open_tasks_by_student = dict(open_tasks_result.all())
+
+    next_meeting_by_student: dict[uuid.UUID, Meeting] = {}
+    if student_ids:
+        next_meeting_result = await db.execute(
+            select(Meeting)
+            .where(
+                Meeting.student_id.in_(student_ids),
+                Meeting.status == MeetingStatus.scheduled,
+                Meeting.ends_at >= datetime.now(timezone.utc),
+            )
+            .order_by(Meeting.student_id, Meeting.starts_at.asc())
+        )
+        for m in next_meeting_result.scalars().all():
+            next_meeting_by_student.setdefault(m.student_id, m)
+
+    telegram_session_by_student: dict[uuid.UUID, TelegramChatSession] = {}
+    if student_ids:
+        telegram_session_result = await db.execute(
+            select(TelegramChatSession)
+            .where(
+                TelegramChatSession.student_id.in_(student_ids),
+                TelegramChatSession.status == TelegramSessionStatus.active,
+            )
+            .order_by(TelegramChatSession.student_id, TelegramChatSession.opened_at.desc())
+        )
+        for t in telegram_session_result.scalars().all():
+            telegram_session_by_student.setdefault(t.student_id, t)
+
+    telegram_pending_by_student: dict[uuid.UUID, int] = {}
+    if student_ids:
+        telegram_pending_result = await db.execute(
+            select(PendingInsight.student_id, func.count())
+            .where(
+                PendingInsight.student_id.in_(student_ids),
+                PendingInsight.status == InsightStatus.pending,
+                PendingInsight.source_telegram_message_id.is_not(None),
+            )
+            .group_by(PendingInsight.student_id)
+        )
+        telegram_pending_by_student = dict(telegram_pending_result.all())
+
+    documents_unverified_by_student: dict[uuid.UUID, int] = {}
+    if student_ids:
+        docs_unverified_result = await db.execute(
+            select(Document.student_id, func.count())
+            .where(Document.student_id.in_(student_ids), Document.is_verified == False)  # noqa: E712
+            .group_by(Document.student_id)
+        )
+        documents_unverified_by_student = dict(docs_unverified_result.all())
+
+    comm_last_by_student: dict[uuid.UUID, tuple] = {}
+    if student_ids:
+        comm_last_result = await db.execute(
+            select(CommunicationLog.student_id, CommunicationLog.source, CommunicationLog.created_at)
+            .where(CommunicationLog.student_id.in_(student_ids))
+            .order_by(CommunicationLog.student_id, CommunicationLog.created_at.desc())
+        )
+        for sid, source, created_at in comm_last_result.all():
+            comm_last_by_student.setdefault(sid, (source, created_at))
+
+    active_session_ids = [t.id for t in telegram_session_by_student.values()]
+    telegram_last_by_session: dict[uuid.UUID, datetime] = {}
+    if active_session_ids:
+        telegram_msg_result = await db.execute(
+            select(TelegramMessage.session_id, func.max(TelegramMessage.created_at))
+            .where(TelegramMessage.session_id.in_(active_session_ids))
+            .group_by(TelegramMessage.session_id)
+        )
+        telegram_last_by_session = dict(telegram_msg_result.all())
+
+    meeting_last_by_student: dict[uuid.UUID, datetime] = {}
+    if student_ids:
+        meeting_last_result = await db.execute(
+            select(Meeting.student_id, func.max(Meeting.starts_at))
+            .where(Meeting.student_id.in_(student_ids), Meeting.status == MeetingStatus.completed)
+            .group_by(Meeting.student_id)
+        )
+        meeting_last_by_student = dict(meeting_last_result.all())
+
+    items = []
+    for s in students:
+        contract = contracts_by_student.get(s.id)
+        days_in_work = None
+        pipeline_status_val = None
+        if contract:
+            if contract.signed_date:
+                days_in_work = (date.today() - contract.signed_date).days
+            pipeline_status_val = contract.pipeline_status.value if contract.pipeline_status else None
+
+        assignments = assignments_by_student.get(s.id, [])
+        responsibles = [
+            {
+                "id": str(a.mentor_id),
+                "assignment_id": str(a.id),
+                "name": a.mentor.name if a.mentor else None,
+                "role": a.role.value,
+                "is_active": a.is_active,
+            }
+            for a in assignments
+        ]
+        is_mine = any(a.mentor_id == current_user.id and a.is_active for a in assignments)
+
+        service_items = services_by_student.get(s.id, [])
+        service_status_counts = Counter(item["status"] for item in service_items)
+
+        active_roadmap = roadmap_by_student.get(s.id)
         roadmap_progress = None
         roadmap_tasks_total = 0
         roadmap_tasks_done = 0
         if active_roadmap:
-            roadmap_tasks_total = await _count(
-                db,
-                select(func.count()).select_from(RoadmapTask).where(RoadmapTask.roadmap_id == active_roadmap.id),
-            )
-            roadmap_tasks_done = await _count(
-                db,
-                select(func.count()).select_from(RoadmapTask).where(
-                    RoadmapTask.roadmap_id == active_roadmap.id,
-                    RoadmapTask.status == RoadmapItemStatus.done,
-                ),
-            )
+            roadmap_tasks_total = roadmap_tasks_total_by_roadmap.get(active_roadmap.id, 0)
+            roadmap_tasks_done = roadmap_tasks_done_by_roadmap.get(active_roadmap.id, 0)
             roadmap_progress = round((roadmap_tasks_done / roadmap_tasks_total) * 100) if roadmap_tasks_total else 0
 
-        open_tasks_count = await _count(
-            db,
-            select(func.count()).select_from(StudentTask).where(
-                StudentTask.student_id == s.id,
-                StudentTask.status == TaskStatus.open,
-            ),
-        )
-        next_meeting_result = await db.execute(
-            select(Meeting)
-            .where(
-                Meeting.student_id == s.id,
-                Meeting.status == MeetingStatus.scheduled,
-                Meeting.ends_at >= datetime.now(timezone.utc),
-            )
-            .order_by(Meeting.starts_at.asc())
-            .limit(1)
-        )
-        next_meeting = next_meeting_result.scalar_one_or_none()
-        telegram_session_result = await db.execute(
-            select(TelegramChatSession)
-            .where(
-                TelegramChatSession.student_id == s.id,
-                TelegramChatSession.status == TelegramSessionStatus.active,
-            )
-            .order_by(TelegramChatSession.opened_at.desc())
-            .limit(1)
-        )
-        telegram_session = telegram_session_result.scalar_one_or_none()
-        telegram_pending = await _count(
-            db,
-            select(func.count()).select_from(PendingInsight).where(
-                PendingInsight.student_id == s.id,
-                PendingInsight.status == InsightStatus.pending,
-                PendingInsight.source_telegram_message_id.is_not(None),
-            ),
-        )
-        documents_unverified = await _count(
-            db,
-            select(func.count()).select_from(Document).where(
-                Document.student_id == s.id,
-                Document.is_verified == False,  # noqa: E712
-            ),
-        )
+        open_tasks_count = open_tasks_by_student.get(s.id, 0)
+        next_meeting = next_meeting_by_student.get(s.id)
+        telegram_session = telegram_session_by_student.get(s.id)
+        telegram_pending = telegram_pending_by_student.get(s.id, 0)
+        documents_unverified = documents_unverified_by_student.get(s.id, 0)
+
         last_contact: dict | None = None
-        comm_last = (
-            await db.execute(
-                select(CommunicationLog.source, CommunicationLog.created_at)
-                .where(CommunicationLog.student_id == s.id)
-                .order_by(CommunicationLog.created_at.desc())
-                .limit(1)
-            )
-        ).first()
+        comm_last = comm_last_by_student.get(s.id)
         if comm_last:
             last_contact = {"source": comm_last[0].value, "at": comm_last[1].isoformat()}
 
-        telegram_last = None
-        if telegram_session:
-            telegram_last = (
-                await db.execute(
-                    select(TelegramMessage.created_at)
-                    .where(TelegramMessage.session_id == telegram_session.id)
-                    .order_by(TelegramMessage.created_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if telegram_last and (last_contact is None or telegram_last > datetime.fromisoformat(last_contact["at"])):
-                last_contact = {"source": "telegram", "at": telegram_last.isoformat()}
+        telegram_last = telegram_last_by_session.get(telegram_session.id) if telegram_session else None
+        if telegram_last and (last_contact is None or telegram_last > datetime.fromisoformat(last_contact["at"])):
+            last_contact = {"source": "telegram", "at": telegram_last.isoformat()}
 
-        meeting_last = (
-            await db.execute(
-                select(Meeting.starts_at)
-                .where(
-                    Meeting.student_id == s.id,
-                    Meeting.status == MeetingStatus.completed,
-                )
-                .order_by(Meeting.starts_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        meeting_last = meeting_last_by_student.get(s.id)
         if meeting_last and (last_contact is None or meeting_last > datetime.fromisoformat(last_contact["at"])):
             last_contact = {"source": "meeting", "at": meeting_last.isoformat()}
 
@@ -708,7 +781,7 @@ async def list_students(
             "country": country_map.get(s.id),
             "mentors": people.student_mentor_labels.get(s.id, []),
             "mzk_manager_name": (
-                contract.mzk_manager_name if contract and contract.mzk_manager
+                contract.mzk_manager.name if contract and contract.mzk_manager
                 else people.student_manager_label.get(s.id)
             ),
             "responsibles": responsibles,

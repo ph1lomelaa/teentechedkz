@@ -9,17 +9,7 @@ import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { NoteSessionStatus, StudentNoteStatus } from '@/types'
-import {
-  WorkspaceButton,
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspaceInput,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-  WorkspaceSelect,
-  WorkspaceStatCard,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs, StatCard } from '@/components/ui'
 
 const SESSION_STATUS_LABELS: Record<NoteSessionStatus, string> = {
   active: 'Идёт запись',
@@ -94,26 +84,26 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
     <div className="fade-in">
       {!embedded && (
         <>
-          <WorkspacePageHeader
+          <PageHeader colorPrefix="w"
             eyebrow="Встречи"
             title="Конспекты"
             description="Сессии звонков, расшифровки и AI-конспекты по назначенным студентам."
           />
           <div className="mb-5 grid gap-4 md:grid-cols-3">
-            <WorkspaceStatCard label="Сессии" value={loading ? '…' : String(data?.total_sessions ?? sessions.length)} icon={<Mic className="h-5 w-5" />} />
-            <WorkspaceStatCard label="AI-конспекты" value={loading ? '…' : String(data?.total_notes ?? notes.length)} icon={<BookText className="h-5 w-5" />} />
-            <WorkspaceStatCard label="На проверке" value={loading ? '…' : String(draftNotes)} icon={<CheckCircle2 className="h-5 w-5" />} warn={draftNotes > 0} />
+            <StatCard colorPrefix="w" label="Сессии" value={loading ? '…' : String(data?.total_sessions ?? sessions.length)} icon={<Mic className="h-5 w-5" />} />
+            <StatCard colorPrefix="w" label="AI-конспекты" value={loading ? '…' : String(data?.total_notes ?? notes.length)} icon={<BookText className="h-5 w-5" />} />
+            <StatCard colorPrefix="w" label="На проверке" value={loading ? '…' : String(draftNotes)} icon={<CheckCircle2 className="h-5 w-5" />} warn={draftNotes > 0} />
           </div>
         </>
       )}
 
-      <WorkspaceCard className="mb-5 p-5">
+      <AppCard colorPrefix="w" className="mb-5 p-5">
         <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink">
           <Plus className="h-4 w-4 text-w-accentText" />
           Быстро начать конспект
         </div>
         <div className="grid gap-2 md:grid-cols-[260px_1fr_160px]">
-          <WorkspaceSelect
+          <AppSelect colorPrefix="w"
             value={studentId}
             onChange={(event) => setStudentId(event.target.value)}
             className="bg-w-panel2"
@@ -122,25 +112,25 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
             {students.map((student) => (
               <option key={student.id} value={student.id}>{student.full_name}</option>
             ))}
-          </WorkspaceSelect>
-          <WorkspaceInput
+          </AppSelect>
+          <AppInput colorPrefix="w"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Название сессии, например: Разбор документов / звонок 1"
             className="bg-w-panel2"
           />
-          <WorkspaceButton
+          <AppButton colorPrefix="w"
             disabled={!studentId || createSessionMutation.isPending}
             onClick={() => createSessionMutation.mutate()}
           >
             <Mic className="h-4 w-4" />
             Начать
-          </WorkspaceButton>
+          </AppButton>
         </div>
-      </WorkspaceCard>
+      </AppCard>
 
-      <WorkspaceCard className="mb-5 flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-        <WorkspaceSelect
+      <AppCard colorPrefix="w" className="mb-5 flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+        <AppSelect colorPrefix="w"
           value={studentFilter}
           onChange={(event) => setStudentFilter(event.target.value)}
           className="bg-w-panel2 md:min-w-[260px]"
@@ -149,21 +139,21 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
           {students.map((student) => (
             <option key={student.id} value={student.id}>{student.full_name}</option>
           ))}
-        </WorkspaceSelect>
-        <WorkspaceSegmentedTabs
+        </AppSelect>
+        <SegmentedTabs colorPrefix="w"
           value={sessionStatus}
-          onChange={setSessionStatus}
-          options={[
+          onChange={(value) => setSessionStatus(value as typeof sessionStatus)}
+          tabs={[
             { value: 'all', label: 'Все сессии' },
             { value: 'active', label: 'Идёт запись' },
             { value: 'completed', label: 'Завершены' },
             { value: 'cancelled', label: 'Отменены' },
           ]}
         />
-      </WorkspaceCard>
+      </AppCard>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <WorkspaceCard className="p-5">
+        <AppCard colorPrefix="w" className="p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="font-display text-xl font-black text-w-ink">Сессии</h2>
             <span className="text-xs font-bold text-w-muted">{sessions.length}</span>
@@ -171,11 +161,11 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
           {loading ? (
             <p className="text-sm text-w-muted">Загрузка...</p>
           ) : sessions.length === 0 ? (
-            <WorkspaceEmptyState title="Сессий нет" text="Создайте конспект из карточки студента." />
+            <EmptyState colorPrefix="w" title="Сессий нет" description="Создайте конспект из карточки студента." />
           ) : (
             <div className="space-y-2">
               {sessions.map((session) => (
-                <Link key={session.id} to={`/workspace/meetings/session/${session.id}`} className="block rounded-[16px] border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
+                <Link key={session.id} to={`/workspace/meetings/session/${session.id}`} className="block rounded-panel border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
                   <div className="truncate text-sm font-bold text-w-ink">{session.title}</div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-w-muted">
                     <span>{session.student_name}</span>
@@ -195,13 +185,13 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
               ))}
             </div>
           )}
-        </WorkspaceCard>
+        </AppCard>
 
-        <WorkspaceCard className="p-5">
+        <AppCard colorPrefix="w" className="p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="font-display text-xl font-black text-w-ink">AI-заметки</h2>
             <div className="flex items-center gap-2">
-              <WorkspaceSelect
+              <AppSelect colorPrefix="w"
                 value={noteStatus}
                 onChange={(event) => setNoteStatus(event.target.value as typeof noteStatus)}
                 className="min-h-9 bg-w-panel2 px-2 text-xs"
@@ -210,24 +200,24 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
                 <option value="draft">На проверке</option>
                 <option value="approved">Принято</option>
                 <option value="rejected">Отклонено</option>
-              </WorkspaceSelect>
+              </AppSelect>
               <span className="text-xs font-bold text-w-muted">{notes.length}</span>
             </div>
           </div>
           {loading ? (
             <p className="text-sm text-w-muted">Загрузка...</p>
           ) : notes.length === 0 ? (
-            <WorkspaceEmptyState title="AI-заметок нет" text="После финализации конспекта заметки появятся здесь." />
+            <EmptyState colorPrefix="w" title="AI-заметок нет" description="После финализации конспекта заметки появятся здесь." />
           ) : (
             <div className="space-y-2">
               {notes.map((note) => (
-                <Link key={note.id} to={`/workspace/meetings/notes/${note.id}`} className="block rounded-[16px] border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
+                <Link key={note.id} to={`/workspace/meetings/notes/${note.id}`} className="block rounded-panel border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
                   <div className="truncate text-sm font-bold text-w-ink">{note.title}</div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-w-muted">
                     <span>{note.student_name || 'Без студента'}</span>
                     <span>·</span>
                     <span>{formatDate(note.created_at)}</span>
-                    <WorkspaceStatusPill tone={NOTE_STATUS_TONE[note.status]}>{NOTE_STATUS_LABELS[note.status]}</WorkspaceStatusPill>
+                    <Pill colorPrefix="w" tone={NOTE_STATUS_TONE[note.status]}>{NOTE_STATUS_LABELS[note.status]}</Pill>
                     {Object.keys(note.suggested_changes ?? {}).length > 0 && (
                       <span className="inline-flex items-center gap-1 text-w-accentText">
                         <Sparkles className="h-3 w-3" />
@@ -239,7 +229,7 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
               ))}
             </div>
           )}
-        </WorkspaceCard>
+        </AppCard>
       </div>
     </div>
   )

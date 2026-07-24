@@ -5,10 +5,10 @@ import { InsightCard } from '@/components/shared/InsightCard'
 import { AppButton } from '@/components/ui/AppButton'
 import { AppCard } from '@/components/ui/AppCard'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
 import { useMemo, useState } from 'react'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 import { DEGREE_LEVEL_LABELS, DegreeLevel } from '@/types'
@@ -94,22 +94,25 @@ export default function StatusInboxPage() {
   })
 
   return (
-    <div className="space-y-6">
-      <CrmPageHeader
-        eyebrow="Проверка"
+    <div className="fade-in">
+      <PageHeader
+        eyebrow="Кабинет ментора"
         title="Статус"
         description="Единая очередь изменений по студентам: Telegram-инсайты, контекстные заметки и черновики конспектов. Подтверждённые структурные изменения попадут в карточку, а планы и неподтверждённые детали сохранятся как заметки."
-      />
-      <SegmentedTabs
-        value={scope}
-        onChange={(value) => setScope(value as typeof scope)}
-        tabs={[
-          { value: 'all', label: 'Все' },
-          { value: 'mine', label: 'Мои' },
-        ]}
+        colorPrefix="w"
       />
 
-      <div className="flex items-center justify-end gap-3">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedTabs
+          value={scope}
+          onChange={(value) => setScope(value as typeof scope)}
+          tabs={[
+            { value: 'all', label: 'Все' },
+            { value: 'mine', label: 'Мои' },
+          ]}
+          colorPrefix="w"
+        />
+
         <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
           <div className="grid grid-cols-2 gap-2">
             <FilterField label="Год">
@@ -175,36 +178,40 @@ export default function StatusInboxPage() {
         </FilterPopover>
       </div>
 
-      <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
+      {filterChips.length > 0 && (
+        <div className="mb-5">
+          <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
+        </div>
+      )}
 
       {isLoading || notesLoading ? (
-        <p className="text-sm text-ds-muted">Загрузка…</p>
+        <p className="text-sm text-w-muted">Загрузка…</p>
       ) : (
-        <>
+        <AppCard colorPrefix="w" className="space-y-6 p-5">
           <section className="space-y-3">
-            <h2 className="text-sm font-bold text-ds-ink">На проверке ({actionableCount})</h2>
+            <h2 className="text-sm font-bold text-w-ink">На проверке ({actionableCount})</h2>
             {actionableCount === 0 ? (
-              <AppCard className="p-6 text-center text-sm text-ds-muted">Ничего не ждёт разбора</AppCard>
+              <div className="rounded-panel border border-w-line bg-w-panel2 p-6 text-center text-sm text-w-muted">Ничего не ждёт разбора</div>
             ) : (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {filteredDraftNotes.map((note) => (
-                  <AppCard key={note.id} className="space-y-2 p-3 text-sm">
+                  <AppCard key={note.id} colorPrefix="w" className="space-y-2 border-w-line bg-w-panel2 p-3 text-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <Link to={`/notes/${note.id}`} className="text-ds-accent hover:underline">
+                        <Link to={`/notes/${note.id}`} className="text-w-accentText hover:underline">
                           {note.student_name || 'Без студента'}
                         </Link>
-                        <p className="mt-1 font-bold text-ds-ink">{note.title}</p>
+                        <p className="mt-1 font-bold text-w-ink">{note.title}</p>
                       </div>
-                      <span className="rounded-[6px] border border-ds-accent-dim/40 bg-ds-accent/10 px-1.5 py-0.5 text-[11px] text-ds-accent">
+                      <span className="rounded-pill border border-w-accentDim/40 bg-w-accent/10 px-1.5 py-0.5 text-[11px] text-w-accentText">
                         конспект
                       </span>
                     </div>
-                    <p className="line-clamp-4 text-xs text-ds-muted">
+                    <p className="line-clamp-4 text-xs text-w-muted">
                       {stripMarkdown(note.summary_markdown)}
                     </p>
                     {Object.keys(note.suggested_changes || {}).length > 0 && (
-                      <p className="text-xs text-ds-muted2">
+                      <p className="text-xs text-w-muted2">
                         Есть предложения к полям карточки: {Object.keys(note.suggested_changes).join(', ')}
                       </p>
                     )}
@@ -258,7 +265,7 @@ export default function StatusInboxPage() {
 
           {resolved.length > 0 && (
             <section className="space-y-3">
-              <h2 className="text-sm font-bold text-ds-ink">Разобранные ({resolved.length})</h2>
+              <h2 className="text-sm font-bold text-w-ink">Разобранные ({resolved.length})</h2>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {resolved.map((insight) => (
                   <InsightCard
@@ -272,7 +279,7 @@ export default function StatusInboxPage() {
               </div>
             </section>
           )}
-        </>
+        </AppCard>
       )}
     </div>
   )

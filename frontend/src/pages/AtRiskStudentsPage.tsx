@@ -18,14 +18,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+} from '@/components/ui/primitives/table'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 
@@ -123,7 +123,7 @@ export const AtRiskStudentsPage: React.FC = () => {
 
   return (
     <div>
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Контроль"
         title="Зона риска"
         description="Студенты, за процессом которых стоит следить внимательнее: виза в работе, процесс подвешен или студента перевели. Статусы: «На визе», «Подвешено», «Перевели». Отсортировано по дням в работе — сверху дольше всего висящие случаи."
@@ -250,13 +250,13 @@ export const AtRiskStudentsPage: React.FC = () => {
                   >
                     <TableCell className="font-medium text-p-text">{student.full_name}</TableCell>
                     <TableCell>
-                      <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                         {DEGREE_LEVEL_LABELS[student.degree_level]}
                       </span>
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status && (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     )}
@@ -292,7 +292,7 @@ export const AtRiskStudentsPage: React.FC = () => {
             <p className="text-sm text-p-muted">Дублей не найдено — все студенты уникальны.</p>
           ) : (
             <>
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-[2px] text-sm text-red-800">
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-card text-sm text-red-800">
                 Пары студентов с одинаковым телефоном или совпадающим именем (включая
                 написание на разных языках). Проверь каждую пару: можно соединить карточки
                 в одну. Архивный профиль не удаляется и останется доступен администратору.
@@ -324,7 +324,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                           <span className="text-p-muted2 text-xs ml-2">{pair.b.intake_year}</span>
                         </TableCell>
                         <TableCell>
-                          <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${
+                          <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
                             pair.reason === 'phone'
                               ? 'bg-red-50 text-red-700 border border-red-200'
                               : 'bg-amber-50 text-amber-700 border border-amber-200'
@@ -368,7 +368,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setMainSide('a')}
-                  className={`rounded-[2px] border p-3 text-left transition-colors ${
+                  className={`rounded-panel border p-3 text-left transition-colors ${
                     mainSide === 'a' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg'
                   }`}
                 >
@@ -379,7 +379,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setMainSide('b')}
-                  className={`rounded-[2px] border p-3 text-left transition-colors ${
+                  className={`rounded-panel border p-3 text-left transition-colors ${
                     mainSide === 'b' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg'
                   }`}
                 >
@@ -388,7 +388,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                   <div className="text-xs opacity-70">{mergePair.b.intake_year}{mergePair.b.phone ? ` · ${mergePair.b.phone}` : ''}</div>
                 </button>
               </div>
-              <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 {selectedMain.full_name} останется активной карточкой. {selectedDuplicate.full_name} будет архивирована,
                 а связанные документы, конспекты и задачи переедут в главную карточку.
               </div>

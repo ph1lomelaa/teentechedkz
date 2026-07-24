@@ -17,8 +17,8 @@ import {
   Trash2,
 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives/card'
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import { useDeepgramTranscription, type CaptureSource } from '@/hooks/useDeepgramTranscription'
 import { useAudioBackupRecorder } from '@/hooks/useAudioBackupRecorder'
 import { cn, formatDate } from '@/lib/utils'
@@ -67,13 +67,13 @@ function playAlertBeep() {
 
 function renderPairs(data: Record<string, unknown>, workspace = false) {
   const entries = Object.entries(data)
-  if (!entries.length) return <p className={cn('text-sm', workspace ? 'text-w-muted2' : 'text-slate-400')}>Нет данных</p>
+  if (!entries.length) return <p className={cn('text-sm', workspace ? 'text-w-muted2' : 'text-p-muted2')}>Нет данных</p>
   return (
     <div className="space-y-2">
       {entries.map(([key, value]) => (
-        <div key={key} className={cn('flex items-start justify-between gap-4 border-b pb-2 last:border-0 last:pb-0', workspace ? 'border-w-line' : 'border-slate-200')}>
-          <span className={cn('text-sm', workspace ? 'text-w-muted' : 'text-slate-500')}>{key}</span>
-          <span className={cn('max-w-[60%] whitespace-pre-wrap text-right text-sm', workspace ? 'text-w-ink' : 'text-slate-800')}>{entryValue(value)}</span>
+        <div key={key} className={cn('flex items-start justify-between gap-4 border-b pb-2 last:border-0 last:pb-0', workspace ? 'border-w-line' : 'border-p-line')}>
+          <span className={cn('text-sm', workspace ? 'text-w-muted' : 'text-p-muted')}>{key}</span>
+          <span className={cn('max-w-[60%] whitespace-pre-wrap text-right text-sm', workspace ? 'text-w-ink' : 'text-p-text')}>{entryValue(value)}</span>
         </div>
       ))}
     </div>
@@ -358,6 +358,26 @@ export const NoteSessionPage: React.FC = () => {
     try {
       const result = await notesApi.reconcileAudio(sessionId)
       setReconcileResult(result)
+      if (result.queued) {
+        // Транскрипция теперь идёт в фоновом воркере, а не в этом запросе —
+        // ждём, пока все чанки перестанут быть pending/processing, вместо
+        // немедленного ответа.
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+        for (let attempt = 0; attempt < 40; attempt++) {
+          await sleep(3000)
+          const chunks = await notesApi.listAudioChunks(sessionId)
+          const stillWorking = chunks.some((c) => c.status === 'pending' || c.status === 'processing')
+          if (!stillWorking) {
+            const fresh = await refetch()
+            setReconcileResult({
+              backup_transcript_text: fresh.data?.backup_transcript_text ?? '',
+              chunks,
+              queued: false,
+            })
+            break
+          }
+        }
+      }
     } catch (err) {
       toast({
         title: 'Не удалось собрать резервный транскрипт',
@@ -367,7 +387,7 @@ export const NoteSessionPage: React.FC = () => {
     } finally {
       setReconciling(false)
     }
-  }, [sessionId])
+  }, [sessionId, refetch])
 
   const requestDraft = useCallback(async () => {
     if (!sessionId) return
@@ -479,44 +499,44 @@ export const NoteSessionPage: React.FC = () => {
       : 'Все фрагменты сохранены'
 
   if (isLoading || !session) {
-    return <div className="py-12 text-center text-slate-500">Загрузка...</div>
+    return <div className="py-12 text-center text-p-muted">Загрузка...</div>
   }
 
   const isReadOnly = Boolean(session.note_id)
   const pageClass = inWorkspace ? 'space-y-5 text-w-ink' : 'space-y-5'
-  const headerBorderClass = inWorkspace ? 'border-w-line' : 'border-slate-200'
-  const eyebrowClass = inWorkspace ? 'text-w-muted2' : 'text-slate-400'
-  const titleClass = inWorkspace ? 'text-w-ink' : 'text-slate-950'
-  const mutedClass = inWorkspace ? 'text-w-muted' : 'text-slate-500'
-  const cardClass = inWorkspace ? 'rounded-[18px] border-w-line bg-w-panel text-w-ink shadow-none' : 'border-slate-200 bg-white'
-  const cardTitleClass = inWorkspace ? 'text-base text-w-ink' : 'text-base text-slate-900'
+  const headerBorderClass = inWorkspace ? 'border-w-line' : 'border-p-line'
+  const eyebrowClass = inWorkspace ? 'text-w-muted2' : 'text-p-muted2'
+  const titleClass = inWorkspace ? 'text-w-ink' : 'text-p-text'
+  const mutedClass = inWorkspace ? 'text-w-muted' : 'text-p-muted'
+  const cardClass = inWorkspace ? 'rounded-card border-w-line bg-w-panel text-w-ink shadow-none' : 'border-p-line bg-white'
+  const cardTitleClass = inWorkspace ? 'text-base text-w-ink' : 'text-base text-p-text'
   const cardDescriptionClass = inWorkspace ? 'text-w-muted' : undefined
-  const panelClass = inWorkspace ? 'rounded-[14px] border border-w-line bg-w-panel2' : 'rounded-[2px] border border-slate-200 bg-slate-50'
+  const panelClass = inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-p-bg'
   const stickyClass = inWorkspace
-    ? 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-w-line bg-w-panel/95 px-3 py-2 shadow-sm backdrop-blur'
-    : 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur'
-  const outlineButtonClass = inWorkspace ? 'rounded-[11px] border-w-line bg-transparent text-w-muted hover:border-w-accentDim hover:bg-w-panel2 hover:text-w-accentText' : undefined
-  const primaryButtonClass = inWorkspace ? 'rounded-[11px] bg-w-accent font-black text-black hover:bg-w-accent/90' : undefined
-  const ghostButtonClass = inWorkspace ? 'rounded-[11px] text-w-muted hover:bg-w-panel2 hover:text-w-accentText' : undefined
+    ? 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-panel border border-w-line bg-w-panel/95 px-3 py-2 shadow-sm backdrop-blur'
+    : 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-panel border border-p-line bg-white/95 px-3 py-2 shadow-sm backdrop-blur'
+  const outlineButtonClass = inWorkspace ? 'rounded-ctl border-w-line bg-transparent text-w-muted hover:border-w-accentDim hover:bg-w-panel2 hover:text-w-accentText' : undefined
+  const primaryButtonClass = inWorkspace ? 'rounded-ctl bg-w-accent font-black text-black hover:bg-w-accent/90' : undefined
+  const ghostButtonClass = inWorkspace ? 'rounded-ctl text-w-muted hover:bg-w-panel2 hover:text-w-accentText' : undefined
   const statusDotClass = (ok: boolean) => ok ? (inWorkspace ? 'bg-w-good' : 'bg-emerald-500') : (inWorkspace ? 'bg-w-accent' : 'bg-amber-400')
 
   return (
     <div className={pageClass}>
       {sourceStoppedAlert && (
-        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-lg', inWorkspace ? 'rounded-[14px] border border-w-danger/50 bg-w-danger/10' : 'rounded-[2px] border-2 border-red-600 bg-red-50')}>
+        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-lg', inWorkspace ? 'rounded-panel border border-w-danger/50 bg-w-danger/10' : 'rounded-panel border-2 border-red-600 bg-red-50')}>
           <div className="flex items-center gap-3">
             <AlertTriangle className={cn('h-5 w-5 shrink-0', inWorkspace ? 'text-w-danger' : 'text-red-700')} />
             <p className={cn('text-sm font-semibold', inWorkspace ? 'text-w-danger' : 'text-red-800')}>
               Показ экрана остановлен — запись прервалась. Сохранённый текст не потерян, но новый звук не пишется.
             </p>
           </div>
-          <Button size="sm" className={cn('shrink-0', inWorkspace ? 'rounded-[11px] bg-w-danger text-white hover:bg-w-danger/90' : 'bg-red-700 text-white hover:bg-red-800')} onClick={() => void handleStart('system')}>
+          <Button size="sm" className={cn('shrink-0', inWorkspace ? 'rounded-ctl bg-w-danger text-white hover:bg-w-danger/90' : 'bg-red-700 text-white hover:bg-red-800')} onClick={() => void handleStart('system')}>
             Возобновить показ экрана
           </Button>
         </div>
       )}
       {pendingCount > 0 && (
-        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-md', inWorkspace ? 'rounded-[14px] border border-w-accentDim/50 bg-w-accent/10' : 'rounded-[2px] border border-amber-300 bg-amber-50')}>
+        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-md', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10' : 'rounded-panel border border-amber-300 bg-amber-50')}>
           <p className={cn('text-sm font-medium', inWorkspace ? 'text-w-accentText' : 'text-amber-900')}>
             Текст сохраняется локально: {pendingCount} фрагм. в очереди. Не закрывайте вкладку до отправки.
           </p>
@@ -568,15 +588,15 @@ export const NoteSessionPage: React.FC = () => {
 
       {isReadOnly ? (
         <div className={cn(stickyClass, 'justify-start')}>
-          <span className={cn('h-2.5 w-2.5 rounded-full', inWorkspace ? 'bg-w-muted2' : 'bg-slate-300')} />
-          <span className={cn('text-sm', inWorkspace ? 'text-w-muted' : 'text-slate-700')}>
+          <span className={cn('h-2.5 w-2.5 rounded-full', inWorkspace ? 'bg-w-muted2' : 'bg-p-muted2')} />
+          <span className={cn('text-sm', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
             Конспект уже готов · только просмотр, запись недоступна
           </span>
         </div>
       ) : (
         <div className={stickyClass}>
-          <div className={cn('flex min-w-0 items-center gap-2 text-sm', inWorkspace ? 'text-w-muted' : 'text-slate-700')}>
-            <span className={cn('h-2.5 w-2.5 rounded-full', isDeepgramCapturing ? statusDotClass(true) : inWorkspace ? 'bg-w-muted2' : 'bg-slate-300')} />
+          <div className={cn('flex min-w-0 items-center gap-2 text-sm', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
+            <span className={cn('h-2.5 w-2.5 rounded-full', isDeepgramCapturing ? statusDotClass(true) : inWorkspace ? 'bg-w-muted2' : 'bg-p-muted2')} />
             <span className="truncate">{captureStatusText} · {recognitionStatusText}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -624,8 +644,8 @@ export const NoteSessionPage: React.FC = () => {
                 ))}
               </div>
 
-              <div className={cn('h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-slate-200')}>
-                <div className={cn('h-full transition-all', inWorkspace ? 'bg-w-accent' : 'bg-slate-950')} style={{ width: `${Math.min(100, Math.max(6, audioLevel * 220))}%` }} />
+              <div className={cn('h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
+                <div className={cn('h-full transition-all', inWorkspace ? 'bg-w-accent' : 'bg-p-text')} style={{ width: `${Math.min(100, Math.max(6, audioLevel * 220))}%` }} />
               </div>
 
               <p className={cn('text-xs', mutedClass)}>{audioStatus || 'Выберите источник и начните запись'}</p>
@@ -639,7 +659,7 @@ export const NoteSessionPage: React.FC = () => {
             ) : (
               <div className="grid gap-2">
                 <Button
-                  className={cn('justify-start', inWorkspace ? 'rounded-[11px] bg-w-accent font-black text-black hover:bg-w-accent/90' : 'bg-black text-white hover:bg-black/90')}
+                  className={cn('justify-start', inWorkspace ? 'rounded-ctl bg-w-accent font-black text-black hover:bg-w-accent/90' : undefined)}
                   onClick={() => void handleStart('mic')}
                   disabled={isDeepgramCapturing}
                 >
@@ -662,7 +682,7 @@ export const NoteSessionPage: React.FC = () => {
               </div>
             )}
 
-            <div className={cn('space-y-1 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-slate-200 text-slate-600')}>
+            <div className={cn('space-y-1 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-p-line text-p-muted')}>
               <div className="flex items-center justify-between gap-3">
                 <span>Фрагментов</span>
                 <span className={cn('font-medium', titleClass)}>{transcripts.length}</span>
@@ -678,7 +698,7 @@ export const NoteSessionPage: React.FC = () => {
             </div>
 
             {!isReadOnly && (
-              <div className={cn('space-y-2 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-slate-200 text-slate-600')}>
+              <div className={cn('space-y-2 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-p-line text-p-muted')}>
                 <div className="flex items-center justify-between gap-3">
                   <span>Резервных фрагментов</span>
                   <span className={cn('font-medium', titleClass)}>
@@ -701,9 +721,15 @@ export const NoteSessionPage: React.FC = () => {
                 {reconcileResult && (
                   <div className={cn(panelClass, 'mt-2 max-h-40 overflow-y-auto p-3')}>
                     <p className={cn('mb-1 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Резервный транскрипт</p>
-                    <p className={cn('whitespace-pre-wrap text-xs', inWorkspace ? 'text-w-muted' : 'text-slate-700')}>
-                      {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
-                    </p>
+                    {reconcileResult.queued ? (
+                      <p className={cn('text-xs', eyebrowClass)}>
+                        Распознавание поставлено в очередь — обрабатываем в фоне, не закрывайте страницу…
+                      </p>
+                    ) : (
+                      <p className={cn('whitespace-pre-wrap text-xs', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
+                        {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -726,9 +752,9 @@ export const NoteSessionPage: React.FC = () => {
             <CardDescription className={cardDescriptionClass}>Фрагменты сессии и промежуточная речь</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className={cn('h-[34rem] space-y-3 overflow-y-auto p-4', inWorkspace ? 'rounded-[14px] border border-w-line bg-w-panel2' : 'rounded-[2px] border border-slate-200 bg-white')}>
+            <div className={cn('h-[34rem] space-y-3 overflow-y-auto p-4', inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-white')}>
               {transcripts.length === 0 && !interimText ? (
-                <div className={cn('flex h-full items-center justify-center text-center', inWorkspace ? 'text-w-muted2' : 'text-slate-400')}>
+                <div className={cn('flex h-full items-center justify-center text-center', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>
                   Запустите запись, чтобы увидеть фрагменты транскрипции.
                 </div>
               ) : (
@@ -740,17 +766,17 @@ export const NoteSessionPage: React.FC = () => {
                       </span>
                       <div className="min-w-0 flex-1">
                         {entry.speaker && (
-                          <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-slate-200 bg-slate-50 text-slate-600')}>
+                          <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-p-line bg-p-bg text-p-muted')}>
                             {entry.speaker}
                           </span>
                         )}
-                        <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', inWorkspace ? 'text-w-ink' : 'text-slate-800')}>{entry.text}</p>
+                        <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', inWorkspace ? 'text-w-ink' : 'text-p-text')}>{entry.text}</p>
                       </div>
                     </div>
                   ))}
                   {interimText && (
                     <div className="flex gap-3 items-start">
-                      <span className={cn('w-16 shrink-0 text-xs tabular-nums', inWorkspace ? 'text-w-muted2' : 'text-slate-300')}>···</span>
+                      <span className={cn('w-16 shrink-0 text-xs tabular-nums', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>···</span>
                       <p className={cn('whitespace-pre-wrap text-sm italic leading-relaxed', mutedClass)}>{interimText}</p>
                     </div>
                   )}
@@ -759,7 +785,7 @@ export const NoteSessionPage: React.FC = () => {
             </div>
             {syncStatus ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>{syncStatus}</p> : null}
             {pendingCount > 0 && (
-              <div className={cn('mt-2 px-3 py-2 text-xs', inWorkspace ? 'rounded-[14px] border border-w-accentDim/50 bg-w-accent/10 text-w-accentText' : 'rounded-[2px] border border-amber-200 bg-amber-50 text-amber-800')}>
+              <div className={cn('mt-2 px-3 py-2 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-accentText' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-800')}>
                 Текст временно хранится на этом устройстве. Не закрывайте вкладку, пока очередь отправки не станет 0.
               </div>
             )}
@@ -782,7 +808,7 @@ export const NoteSessionPage: React.FC = () => {
             {draft ? (
               <>
                 {draft.ai_model === 'heuristic' && (
-                  <div className={cn('p-2.5 text-xs', inWorkspace ? 'rounded-[14px] border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-[2px] border border-amber-200 bg-amber-50 text-amber-900')}>
+                  <div className={cn('p-2.5 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-900')}>
                     Черновик собран по правилам — ИИ не отработал. Проверьте, что задан рабочий OPENAI_API_KEY и бэкенд перезапущен.
                   </div>
                 )}
@@ -792,7 +818,7 @@ export const NoteSessionPage: React.FC = () => {
                 </div>
                 <div>
                   <p className={cn('mb-2 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Конспект</p>
-                  <div className={cn('max-h-64 overflow-y-auto p-3 text-sm whitespace-pre-wrap', panelClass, inWorkspace ? 'text-w-ink' : 'text-slate-800')}>
+                  <div className={cn('max-h-64 overflow-y-auto p-3 text-sm whitespace-pre-wrap', panelClass, inWorkspace ? 'text-w-ink' : 'text-p-text')}>
                     {draft.summary_markdown}
                   </div>
                 </div>
@@ -815,7 +841,7 @@ export const NoteSessionPage: React.FC = () => {
                       {((draft.suggested_changes as { profile_notes: unknown[] }).profile_notes)
                         .filter((n): n is string => typeof n === 'string' && n.trim() !== '')
                         .map((text, i) => (
-                          <div key={i} className={cn('p-2.5 text-sm', inWorkspace ? 'rounded-[14px] border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-[2px] border border-amber-200 bg-amber-50 text-slate-900')}>
+                          <div key={i} className={cn('p-2.5 text-sm', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-panel border border-amber-200 bg-amber-50 text-p-text')}>
                             {text}
                           </div>
                         ))}
@@ -873,11 +899,11 @@ export const NoteSessionPage: React.FC = () => {
       {finishing && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
           <div className={cn('flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-2xl', inWorkspace ? 'border border-w-line bg-w-panel text-w-ink' : 'bg-white')}>
-            <div className={cn('flex items-center gap-3 border-b px-6 py-4', inWorkspace ? 'border-w-line' : 'border-slate-200')}>
-              <Loader2 className={cn('h-5 w-5 animate-spin', inWorkspace ? 'text-w-accentText' : 'text-slate-600')} />
-              <span className={cn('font-semibold', inWorkspace ? 'text-w-ink' : 'text-slate-800')}>Формирую и сохраняю конспект...</span>
+            <div className={cn('flex items-center gap-3 border-b px-6 py-4', inWorkspace ? 'border-w-line' : 'border-p-line')}>
+              <Loader2 className={cn('h-5 w-5 animate-spin', inWorkspace ? 'text-w-accentText' : 'text-p-muted')} />
+              <span className={cn('font-semibold', inWorkspace ? 'text-w-ink' : 'text-p-text')}>Формирую и сохраняю конспект...</span>
             </div>
-            <div className={cn('flex-1 overflow-y-auto p-6 text-sm', inWorkspace ? 'text-w-muted' : 'text-slate-600')}>
+            <div className={cn('flex-1 overflow-y-auto p-6 text-sm', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
               Конспект будет прикреплён к карточке студента после создания.
             </div>
           </div>
@@ -894,7 +920,7 @@ export const NoteSessionPage: React.FC = () => {
                 : 'В сессии пока нет фрагментов транскрипта. Конспект будет пустым или неинформативным.'}
             </DialogDescription>
           </DialogHeader>
-          <div className={cn('rounded-[11px] px-3 py-2 text-sm', inWorkspace ? 'border border-white/15 bg-white/[0.04] text-white/70' : cn(panelClass, mutedClass))}>
+          <div className={cn('rounded-ctl px-3 py-2 text-sm', inWorkspace ? 'border border-white/15 bg-white/[0.04] text-white/70' : cn(panelClass, mutedClass))}>
             Фрагментов: {transcripts.length} · ожидают отправки: {pendingCount}
           </div>
           <DialogFooter className="gap-2 sm:space-x-0">

@@ -6,13 +6,7 @@ import { workspaceApi } from '@/api/workspace'
 import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn } from '@/lib/utils'
-import {
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspaceInput,
-  WorkspacePageHeader,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { AppCard, AppInput, EmptyState, PageHeader, Pill } from '@/components/ui'
 
 export const WorkspaceRoadmapPage: React.FC = () => {
   const { params } = useWorkspaceScope()
@@ -36,30 +30,30 @@ export const WorkspaceRoadmapPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader colorPrefix="w"
         eyebrow="Кабинет ментора"
         title="Roadmap"
         description="Полный путь каждого студента: этапы, задачи, сроки и прогресс — на одном экране."
       />
 
       {missing > 0 && (
-        <div className="mb-5 flex items-center gap-3 rounded-[18px] border border-w-accentDim/40 bg-w-accent/10 px-4 py-3">
+        <div className="mb-5 flex items-center gap-3 rounded-card border border-w-accentDim/40 bg-w-accent/10 px-4 py-3">
           <AlertTriangle className="h-4 w-4 text-w-accentText" />
           <div className="text-sm font-bold text-w-accentText">Без roadmap: {missing}</div>
         </div>
       )}
 
       {isLoading ? (
-        <WorkspaceCard className="p-5 text-sm text-w-muted">Загрузка roadmap...</WorkspaceCard>
+        <AppCard colorPrefix="w" className="p-5 text-sm text-w-muted">Загрузка roadmap...</AppCard>
       ) : rows.length === 0 ? (
-        <WorkspaceEmptyState title="Студентов нет" text="После назначения студенты появятся здесь." />
+        <EmptyState colorPrefix="w" title="Студентов нет" description="После назначения студенты появятся здесь." />
       ) : (
         <div className="space-y-5">
-          <WorkspaceCard className="p-3">
+          <AppCard colorPrefix="w" className="p-3">
             <div className="relative">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
-                <WorkspaceInput
+                <AppInput colorPrefix="w"
                   value={search}
                   onChange={(event) => {
                     setSearch(event.target.value)
@@ -73,7 +67,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                 />
               </div>
               {studentListOpen && (
-                <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-72 overflow-y-auto rounded-[14px] border border-w-line bg-w-panel p-2 shadow-2xl shadow-black/20">
+                <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-72 overflow-y-auto rounded-panel border border-w-line bg-w-panel p-2 shadow-2xl shadow-black/20">
                   <button
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
@@ -83,7 +77,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                       setStudentListOpen(false)
                     }}
                     className={cn(
-                      'mb-1 flex w-full items-center justify-between rounded-[12px] px-3 py-2 text-left text-sm font-bold transition',
+                      'mb-1 flex w-full items-center justify-between rounded-ctl px-3 py-2 text-left text-sm font-bold transition',
                       !studentId ? 'bg-w-accent text-black' : 'text-w-muted hover:bg-w-panel2 hover:text-w-ink',
                     )}
                   >
@@ -104,7 +98,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                           setStudentListOpen(false)
                         }}
                         className={cn(
-                          'w-full rounded-[12px] px-3 py-2 text-left transition',
+                          'w-full rounded-ctl px-3 py-2 text-left transition',
                           studentId === row.student.id ? 'bg-w-accent text-black' : 'text-w-ink hover:bg-w-panel2',
                         )}
                       >
@@ -130,16 +124,16 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                 </button>
               )}
             </div>
-          </WorkspaceCard>
+          </AppCard>
 
           {visibleRows.length === 0 ? (
-            <WorkspaceEmptyState title="Ничего не найдено" text="Измените поиск или выберите всех студентов." />
+            <EmptyState colorPrefix="w" title="Ничего не найдено" description="Измените поиск или выберите всех студентов." />
           ) : (
             <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
               {visibleRows.map((row) => {
                 const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
                 return (
-                  <WorkspaceCard key={row.student.id} className="min-w-0 p-4">
+                  <AppCard colorPrefix="w" key={row.student.id} className="min-w-0 p-4">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -149,10 +143,10 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                         <div className="mt-1 truncate text-xs text-w-muted">{roadmap?.name || 'Roadmap не назначен'}</div>
                       </div>
                       {roadmap && (
-                        <WorkspaceStatusPill>
+                        <Pill colorPrefix="w">
                           {roadmap.country_flag_emoji ? `${roadmap.country_flag_emoji} ` : ''}
                           {roadmap.country_name || 'Страна не указана'}
-                        </WorkspaceStatusPill>
+                        </Pill>
                       )}
                     </div>
 
@@ -162,13 +156,13 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                         onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
                       />
                     ) : (
-                      <WorkspaceEmptyState
+                      <EmptyState colorPrefix="w"
                         icon={<Route className="h-5 w-5" />}
                         title="Roadmap не назначен"
-                        text="Назначение roadmap будет добавлено в кабинет отдельным действием."
+                        description="Назначение roadmap будет добавлено в кабинет отдельным действием."
                       />
                     )}
-                  </WorkspaceCard>
+                  </AppCard>
                 )
               })}
             </div>

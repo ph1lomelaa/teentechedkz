@@ -1,13 +1,13 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, UserX, UserCheck, LogOut } from 'lucide-react'
+import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock } from 'lucide-react'
 import { usersApi } from '@/api/index'
 import { User, UserRole, ROLE_LABELS } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
 import { getErrorMessage } from '@/lib/errorMessage'
 import {
   Dialog,
@@ -16,14 +16,14 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/ui/primitives/select'
 import {
   Table,
   TableBody,
@@ -31,9 +31,22 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/primitives/table'
 import { toast } from '@/hooks/use-toast'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader, StatCard } from '@/components/ui'
+
+const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'admin', 'mzk_manager', 'mentor', 'student']
+const ROLE_FILTER_LABELS: Record<UserRole | 'all', string> = {
+  all: 'Все роли',
+  ...ROLE_LABELS,
+}
+const STATUS_FILTER_OPTIONS = ['all', 'active', 'pending'] as const
+type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number]
+const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
+  all: 'Любой статус',
+  active: 'Активные',
+  pending: 'Ожидают активации',
+}
 
 interface UserForm {
   name: string
@@ -138,7 +151,7 @@ function UserModal({
             <p className="text-sm text-p-muted">
               Отправьте эту одноразовую ссылку сотруднику. По ней он задаст пароль и войдёт в систему. Ссылка действует 72 часа.
             </p>
-            <div className="rounded-[2px] border border-p-line bg-p-bg p-3 text-sm break-all">
+            <div className="rounded-panel border border-p-line bg-p-bg p-3 text-sm break-all">
               {inviteLink}
             </div>
             <DialogFooter>
@@ -240,11 +253,29 @@ export const SettingsUsersPage: React.FC = () => {
   const [editUser, setEditUser] = useState<User | undefined>()
   const [addOpen, setAddOpen] = useState(false)
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users', 'all'],
     queryFn: () => usersApi.list(),
   })
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<UserRole, number> = { admin: 0, mzk_manager: 0, mentor: 0, student: 0 }
+    users.forEach((u) => { counts[u.role] += 1 })
+    return counts
+  }, [users])
+  const pendingCount = useMemo(() => users.filter((u) => !u.is_active).length, [users])
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false
+      if (statusFilter === 'active' && !u.is_active) return false
+      if (statusFilter === 'pending' && u.is_active) return false
+      return true
+    })
+  }, [users, roleFilter, statusFilter])
 
   const toggleActiveMutation = useMutation({
     mutationFn: (user: User) =>
@@ -266,7 +297,7 @@ export const SettingsUsersPage: React.FC = () => {
 
   return (
     <div>
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Управление"
         title="Настройки"
         description="Аккаунт и пользователи"
@@ -279,13 +310,13 @@ export const SettingsUsersPage: React.FC = () => {
       />
 
       {currentUser && (
-        <div className="mb-8 border border-p-line rounded-[2px] p-5">
+        <div className="mb-8 border border-p-line rounded-card p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="label-caps mb-2">Текущий аккаунт</p>
               <h2 className="text-lg font-semibold text-p-text">{currentUser.name}</h2>
               <p className="text-sm text-p-muted mt-1">{currentUser.email}</p>
-              <span className="inline-flex mt-3 text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-[2px] font-medium uppercase tracking-wide">
+              <span className="inline-flex mt-3 text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-pill font-medium uppercase tracking-wide">
                 {ROLE_LABELS[currentUser.role]}
               </span>
             </div>
@@ -297,8 +328,64 @@ export const SettingsUsersPage: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-3">
+      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard
+          colorPrefix="p"
+          icon={<Users className="h-4 w-4" />}
+          label="Всего"
+          value={String(users.length)}
+          onClick={() => { setRoleFilter('all'); setStatusFilter('all') }}
+        />
+        <StatCard
+          colorPrefix="p"
+          label={ROLE_LABELS.student}
+          value={String(roleCounts.student)}
+          onClick={() => setRoleFilter('student')}
+        />
+        <StatCard
+          colorPrefix="p"
+          label={ROLE_LABELS.mentor}
+          value={String(roleCounts.mentor)}
+          onClick={() => setRoleFilter('mentor')}
+        />
+        <StatCard
+          colorPrefix="p"
+          label={ROLE_LABELS.mzk_manager}
+          value={String(roleCounts.mzk_manager)}
+          onClick={() => setRoleFilter('mzk_manager')}
+        />
+        <StatCard
+          colorPrefix="p"
+          icon={<Clock className="h-4 w-4" />}
+          label="Ожидают активации"
+          value={String(pendingCount)}
+          valueClassName={pendingCount > 0 ? 'text-amber-500' : undefined}
+          sub={pendingCount > 0 ? 'новые заявки' : undefined}
+          warn={pendingCount > 0}
+          onClick={() => { setRoleFilter('all'); setStatusFilter('pending') }}
+        />
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="label-caps">Пользователи</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as UserRole | 'all')}>
+            <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ROLE_FILTER_OPTIONS.map((val) => (
+                <SelectItem key={val} value={val}>{ROLE_FILTER_LABELS[val]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <SelectTrigger className="h-9 w-48 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {STATUS_FILTER_OPTIONS.map((val) => (
+                <SelectItem key={val} value={val}>{STATUS_FILTER_LABELS[val]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="border-y border-p-line">
@@ -320,19 +407,19 @@ export const SettingsUsersPage: React.FC = () => {
                   Загрузка...
                 </TableCell>
               </TableRow>
-            ) : users.length === 0 ? (
+            ) : filteredUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-p-muted">
-                  Нет пользователей
+                  Нет пользователей по выбранным фильтрам
                 </TableCell>
               </TableRow>
             ) : (
-              users.map((user) => (
+              filteredUsers.map((user) => (
                 <TableRow key={user.id} className="border-p-line hover:bg-p-bg">
                   <TableCell className="font-medium text-p-text">{user.name}</TableCell>
                   <TableCell className="text-p-muted">{user.email}</TableCell>
                   <TableCell>
-                    <span className="text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-[2px] font-medium uppercase tracking-wide">
+                    <span className="text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-pill font-medium uppercase tracking-wide">
                       {ROLE_LABELS[user.role]}
                     </span>
                   </TableCell>
@@ -340,7 +427,7 @@ export const SettingsUsersPage: React.FC = () => {
                     {user.telegram_username ?? '—'}
                   </TableCell>
                   <TableCell>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${user.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${user.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
                       {user.is_active ? 'Активен' : 'Неактивен'}
                     </span>
                   </TableCell>

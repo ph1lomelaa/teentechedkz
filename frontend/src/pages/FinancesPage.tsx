@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import {
   Table,
   TableBody,
@@ -24,51 +24,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/primitives/table'
 import { formatCurrency } from '@/lib/utils'
 import type { NotionFinanceSummary } from '@/api/notion'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
-
-function StatBlock({
-  label,
-  value,
-  fullValue,
-  hint,
-  tone = 'default',
-  onClick,
-}: {
-  label: string
-  value: string | number
-  fullValue?: string
-  hint: string
-  tone?: 'default' | 'positive' | 'negative'
-  onClick?: () => void
-}) {
-  const valueColor =
-    tone === 'positive'
-      ? 'text-emerald-700'
-      : tone === 'negative'
-        ? 'text-red-600'
-        : 'text-p-text'
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-w-0 border border-p-line rounded-[2px] p-5 text-left w-full ${
-        onClick ? 'cursor-pointer hover:bg-p-bg transition-colors' : ''
-      }`}
-    >
-      <p className="label-caps mb-3">{label}</p>
-      <p
-        className={`max-w-full truncate font-black tracking-tight leading-none text-[clamp(1.4rem,2vw,2rem)] ${valueColor}`}
-        title={fullValue}
-      >
-        {value}
-      </p>
-      <p className="text-xs text-p-muted mt-2">{hint}</p>
-    </button>
-  )
-}
+import { PageHeader, StatCard } from '@/components/ui'
+import { FileText, Wallet, CheckCircle2, AlertCircle } from 'lucide-react'
 
 const moneyCurrency = 'KZT'
 const toNumber = (value?: string) => Number.parseFloat(value ?? '0') || 0
@@ -89,10 +49,12 @@ function NotionMoneyTile({
   label,
   value,
   tone = 'default',
+  hint,
 }: {
   label: string
   value: number
   tone?: 'default' | 'positive' | 'negative'
+  hint?: string
 }) {
   const valueColor =
     tone === 'positive'
@@ -109,6 +71,7 @@ function NotionMoneyTile({
       >
         {value ? formatCompactMoney(value) : '—'}
       </p>
+      {hint && <p className="text-[10px] text-amber-600 mt-0.5 truncate" title={hint}>{hint}</p>}
     </div>
   )
 }
@@ -140,12 +103,17 @@ function NotionFinanceSection({
     'Пауза',
   ])
 
-  const groups: { title: string; tiles: { label: string; value: number; tone?: 'positive' | 'negative' }[] }[] = [
+  const remainingUnknownCount = data.client_remaining_total_count - data.client_remaining_known_count
+  const remainingHint = remainingUnknownCount > 0
+    ? `Известно по ${data.client_remaining_known_count} из ${data.client_remaining_total_count} — по остальным ${remainingUnknownCount} ячейка в Notion пустая, это не 0`
+    : undefined
+
+  const groups: { title: string; tiles: { label: string; value: number; tone?: 'positive' | 'negative'; hint?: string }[] }[] = [
     {
       title: 'Клиенты',
       tiles: [
         { label: 'Client fee', value: t.client_fee },
-        { label: 'Остаток клиентов', value: t.client_remaining, tone: 'negative' },
+        { label: 'Остаток клиентов', value: t.client_remaining, tone: 'negative', hint: remainingHint },
         { label: 'TOTAL (Company)', value: t.total_company, tone: 'positive' },
       ],
     },
@@ -202,7 +170,7 @@ function NotionFinanceSection({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {groups.map((group) => (
-          <div key={group.title} className="border border-p-line rounded-[2px] overflow-hidden">
+          <div key={group.title} className="border border-p-line rounded-card overflow-hidden">
             <button
               type="button"
               onClick={() => onSelect({
@@ -225,7 +193,7 @@ function NotionFinanceSection({
             </button>
             <div className="divide-y divide-gray-100">
               {group.tiles.map((tile) => (
-                <NotionMoneyTile key={tile.label} label={tile.label} value={tile.value} tone={tile.tone} />
+                <NotionMoneyTile key={tile.label} label={tile.label} value={tile.value} tone={tile.tone} hint={tile.hint} />
               ))}
             </div>
           </div>
@@ -240,13 +208,66 @@ function NotionFinanceSection({
                 key={s.status}
                 type="button"
                 onClick={() => onSelect({ source: 'notion', section: 'statuses' })}
-                className="text-[11px] px-2 py-0.5 rounded-[2px] border border-p-line bg-p-bg text-p-muted hover:bg-p-panel transition-colors"
+                className="text-[11px] px-2 py-0.5 rounded-pill border border-p-line bg-p-bg text-p-muted hover:bg-p-panel transition-colors"
               >
                 {s.status} · {s.count}
               </button>
             ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function DonutChart({ paid, remaining, currency }: { paid: number; remaining: number; currency: string }) {
+  const total = paid + remaining
+  const paidPct = total > 0 ? paid / total : 0
+  const circumference = 2 * Math.PI * 40
+  const paidLength = circumference * paidPct
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0 -rotate-90">
+        <circle cx="50" cy="50" r="40" fill="none" strokeWidth="14" className="stroke-p-bg" />
+        <circle
+          cx="50"
+          cy="50"
+          r="40"
+          fill="none"
+          strokeWidth="14"
+          strokeLinecap="round"
+          className="stroke-emerald-500"
+          strokeDasharray={`${paidLength} ${Math.max(circumference - paidLength, 0)}`}
+        />
+      </svg>
+      <div className="space-y-1.5 text-sm">
+        <div className="flex items-center gap-2 text-p-text">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+          Оплачено: {formatCompactMoney(paid, currency)} {total > 0 && `(${Math.round(paidPct * 100)}%)`}
+        </div>
+        <div className="flex items-center gap-2 text-p-text">
+          <span className="h-2 w-2 shrink-0 rounded-full border border-p-line bg-p-bg" />
+          Остаток: {formatCompactMoney(remaining, currency)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MonthlyRevenueChart({ data, currency }: { data: { key: string; label: string; total: number }[]; currency: string }) {
+  const max = Math.max(1, ...data.map((d) => d.total))
+  const maxBarPx = 96
+  return (
+    <div className="flex items-end gap-2 overflow-x-auto pb-1">
+      {data.map((d) => (
+        <div key={d.key} className="flex min-w-[32px] flex-1 flex-col items-center gap-1.5">
+          <div
+            className="w-full max-w-[26px] rounded-t bg-sky-500"
+            style={{ height: `${Math.max(3, Math.round((d.total / max) * maxBarPx))}px` }}
+            title={formatCurrency(d.total, currency)}
+          />
+          <span className="text-[10px] text-p-muted2">{d.label}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -301,7 +322,7 @@ function PortfolioBadge({
   if (!status) return <span className="text-xs text-p-muted">—</span>
   return (
     <div>
-      <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${PORTFOLIO_STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}>
+      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PORTFOLIO_STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}>
         {PORTFOLIO_STATUS_LABELS[status] || status}
       </span>
       <div className="text-[11px] text-p-muted mt-1">
@@ -378,7 +399,7 @@ function CalendarGrid({
         <button
           type="button"
           onClick={() => onMonthChange(new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1))}
-          className="h-6 w-6 flex items-center justify-center rounded border border-p-line text-p-muted hover:bg-p-bg"
+          className="h-6 w-6 flex items-center justify-center rounded-ctl border border-p-line text-p-muted hover:bg-p-bg"
           aria-label="Предыдущий месяц"
         >
           ‹
@@ -388,7 +409,7 @@ function CalendarGrid({
           <select
             value={monthStart.getFullYear()}
             onChange={(e) => onMonthChange(new Date(Number(e.target.value), monthStart.getMonth(), 1))}
-            className="border border-p-line rounded-[2px] bg-transparent text-sm px-1 py-0.5"
+            className="border border-p-line rounded-ctl bg-transparent text-sm px-1 py-0.5"
           >
             {years.map((y) => (
               <option key={y} value={y}>{y}</option>
@@ -398,7 +419,7 @@ function CalendarGrid({
         <button
           type="button"
           onClick={() => onMonthChange(new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1))}
-          className="h-6 w-6 flex items-center justify-center rounded border border-p-line text-p-muted hover:bg-p-bg"
+          className="h-6 w-6 flex items-center justify-center rounded-ctl border border-p-line text-p-muted hover:bg-p-bg"
           aria-label="Следующий месяц"
         >
           ›
@@ -423,7 +444,7 @@ function CalendarGrid({
               className="p-0.5"
             >
               <div
-                className={`inline-flex h-8 w-8 items-center justify-center rounded text-xs border transition-colors ${
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-ctl text-xs border transition-colors ${
                   isSelected
                     ? 'bg-p-text text-p-bg border-p-text'
                     : isToday
@@ -500,6 +521,7 @@ export const FinancesPage: React.FC = () => {
   const [pictureSort, setPictureSort] = React.useState<
     'remaining_desc' | 'name_asc' | 'mentor_tbp_desc' | 'english_tbp_desc' | 'up_tbp_desc'
   >('remaining_desc')
+  const [showDetailedTable, setShowDetailedTable] = React.useState(false)
   const docsQuery = useQuery({
     queryKey: ['payment-docs', docsModalPayment?.id],
     queryFn: () => (docsModalPayment ? paymentsApi.documentsForPayment(docsModalPayment.id) : []),
@@ -584,6 +606,19 @@ export const FinancesPage: React.FC = () => {
     return rows
   }, [notionRows, pictureSearch, pictureStatus, picturePortfolio, pictureOnlyDebt, pictureSort])
 
+  const pictureSummary = React.useMemo(() => {
+    let debtors = 0
+    let totalDebt = 0
+    notionRows.forEach((r) => {
+      const debt = (r.client_remaining || 0) + (r.english_tbp || 0) + (r.up_tbp || 0) + (r.mentor_tbp || 0)
+      if (debt > 0) {
+        debtors += 1
+        totalDebt += debt
+      }
+    })
+    return { debtors, totalDebt }
+  }, [notionRows])
+
   // «Живой» календарь платежей: CRM-остатки (введены вручную в договорах) +
   // остатки клиентов из Notion (реальный источник, если в CRM дата не заведена).
   // По одному студенту приоритет у CRM-записи — она точнее отражает актуальный статус.
@@ -651,6 +686,85 @@ export const FinancesPage: React.FC = () => {
     [calendarEvents, todayIso],
   )
 
+  // CRM — источник истины по остаткам клиентов; Notion — второй источник, сверяем расхождения,
+  // а не показываем как равнозначную цифру рядом.
+  const RECONCILE_TOLERANCE = 1000
+  const reconciliation = React.useMemo(() => {
+    const notionByStudent = new Map<string, (typeof notionRows)[number]>()
+    notionRows.forEach((r) => {
+      if (r.student_id) notionByStudent.set(r.student_id, r)
+    })
+    const mismatched: { student_id: string; student_name: string; crm_remaining: number; notion_remaining: number; diff: number }[] = []
+    let compared = 0
+    crmRows.forEach((c) => {
+      const notionRow = notionByStudent.get(c.student_id)
+      if (!notionRow) return
+      compared += 1
+      const crmRemaining = toNumber(c.remaining_amount)
+      const notionRemaining = notionRow.client_remaining || 0
+      const diff = Math.abs(crmRemaining - notionRemaining)
+      if (diff > RECONCILE_TOLERANCE) {
+        mismatched.push({
+          student_id: c.student_id,
+          student_name: c.student_name,
+          crm_remaining: crmRemaining,
+          notion_remaining: notionRemaining,
+          diff,
+        })
+      }
+    })
+    mismatched.sort((a, b) => b.diff - a.diff)
+    return { compared, mismatched }
+  }, [crmRows, notionRows])
+
+  const monthlyRevenue = React.useMemo(() => {
+    const currencyCounts = new Map<string, number>()
+    paymentsList.forEach((p: any) => {
+      if (p.type === 'client_payment' && p.status === 'paid') {
+        currencyCounts.set(p.currency, (currencyCounts.get(p.currency) ?? 0) + 1)
+      }
+    })
+    const dominantCurrency = [...currencyCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? moneyCurrency
+    const now = new Date()
+    const months: { key: string; label: string; total: number }[] = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      months.push({
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        label: d.toLocaleString('ru-RU', { month: 'short' }),
+        total: 0,
+      })
+    }
+    const byKey = new Map(months.map((m) => [m.key, m]))
+    let excludedOtherCurrency = 0
+    paymentsList.forEach((p: any) => {
+      if (p.type !== 'client_payment' || p.status !== 'paid' || !p.paid_at) return
+      if (p.currency !== dominantCurrency) {
+        excludedOtherCurrency += 1
+        return
+      }
+      const d = new Date(p.paid_at)
+      const bucket = byKey.get(`${d.getFullYear()}-${d.getMonth()}`)
+      if (bucket) bucket.total += Number(p.amount) || 0
+    })
+    return { months, dominantCurrency, excludedOtherCurrency }
+  }, [paymentsList])
+
+  const agingBuckets = React.useMemo(() => {
+    const buckets = {
+      b0_30: { count: 0, sum: 0 },
+      b31_60: { count: 0, sum: 0 },
+      b60: { count: 0, sum: 0 },
+    }
+    const todayMs = new Date(todayIso).getTime()
+    overdueEvents.forEach((e) => {
+      const days = Math.floor((todayMs - new Date(e.date).getTime()) / 86_400_000)
+      const key = days <= 30 ? 'b0_30' : days <= 60 ? 'b31_60' : 'b60'
+      buckets[key].count += 1
+      buckets[key].sum += e.remaining || 0
+    })
+    return buckets
+  }, [overdueEvents, todayIso])
 
   const selectedNotionRows = React.useMemo(() => {
     if (!selectedInsight || selectedInsight.source !== 'notion') return []
@@ -725,51 +839,163 @@ export const FinancesPage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <CrmPageHeader eyebrow="CRM" title="Финансы" description={(
+      <PageHeader eyebrow="CRM" title="Финансы" description={(
         <>
-          Верхний блок — договоры и платежи, внесённые в CRM. Блок «Из Notion» — живое зеркало
-          Notion-таблицы, обновляется автоматически раз в час и кнопкой «Синк Notion».
+          CRM — источник истины по договорам и платежам. Блок «Из Notion» — живое зеркало
+          Notion-таблицы для сверки, обновляется автоматически раз в час и кнопкой «Синк Notion».
         </>
       )} />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
-        <StatBlock
+        <StatCard
+          colorPrefix="p"
+          icon={<FileText className="h-4 w-4" />}
           label="Договоров"
-          value={summaryLoading ? '…' : summary?.total_contracts ?? 0}
-          hint="договоры в CRM"
+          value={summaryLoading ? '…' : String(summary?.total_contracts ?? 0)}
+          sub="договоры в CRM"
           onClick={() => setSelectedInsight({ source: 'crm', section: 'contracts' })}
         />
-        <StatBlock
+        <StatCard
+          colorPrefix="p"
+          icon={<Wallet className="h-4 w-4" />}
           label="Общая сумма"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_amount, summary?.currency ?? moneyCurrency)}
-          fullValue={formatMoney(summary?.total_amount, summary?.currency ?? moneyCurrency)}
-          hint="суммы договоров CRM"
+          valueTitle={formatMoney(summary?.total_amount, summary?.currency ?? moneyCurrency)}
+          sub="суммы договоров CRM"
           onClick={() => setSelectedInsight({ source: 'crm', section: 'summary' })}
         />
-        <StatBlock
+        <StatCard
+          colorPrefix="p"
+          icon={<CheckCircle2 className="h-4 w-4" />}
           label="Оплачено"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_paid, summary?.currency ?? moneyCurrency)}
-          fullValue={formatMoney(summary?.total_paid, summary?.currency ?? moneyCurrency)}
-          hint="платежи, внесённые в CRM"
-          tone="positive"
+          valueTitle={formatMoney(summary?.total_paid, summary?.currency ?? moneyCurrency)}
+          valueClassName="text-emerald-500"
+          sub="платежи, внесённые в CRM"
           onClick={() => setSelectedInsight({ source: 'crm', section: 'paid' })}
         />
-        <StatBlock
+        <StatCard
+          colorPrefix="p"
+          icon={<AlertCircle className="h-4 w-4" />}
           label="Остаток"
           value={summaryLoading ? '…' : formatCompactMoney(summary?.total_remaining, summary?.currency ?? moneyCurrency)}
-          fullValue={formatMoney(summary?.total_remaining, summary?.currency ?? moneyCurrency)}
-          hint="остатки из договоров CRM"
-          tone="negative"
+          valueTitle={formatMoney(summary?.total_remaining, summary?.currency ?? moneyCurrency)}
+          valueClassName="text-rose-500"
+          sub={
+            summary && summary.remaining_known_count < summary.total_contracts
+              ? `известно по ${summary.remaining_known_count} из ${summary.total_contracts} договоров`
+              : 'остатки из договоров CRM'
+          }
+          warn={!!summary && summary.remaining_known_count < summary.total_contracts}
           onClick={() => setSelectedInsight({ source: 'crm', section: 'remaining' })}
         />
       </div>
 
-      {/* Живые суммы из Notion-зеркала */}
+      {/* Графики: canonical CRM-картина */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3 mb-10">
+        <div className="border border-p-line rounded-card p-5">
+          <h3 className="text-sm font-semibold text-p-text mb-3">Оплачено vs остаток</h3>
+          <DonutChart
+            paid={toNumber(summary?.total_paid)}
+            remaining={toNumber(summary?.total_remaining)}
+            currency={summary?.currency ?? moneyCurrency}
+          />
+          {summary?.by_currency && summary.by_currency.length > 1 && (
+            <p className="mt-3 text-[11px] text-p-muted2">
+              Договоры есть в {summary.by_currency.length} валютах, показана {summary.currency}. Остальные не смешиваем: {' '}
+              {summary.by_currency
+                .filter((c) => c.currency !== summary.currency)
+                .map((c) => `${c.currency} — остаток ${formatCompactMoney(c.total_remaining, c.currency)}`)
+                .join(', ')}
+            </p>
+          )}
+        </div>
+        <div className="border border-p-line rounded-card p-5 lg:col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-p-text">Оплаты по месяцам</h3>
+            <span className="text-[11px] text-p-muted2">
+              {monthlyRevenue.dominantCurrency}
+              {monthlyRevenue.excludedOtherCurrency > 0 &&
+                ` · ${monthlyRevenue.excludedOtherCurrency} платежей в др. валюте не показаны`}
+            </span>
+          </div>
+          <MonthlyRevenueChart data={monthlyRevenue.months} currency={monthlyRevenue.dominantCurrency} />
+        </div>
+        <div className="border border-p-line rounded-card p-5 lg:col-span-3">
+          <h3 className="text-sm font-semibold text-p-text mb-3">Просрочка по возрасту</h3>
+          {overdueEvents.length === 0 ? (
+            <p className="text-sm text-p-muted">Просроченных платежей нет.</p>
+          ) : (
+            <div className="space-y-2">
+              {([
+                { key: 'b0_30', label: '0-30 дней', tone: 'bg-amber-400' },
+                { key: 'b31_60', label: '31-60 дней', tone: 'bg-orange-500' },
+                { key: 'b60', label: '60+ дней', tone: 'bg-red-600' },
+              ] as const).map(({ key, label, tone }) => {
+                const bucket = agingBuckets[key]
+                const max = Math.max(1, agingBuckets.b0_30.sum, agingBuckets.b31_60.sum, agingBuckets.b60.sum)
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-20 shrink-0 text-sm text-p-text">{label}</span>
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-p-bg">
+                      <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(2, (bucket.sum / max) * 100)}%` }} />
+                    </div>
+                    <span className="w-16 shrink-0 text-right text-xs text-p-muted">{bucket.count} шт</span>
+                    <span className="w-32 shrink-0 text-right text-sm font-semibold text-p-text">{formatMoney(bucket.sum)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Живые суммы из Notion-зеркала (только для сверки, не источник истины) */}
       <NotionFinanceSection data={notionSummary} onSelect={setSelectedInsight} />
 
+      {/* Сверка CRM (источник истины) с Notion */}
+      <div className="mb-10">
+        <div className="flex items-center justify-between mb-3">
+          <p className="label-caps">Сверка CRM ↔ Notion (остаток клиента)</p>
+          <p className="text-xs text-p-muted2">
+            сопоставлено {reconciliation.compared} студентов · расхождений {reconciliation.mismatched.length}
+          </p>
+        </div>
+        {reconciliation.mismatched.length === 0 ? (
+          <div className="border border-emerald-200 bg-emerald-50 rounded-card p-4 text-sm text-emerald-700">
+            Расхождений больше {formatMoney(RECONCILE_TOLERANCE)} нет — CRM и Notion сходятся.
+          </div>
+        ) : (
+          <div className="border border-amber-200 rounded-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Студент</TableHead>
+                  <TableHead>Остаток CRM</TableHead>
+                  <TableHead>Остаток Notion</TableHead>
+                  <TableHead className="text-right">Расхождение</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reconciliation.mismatched.slice(0, 20).map((row) => (
+                  <TableRow key={row.student_id}>
+                    <TableCell className="font-medium text-p-text">
+                      <Link to={`/students/${row.student_id}`} className="hover:underline">{row.student_name}</Link>
+                    </TableCell>
+                    <TableCell>{formatMoney(row.crm_remaining)}</TableCell>
+                    <TableCell>{formatMoney(row.notion_remaining)}</TableCell>
+                    <TableCell className="text-right font-semibold text-amber-700">{formatMoney(row.diff)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
       {overdueEvents.length > 0 && (
-        <div className="mb-6 border border-red-300 bg-red-50 rounded-[2px] p-4">
+        <div className="mb-6 border border-red-300 bg-red-50 rounded-card p-4">
           <p className="label-caps text-red-700 mb-2">
             Просрочено · {overdueEvents.length} · {formatMoney(overdueEvents.reduce((sum, e) => sum + (e.remaining || 0), 0))}
           </p>
@@ -812,7 +1038,7 @@ export const FinancesPage: React.FC = () => {
             Источники: CRM-договоры + Notion «Остаток клиента» · {calendarEvents.length} записей с датой
           </p>
         </div>
-        <div className="border border-p-line rounded-[2px] p-4">
+        <div className="border border-p-line rounded-card p-4">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="sm:col-span-1">
               <CalendarGrid
@@ -902,22 +1128,38 @@ export const FinancesPage: React.FC = () => {
       <div className="mb-10">
         <div className="flex items-center justify-between mb-3">
           <p className="label-caps">Полная финансовая картина (Notion) — по каждому клиенту</p>
-          <p className="text-xs text-p-muted2">
-            Английский / УП / Менторы / Портфолио · {filteredPictureRows.length} из {notionRows.length} клиентов
-          </p>
+          <button
+            type="button"
+            onClick={() => setShowDetailedTable((v) => !v)}
+            className="text-xs font-medium text-p-muted underline hover:text-p-text"
+          >
+            {showDetailedTable ? 'Скрыть таблицу' : 'Показать таблицу'}
+          </button>
         </div>
+        {!showDetailedTable ? (
+          <div className="border border-p-line rounded-card p-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span className="text-p-muted">
+              {notionRows.length} клиентов в Notion · {pictureSummary.debtors} с долгом
+            </span>
+            <span className="font-semibold text-red-600">Суммарный долг: {formatMoney(pictureSummary.totalDebt)}</span>
+          </div>
+        ) : (
+        <>
+        <p className="text-xs text-p-muted2 mb-3">
+          Английский / УП / Менторы / Портфолио · {filteredPictureRows.length} из {notionRows.length} клиентов
+        </p>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <input
             type="text"
             value={pictureSearch}
             onChange={(e) => setPictureSearch(e.target.value)}
             placeholder="Поиск по студенту или ментору…"
-            className="border border-p-line rounded-[2px] bg-transparent text-sm px-2 py-1 w-48"
+            className="border border-p-line rounded-ctl bg-transparent text-sm px-2 py-1 w-48"
           />
           <select
             value={pictureStatus}
             onChange={(e) => setPictureStatus(e.target.value)}
-            className="border border-p-line rounded-[2px] bg-transparent text-sm px-2 py-1"
+            className="border border-p-line rounded-ctl bg-transparent text-sm px-2 py-1"
           >
             <option value="all">Все статусы</option>
             {(notionSummary?.by_status ?? []).map((s) => (
@@ -927,7 +1169,7 @@ export const FinancesPage: React.FC = () => {
           <select
             value={picturePortfolio}
             onChange={(e) => setPicturePortfolio(e.target.value)}
-            className="border border-p-line rounded-[2px] bg-transparent text-sm px-2 py-1"
+            className="border border-p-line rounded-ctl bg-transparent text-sm px-2 py-1"
           >
             <option value="all">Портфолио: все</option>
             <option value="none">Без данных</option>
@@ -946,7 +1188,7 @@ export const FinancesPage: React.FC = () => {
           <select
             value={pictureSort}
             onChange={(e) => setPictureSort(e.target.value as typeof pictureSort)}
-            className="border border-p-line rounded-[2px] bg-transparent text-sm px-2 py-1 ml-auto"
+            className="border border-p-line rounded-ctl bg-transparent text-sm px-2 py-1 ml-auto"
           >
             <option value="remaining_desc">Сортировка: остаток клиента ↓</option>
             <option value="mentor_tbp_desc">Сортировка: долг менторам ↓</option>
@@ -1037,11 +1279,13 @@ export const FinancesPage: React.FC = () => {
             </TableBody>
           </Table>
         </div>
+        </>
+        )}
       </div>
 
       <div className="mb-10">
         <p className="label-caps mb-3">История платежей (последние)</p>
-        <div className="border border-p-line rounded-[2px] p-4">
+        <div className="border border-p-line rounded-card p-4">
           {(!paymentsList || paymentsList.length === 0) ? (
             <p className="text-p-muted">Платежей пока нет</p>
           ) : (
@@ -1104,7 +1348,7 @@ export const FinancesPage: React.FC = () => {
                 </TableRow>
               ) : (
                 mentorPayouts.map((payout) => (
-                  <TableRow key={payout.mentor_id} className="border-border hover:bg-muted/50">
+                  <TableRow key={`${payout.mentor_id}-${payout.currency ?? moneyCurrency}`} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-p-text">{payout.mentor_name}</TableCell>
                     <TableCell className="text-p-muted">
                       {formatCurrency(toNumber(payout.paid) + toNumber(payout.to_be_paid), payout.currency ?? moneyCurrency)}
@@ -1134,7 +1378,7 @@ export const FinancesPage: React.FC = () => {
           </DialogHeader>
 
           {selectedInsight?.source === 'crm' ? (
-            <div className="max-h-[70vh] overflow-auto border border-p-line rounded-[2px]">
+            <div className="max-h-[70vh] overflow-auto border border-p-line rounded-panel">
               <Table>
                 <TableHeader>
                   <TableRow className="border-p-line hover:bg-transparent">
@@ -1184,7 +1428,7 @@ export const FinancesPage: React.FC = () => {
                           <TableCell>
                             {row.pipeline_status ? (
                               <span
-                                className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[row.pipeline_status]}`}
+                                className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[row.pipeline_status]}`}
                               >
                                 {PIPELINE_STATUS_LABELS[row.pipeline_status] ?? row.pipeline_status}
                               </span>
@@ -1218,7 +1462,7 @@ export const FinancesPage: React.FC = () => {
             selectedInsight.section === 'statuses' ? (
               <div className="flex flex-wrap gap-2">
                 {notionSummary?.by_status.map((status) => (
-                  <div key={status.status} className="px-3 py-2 border border-p-line rounded-[2px]">
+                  <div key={status.status} className="px-3 py-2 border border-p-line rounded-panel">
                     <div className="text-[11px] uppercase tracking-wide text-p-muted2">{status.status}</div>
                     <div className="text-lg font-semibold text-p-text">{status.count}</div>
                   </div>
@@ -1228,25 +1472,25 @@ export const FinancesPage: React.FC = () => {
               <div>
                 {selectedSummary && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                    <div className="border border-p-line rounded-[2px] p-2">
+                    <div className="border border-p-line rounded-panel p-2">
                       <div className="text-[10px] uppercase tracking-wide text-p-muted2">
                         {NOTION_SECTION_COLUMNS[selectedInsight.section]?.[0] ?? 'Сумма'}
                       </div>
                       <div className="text-sm font-semibold text-p-text">{formatMoney(selectedSummary.sumA)}</div>
                     </div>
-                    <div className="border border-p-line rounded-[2px] p-2">
+                    <div className="border border-p-line rounded-panel p-2">
                       <div className="text-[10px] uppercase tracking-wide text-p-muted2">
                         {NOTION_SECTION_COLUMNS[selectedInsight.section]?.[1] ?? 'Выплачено'}
                       </div>
                       <div className="text-sm font-semibold text-emerald-700">{formatMoney(selectedSummary.sumB)}</div>
                     </div>
-                    <div className="border border-p-line rounded-[2px] p-2">
+                    <div className="border border-p-line rounded-panel p-2">
                       <div className="text-[10px] uppercase tracking-wide text-p-muted2">
                         {selectedInsight.section === 'clients' ? 'Долг клиентов' : 'Долг (TBP)'}
                       </div>
                       <div className="text-sm font-semibold text-red-600">{formatMoney(selectedSummary.outstandingSum)}</div>
                     </div>
-                    <div className="border border-p-line rounded-[2px] p-2">
+                    <div className="border border-p-line rounded-panel p-2">
                       <div className="text-[10px] uppercase tracking-wide text-p-muted2">Участников / должников</div>
                       <div className="text-sm font-semibold text-p-text">
                         {selectedSummary.participants} / {selectedSummary.outstandingCount}
@@ -1257,7 +1501,7 @@ export const FinancesPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div className="max-h-[60vh] overflow-auto border border-p-line rounded-[2px]">
+                <div className="max-h-[60vh] overflow-auto border border-p-line rounded-panel">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-p-line hover:bg-transparent">

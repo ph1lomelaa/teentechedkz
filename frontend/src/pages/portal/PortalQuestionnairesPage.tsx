@@ -35,7 +35,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center text-sm text-p-muted">
+        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center text-sm text-p-muted">
           Загрузка анкет…
         </div>
       ) : questionnaires.length === 0 ? (
@@ -136,9 +136,9 @@ function QuestionnaireCard({
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-4 border border-p-line rounded-[16px] bg-p-panel p-4 text-left hover:bg-p-panel2 transition-colors"
+      className="w-full flex items-center gap-4 border border-p-line rounded-panel bg-p-panel p-4 text-left hover:bg-p-panel2 transition-colors"
     >
-      <div className={`w-10 h-10 rounded-[12px] grid place-items-center shrink-0 ${isNew ? 'bg-brand/20' : 'bg-brand/10'}`}>
+      <div className={`w-10 h-10 rounded-panel grid place-items-center shrink-0 ${isNew ? 'bg-brand/20' : 'bg-brand/10'}`}>
         {isNew ? (
           <Clock className={`w-5 h-5 ${isNew ? 'text-brand' : 'text-brand/60'}`} />
         ) : (

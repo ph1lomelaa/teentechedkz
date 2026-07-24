@@ -5,15 +5,7 @@ import { ArrowRight, MessageCircle, Route, Search, Users, X } from 'lucide-react
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { debounce } from '@/lib/utils'
-import {
-  WorkspaceAvatar,
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspaceInput,
-  WorkspacePageHeader,
-  WorkspaceProgressBar,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { Avatar, AppCard, AppInput, EmptyState, PageHeader, ProgressBar, Pill } from '@/components/ui'
 
 export const WorkspaceStudentsPage: React.FC = () => {
   const { params, isPreview } = useWorkspaceScope()
@@ -51,7 +43,7 @@ export const WorkspaceStudentsPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader colorPrefix="w"
         eyebrow={scopeTitle}
         title="Студенты"
         description={scopeDescription}
@@ -60,7 +52,7 @@ export const WorkspaceStudentsPage: React.FC = () => {
       <div className="mb-5 w-full">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
-          <WorkspaceInput
+          <AppInput colorPrefix="w"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
@@ -84,13 +76,13 @@ export const WorkspaceStudentsPage: React.FC = () => {
 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => <WorkspaceCard key={i} className="h-52 animate-pulse" />)}
+          {[1, 2, 3, 4].map((i) => <AppCard colorPrefix="w" key={i} className="h-52 animate-pulse" />)}
         </div>
       ) : students.length === 0 ? (
-        <WorkspaceEmptyState
+        <EmptyState colorPrefix="w"
           icon={<Users className="h-5 w-5" />}
           title={debouncedSearch ? 'Ничего не найдено' : 'Студентов пока нет'}
-          text={
+          description={
             debouncedSearch
               ? 'Измените запрос или очистите поиск.'
               : isPreview
@@ -101,9 +93,9 @@ export const WorkspaceStudentsPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {students.map((item) => (
-            <WorkspaceCard key={item.student.id} className="flex flex-col p-5 hover:border-w-accentDim">
+            <AppCard colorPrefix="w" key={item.student.id} className="flex flex-col p-5 hover:border-w-accentDim">
               <div className="flex items-center gap-3.5">
-                <WorkspaceAvatar name={item.student.full_name} size={44} />
+                <Avatar name={item.student.full_name} size={44} />
                 <div className="min-w-0">
                   <Link to={`/workspace/students/${item.student.id}`} className="block truncate font-display text-[15px] font-extrabold text-w-ink hover:text-w-accentText">
                     {item.student.full_name}
@@ -121,7 +113,7 @@ export const WorkspaceStudentsPage: React.FC = () => {
                       <b className="min-w-0 truncate text-[13px] font-bold text-w-ink">{item.roadmap.name || 'Roadmap'}</b>
                     </div>
                     <div className="mt-3">
-                      <WorkspaceProgressBar value={item.roadmap.progress} />
+                      <ProgressBar colorPrefix="w" showLabel={false} value={item.roadmap.progress} />
                     </div>
                     <div className="mt-1.5 flex items-center justify-between gap-2 text-[11.5px] text-w-muted">
                       <span>
@@ -132,22 +124,22 @@ export const WorkspaceStudentsPage: React.FC = () => {
                     </div>
                   </>
                 ) : (
-                  <WorkspaceStatusPill tone="accent">
+                  <Pill colorPrefix="w" tone="accent">
                     <Route className="h-3.5 w-3.5" />
                     Roadmap не назначен
-                  </WorkspaceStatusPill>
+                  </Pill>
                 )}
               </div>
 
               <div className="mt-auto flex flex-wrap gap-2.5 pt-4">
-                <Link to={`/workspace/students/${item.student.id}`} className="inline-flex min-h-8 items-center gap-1.5 rounded-[11px] bg-w-accent px-3 py-1.5 text-[11.5px] font-black text-black transition hover:-translate-y-px">
+                <Link to={`/workspace/students/${item.student.id}`} className="inline-flex min-h-8 items-center gap-1.5 rounded-ctl bg-w-accent px-3 py-1.5 text-[11.5px] font-black text-black transition hover:-translate-y-px">
                   Открыть <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
-                <Link to={`/workspace/chat?student_id=${item.student.id}`} className="inline-flex min-h-8 items-center gap-1.5 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText">
+                <Link to={`/workspace/chat?student_id=${item.student.id}`} className="inline-flex min-h-8 items-center gap-1.5 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText">
                   <MessageCircle className="h-3.5 w-3.5" /> Чат
                 </Link>
               </div>
-            </WorkspaceCard>
+            </AppCard>
           ))}
         </div>
       )}

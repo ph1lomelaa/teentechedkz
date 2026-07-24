@@ -35,7 +35,7 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from '@/components/ui/accordion'
+} from '@/components/ui/primitives/accordion'
 import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
 import { WorkspaceAccessPanel } from '@/components/workspace/WorkspaceAccessPanel'
@@ -57,11 +57,7 @@ import {
 } from '@/types'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import {
-  WorkspaceButton,
-  WorkspaceSelect,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { AppButton, AppSelect, EmptyState, Pill, SegmentedTabs } from '@/components/ui'
 
 type WorkspaceTab = 'card' | 'roadmap' | 'tasks' | 'meetings' | 'documents' | 'telegram' | 'chat' | 'notes' | 'access'
 
@@ -103,9 +99,9 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     queryFn: () => studentsApi.get(studentId!),
     enabled: !!studentId,
   })
-  const { data: roadmap } = useQuery({
+  const { data: roadmaps = [] } = useQuery({
     queryKey: ['workspace', 'student', studentId, 'roadmap'],
-    queryFn: () => roadmapApi.studentRoadmap(studentId!),
+    queryFn: () => roadmapApi.studentRoadmaps(studentId!),
     enabled: !!studentId,
   })
   const { data: roadmapTemplates = [] } = useQuery({
@@ -228,7 +224,10 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       }),
   })
 
-  const roadmapTasks = useMemo(() => roadmap?.stages.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageName: stage.name }))) ?? [], [roadmap])
+  const roadmapTasks = useMemo(
+    () => roadmaps.flatMap((r) => r.stages.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageName: stage.name })))),
+    [roadmaps]
+  )
   const nextMeeting = meetings
     .filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now())
     .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())[0]
@@ -264,7 +263,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="mb-5 overflow-x-auto rounded-[18px] border border-w-line bg-w-panel p-2">
+      <div className="mb-5 overflow-x-auto rounded-card border border-w-line bg-w-panel p-2">
         <div className="flex min-w-max gap-1">
           {tabs.map((tab) => (
             <button
@@ -275,7 +274,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
                 window.history.replaceState(null, '', `#${tab.id}`)
               }}
               className={cn(
-                'inline-flex items-center gap-2 rounded-[13px] px-3.5 py-2.5 text-xs font-black transition',
+                'inline-flex items-center gap-2 rounded-ctl px-3.5 py-2.5 text-xs font-black transition',
                 activeTab === tab.id
                   ? 'bg-w-accent text-black'
                   : 'text-w-muted hover:bg-w-panel2 hover:text-w-ink'
@@ -297,7 +296,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
           intake={intake}
           notion={notion}
           canReconcile={canReconcile}
-          roadmapRecommendations={!roadmap ? roadmapRecommendations : []}
+          roadmapRecommendations={roadmaps.length === 0 ? roadmapRecommendations : []}
           onOpenRoadmap={() => {
             setActiveTab('roadmap')
             window.history.replaceState(null, '', '#roadmap')
@@ -312,7 +311,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       )}
 
       {activeTab === 'roadmap' && (
-        <RoadmapTab roadmap={roadmap} studentId={student.id} recommendedTemplateId={roadmapRecommendations[0]?.template.id} />
+        <RoadmapTab roadmaps={roadmaps} studentId={student.id} recommendedTemplateId={roadmapRecommendations[0]?.template.id} />
       )}
 
       {activeTab === 'tasks' && (
@@ -356,13 +355,13 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       )}
 
       {activeTab === 'notes' && (
-        <section className="rounded-[24px] border border-w-line bg-w-panel p-5">
+        <section className="rounded-card border border-w-line bg-w-panel p-5">
           <WorkspaceNotesPanel studentId={student.id} studentName={student.full_name} notes={student.confidential_notes ?? []} />
         </section>
       )}
 
       {activeTab === 'access' && (
-        <section className="rounded-[24px] border border-w-line bg-w-panel p-5">
+        <section className="rounded-card border border-w-line bg-w-panel p-5">
           <WorkspaceAccessPanel studentId={student.id} studentName={student.full_name} />
         </section>
       )}
@@ -525,7 +524,7 @@ function CardListView({
             {showNotion && notion?.finance?.length ? (
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Финансы из Notion · только просмотр</p>
-                <div className="overflow-x-auto rounded-[16px] border border-w-line bg-w-panel2">
+                <div className="overflow-x-auto rounded-panel border border-w-line bg-w-panel2">
                   <div className="min-w-[360px] divide-y divide-w-line">
                     {notion.finance.map((f) => (
                       <div key={f.label} className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2.5 text-sm">
@@ -542,7 +541,7 @@ function CardListView({
             ) : null}
           </div>
           {student.achievements_text && (
-            <div className="mt-4 rounded-[16px] border border-w-line bg-w-panel2 p-4">
+            <div className="mt-4 rounded-panel border border-w-line bg-w-panel2 p-4">
               <div className="text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Достижения</div>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-w-ink">{student.achievements_text}</p>
             </div>
@@ -599,7 +598,7 @@ function CardListView({
           ) : (
             <div className="space-y-3">
               {guardians.map((guardian) => (
-                <div key={guardian.id} className="rounded-[18px] border border-w-line bg-w-panel2 p-4">
+                <div key={guardian.id} className="rounded-card border border-w-line bg-w-panel2 p-4">
                   <div className="flex flex-wrap items-center gap-2"><span className="font-black text-w-ink">{guardian.full_name}</span>{guardian.is_primary && <Badge>Основной контакт</Badge>}</div>
                   <div className="mt-3 grid gap-2">
                     <InfoLine label="Кем приходится" value={guardian.relation || '—'} />
@@ -614,7 +613,7 @@ function CardListView({
 
         <WSection value="services" title="Программы и услуги" icon={<Briefcase className="h-4 w-4" />}>
           {services.length === 0 ? (
-            <EmptyState title="Программы не настроены" text="Программы появятся здесь после назначения." />
+            <EmptyState colorPrefix="w" title="Программы не настроены" description="Программы появятся здесь после назначения." />
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[820px]">
@@ -663,7 +662,7 @@ function WSection({
   children: React.ReactNode
 }) {
   return (
-    <AccordionItem value={value} className="overflow-hidden rounded-[20px] border border-w-line bg-w-panel px-5">
+    <AccordionItem value={value} className="overflow-hidden rounded-card border border-w-line bg-w-panel px-5">
       <AccordionTrigger className="py-4 font-display text-base font-black text-w-ink hover:no-underline">
         <span className="flex flex-wrap items-center gap-2.5">
           <span className="text-w-accentText">{icon}</span>
@@ -700,7 +699,7 @@ function IntakeTable({ intake }: { intake: StudentIntake }) {
           {intake.cases ? (intake.cases.submitted_at ? formatDate(intake.cases.submitted_at) : 'есть') : 'анкеты нет'}
         </span>
       </div>
-      <div className="overflow-x-auto rounded-[16px] border border-w-line">
+      <div className="overflow-x-auto rounded-panel border border-w-line">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-w-line text-left text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
@@ -808,7 +807,7 @@ function NotionBlock({
           )}
         </div>
       </div>
-      <div className="overflow-x-auto rounded-[16px] border border-w-line">
+      <div className="overflow-x-auto rounded-panel border border-w-line">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-w-line text-left text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
@@ -838,7 +837,7 @@ function NotionBlock({
                       type="button"
                       disabled={applyingField === row.field}
                       onClick={() => onApplyField(row.field)}
-                      className="rounded-[10px] border border-w-line px-2.5 py-1 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60"
+                      className="rounded-ctl border border-w-line px-2.5 py-1 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60"
                     >
                       {applyingField === row.field ? 'Применяем…' : 'Принять из Notion'}
                     </button>
@@ -913,7 +912,7 @@ function RoadmapRecommendations({ items, onOpen }: { items: RoadmapRecommendatio
     <Panel
       title="Какой Roadmap назначить"
       icon={<Route className="h-4 w-4" />}
-      action={<WorkspaceButton size="sm" onClick={onOpen}>Перейти к назначению</WorkspaceButton>}
+      action={<AppButton colorPrefix="w" size="sm" onClick={onOpen}>Перейти к назначению</AppButton>}
     >
       <p className="mb-4 text-sm leading-6 text-w-muted">
         Подсказки сформированы по стране, уровню обучения и году поступления из профиля студента.
@@ -924,7 +923,7 @@ function RoadmapRecommendations({ items, onOpen }: { items: RoadmapRecommendatio
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-bold text-w-ink">{item.template.name}</span>
-                {index === 0 && <WorkspaceStatusPill tone="accent">Рекомендуем</WorkspaceStatusPill>}
+                {index === 0 && <Pill colorPrefix="w" tone="accent">Рекомендуем</Pill>}
               </div>
               <div className="mt-1 text-xs text-w-muted">
                 {[item.template.country_name, item.template.degree, item.template.year].filter(Boolean).join(' · ')}
@@ -939,11 +938,11 @@ function RoadmapRecommendations({ items, onOpen }: { items: RoadmapRecommendatio
 }
 
 function RoadmapTab({
-  roadmap,
+  roadmaps,
   studentId,
   recommendedTemplateId,
 }: {
-  roadmap?: Awaited<ReturnType<typeof roadmapApi.studentRoadmap>>
+  roadmaps: Roadmap[]
   studentId: string
   recommendedTemplateId?: string
 }) {
@@ -952,19 +951,29 @@ function RoadmapTab({
   const canManageTemplates = hasRole('admin', 'mzk_manager')
   const canAssign = hasRole('admin', 'mzk_manager', 'mentor')
   const [templateId, setTemplateId] = useState(recommendedTemplateId || '')
+  const [selectedId, setSelectedId] = useState<string | null>(roadmaps[0]?.id ?? null)
+  const [showAssignForm, setShowAssignForm] = useState(false)
 
   useEffect(() => {
     if (!templateId && recommendedTemplateId) setTemplateId(recommendedTemplateId)
   }, [recommendedTemplateId, templateId])
 
+  useEffect(() => {
+    setSelectedId((current) => (current && roadmaps.some((r) => r.id === current)) ? current : roadmaps[0]?.id ?? null)
+  }, [roadmaps])
+
+  const selected = roadmaps.find((r) => r.id === selectedId) ?? null
+
   const { data: templates = [] } = useQuery({
     queryKey: ['roadmap-templates'],
     queryFn: roadmapApi.listTemplates,
-    enabled: canAssign && !roadmap,
+    enabled: canAssign && (roadmaps.length === 0 || showAssignForm),
   })
 
-  const applyRoadmap = (updated: Roadmap | null) => {
-    queryClient.setQueryData(['workspace', 'student', studentId, 'roadmap'], updated)
+  const applyRoadmap = (updated: Roadmap) => {
+    queryClient.setQueryData(['workspace', 'student', studentId, 'roadmap'], (current: Roadmap[] | undefined) =>
+      (current ?? []).map((r) => (r.id === updated.id ? updated : r))
+    )
     queryClient.invalidateQueries({ queryKey: ['workspace', 'student', studentId, 'summary'] })
     queryClient.invalidateQueries({ queryKey: ['workspace', 'roadmap'] })
     queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] })
@@ -973,7 +982,9 @@ function RoadmapTab({
   const assignMutation = useMutation({
     mutationFn: () => roadmapApi.assign(templateId, studentId),
     onSuccess: (rm) => {
-      applyRoadmap(rm)
+      queryClient.setQueryData(['workspace', 'student', studentId, 'roadmap'], (current: Roadmap[] | undefined) => [rm, ...(current ?? [])])
+      setSelectedId(rm.id)
+      setShowAssignForm(false)
       toast({ title: 'Roadmap назначен', description: 'Студент увидит его в кабинете.' })
     },
     onError: (err: unknown) => {
@@ -982,53 +993,105 @@ function RoadmapTab({
     },
   })
 
+  const archiveMutation = useMutation({
+    mutationFn: (roadmapId: string) => roadmapApi.archiveRoadmap(roadmapId),
+    onSuccess: (_rm, roadmapId) => {
+      queryClient.setQueryData(['workspace', 'student', studentId, 'roadmap'], (current: Roadmap[] | undefined) =>
+        (current ?? []).filter((r) => r.id !== roadmapId)
+      )
+      toast({ title: 'Roadmap архивирован' })
+    },
+    onError: () => toast({ title: 'Не удалось архивировать', variant: 'destructive' }),
+  })
+
+  const assignForm = (
+    templates.length === 0 ? (
+      <p className="text-center text-sm text-w-muted">
+        {canManageTemplates
+          ? 'Шаблонов пока нет — создайте их в разделе «Roadmap-шаблоны».'
+          : 'Шаблонов пока нет. Обратитесь к администратору.'}
+      </p>
+    ) : (
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <AppSelect colorPrefix="w"
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          className="min-w-[260px] bg-w-panel2"
+        >
+          <option value="">Выберите шаблон…</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} · {[t.country_name, t.degree, t.year].filter(Boolean).join(' ')} ({t.stage_count} эт.)
+            </option>
+          ))}
+        </AppSelect>
+        <AppButton colorPrefix="w"
+          disabled={!templateId || assignMutation.isPending}
+          onClick={() => assignMutation.mutate()}
+        >
+          {assignMutation.isPending ? 'Назначаем…' : 'Назначить'}
+        </AppButton>
+        {roadmaps.length > 0 && (
+          <AppButton colorPrefix="w" variant="ghost" onClick={() => setShowAssignForm(false)}>
+            Отмена
+          </AppButton>
+        )}
+      </div>
+    )
+  )
+
   return (
     <Panel
       title="Roadmap студента"
       icon={<Route className="h-4 w-4" />}
     >
-      {!roadmap ? (
+      {roadmaps.length === 0 ? (
         <div className="space-y-4">
           <EmptyState
+            colorPrefix="w"
             title="Roadmap не назначен"
-            text="Назначьте шаблон — этапы и задачи развернутся автоматически и сразу станут видны студенту в его кабинете."
+            description="Назначьте шаблон — этапы и задачи развернутся автоматически и сразу станут видны студенту в его кабинете."
           />
-          {canAssign ? (
-            templates.length === 0 ? (
-              <p className="text-center text-sm text-w-muted">
-                {canManageTemplates
-                  ? 'Шаблонов пока нет — создайте их в разделе «Roadmap-шаблоны».'
-                  : 'Шаблонов пока нет. Обратитесь к администратору.'}
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <WorkspaceSelect
-                  value={templateId}
-                  onChange={(e) => setTemplateId(e.target.value)}
-                  className="min-w-[260px] bg-w-panel2"
-                >
-                  <option value="">Выберите шаблон…</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} · {[t.country_name, t.degree, t.year].filter(Boolean).join(' ')} ({t.stage_count} эт.)
-                    </option>
-                  ))}
-                </WorkspaceSelect>
-                <WorkspaceButton
-                  disabled={!templateId || assignMutation.isPending}
-                  onClick={() => assignMutation.mutate()}
-                >
-                  {assignMutation.isPending ? 'Назначаем…' : 'Назначить'}
-                </WorkspaceButton>
-              </div>
-            )
-          ) : null}
+          {canAssign ? assignForm : null}
         </div>
       ) : (
-        <>
-          <RoadmapHeaderCard roadmap={roadmap} className="mb-5" />
-          <WorkspaceRoadmapEditor roadmap={roadmap} canManage onChanged={applyRoadmap} />
-        </>
+        <div className="space-y-4">
+          {roadmaps.length > 1 && (
+            <SegmentedTabs
+              colorPrefix="w"
+              value={selectedId ?? ''}
+              onChange={setSelectedId}
+              tabs={roadmaps.map((r) => ({ value: r.id, label: r.name }))}
+            />
+          )}
+          {canAssign && (
+            <div className="flex items-center justify-end gap-2">
+              {selected && (
+                <AppButton
+                  colorPrefix="w"
+                  variant="ghost"
+                  size="sm"
+                  disabled={archiveMutation.isPending}
+                  onClick={() => selected && archiveMutation.mutate(selected.id)}
+                >
+                  Архивировать этот roadmap
+                </AppButton>
+              )}
+              {!showAssignForm && (
+                <AppButton colorPrefix="w" variant="ghost" size="sm" onClick={() => setShowAssignForm(true)}>
+                  + Ещё один roadmap
+                </AppButton>
+              )}
+            </div>
+          )}
+          {showAssignForm && assignForm}
+          {selected && (
+            <>
+              <RoadmapHeaderCard roadmap={selected} className="mb-5" />
+              <WorkspaceRoadmapEditor roadmap={selected} canManage onChanged={applyRoadmap} />
+            </>
+          )}
+        </div>
       )}
     </Panel>
   )
@@ -1055,10 +1118,10 @@ function TasksTab({
   }, [roadmapTasks])
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full">
       <Panel title="Задачи для студента" icon={<BookOpen className="h-4 w-4" />}>
         {roadmapTasks.length === 0 ? (
-          <EmptyState title="Публичных задач нет" text="Они появятся после назначения roadmap." />
+          <EmptyState colorPrefix="w" title="Публичных задач нет" description="Они появятся после назначения roadmap." />
         ) : (
           <div className="space-y-5">
             {grouped.map(([stageName, tasks]) => (
@@ -1113,50 +1176,50 @@ function MeetingsTab({
 }) {
   return (
     <Panel title="Встречи" icon={<Calendar className="h-4 w-4" />}>
-      <div className="mb-5 rounded-[18px] border border-w-line bg-w-panel2 p-4">
+      <div className="mb-5 rounded-card border border-w-line bg-w-panel2 p-4">
         <div className="mb-3 text-sm font-black text-w-ink">Быстро создать встречу</div>
         <div className="grid gap-2 md:grid-cols-[1fr_220px]">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Название встречи"
-            className="min-h-10 rounded-[12px] border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
           />
           <input
             type="datetime-local"
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
-            className="min-h-10 rounded-[12px] border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none focus:border-w-accentDim"
+            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none focus:border-w-accentDim"
           />
           <input
             value={link}
             onChange={(e) => setLink(e.target.value)}
             placeholder="Zoom/Meet ссылка, если есть"
-            className="min-h-10 rounded-[12px] border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim md:col-span-2"
+            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim md:col-span-2"
           />
         </div>
         <button
           type="button"
           disabled={!title.trim() || !startsAt || isCreating}
           onClick={onCreate}
-          className="mt-3 rounded-[12px] bg-w-accent px-4 py-2 text-xs font-black text-black transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 rounded-ctl bg-w-accent px-4 py-2 text-xs font-black text-black transition disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isCreating ? 'Создаем...' : 'Создать встречу'}
         </button>
       </div>
       {meetings.length === 0 ? (
-        <EmptyState title="Встреч нет" text="Создайте первую встречу прямо здесь." />
+        <EmptyState colorPrefix="w" title="Встреч нет" description="Создайте первую встречу прямо здесь." />
       ) : (
         <div className="space-y-2">
           {meetings.map((meeting) => (
-            <div key={meeting.id} className="flex items-center gap-3 rounded-[16px] border border-w-line bg-w-panel2 p-3">
+            <div key={meeting.id} className="flex items-center gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
               <Clock className="h-4 w-4 shrink-0 text-w-accentText" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-bold text-w-ink">{meeting.title}</div>
                 <div className="text-xs text-w-muted">{formatDate(meeting.starts_at)} · {meeting.status}</div>
               </div>
               {meeting.meeting_link && (
-                <a href={meeting.meeting_link} target="_blank" rel="noreferrer" className="rounded-[10px] bg-w-accent px-3 py-1.5 text-xs font-black text-black">
+                <a href={meeting.meeting_link} target="_blank" rel="noreferrer" className="rounded-ctl bg-w-accent px-3 py-1.5 text-xs font-black text-black">
                   Join
                 </a>
               )}
@@ -1180,11 +1243,11 @@ function DocumentsTab({
   return (
     <Panel title="Документы" icon={<FileText className="h-4 w-4" />}>
       {documents.length === 0 ? (
-        <EmptyState title="Документов нет" text="Файлы из Telegram, сообщений и кабинета студента будут собираться здесь." />
+        <EmptyState colorPrefix="w" title="Документов нет" description="Файлы из Telegram, сообщений и кабинета студента будут собираться здесь." />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {documents.map((doc) => (
-            <div key={doc.id} className="rounded-[18px] border border-w-line bg-w-panel2 p-4">
+            <div key={doc.id} className="rounded-card border border-w-line bg-w-panel2 p-4">
               <div className="flex items-start gap-3">
                 <FileText className="mt-0.5 h-4 w-4 shrink-0 text-w-accentText" />
                 <div className="min-w-0">
@@ -1199,7 +1262,7 @@ function DocumentsTab({
                     type="button"
                     disabled={pendingDocId === doc.id}
                     onClick={() => onToggleVisibility(doc)}
-                    className="mt-3 rounded-[10px] border border-w-line px-3 py-1.5 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:cursor-wait disabled:opacity-60"
+                    className="mt-3 rounded-ctl border border-w-line px-3 py-1.5 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:cursor-wait disabled:opacity-60"
                   >
                     {pendingDocId === doc.id
                       ? 'Сохраняем...'
@@ -1236,11 +1299,11 @@ function TelegramTab({
       {chat && (
         <Panel title="Последние сообщения" icon={<MessageCircle className="h-4 w-4" />}>
           {messages.length === 0 ? (
-            <EmptyState title="Сообщений пока нет" text="Сообщения появятся после подключения группы и проверки готовности." />
+            <EmptyState colorPrefix="w" title="Сообщений пока нет" description="Сообщения появятся после подключения группы и проверки готовности." />
           ) : (
             <div className="space-y-2">
               {messages.slice(-10).reverse().map((message) => (
-                <div key={message.id} className="rounded-[16px] border border-w-line bg-w-panel2 p-3">
+                <div key={message.id} className="rounded-panel border border-w-line bg-w-panel2 p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-w-muted">
                     <span>{message.sender_name || 'Telegram'}</span>
                     <span>{formatDate(message.created_at)}</span>
@@ -1281,12 +1344,12 @@ function ChatTab({ studentId, studentName }: { studentId: string; studentName?: 
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <WorkspaceStatusPill>{children}</WorkspaceStatusPill>
+  return <Pill colorPrefix="w">{children}</Pill>
 }
 
 function Panel({ title, icon, action, children }: { title: string; icon: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-[24px] border border-w-line bg-w-panel p-5">
+    <section className="rounded-card border border-w-line bg-w-panel p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-display text-lg font-black text-w-ink">
           <span className="text-w-accentText">{icon}</span>
@@ -1301,7 +1364,7 @@ function Panel({ title, icon, action, children }: { title: string; icon: React.R
 
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-w-line bg-w-panel2 px-3 py-2">
+    <div className="rounded-panel border border-w-line bg-w-panel2 px-3 py-2">
       <div className="text-[10px] uppercase tracking-[0.16em] text-w-muted2">{label}</div>
       <div className="mt-1 min-h-5 text-sm font-bold text-w-ink">{value}</div>
     </div>
@@ -1311,7 +1374,7 @@ function InfoLine({ label, value }: { label: string; value: string }) {
 // Плитки быстрой сводки — как в карточке студента в CRM (п.1).
 function StatTile({ label, value, tone }: { label: string; value: string; tone?: 'warn' | 'good' }) {
   return (
-    <div className="rounded-[14px] border border-w-line bg-w-panel px-3 py-2.5">
+    <div className="rounded-panel border border-w-line bg-w-panel px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-[0.18em] text-w-muted2">{label}</div>
       <div
         className={cn(
@@ -1360,13 +1423,13 @@ function TaskRow({
   const meta = task.due_date ? `Этап: ${task.stageName} · дедлайн ${formatDate(task.due_date)}` : `Этап: ${task.stageName} · без дедлайна`
 
   return (
-    <div className="flex items-center gap-3.5 rounded-[12px] border border-w-line bg-w-panel2 px-3.5 py-3 transition hover:border-w-accentDim">
+    <div className="flex items-center gap-3.5 rounded-ctl border border-w-line bg-w-panel2 px-3.5 py-3 transition hover:border-w-accentDim">
       <button
         type="button"
         disabled={disabled || !onToggle}
         onClick={onToggle}
         className={cn(
-          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border-2 transition',
+          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-ctl border-2 transition',
           done ? 'border-w-accent bg-w-accent text-black' : 'border-w-muted2/70 bg-transparent text-transparent hover:border-w-accentDim',
           disabled && 'cursor-wait opacity-60'
         )}
@@ -1379,25 +1442,16 @@ function TaskRow({
         <div className="mt-0.5 truncate text-[11px] text-w-muted">{meta}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        <WorkspaceStatusPill tone={taskPriorityTone(task.priority)}>{taskPriorityLabel(task.priority)}</WorkspaceStatusPill>
-        <WorkspaceStatusPill tone={taskStatusTone(task.status)}>{taskStatusLabel(task.status)}</WorkspaceStatusPill>
+        <Pill colorPrefix="w" tone={taskPriorityTone(task.priority)}>{taskPriorityLabel(task.priority)}</Pill>
+        <Pill colorPrefix="w" tone={taskStatusTone(task.status)}>{taskStatusLabel(task.status)}</Pill>
       </div>
-    </div>
-  )
-}
-
-function EmptyState({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="rounded-[18px] border border-dashed border-w-line bg-w-panel2/50 p-6 text-center">
-      <div className="font-bold text-w-ink">{title}</div>
-      <div className="mx-auto mt-2 max-w-md text-sm text-w-muted">{text}</div>
     </div>
   )
 }
 
 function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> }) {
   return (
-    <div className="overflow-x-auto rounded-[16px] border border-w-line bg-w-panel2">
+    <div className="overflow-x-auto rounded-panel border border-w-line bg-w-panel2">
       <div className="min-w-[560px] divide-y divide-w-line">
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-[220px_1fr] items-start gap-4 px-3 py-2.5 text-sm">

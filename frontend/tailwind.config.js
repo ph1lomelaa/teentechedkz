@@ -19,7 +19,6 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Golos Text', 'system-ui', '-apple-system', 'sans-serif'],
-        serif: ['Playfair Display', 'Georgia', 'serif'],
         display: ['Archivo', 'Manrope', 'system-ui', 'sans-serif'],
         manrope: ['Manrope', 'system-ui', 'sans-serif'],
       },
@@ -62,17 +61,19 @@ export default {
         },
         sidebar: '#0c0d10',
         brand: { DEFAULT: '#FFD400', dim: '#C9A800', dark: '#E6BE00', ink: '#000000' },
-        // Design system colors (dark theme)
+        // Design system colors — theme-aware via --ds-*-rgb (set inside
+        // .crm-shell / .crm-shell[data-theme='light'] in index.css), same
+        // rgb(var(--x) / <alpha-value>) mechanism as the `w`/`p` tokens below.
         ds: {
-          bg: '#0A0A0A',
-          panel: '#141414',
-          panel2: '#1C1C1C',
-          line: '#2A2A2A',
+          bg: 'rgb(var(--ds-bg-rgb) / <alpha-value>)',
+          panel: 'rgb(var(--ds-panel-rgb) / <alpha-value>)',
+          panel2: 'rgb(var(--ds-panel2-rgb) / <alpha-value>)',
+          line: 'rgb(var(--ds-line-rgb) / <alpha-value>)',
           accent: '#FFD400',
           'accent-dim': '#C9A800',
-          ink: '#F5F5F3',
-          muted: '#9A9A94',
-          muted2: '#6E6E68',
+          ink: 'rgb(var(--ds-ink-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--ds-muted-rgb) / <alpha-value>)',
+          muted2: 'rgb(var(--ds-muted2-rgb) / <alpha-value>)',
           good: '#8BD46A',
           danger: '#FF6B6B',
         },
@@ -109,7 +110,13 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
-        card: '16px',
+        // One shared radius scale for the whole app (workspace/portal/CRM):
+        // controls (buttons/inputs/selects/chips) -> panels (dropdowns, nested
+        // rows) -> cards (the one primary-surface radius) -> pills (full).
+        ctl: '10px',
+        panel: '14px',
+        card: '20px',
+        pill: '9999px',
       },
       keyframes: {
         'accordion-down': {

@@ -3,10 +3,10 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, X } from 'lucide-react'
 import { notesApi } from '@/api/notes'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
+import { Textarea } from '@/components/ui/primitives/textarea'
 import { Markdown } from '@/components/shared/Markdown'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
@@ -39,15 +39,16 @@ function humanizeValue(value: unknown): string {
   return String(value)
 }
 
-function renderEntries(data: Record<string, unknown>, emptyLabel = 'Нет данных') {
+function renderEntries(data: Record<string, unknown>, emptyLabel = 'Нет данных', workspace = false) {
   const entries = Object.entries(data)
-  if (!entries.length) return <p className="text-sm text-slate-400">{emptyLabel}</p>
+  const mutedClass = workspace ? 'text-slate-400' : 'text-p-muted2'
+  if (!entries.length) return <p className={cn('text-sm', mutedClass)}>{emptyLabel}</p>
   return (
     <div className="grid gap-2">
       {entries.map(([key, value]) => (
-        <div key={key} className="rounded-[2px] border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{humanizeKey(key)}</div>
-          <div className="mt-1 text-sm text-slate-900 whitespace-pre-wrap break-words">{humanizeValue(value)}</div>
+        <div key={key} className={cn('rounded-panel border p-3', workspace ? 'border-slate-200 bg-slate-50' : 'border-p-line bg-p-bg')}>
+          <div className={cn('text-xs uppercase tracking-[0.2em]', workspace ? 'text-slate-500' : 'text-p-muted')}>{humanizeKey(key)}</div>
+          <div className={cn('mt-1 text-sm whitespace-pre-wrap break-words', workspace ? 'text-slate-900' : 'text-p-text')}>{humanizeValue(value)}</div>
         </div>
       ))}
     </div>
@@ -60,21 +61,23 @@ function renderDiffPreview(
     old_value: unknown
     new_value: unknown
   }>,
+  workspace = false,
 ) {
-  if (!preview.length) return <p className="text-sm text-slate-400">Нет предлагаемых изменений</p>
+  const mutedClass = workspace ? 'text-slate-400' : 'text-p-muted2'
+  if (!preview.length) return <p className={cn('text-sm', mutedClass)}>Нет предлагаемых изменений</p>
   return (
     <div className="grid gap-2">
       {preview.map((item) => (
-        <div key={item.field} className="rounded-[2px] border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{humanizeKey(item.field)}</div>
+        <div key={item.field} className={cn('rounded-panel border p-3', workspace ? 'border-slate-200 bg-slate-50' : 'border-p-line bg-p-bg')}>
+          <div className={cn('text-xs uppercase tracking-[0.2em]', workspace ? 'text-slate-500' : 'text-p-muted')}>{humanizeKey(item.field)}</div>
           <div className="mt-2 grid gap-2 text-sm">
             <div className="flex items-start justify-between gap-4">
-              <span className="text-slate-500">Сейчас</span>
-              <span className="text-slate-900 text-right whitespace-pre-wrap">{humanizeValue(item.old_value)}</span>
+              <span className={workspace ? 'text-slate-500' : 'text-p-muted'}>Сейчас</span>
+              <span className={cn('text-right whitespace-pre-wrap', workspace ? 'text-slate-900' : 'text-p-text')}>{humanizeValue(item.old_value)}</span>
             </div>
             <div className="flex items-start justify-between gap-4">
-              <span className="text-slate-500">После</span>
-              <span className="text-slate-900 text-right whitespace-pre-wrap">{humanizeValue(item.new_value)}</span>
+              <span className={workspace ? 'text-slate-500' : 'text-p-muted'}>После</span>
+              <span className={cn('text-right whitespace-pre-wrap', workspace ? 'text-slate-900' : 'text-p-text')}>{humanizeValue(item.new_value)}</span>
             </div>
           </div>
         </div>
@@ -163,13 +166,13 @@ export const NoteDetailPage: React.FC = () => {
   })
 
   if (isLoading) {
-    return <div className="py-12 text-center text-slate-400">Загрузка...</div>
+    return <div className={cn('py-12 text-center', inWorkspace ? 'text-slate-400' : 'text-p-muted2')}>Загрузка...</div>
   }
 
   if (!note) {
     return (
       <div className="py-12 text-center">
-        <p className="text-slate-500">Конспект не найден</p>
+        <p className={inWorkspace ? 'text-slate-500' : 'text-p-muted'}>Конспект не найден</p>
         <Button variant="outline" className="mt-4" asChild>
           <Link to={notesHome}>
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -194,37 +197,54 @@ export const NoteDetailPage: React.FC = () => {
       : {}),
   }
 
-  const preview = diff ? renderDiffPreview(diff.preview) : renderEntries(fieldChanges, 'Нет предлагаемых изменений')
+  const preview = diff
+    ? renderDiffPreview(diff.preview, inWorkspace)
+    : renderEntries(fieldChanges, 'Нет предлагаемых изменений', inWorkspace)
+
+  // Управление (approve/reject/publish/редактирование) живёт только в кабинете
+  // ментора (/workspace/meetings/notes/:id). В общем CRM-доступе (/notes/:id,
+  // видна admin/mzk_manager/mentor через общий сайдбар) страница — только чтение.
+  const canControl = inWorkspace
+
+  // NoteDetailPage is shared between the CRM (dark p-* theme) and the mentor's
+  // dark workspace shell — inWorkspace forces a clean light "document" surface
+  // there (literal slate colors, matches PortalNotesPage), while the CRM branch
+  // uses the same p-*/crm-* semantic tokens as the rest of the CRM.
+  const borderClass = inWorkspace ? 'border-slate-200' : 'border-p-line'
+  const backLinkClass = inWorkspace ? 'text-slate-600 hover:text-slate-950' : 'text-p-muted hover:text-p-text'
+  const eyebrowClass = inWorkspace ? 'text-yellow-500' : 'text-p-accent'
+  const titleClass = inWorkspace ? 'text-slate-950' : 'text-p-text'
+  const mutedClass = inWorkspace ? 'text-slate-500' : 'text-p-muted'
+  const cardClass = inWorkspace ? 'border-slate-200 bg-white' : 'border-p-line bg-white'
+  const cardTitleClass = inWorkspace ? 'text-base text-slate-900' : 'text-base text-p-text'
+  const panelClass = inWorkspace ? 'border-slate-200 bg-slate-50' : 'border-p-line bg-p-bg'
+  const panelMutedClass = inWorkspace ? 'text-slate-500' : 'text-p-muted'
 
   return (
-    // NoteDetailPage is light-themed and shared with the CRM. In the dark
-    // workspace shell its slate text would be unreadable dark-on-dark, so we
-    // render the конспект on a clean light "document" surface there (the student
-    // portal does the same in PortalNotesPage).
-    <div className={cn('space-y-5 max-w-6xl', inWorkspace && 'rounded-[24px] border border-w-line bg-white p-6 text-slate-900')}>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+    <div className={cn('space-y-5 max-w-6xl', inWorkspace && 'rounded-card border border-w-line bg-white p-6 text-slate-900')}>
+      <div className={cn('flex flex-wrap items-start justify-between gap-4 border-b pb-5', borderClass)}>
         <div>
-          <Button variant="ghost" size="sm" asChild className="mb-3 px-0 text-slate-600 hover:text-slate-950">
+          <Button variant="ghost" size="sm" asChild className={cn('mb-3 px-0', backLinkClass)}>
             <Link to={notesHome}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               К списку
             </Link>
           </Button>
-          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Конспект</div>
-          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-4xl">
+          <div className={cn('mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em]', eyebrowClass)}>Конспект</div>
+          <h1 className={cn('font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl', titleClass)}>
             {note.title}
           </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <div className={cn('mt-2 flex flex-wrap items-center gap-2 text-sm', mutedClass)}>
             <span>{note.student_name ?? 'Без привязки к студенту'}</span>
             <span>·</span>
             <span>{formatDate(note.created_at)}</span>
-            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+            <span className={cn('rounded-full border bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]', borderClass, mutedClass)}>
               {note.status}
             </span>
           </div>
         </div>
 
-        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager') && (
+        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager') && canControl && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -276,29 +296,29 @@ export const NoteDetailPage: React.FC = () => {
       </Dialog>
 
       <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card className="border-slate-200 bg-white">
+        <Card className={cardClass}>
           <CardHeader>
-            <CardTitle className="text-base text-slate-900">Конспект</CardTitle>
+            <CardTitle className={cardTitleClass}>Конспект</CardTitle>
             <CardDescription>Итоговый текст и исходный транскрипт</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Содержание</h3>
-              {note.status === 'draft' ? (
+              <h3 className={cn('text-sm font-semibold mb-2', mutedClass)}>Содержание</h3>
+              {note.status === 'draft' && canControl ? (
                 <Textarea
                   value={editedSummary}
                   onChange={(event) => setEditedSummary(event.target.value)}
-                  className="min-h-[260px] bg-slate-50"
+                  className={cn('min-h-[260px]', inWorkspace ? 'bg-slate-50' : 'bg-p-bg')}
                 />
               ) : (
-                <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-4">
+                <div className={cn('rounded-panel border p-4', panelClass)}>
                   <Markdown>{note.summary_markdown ?? ''}</Markdown>
                 </div>
               )}
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Исходный текст</h3>
-              <div className="rounded-[2px] border border-slate-200 bg-slate-50 p-4 whitespace-pre-wrap text-sm text-slate-700">
+              <h3 className={cn('text-sm font-semibold mb-2', mutedClass)}>Исходный текст</h3>
+              <div className={cn('rounded-panel border p-4 whitespace-pre-wrap text-sm', panelClass, panelMutedClass)}>
                 {note.source_text}
               </div>
             </div>
@@ -306,24 +326,24 @@ export const NoteDetailPage: React.FC = () => {
         </Card>
 
         <div className="space-y-4">
-          <Card className="border-slate-200 bg-white">
+          <Card className={cardClass}>
           <CardHeader>
-            <CardTitle className="text-base text-slate-900">Состояние</CardTitle>
+            <CardTitle className={cardTitleClass}>Состояние</CardTitle>
           </CardHeader>
             <CardContent>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-slate-500">Статус</span>
-                  <span className="text-slate-900">{note.status}</span>
+                  <span className={mutedClass}>Статус</span>
+                  <span className={titleClass}>{note.status}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-slate-500">Создан</span>
-                  <span className="text-slate-900">{formatDate(note.created_at)}</span>
+                  <span className={mutedClass}>Создан</span>
+                  <span className={titleClass}>{formatDate(note.created_at)}</span>
                 </div>
                 {note.reviewed_at && (
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-slate-500">Проверен</span>
-                    <span className="text-slate-900">{formatDate(note.reviewed_at)}</span>
+                    <span className={mutedClass}>Проверен</span>
+                    <span className={titleClass}>{formatDate(note.reviewed_at)}</span>
                   </div>
                 )}
                 {note.student_id && (
@@ -332,14 +352,14 @@ export const NoteDetailPage: React.FC = () => {
                   </Button>
                 )}
                 {note.student_id && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                  <div className={cn('mt-3 pt-3 border-t space-y-3', inWorkspace ? 'border-slate-100' : 'border-p-line')}>
                     <div className="flex items-center justify-between gap-4">
-                      <span className="text-slate-500">В кабинете ученика</span>
-                      <span className={note.published_to_student ? 'text-emerald-600 font-medium' : 'text-slate-900'}>
+                      <span className={mutedClass}>В кабинете ученика</span>
+                      <span className={note.published_to_student ? 'text-emerald-600 font-medium' : titleClass}>
                         {note.published_to_student ? 'опубликован' : 'не опубликован'}
                       </span>
                     </div>
-                    {note.status === 'approved' ? (
+                    {!canControl ? null : note.status === 'approved' ? (
                       <>
                         <div>
                           <label className="text-xs text-slate-500 block mb-1">Заголовок для ученика</label>
@@ -348,7 +368,7 @@ export const NoteDetailPage: React.FC = () => {
                             value={pubTitle}
                             onChange={(e) => setPubTitle(e.target.value)}
                             placeholder="напр. «Наша встреча»"
-                            className="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded-[2px] focus:outline-none focus:border-slate-500"
+                            className="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded-ctl focus:outline-none focus:border-slate-500"
                           />
                         </div>
                         {note.blocks && note.blocks.length > 0 && (
@@ -412,18 +432,18 @@ export const NoteDetailPage: React.FC = () => {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 bg-white">
+          <Card className={cardClass}>
           <CardHeader>
-            <CardTitle className="text-base text-slate-900">Предлагаемые изменения</CardTitle>
+            <CardTitle className={cardTitleClass}>Предлагаемые изменения</CardTitle>
             <CardDescription>Какие поля предлагается обновить в профиле</CardDescription>
           </CardHeader>
           <CardContent>{preview}</CardContent>
         </Card>
 
           {(profileNotes.length > 0 || note.status === 'draft') && (
-            <Card className="border-slate-200 bg-white">
+            <Card className={cardClass}>
               <CardHeader>
-                <CardTitle className="text-base text-slate-900">В заметки профиля</CardTitle>
+                <CardTitle className={cardTitleClass}>В заметки профиля</CardTitle>
                 <CardDescription>
                   {note.status === 'approved'
                     ? `Сохранено в заметки студента: ${savedNotesCount ?? profileNotes.length}`
@@ -431,7 +451,7 @@ export const NoteDetailPage: React.FC = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {note.status === 'draft' ? (
+                {note.status === 'draft' && canControl ? (
                   <div className="grid gap-2">
                     {editedProfileNotes.map((text, i) => (
                       <div key={i} className="flex items-start gap-2">
@@ -463,7 +483,7 @@ export const NoteDetailPage: React.FC = () => {
                 ) : (
                   <div className="grid gap-2">
                     {profileNotes.map((text, i) => (
-                      <div key={i} className="rounded-[2px] border border-amber-200 bg-amber-50 p-3 text-sm text-slate-900">
+                      <div key={i} className={cn('rounded-panel border border-amber-200 bg-amber-50 p-3 text-sm', titleClass)}>
                         {text}
                       </div>
                     ))}

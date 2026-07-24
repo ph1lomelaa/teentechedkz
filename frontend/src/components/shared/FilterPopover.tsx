@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Filter, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
 
 /** Кнопка «Фильтры» с бейджем активных фильтров + выпадающая панель.
  * Визуально повторяет панель фильтров «Общей базы студентов», чтобы все
@@ -34,7 +34,7 @@ export function FilterPopover({
         )}
       </Button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-[2px] border border-p-line bg-white shadow-lg">
+        <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg">
           <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
             <button type="button" className="text-p-muted2 hover:text-p-text" onClick={() => setOpen(false)} aria-label="Закрыть">
@@ -78,7 +78,7 @@ export function FilterChips({ chips, onResetAll }: { chips: FilterChip[]; onRese
       {chips.map((chip) => (
         <span
           key={chip.key}
-          className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-[2px] border border-p-line bg-p-bg text-p-text"
+          className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-pill border border-p-line bg-p-bg text-p-text"
         >
           {chip.label}
           <button
@@ -127,7 +127,7 @@ export function ResponsiblePicker({
         <button
           type="button"
           onClick={() => onChange('')}
-          className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+          className={`w-full text-left px-2 py-1.5 text-sm rounded-ctl border transition-colors ${
             value === '' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg text-p-text'
           }`}
         >
@@ -138,7 +138,7 @@ export function ResponsiblePicker({
             key={user.id}
             type="button"
             onClick={() => onChange(user.id)}
-            className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+            className={`w-full text-left px-2 py-1.5 text-sm rounded-ctl border transition-colors ${
               value === user.id ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg text-p-text'
             }`}
           >

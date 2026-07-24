@@ -39,7 +39,7 @@ export function Markdown({ children, className }: { children: string; className?
           p: ({ children }) => <p>{children}</p>,
           strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
           code: ({ children }) => (
-            <code className="px-1 py-0.5 bg-gray-100 rounded-[2px] text-[12px] font-mono text-gray-700">
+            <code className="px-1 py-0.5 bg-gray-100 rounded-ctl text-[12px] font-mono text-gray-700">
               {children}
             </code>
           ),
@@ -49,7 +49,7 @@ export function Markdown({ children, className }: { children: string; className?
             </a>
           ),
           table: ({ children }) => (
-            <table className="w-full text-sm border border-gray-200 rounded-[2px]">{children}</table>
+            <table className="w-full text-sm border border-gray-200 rounded-panel overflow-hidden">{children}</table>
           ),
           th: ({ children }) => (
             <th className="text-left px-2 py-1 border-b border-gray-200 label-caps">{children}</th>

@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # DB connection pool — sized per web-tier process. With N uvicorn workers,
+    # total connections to Postgres ≈ N × (DB_POOL_SIZE + DB_MAX_OVERFLOW),
+    # plus the arq worker's own pool — keep the sum comfortably under
+    # Postgres's max_connections (default 100).
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 5
+
     # Telegram — single bot handles mentor commands (private chats only)
     # plus client group ingestion (my_chat_member / group messages)
     TELEGRAM_BOT_TOKEN: str = ""

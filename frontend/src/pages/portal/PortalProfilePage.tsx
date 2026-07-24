@@ -62,7 +62,7 @@ export const PortalProfilePage: React.FC = () => {
           <AppCard className="h-fit">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Смена пароля</h2>
             {msg && (
-              <div className={`text-sm mb-3 px-3 py-2 rounded-[10px] ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-p-danger/10 text-p-danger'}`}>
+              <div className={`text-sm mb-3 px-3 py-2 rounded-ctl ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-p-danger/10 text-p-danger'}`}>
                 {msg.text}
               </div>
             )}

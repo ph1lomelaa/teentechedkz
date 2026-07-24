@@ -23,6 +23,11 @@ from app.services.user_emails import resolve_user_by_email
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 COOKIE_NAME = "refresh_token"
+# Two tabs/requests racing to refresh around the same time both hold the same
+# (about-to-rotate) cookie; the loser must not be logged out just because it
+# lost the race. Within this window after rotation, a reused token is treated
+# as a benign replay and answered with the token that superseded it.
+REFRESH_REUSE_GRACE_SECONDS = 20
 
 
 def _hash_token(token: str) -> str:
@@ -145,11 +150,33 @@ async def refresh(
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
-            RefreshToken.revoked == False,  # noqa: E712
             RefreshToken.expires_at > datetime.now(timezone.utc),
         )
     )
     rt = result.scalar_one_or_none()
+
+    if rt and rt.revoked:
+        # Another near-simultaneous request (typically a second open tab)
+        # already rotated this exact token. Within the grace window, follow
+        # the chain to the token that superseded it and answer with that one
+        # instead of forcing a re-login for the request that lost the race.
+        now = datetime.now(timezone.utc)
+        if (
+            rt.replaced_by_hash
+            and rt.revoked_at
+            and now - rt.revoked_at <= timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)
+        ):
+            current_result = await db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.token_hash == rt.replaced_by_hash,
+                    RefreshToken.revoked == False,  # noqa: E712
+                    RefreshToken.expires_at > now,
+                )
+            )
+            rt = current_result.scalar_one_or_none()
+        else:
+            rt = None
+
     if not rt:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
 
@@ -160,10 +187,13 @@ async def refresh(
 
     # Rotate refresh token
     rt.revoked = True
+    rt.revoked_at = datetime.now(timezone.utc)
     new_refresh_raw = create_refresh_token()
+    new_token_hash = _hash_token(new_refresh_raw)
+    rt.replaced_by_hash = new_token_hash
     new_rt = RefreshToken(
         user_id=user.id,
-        token_hash=_hash_token(new_refresh_raw),
+        token_hash=new_token_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
     db.add(new_rt)

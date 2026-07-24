@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { studentsApi } from '@/api/students'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 
 interface StudentPickerDialogProps {
   open: boolean
@@ -82,11 +82,11 @@ export function StudentPickerDialog({
         </DialogHeader>
         {confirming && selectedStudent ? (
           <div className="space-y-3">
-            <div className="rounded-[2px] border border-gray-200 bg-gray-50 p-3">
+            <div className="rounded-panel border border-gray-200 bg-gray-50 p-3">
               <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Сейчас привязан</p>
               <p className="mt-1 text-sm font-medium text-gray-900">{currentStudentLabel || 'Не указан'}</p>
             </div>
-            <div className="rounded-[2px] border border-amber-200 bg-amber-50 p-3">
+            <div className="rounded-panel border border-amber-200 bg-amber-50 p-3">
               <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Будет привязан</p>
               <p className="mt-1 text-sm font-semibold text-gray-950">{selectedStudent.full_name}</p>
               <p className="mt-1 text-xs text-amber-800">
@@ -105,7 +105,7 @@ export function StudentPickerDialog({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-[2px] divide-y divide-gray-100">
+            <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-panel divide-y divide-gray-100">
               {filtered.map((s) => (
                 <button
                   key={s.id}

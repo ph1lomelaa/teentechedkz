@@ -20,24 +20,24 @@ import {
   DEGREE_LEVEL_LABELS,
   SERVICE_TYPE_LABELS,
 } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Checkbox } from '@/components/ui/checkbox'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
+import { Textarea } from '@/components/ui/primitives/textarea'
+import { Checkbox } from '@/components/ui/primitives/checkbox'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { ToastAction } from '@/components/ui/toast'
+} from '@/components/ui/primitives/select'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives/card'
+import { ToastAction } from '@/components/ui/primitives/toast'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 
 const STEPS = [
   'Студент',
@@ -275,7 +275,7 @@ export const NewStudentPage: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <CrmPageHeader
+        <PageHeader
           eyebrow="Студенты"
           title="Новый студент"
           description="Заполните основные данные и настройте сопровождение студента."
@@ -288,7 +288,7 @@ export const NewStudentPage: React.FC = () => {
               <div className="flex flex-col items-center">
                 <div
                   className={cn(
-                    'w-8 h-8 rounded-[2px] flex items-center justify-center text-sm font-semibold transition-colors border',
+                    'w-8 h-8 rounded-ctl flex items-center justify-center text-sm font-semibold transition-colors border',
                     i < step
                       ? 'border-p-line text-p-muted'
                       : i === step
@@ -536,7 +536,7 @@ export const NewStudentPage: React.FC = () => {
           {step === 3 && (
             <div className="space-y-4">
               {services.map((svc, i) => (
-                <div key={svc.service_type} className="border border-p-line rounded-[2px] p-4">
+                <div key={svc.service_type} className="border border-p-line rounded-panel p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <Checkbox
                       checked={svc.included}
@@ -574,7 +574,7 @@ export const NewStudentPage: React.FC = () => {
           {step === 4 && (
             <div className="space-y-3">
               {countries.map((c, i) => (
-                <div key={i} className="flex items-center gap-3 border border-p-line rounded-[2px] p-3">
+                <div key={i} className="flex items-center gap-3 border border-p-line rounded-panel p-3">
                   <div className="flex-1">
                     <Select
                       value={c.country}

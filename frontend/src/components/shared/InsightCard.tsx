@@ -40,16 +40,16 @@ export function InsightCard({ insight, onApprove, onReject, isPending, showStude
         </span>
         <div className="flex items-center gap-1.5">
           {insight.risk_level === 'sensitive' && (
-            <span className="rounded-[6px] border border-ds-danger/30 bg-ds-danger/10 px-1.5 py-0.5 text-[11px] text-ds-danger">
+            <span className="rounded-pill border border-ds-danger/30 bg-ds-danger/10 px-1.5 py-0.5 text-[11px] text-ds-danger">
               чувствительно
             </span>
           )}
           {insight.auto_applied && (
-            <span className="rounded-[6px] border border-ds-line bg-ds-panel2 px-1.5 py-0.5 text-[11px] text-ds-muted">
+            <span className="rounded-pill border border-ds-line bg-ds-panel2 px-1.5 py-0.5 text-[11px] text-ds-muted">
               авто
             </span>
           )}
-          <span className="rounded-[6px] border border-ds-line bg-ds-panel2 px-1.5 py-0.5 text-[11px] text-ds-muted">
+          <span className="rounded-pill border border-ds-line bg-ds-panel2 px-1.5 py-0.5 text-[11px] text-ds-muted">
             {INSIGHT_STATUS_LABELS[insight.status] ?? insight.status}
           </span>
         </div>
@@ -67,7 +67,7 @@ export function InsightCard({ insight, onApprove, onReject, isPending, showStude
       )}
 
       {unmatchedEntries.length > 0 && (
-        <div className="space-y-1 rounded-[8px] border border-ds-accent-dim/40 bg-ds-accent/10 p-2">
+        <div className="space-y-1 rounded-panel border border-ds-accent-dim/40 bg-ds-accent/10 p-2">
           <p className="text-[11px] font-bold text-ds-accent">Не сопоставлено с полями профиля:</p>
           {unmatchedEntries.map(([field, value]) => (
             <div key={field} className="text-xs text-ds-ink">

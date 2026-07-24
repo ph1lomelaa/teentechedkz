@@ -78,6 +78,32 @@ services:
              python -m app.core.seed &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tte_worker
+    env_file: .env
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tte}:${POSTGRES_PASSWORD:-tte}@postgres:5432/${POSTGRES_DB:-tte_db}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+      - ./migration:/app/migration
+      - .:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+    command: >
+      sh -c "until nc -z postgres 5432; do echo 'Waiting for postgres...'; sleep 2; done &&
+             arq app.worker.WorkerSettings"
+
   frontend:
     build:
       context: ./frontend

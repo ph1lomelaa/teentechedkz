@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Check, FileText, Video, ClipboardList } from 'lucide-react'
-import { roadmapApi, Roadmap, RoadmapStage, RoadmapTask, ItemStatus } from '@/api/roadmap'
+import { Roadmap, RoadmapStage, RoadmapTask, ItemStatus } from '@/api/roadmap'
 import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { questionnairesApi } from '@/api/questionnaires'
@@ -37,11 +37,9 @@ function plural(n: number, forms: [string, string, string]): string {
 }
 
 
-export const PortalRoadmap: React.FC<{ roadmap: Roadmap; onChanged: (r: Roadmap) => void }> = ({
+export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
   roadmap,
-  onChanged,
 }) => {
-  const [busy, setBusy] = useState(false)
   const [expandedTask, setExpandedTask] = useState<string | null>(null)
 
   const currentIdx = Math.max(
@@ -50,19 +48,6 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap; onChanged: (r: Roadmap)
   )
   const [selected, setSelected] = useState(currentIdx === -1 ? 0 : currentIdx)
   const stage = roadmap.stages[selected]
-
-  const run = async (fn: () => Promise<Roadmap>) => {
-    if (busy) return
-    setBusy(true)
-    try {
-      onChanged(await fn())
-    } finally {
-      setBusy(false)
-    }
-  }
-  const toggleTask = (t: RoadmapTask) =>
-    run(() => roadmapApi.updateTask(t.id, { status: t.status === 'done' ? 'planned' : 'done' }))
-  const toggleSub = (id: string, isDone: boolean) => run(() => roadmapApi.updateSubtask(id, { is_done: !isDone }))
 
   const n = roadmap.stages.length
   const fillPct = n > 0 ? Math.min(100, Math.round((roadmap.stages.reduce((acc, s) => acc + (s.status === 'done' ? 1 : s.status === 'in_progress' ? 0.5 : 0), 0) / n) * 100)) : 0
@@ -101,8 +86,6 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap; onChanged: (r: Roadmap)
       {stage && (
         <StageDetail
           stage={stage}
-          onToggleTask={toggleTask}
-          onToggleSub={toggleSub}
           expandedTask={expandedTask}
           onExpandTask={setExpandedTask}
         />
@@ -121,15 +104,15 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap; onChanged: (r: Roadmap)
             </div>
 
             {st.tasks.length === 0 ? (
-              <div className="rounded-[13px] border border-dashed border-p-line px-4 py-3.5 text-xs text-p-muted2">
+              <div className="rounded-panel border border-dashed border-p-line px-4 py-3.5 text-xs text-p-muted2">
                 В этом этапе пока нет задач
               </div>
             ) : (
               <div className="space-y-2.5">
                 {st.tasks.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3.5 rounded-[13px] border border-p-line bg-p-panel px-[18px] py-[15px] transition hover:translate-x-[3px] hover:border-p-accent-dim">
+                  <div key={t.id} className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel px-[18px] py-[15px] transition hover:translate-x-[3px] hover:border-p-accent-dim">
                     <div className={cn(
-                      'grid h-[34px] w-[34px] flex-none place-items-center rounded-[9px] transition',
+                      'grid h-[34px] w-[34px] flex-none place-items-center rounded-ctl transition',
                       t.status === 'done' ? 'bg-brand text-black' : 'bg-p-panel2 text-brand'
                     )}>
                       {t.status === 'done' ? <Check className="w-4 h-4" strokeWidth={3} /> : <FileText className="w-4 h-4" strokeWidth={1.8} />}
@@ -171,15 +154,13 @@ const StageNode: React.FC<{ index: number; status: ItemStatus; selected: boolean
 
 const StageDetail: React.FC<{
   stage: RoadmapStage
-  onToggleTask: (t: RoadmapTask) => void
-  onToggleSub: (id: string, isDone: boolean) => void
   expandedTask?: string | null
   onExpandTask?: (id: string | null) => void
-}> = ({ stage, onToggleTask, onToggleSub, expandedTask, onExpandTask }) => {
+}> = ({ stage, expandedTask, onExpandTask }) => {
   const filtered = stage.tasks
 
   return (
-    <div className="mt-5 border border-p-line rounded-[16px] bg-p-panel overflow-hidden">
+    <div className="mt-5 border border-p-line rounded-panel bg-p-panel overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 bg-p-panel2 border-b border-p-line">
         <b className="font-display text-[15px] font-extrabold text-p-text">Этап: {stage.name}</b>
         <span className="text-[11px] font-bold text-brand">{STATUS_LABEL[stage.status]}</span>
@@ -191,16 +172,15 @@ const StageDetail: React.FC<{
         {filtered.map((t, i) => (
           <div key={t.id} className={cn('py-3.5', i < filtered.length - 1 && 'border-b border-p-line')}>
             <div className="flex items-center gap-3.5">
-              <button
-                onClick={() => onToggleTask(t)}
+              <div
                 className={cn(
-                  'w-[34px] h-[34px] rounded-[9px] grid place-items-center shrink-0 transition-colors',
-                  t.status === 'done' ? 'bg-brand text-black' : 'bg-p-panel2 text-brand hover:bg-p-panel2/70'
+                  'w-[34px] h-[34px] rounded-ctl grid place-items-center shrink-0',
+                  t.status === 'done' ? 'bg-brand text-black' : 'bg-p-panel2 text-brand'
                 )}
-                aria-label={t.status === 'done' ? 'Снять отметку' : 'Отметить готовым'}
+                aria-hidden="true"
               >
                 {t.status === 'done' ? <Check className="w-[17px] h-[17px]" strokeWidth={2.6} /> : <FileText className="w-[17px] h-[17px]" strokeWidth={1.8} />}
-              </button>
+              </div>
               <div className="flex-1 min-w-0">
                 <button
                   onClick={() => onExpandTask?.(expandedTask === t.id ? null : t.id)}
@@ -221,14 +201,10 @@ const StageDetail: React.FC<{
             {expandedTask === t.id && t.subtasks.length > 0 && (
               <div className="pl-[36px] mt-2 grid gap-1.5">
                 {t.subtasks.map((st) => (
-                  <button
-                    key={st.id}
-                    onClick={() => onToggleSub(st.id, st.is_done)}
-                    className="flex items-center gap-2.5 text-left hover:opacity-75 transition-opacity"
-                  >
+                  <div key={st.id} className="flex items-center gap-2.5">
                     <span
                       className={cn(
-                        'w-[15px] h-[15px] rounded border grid place-items-center shrink-0 transition-colors hover:border-brand',
+                        'w-[15px] h-[15px] rounded border grid place-items-center shrink-0',
                         st.is_done ? 'bg-brand border-brand text-black' : 'border-p-muted2 text-transparent'
                       )}
                     >
@@ -237,7 +213,7 @@ const StageDetail: React.FC<{
                     <span className={cn('text-[12.5px]', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
                       {st.title}
                     </span>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}

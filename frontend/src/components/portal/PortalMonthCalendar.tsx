@@ -73,13 +73,13 @@ export const PortalMonthCalendar: React.FC<{ meetings: Meeting[] }> = ({ meeting
   const nextMonth = () => setCurrent((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))
 
   return (
-    <div className="rounded-[16px] border border-p-line bg-p-panel p-4 sm:p-5">
+    <div className="rounded-panel border border-p-line bg-p-panel p-4 sm:p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={prevMonth}
           aria-label="Предыдущий месяц"
-          className="grid h-9 w-9 flex-none place-items-center rounded-[11px] border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-text"
+          className="grid h-9 w-9 flex-none place-items-center rounded-ctl border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-text"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -88,7 +88,7 @@ export const PortalMonthCalendar: React.FC<{ meetings: Meeting[] }> = ({ meeting
           type="button"
           onClick={nextMonth}
           aria-label="Следующий месяц"
-          className="grid h-9 w-9 flex-none place-items-center rounded-[11px] border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-text"
+          className="grid h-9 w-9 flex-none place-items-center rounded-ctl border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-text"
         >
           <ChevronRight className="h-4 w-4" />
         </button>

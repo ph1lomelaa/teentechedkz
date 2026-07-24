@@ -12,6 +12,7 @@ from app.core.database import Base
 
 class NoteAudioChunkStatus(str, enum.Enum):
     pending = "pending"
+    processing = "processing"
     transcribed = "transcribed"
     failed = "failed"
 

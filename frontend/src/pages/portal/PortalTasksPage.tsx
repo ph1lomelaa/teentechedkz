@@ -79,7 +79,7 @@ export const PortalTasksPage: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Поиск по названию..."
-            className="h-10 w-full rounded-[12px] border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 focus:border-p-accent-dim focus:outline-none"
+            className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 focus:border-p-accent-dim focus:outline-none"
           />
         </label>
       </div>
@@ -94,7 +94,7 @@ export const PortalTasksPage: React.FC = () => {
                 type="button"
                 onClick={() => setOpenQ(qn.id)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-[13px] border bg-p-panel2 p-3 text-left transition hover:border-brand',
+                  'flex w-full items-center gap-3 rounded-panel border bg-p-panel2 p-3 text-left transition hover:border-brand',
                   qn.status === 'sent' ? 'border-brand/60' : 'border-p-line'
                 )}
               >
@@ -139,7 +139,7 @@ export const PortalTasksPage: React.FC = () => {
           />
 
           {list.length === 0 ? (
-            <div className="rounded-[13px] border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
+            <div className="rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
               {search.trim()
                 ? 'По вашему запросу задачи не найдены.'
                 : tab === 'open'
@@ -186,11 +186,11 @@ const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, on
       ? `Этап: ${task.stage_name} · дедлайн ${formatDate(task.due_date)}`
       : `Этап: ${task.stage_name} · без дедлайна`
   return (
-    <div className="flex items-center gap-3.5 rounded-[12px] border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
+    <div className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
       <button
         onClick={onToggle}
         className={cn(
-          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border-2',
+          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-ctl border-2',
           done ? 'border-p-accent bg-p-accent text-black' : 'border-p-muted2/70 bg-transparent text-transparent'
         )}
         aria-label={done ? 'Снять отметку' : 'Отметить готовым'}

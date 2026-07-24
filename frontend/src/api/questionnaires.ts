@@ -55,6 +55,7 @@ export interface NotionQuestionnaireSyncJob {
   started_at: string
   finished_at: string | null
   events: { at: string; message?: string }[]
+  progress: { message?: string; index: number; total: number; phase?: string } | null
   result: {
     resolve?: { blocks: number; linked: number; imported: number; failed: number }
     attach?: { tasks: number; created: number }

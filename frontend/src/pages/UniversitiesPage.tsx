@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Award, ExternalLink } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
 import { useToast } from '@/hooks/use-toast'
 import { universitiesApi, UniversityInput } from '@/api/universities'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 
 const empty: UniversityInput = {
   name: '',
@@ -47,13 +47,13 @@ export const UniversitiesPage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Справочник"
         title="Университеты"
         description="Общая база университетов, рейтингов, стоимости обучения и грантов."
       />
 
-      <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+      <div className="mb-6 rounded-card border border-border bg-card p-4">
         <h2 className="text-sm font-semibold text-p-text mb-3">Добавить университет</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <Input placeholder="Название" value={form.name} onChange={(e) => set({ name: e.target.value })} />
@@ -89,14 +89,14 @@ export const UniversitiesPage: React.FC = () => {
       ) : unis.length === 0 ? (
         <p className="text-sm text-p-muted2">Университетов пока нет.</p>
       ) : (
-        <div className="divide-y divide-border rounded-[2px] border border-border bg-card">
+        <div className="divide-y divide-border rounded-card border border-border bg-card">
           {unis.map((u) => (
             <div key={u.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-p-text flex items-center gap-2">
                   {u.name}
                   {u.world_ranking != null && (
-                    <span className="text-[10px] font-bold tabular-nums bg-p-panel text-p-muted px-1.5 py-0.5 rounded">#{u.world_ranking}</span>
+                    <span className="text-[10px] font-bold tabular-nums bg-p-panel text-p-muted px-1.5 py-0.5 rounded-pill">#{u.world_ranking}</span>
                   )}
                   {u.has_grants && <Award className="w-3.5 h-3.5 text-[#9a7d00]" />}
                 </div>

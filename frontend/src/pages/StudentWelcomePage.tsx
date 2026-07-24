@@ -88,7 +88,7 @@ export function StudentWelcomePage() {
       <header className="fixed top-0 z-50 w-full border-b border-white/10 bg-[#0A0A0A]/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-[1000px] items-center justify-between px-6 md:px-8">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-[#FFD400]">
+            <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
             </span>
             <span className="text-sm font-black uppercase tracking-tight">
@@ -109,7 +109,7 @@ export function StudentWelcomePage() {
         <div className="pointer-events-none absolute left-1/2 top-24 h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[760px]">
-          <p className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-[#FFD400]">
+          <p className="mb-4 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">
             Личное приглашение
           </p>
           <h1 className="mb-6 text-4xl font-black leading-[1.05] tracking-tight md:text-5xl">
@@ -133,7 +133,7 @@ export function StudentWelcomePage() {
           </p>
 
           {!checking && !valid ? (
-            <div className="mx-auto mb-6 max-w-[520px] rounded-xl border border-amber-400/25 bg-amber-400/10 px-5 py-4 text-left">
+            <div className="mx-auto mb-6 max-w-[520px] rounded-card border border-amber-400/25 bg-amber-400/10 px-5 py-4 text-left">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
                 <p className="text-sm leading-relaxed text-amber-100/90">
@@ -162,14 +162,14 @@ export function StudentWelcomePage() {
       {/* WHAT'S INSIDE */}
       <section className="border-t border-white/10 bg-[#111111] px-6 py-20 md:px-8">
         <div className="mx-auto max-w-[1000px]">
-          <h2 className="mb-10 text-center text-2xl font-black tracking-tight md:text-3xl">
+          <h2 className="mb-10 text-center font-display text-2xl font-black leading-[1.05] tracking-tight md:text-3xl">
             Что вас ждёт внутри
           </h2>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {PORTAL_FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="rounded-xl border border-white/10 bg-[#161616] p-6 transition-colors hover:border-[#FFD400]/30"
+                className="rounded-card border border-white/10 bg-[#161616] p-6 transition-colors hover:border-[#FFD400]/30"
               >
                 <f.icon className="mb-4 h-7 w-7 text-[#FFD400]" strokeWidth={1.75} />
                 <h3 className="mb-2 text-base font-bold tracking-tight">{f.title}</h3>
@@ -183,7 +183,7 @@ export function StudentWelcomePage() {
       {/* STEPS */}
       <section className="border-t border-white/10 px-6 py-20 md:px-8">
         <div className="mx-auto max-w-[900px]">
-          <h2 className="mb-10 text-center text-2xl font-black tracking-tight md:text-3xl">
+          <h2 className="mb-10 text-center font-display text-2xl font-black leading-[1.05] tracking-tight md:text-3xl">
             Как начать
           </h2>
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
@@ -214,7 +214,7 @@ export function StudentWelcomePage() {
       <footer className="border-t border-white/10 px-6 py-10 md:px-8">
         <div className="mx-auto flex max-w-[1000px] flex-col items-center justify-between gap-4 text-center md:flex-row">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-[#FFD400]">
+            <span className="grid h-6 w-6 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-4 w-4" />
             </span>
             <span className="text-xs font-medium tracking-tight">TeenTechEd</span>

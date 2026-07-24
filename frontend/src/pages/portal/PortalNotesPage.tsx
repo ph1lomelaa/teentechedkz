@@ -68,6 +68,7 @@ export const PortalNotesPage: React.FC = () => {
             disabled={downloadMutation.isPending}
             size="sm"
             variant="primary"
+            colorPrefix="p"
             className="mt-2"
             title="Скачать все конспекты в формате Markdown"
           >
@@ -94,7 +95,7 @@ export const PortalNotesPage: React.FC = () => {
               <p className="mt-1 text-[12px] text-p-muted">{fmt(detail.published_at || detail.created_at)}</p>
               {/* Markdown component uses light-theme grays — render on a white
                   surface so it stays legible under the portal's dark theme too. */}
-              <div className="mt-5 rounded-[12px] border border-p-line bg-white p-5">
+              <div className="mt-5 rounded-panel border border-p-line bg-white p-5">
                 <Markdown>{detail.summary_markdown ?? ''}</Markdown>
               </div>
             </article>
@@ -112,7 +113,7 @@ export const PortalNotesPage: React.FC = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Поиск конспектов…"
-              className="h-11 w-full rounded-[11px] border border-p-line bg-p-panel2 pl-10 pr-10 text-sm text-p-text outline-none placeholder:text-p-muted2 focus:border-brand transition"
+              className="h-11 w-full rounded-ctl border border-p-line bg-p-panel2 pl-10 pr-10 text-sm text-p-text outline-none placeholder:text-p-muted2 focus:border-brand transition"
             />
             {search && (
               <button
@@ -135,9 +136,9 @@ export const PortalNotesPage: React.FC = () => {
                   key={n.id}
                   type="button"
                   onClick={() => setSelectedId(n.id)}
-                  className="w-full flex items-center gap-4 border border-p-line rounded-[16px] bg-p-panel p-4 text-left hover:bg-p-panel2 transition-colors"
+                  className="w-full flex items-center gap-4 border border-p-line rounded-panel bg-p-panel p-4 text-left hover:bg-p-panel2 transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-[12px] bg-brand/15 grid place-items-center shrink-0">
+                  <div className="w-10 h-10 rounded-panel bg-brand/15 grid place-items-center shrink-0">
                     <ScrollText className="w-[18px] h-[18px] text-brand" />
                   </div>
                   <div className="min-w-0 flex-1">

@@ -6,10 +6,10 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/accordion'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+} from '@/components/ui/primitives/accordion'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Badge } from '@/components/ui/primitives/badge'
 import { useToast } from '@/hooks/use-toast'
 import { MeetingType, meetingsApi, Meeting, MeetingUpdateInput } from '@/api/meetings'
 import { notesApi } from '@/api/notes'
@@ -209,7 +209,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
 
   return (
     <>
-    <AccordionItem value="meetings" className="border border-gray-200 rounded-[2px] px-4">
+    <AccordionItem value="meetings" className="border border-gray-200 rounded-card px-4">
       <AccordionTrigger className="text-base font-semibold">
         <span className="flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-gray-500" />
@@ -221,13 +221,13 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
       </AccordionTrigger>
       <AccordionContent>
         {/* create */}
-        <div className="border border-gray-200 rounded-[2px] p-3 mb-4">
+        <div className="border border-gray-200 rounded-panel p-3 mb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <Input placeholder="Тема встречи" value={title} onChange={(e) => setTitle(e.target.value)} />
             <select
               value={meetingType}
               onChange={(e) => setMeetingType(e.target.value as MeetingType)}
-              className="h-10 px-3 text-sm border border-gray-300 rounded-[2px] bg-white"
+              className="h-10 px-3 text-sm border border-gray-300 rounded-ctl bg-white"
             >
               {Object.entries(MEETING_TYPE_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -241,7 +241,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
                 type="datetime-local"
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
-                className="mt-1 w-full h-10 px-3 text-sm border border-gray-300 rounded-[2px] bg-white"
+                className="mt-1 w-full h-10 px-3 text-sm border border-gray-300 rounded-ctl bg-white"
               />
             </label>
             <label className="text-xs text-gray-500">
@@ -250,7 +250,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
                 type="datetime-local"
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}
-                className="mt-1 w-full h-10 px-3 text-sm border border-gray-300 rounded-[2px] bg-white"
+                className="mt-1 w-full h-10 px-3 text-sm border border-gray-300 rounded-ctl bg-white"
               />
             </label>
           </div>
@@ -272,7 +272,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
         ) : (
           <div className="space-y-2">
             {meetings.map((m) => (
-              <div key={m.id} className="border border-gray-100 rounded-[2px] p-3">
+              <div key={m.id} className="border border-gray-100 rounded-panel p-3">
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-gray-900">{m.title}</div>

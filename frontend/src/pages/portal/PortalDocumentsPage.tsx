@@ -84,8 +84,8 @@ export const PortalDocumentsPage: React.FC = () => {
         ) : (
           <div className="space-y-2">
             {docs.map((d, i) => (
-              <div key={d.id} className={cn('flex items-center gap-3.5 rounded-xl border border-p-line bg-transparent p-3.5 transition hover:border-p-accent-dim hover:bg-p-panel2', i < docs.length - 1 ? 'mb-2.5' : '')}>
-                <div className="grid h-[34px] w-[34px] place-items-center rounded-[9px] bg-p-accent/15 shrink-0">
+              <div key={d.id} className={cn('flex items-center gap-3.5 rounded-panel border border-p-line bg-transparent p-3.5 transition hover:border-p-accent-dim hover:bg-p-panel2', i < docs.length - 1 ? 'mb-2.5' : '')}>
+                <div className="grid h-[34px] w-[34px] place-items-center rounded-ctl bg-p-accent/15 shrink-0">
                   <FileText className="h-4 w-4 text-p-accent" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -97,7 +97,7 @@ export const PortalDocumentsPage: React.FC = () => {
                 <button
                   onClick={() => handleDownload(d.id, d.file_name)}
                   disabled={downloading === d.id}
-                  className="inline-flex items-center gap-1.5 rounded-[9px] border border-p-line px-3 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-accent-dim hover:bg-p-panel2 hover:text-p-text shrink-0"
+                  className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-3 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-accent-dim hover:bg-p-panel2 hover:text-p-text shrink-0"
                 >
                   <Download className="h-3.5 w-3.5" /> {downloading === d.id ? '…' : 'Скачать'}
                 </button>
@@ -107,7 +107,7 @@ export const PortalDocumentsPage: React.FC = () => {
                       if (window.confirm('Удалить документ?')) deleteMutation.mutate(d.id)
                     }}
                     disabled={deleteMutation.isPending}
-                    className="inline-flex items-center gap-1.5 rounded-[9px] border border-p-line px-2.5 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-danger/60 hover:text-p-danger shrink-0"
+                    className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-2.5 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-danger/60 hover:text-p-danger shrink-0"
                     aria-label="Удалить документ"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -122,7 +122,7 @@ export const PortalDocumentsPage: React.FC = () => {
           type="button"
           disabled={uploadMutation.isPending}
           onClick={() => fileRef.current?.click()}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-[11px] border border-p-line bg-p-panel2 px-3 py-2 text-[12px] font-bold text-p-muted transition hover:border-p-accent-dim hover:text-p-text"
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-[12px] font-bold text-p-muted transition hover:border-p-accent-dim hover:text-p-text"
         >
           <Plus className="h-3.5 w-3.5" /> {uploadMutation.isPending ? 'Загрузка…' : 'Добавить документ'}
         </button>

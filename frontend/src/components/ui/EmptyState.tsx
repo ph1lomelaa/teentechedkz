@@ -1,5 +1,9 @@
 import React from 'react'
+import { Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AppCard } from './AppCard'
+
+type ColorPrefix = 'ds' | 'p' | 'w'
 
 interface EmptyStateProps {
   icon?: React.ReactNode
@@ -7,7 +11,25 @@ interface EmptyStateProps {
   description?: string
   action?: React.ReactNode
   className?: string
-  colorPrefix?: 'ds' | 'p' | 'w'
+  colorPrefix?: ColorPrefix
+}
+
+const ICON_BOX_CLASS: Record<ColorPrefix, string> = {
+  ds: 'border-ds-accent-dim/25 bg-ds-accent/[0.06] text-ds-accent',
+  p: 'border-p-accent-dim/25 bg-p-accent/[0.06] text-p-accent',
+  w: 'border-w-accentDim/25 bg-w-accent/[0.06] text-w-accentText',
+}
+
+const TITLE_CLASS: Record<ColorPrefix, string> = {
+  ds: 'text-ds-ink',
+  p: 'text-p-text',
+  w: 'text-w-ink',
+}
+
+const TEXT_CLASS: Record<ColorPrefix, string> = {
+  ds: 'text-ds-muted',
+  p: 'text-p-muted',
+  w: 'text-w-muted',
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -18,22 +40,14 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   className,
   colorPrefix = 'ds',
 }) => {
-  const textColorClass = colorPrefix === 'p' ? 'text-p-muted2' : colorPrefix === 'w' ? 'text-w-muted2' : 'text-ds-muted2'
-  const titleColorClass = colorPrefix === 'p' ? 'text-p-muted' : colorPrefix === 'w' ? 'text-w-muted' : 'text-ds-muted'
-  
   return (
-    <div
-      className={cn(
-        `py-9 text-center ${textColorClass}`,
-        className
-      )}
-    >
-      {icon && <div className="mx-auto mb-2.5 flex justify-center">{icon}</div>}
-      <h2 className={`block text-[13px] font-semibold ${titleColorClass}`}>{title}</h2>
-      {description && (
-        <p className="text-xs">{description}</p>
-      )}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
+    <AppCard colorPrefix={colorPrefix} className={cn('px-8 py-10 text-center', className)}>
+      <div className={cn('mx-auto grid h-16 w-16 place-items-center rounded-pill border', ICON_BOX_CLASS[colorPrefix])}>
+        {icon || <Users className="h-6 w-6" />}
+      </div>
+      <div className={cn('mt-5 font-display text-lg font-black', TITLE_CLASS[colorPrefix])}>{title}</div>
+      {description && <div className={cn('mx-auto mt-2 max-w-md text-sm', TEXT_CLASS[colorPrefix])}>{description}</div>}
+      {action && <div className="mt-5">{action}</div>}
+    </AppCard>
   )
 }

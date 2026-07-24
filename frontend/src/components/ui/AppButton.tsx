@@ -46,10 +46,11 @@ const SIZES: Record<ButtonSize, string> = {
 }
 
 export const AppButton = React.forwardRef<HTMLButtonElement, AppButtonProps>(
-  ({ variant = 'primary', size = 'md', colorPrefix = 'ds', className, disabled, children, ...props }, ref) => {
+  ({ variant = 'primary', size = 'md', colorPrefix = 'ds', className, disabled, type = 'button', children, ...props }, ref) => {
     return (
       <button
         ref={ref}
+        type={type}
         disabled={disabled}
         className={cn(
           'inline-flex items-center justify-center gap-2 rounded-xl font-extrabold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50',

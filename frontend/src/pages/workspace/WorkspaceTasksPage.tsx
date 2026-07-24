@@ -9,13 +9,7 @@ import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import {
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-  WorkspaceSelect,
-} from '@/components/workspace/ui'
+import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs } from '@/components/ui'
 
 const PRIORITY_LABEL: Record<string, string> = {
   required: 'Обязательно',
@@ -60,22 +54,22 @@ export const WorkspaceTasksPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader colorPrefix="w"
         eyebrow="Кабинет ментора"
         title="Задачи"
         description="Roadmap-задачи ваших студентов в одном рабочем списке."
       />
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <WorkspaceSegmentedTabs
+        <SegmentedTabs colorPrefix="w"
           value={status}
-          onChange={setStatus}
-          options={[
+          onChange={(value) => setStatus(value as typeof status)}
+          tabs={[
             { value: 'open', label: 'Открытые' },
             { value: 'done', label: 'Закрытые' },
           ]}
         />
-        <WorkspaceSelect
+        <AppSelect colorPrefix="w"
           value={studentFilter}
           onChange={(event) => setStudentFilter(event.target.value)}
           className="bg-w-panel2 md:min-w-[240px]"
@@ -84,16 +78,16 @@ export const WorkspaceTasksPage: React.FC = () => {
           {students.map((student) => (
             <option key={student.id} value={student.id}>{student.full_name}</option>
           ))}
-        </WorkspaceSelect>
+        </AppSelect>
       </div>
 
-      <WorkspaceCard className="p-5">
+      <AppCard colorPrefix="w" className="p-5">
           {roadmapLoading ? (
             <p className="text-sm text-w-muted">Загрузка задач...</p>
           ) : filteredRoadmapTasks.length === 0 ? (
-            <WorkspaceEmptyState
+            <EmptyState colorPrefix="w"
               title={status === 'open' ? 'Открытых roadmap-задач нет' : 'Закрытых roadmap-задач нет'}
-              text="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
+              description="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
             />
           ) : (
             <div className="space-y-3">
@@ -122,7 +116,7 @@ export const WorkspaceTasksPage: React.FC = () => {
               })}
             </div>
           )}
-      </WorkspaceCard>
+      </AppCard>
       {questionnaireTask && (
         <WorkspaceQuestionnaireDialog
           taskId={questionnaireTask.id}
@@ -158,7 +152,7 @@ function StudentTaskGroup({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-[18px] border border-w-line bg-w-panel p-3">
+    <section className="rounded-card border border-w-line bg-w-panel p-3">
       <div className="mb-3 flex items-center justify-between gap-3 px-1">
         <div>
           <h2 className="text-sm font-black text-w-ink">{studentName}</h2>
@@ -168,7 +162,7 @@ function StudentTaskGroup({
           <button
             type="button"
             onClick={onToggle}
-            className="inline-flex items-center gap-1.5 rounded-[10px] border border-w-line px-3 py-1.5 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
+            className="inline-flex items-center gap-1.5 rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
           >
             {expanded ? 'Скрыть остальные' : `Показать остальные · ${total - 5}`}
             <ChevronDown className={cn('h-3.5 w-3.5 transition', expanded && 'rotate-180')} />
@@ -194,7 +188,7 @@ function RoadmapTaskRow({
   const done = task.status === 'done'
   const overdue = !done && task.due_date && new Date(task.due_date) < new Date(new Date().toDateString())
   return (
-    <div className="flex items-start gap-3 rounded-[16px] border border-w-line bg-w-panel2 p-3">
+    <div className="flex items-start gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
       <button
         type="button"
         disabled={disabled}

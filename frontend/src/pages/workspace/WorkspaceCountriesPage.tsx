@@ -6,11 +6,8 @@ import { roadmapApi, RoadmapTemplate, TemplateListItem } from '@/api/roadmap'
 import type { Country } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
-import {
-  WorkspaceButton,
-  WorkspaceEmptyState,
-} from '@/components/workspace/ui'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AppButton, EmptyState } from '@/components/ui'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { useLocalState } from '@/lib/use-local-state'
 
 export const WorkspaceCountriesPage: React.FC = () => {
@@ -49,69 +46,69 @@ export const WorkspaceCountriesPage: React.FC = () => {
     <div className="animate-fade-in">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">База знаний</p>
-          <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-p-text">Страны</h1>
-          <p className="mt-2 max-w-[560px] text-sm text-p-muted">Требования, дедлайны, примечания и шаблоны roadmap для UG и Graduate.</p>
+          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-w-accentText">База знаний</p>
+          <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-w-ink">Страны</h1>
+          <p className="mt-2 max-w-[560px] text-sm text-w-muted">Требования, дедлайны, примечания и шаблоны roadmap для UG и Graduate.</p>
         </div>
-        {canEdit && <WorkspaceButton onClick={() => setEditing(null)}><Plus className="h-4 w-4" />Добавить страну</WorkspaceButton>}
+        {canEdit && <AppButton colorPrefix="w" onClick={() => setEditing(null)}><Plus className="h-4 w-4" />Добавить страну</AppButton>}
       </div>
 
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="relative min-w-0 flex-1">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск страны, дедлайна или примечания…" className="h-11 w-full rounded-[11px] border border-p-line bg-p-panel2 pl-10 pr-10 text-sm text-p-text outline-none placeholder:text-p-muted2 focus:border-brand-dim" />
-          {search && <button type="button" aria-label="Очистить поиск" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-p-muted2 hover:text-p-text"><X className="h-4 w-4" /></button>}
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск страны, дедлайна или примечания…" className="h-11 w-full rounded-ctl border border-w-line bg-w-panel2 pl-10 pr-10 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim" />
+          {search && <button type="button" aria-label="Очистить поиск" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-w-muted2 hover:text-w-ink"><X className="h-4 w-4" /></button>}
         </div>
-        <div className="flex rounded-full border border-p-line bg-p-panel p-1">
+        <div className="flex rounded-full border border-w-line bg-w-panel p-1">
           {([
             ['all', 'Все'],
             ['undergraduate', 'UG'],
             ['graduate', 'Graduate'],
           ] as const).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setDegreeFilter(value)} className={`rounded-full px-4 py-2 text-xs font-black transition ${degreeFilter === value ? 'bg-brand text-black' : 'text-p-muted hover:text-p-text'}`}>{label}</button>
+            <button key={value} type="button" onClick={() => setDegreeFilter(value)} className={`rounded-full px-4 py-2 text-xs font-black transition ${degreeFilter === value ? 'bg-w-accent text-black' : 'text-w-muted hover:text-w-ink'}`}>{label}</button>
           ))}
         </div>
       </div>
 
       {isLoading ? (
-        <div className="rounded-[20px] border border-p-line bg-p-panel p-5 text-sm text-p-muted">Загрузка стран...</div>
+        <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка стран...</div>
       ) : visible.length === 0 ? (
-        <WorkspaceEmptyState icon={<Globe className="h-5 w-5" />} title="Страны не найдены" text="Измените поиск или добавьте новую страну." />
+        <EmptyState colorPrefix="w" icon={<Globe className="h-5 w-5" />} title="Страны не найдены" description="Измените поиск или добавьте новую страну." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {visible.map((country) => (
-            <article key={country.id} className="relative overflow-hidden rounded-[20px] border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-[22px] transition-colors hover:border-brand-dim">
+            <article key={country.id} className="relative overflow-hidden rounded-card border border-w-line bg-gradient-to-b from-w-panel to-w-bg p-[22px] transition-colors hover:border-w-accentDim">
               {country.flag_url && <div className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-cover bg-center opacity-[0.14] [filter:grayscale(0.2)]" style={{ backgroundImage: `url('${country.flag_url}')` }} aria-hidden="true" />}
               <div className="relative">
-                <h3 className="font-display text-xl font-extrabold leading-snug text-p-text">{country.country_name}</h3>
+                <h3 className="font-display text-xl font-extrabold leading-snug text-w-ink">{country.country_name}</h3>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-p-muted">
+                  <span className="text-xs text-w-muted">
                     {country.flag_emoji ? `${country.flag_emoji} ` : ''}{country.country_name}
                   </span>
                 </div>
 
                 {country.submission_deadline_notes && (
-                  <p className="mt-3 line-clamp-2 min-h-[38px] text-[12.5px] leading-relaxed text-p-muted">{country.submission_deadline_notes}</p>
+                  <p className="mt-3 line-clamp-2 min-h-[38px] text-[12.5px] leading-relaxed text-w-muted">{country.submission_deadline_notes}</p>
                 )}
 
-                <div className="mt-4 flex items-center gap-3 border-t border-p-line pt-3.5">
+                <div className="mt-4 flex items-center gap-3 border-t border-w-line pt-3.5">
                   <div className="min-w-0">
-                    <span className="block text-[10px] uppercase tracking-widest text-p-muted2">Примечания</span>
-                    <b className="block truncate text-[12.5px] font-bold text-p-text">{country.notes || '—'}</b>
+                    <span className="block text-[10px] uppercase tracking-widest text-w-muted2">Примечания</span>
+                    <b className="block truncate text-[12.5px] font-bold text-w-ink">{country.notes || '—'}</b>
                   </div>
                   {country.vpp_required && (
-                    <span className="whitespace-nowrap rounded-full bg-brand/15 px-3 py-1 text-[10.5px] font-bold text-brand">
+                    <span className="whitespace-nowrap rounded-full bg-w-accent/15 px-3 py-1 text-[10.5px] font-bold text-w-accentText">
                       VPP требуется
                     </span>
                   )}
                   <div className="ml-auto flex gap-2">
-                    {canEdit && <button type="button" aria-label={`Редактировать ${country.country_name}`} onClick={() => setEditing(country)} className="grid h-9 w-9 flex-none place-items-center rounded-[10px] border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-brand"><Edit2 className="h-4 w-4" /></button>}
+                    {canEdit && <button type="button" aria-label={`Редактировать ${country.country_name}`} onClick={() => setEditing(country)} className="grid h-9 w-9 flex-none place-items-center rounded-ctl border border-w-line bg-w-panel2 text-w-muted transition-colors hover:border-w-accentDim hover:text-w-accentText"><Edit2 className="h-4 w-4" /></button>}
                     {(country.degree_levels ?? ['undergraduate', 'graduate']).includes('undergraduate') && (
-                      <button type="button" onClick={() => openRoadmap(country, 'undergraduate')} className="inline-flex items-center gap-1 rounded-full border border-brand bg-brand px-3 py-1.5 text-[10.5px] font-black text-black transition hover:bg-brand-dark">UG<ChevronRight className="h-3 w-3" /></button>
+                      <button type="button" onClick={() => openRoadmap(country, 'undergraduate')} className="inline-flex items-center gap-1 rounded-full border border-w-accent bg-w-accent px-3 py-1.5 text-[10.5px] font-black text-black transition hover:opacity-90">UG<ChevronRight className="h-3 w-3" /></button>
                     )}
                     {(country.degree_levels ?? ['undergraduate', 'graduate']).includes('graduate') && (
-                      <button type="button" onClick={() => openRoadmap(country, 'graduate')} className="inline-flex items-center gap-1 rounded-full border border-brand bg-brand px-3 py-1.5 text-[10.5px] font-black text-black transition hover:bg-brand-dark">Graduate<ChevronRight className="h-3 w-3" /></button>
+                      <button type="button" onClick={() => openRoadmap(country, 'graduate')} className="inline-flex items-center gap-1 rounded-full border border-w-accent bg-w-accent px-3 py-1.5 text-[10.5px] font-black text-black transition hover:opacity-90">Graduate<ChevronRight className="h-3 w-3" /></button>
                     )}
                   </div>
                 </div>
@@ -135,12 +132,12 @@ function RoadmapPreview({ selection, onClose }: { selection: { country: Country;
   })
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="portal max-h-[85vh] max-w-2xl overflow-y-auto border-p-line bg-p-panel text-p-text">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Route className="h-5 w-5 text-brand" />{selection.country.country_name} · {selection.degree === 'graduate' ? 'Graduate' : 'UG'}</DialogTitle></DialogHeader>
+      <DialogContent className="portal max-h-[85vh] max-w-2xl overflow-y-auto border-w-line bg-w-panel text-w-ink">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Route className="h-5 w-5 text-w-accentText" />{selection.country.country_name} · {selection.degree === 'graduate' ? 'Graduate' : 'UG'}</DialogTitle></DialogHeader>
         {!selection.template ? (
-          <div className="rounded-[16px] border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">Для этого направления roadmap-шаблон пока не добавлен.</div>
+          <div className="rounded-panel border border-dashed border-w-line bg-w-panel2 p-6 text-center text-sm text-w-muted">Для этого направления roadmap-шаблон пока не добавлен.</div>
         ) : isLoading || !template ? (
-          <div className="p-6 text-sm text-p-muted">Загрузка roadmap...</div>
+          <div className="p-6 text-sm text-w-muted">Загрузка roadmap...</div>
         ) : <TemplateStages template={template} />}
       </DialogContent>
     </Dialog>
@@ -149,12 +146,12 @@ function RoadmapPreview({ selection, onClose }: { selection: { country: Country;
 
 function TemplateStages({ template }: { template: RoadmapTemplate }) {
   return <div className="space-y-3">
-    {template.description && <p className="text-sm leading-6 text-p-muted">{template.description}</p>}
+    {template.description && <p className="text-sm leading-6 text-w-muted">{template.description}</p>}
     {template.stages.map((stage, index) => (
-      <section key={stage.id} className="rounded-[16px] border border-p-line bg-p-panel2 p-4">
-        <div className="flex items-center gap-3"><span className="grid h-7 w-7 place-items-center rounded-full bg-brand text-xs font-black text-black">{index + 1}</span><h3 className="font-black text-p-text">{stage.name}</h3></div>
-        {stage.description && <p className="ml-10 mt-1 text-xs text-p-muted">{stage.description}</p>}
-        <div className="ml-10 mt-3 space-y-2">{stage.tasks.map((task) => <div key={task.id} className="flex items-start gap-2 text-sm text-p-muted"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" /><span>{task.title}</span></div>)}</div>
+      <section key={stage.id} className="rounded-panel border border-w-line bg-w-panel2 p-4">
+        <div className="flex items-center gap-3"><span className="grid h-7 w-7 place-items-center rounded-full bg-w-accent text-xs font-black text-black">{index + 1}</span><h3 className="font-black text-w-ink">{stage.name}</h3></div>
+        {stage.description && <p className="ml-10 mt-1 text-xs text-w-muted">{stage.description}</p>}
+        <div className="ml-10 mt-3 space-y-2">{stage.tasks.map((task) => <div key={task.id} className="flex items-start gap-2 text-sm text-w-muted"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-w-accent" /><span>{task.title}</span></div>)}</div>
       </section>
     ))}
   </div>
@@ -184,9 +181,9 @@ function CountryDialog({ country, onClose }: { country?: Country; onClose: () =>
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>{country ? 'Редактировать страну' : 'Добавить страну'}</DialogTitle></DialogHeader>
         <div className="space-y-3">
-          <input value={form.country_name} onChange={(event) => setForm({ ...form, country_name: event.target.value })} placeholder="Название страны" className="w-full rounded-[10px] border border-gray-300 px-3 py-2 text-sm" />
+          <input value={form.country_name} onChange={(event) => setForm({ ...form, country_name: event.target.value })} placeholder="Название страны" className="w-full rounded-ctl border border-gray-300 px-3 py-2 text-sm" />
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.vpp_required} onChange={(event) => setForm({ ...form, vpp_required: event.target.checked })} />Требуется VPP / УП</label>
-          <fieldset className="rounded-[12px] border border-gray-300 p-3">
+          <fieldset className="rounded-ctl border border-gray-300 p-3">
             <legend className="px-1 text-xs font-bold text-gray-600">Уровни поступления</legend>
             <div className="flex flex-wrap gap-4">
               {([
@@ -200,9 +197,9 @@ function CountryDialog({ country, onClose }: { country?: Country; onClose: () =>
               ))}
             </div>
           </fieldset>
-          <input value={form.submission_deadline_notes} onChange={(event) => setForm({ ...form, submission_deadline_notes: event.target.value })} placeholder="Дедлайн подач" className="w-full rounded-[10px] border border-gray-300 px-3 py-2 text-sm" />
-          <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Примечания" className="min-h-28 w-full rounded-[10px] border border-gray-300 px-3 py-2 text-sm" />
-          <div className="flex justify-end gap-2"><WorkspaceButton variant="ghost" onClick={onClose}>Отмена</WorkspaceButton><WorkspaceButton disabled={!form.country_name.trim() || form.degree_levels.length === 0 || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Сохраняем...' : 'Сохранить'}</WorkspaceButton></div>
+          <input value={form.submission_deadline_notes} onChange={(event) => setForm({ ...form, submission_deadline_notes: event.target.value })} placeholder="Дедлайн подач" className="w-full rounded-ctl border border-gray-300 px-3 py-2 text-sm" />
+          <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Примечания" className="min-h-28 w-full rounded-ctl border border-gray-300 px-3 py-2 text-sm" />
+          <div className="flex justify-end gap-2"><AppButton colorPrefix="w" variant="ghost" onClick={onClose}>Отмена</AppButton><AppButton colorPrefix="w" disabled={!form.country_name.trim() || form.degree_levels.length === 0 || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Сохраняем...' : 'Сохранить'}</AppButton></div>
         </div>
       </DialogContent>
     </Dialog>

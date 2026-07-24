@@ -7,13 +7,7 @@ import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { useLocalState } from '@/lib/use-local-state'
 import { cn, formatDate } from '@/lib/utils'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import {
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-  WorkspaceSelect,
-} from '@/components/workspace/ui'
+import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs } from '@/components/ui'
 
 type FilterTab = 'all' | QuestionnaireStatus
 
@@ -47,34 +41,37 @@ export const WorkspaceQuestionnairesPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader
         eyebrow="Кабинет ментора"
         title="Анкеты"
         description="Все анкеты ваших студентов — черновики, отправленные, на проверке и проверенные."
+        colorPrefix="w"
       />
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <WorkspaceSegmentedTabs value={tab} onChange={setTab} options={TABS} />
-        <WorkspaceSelect
+        <SegmentedTabs value={tab} onChange={(v) => setTab(v as FilterTab)} tabs={TABS} colorPrefix="w" />
+        <AppSelect
           value={studentFilter}
           onChange={(event) => setStudentFilter(event.target.value)}
+          colorPrefix="w"
           className="bg-w-panel2 md:min-w-[240px]"
         >
           <option value="">Все студенты</option>
           {students.map((student) => (
             <option key={student.id} value={student.id}>{student.full_name}</option>
           ))}
-        </WorkspaceSelect>
+        </AppSelect>
       </div>
 
-      <WorkspaceCard className="p-5">
+      <AppCard colorPrefix="w" className="p-5">
         {isLoading ? (
           <p className="text-sm text-w-muted">Загрузка…</p>
         ) : filtered.length === 0 ? (
-          <WorkspaceEmptyState
+          <EmptyState
             icon={<ClipboardList className="h-5 w-5" />}
             title="Анкет нет"
-            text="Анкеты появляются, когда вы добавляете их к задачам roadmap студента (вкладка «Задачи» → «Открыть анкету»)."
+            description="Анкеты появляются, когда вы добавляете их к задачам roadmap студента (вкладка «Задачи» → «Открыть анкету»)."
+            colorPrefix="w"
           />
         ) : (
           <div className="space-y-2">
@@ -83,7 +80,7 @@ export const WorkspaceQuestionnairesPage: React.FC = () => {
             ))}
           </div>
         )}
-      </WorkspaceCard>
+      </AppCard>
 
       {openItem && openItem.roadmap_task_id && (
         <WorkspaceQuestionnaireDialog
@@ -103,9 +100,9 @@ function QuestionnaireRow({ item, onOpen }: { item: WorkspaceQuestionnaireItem; 
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-start gap-3 rounded-[16px] border border-w-line bg-w-panel2 p-3.5 text-left transition hover:border-w-accentDim"
+      className="flex w-full items-start gap-3 rounded-panel border border-w-line bg-w-panel2 p-3.5 text-left transition hover:border-w-accentDim"
     >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-w-accent/15 text-w-accentText">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-w-accent/15 text-w-accentText">
         <ClipboardList className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">

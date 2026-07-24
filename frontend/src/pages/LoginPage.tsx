@@ -59,7 +59,7 @@ export const LoginPage: React.FC = () => {
     >
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="rounded-[10px] border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
+              <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
                 {error}
               </div>
             )}
@@ -76,7 +76,7 @@ export const LoginPage: React.FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="h-12 w-full rounded-[10px] border px-4 text-sm transition-colors"
+                className="h-12 w-full rounded-ctl border px-4 text-sm transition-colors"
               />
             </div>
 
@@ -92,7 +92,7 @@ export const LoginPage: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="h-12 w-full rounded-[10px] border px-4 text-sm transition-colors"
+                className="h-12 w-full rounded-ctl border px-4 text-sm transition-colors"
               />
             </div>
 

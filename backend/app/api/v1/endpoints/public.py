@@ -12,10 +12,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.intake_submission import IntakeSource, IntakeStatus, IntakeSubmission
+from app.models.notification import Notification
 from app.models.user import User, UserRole
 from app.services import rate_limit
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+async def _notify_admins(db: AsyncSession, *, kind: str, title: str, body: str, link: str) -> None:
+    admins = await db.execute(select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager])))
+    for admin in admins.scalars():
+        db.add(Notification(
+            user_id=admin.id,
+            kind=kind,
+            title=title,
+            body=body,
+            link=link,
+            priority="high",
+        ))
 
 
 class PublicApplicationCreate(BaseModel):
@@ -67,6 +81,13 @@ async def create_public_application(
         status=IntakeStatus.new,
     )
     db.add(submission)
+    await _notify_admins(
+        db,
+        kind="intake",
+        title="Новая заявка от абитуриента",
+        body=f"{full_name} · {phone}",
+        link="/students?inbox=1",
+    )
     await db.commit()
     await db.refresh(submission)
     return {
@@ -116,6 +137,13 @@ async def mentor_signup(
         is_active=False,
     )
     db.add(user)
+    await _notify_admins(
+        db,
+        kind="mentor_signup",
+        title="Новая заявка от ментора",
+        body=f"{name} · {email} — ждёт активации и назначения роли",
+        link="/settings/users",
+    )
     await db.commit()
     return {
         "message": "Заявка отправлена. Администратор проверит её и откроет доступ — после этого можно войти.",

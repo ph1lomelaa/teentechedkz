@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Award } from 'lucide-react'
+import { PageHeader, AppCard, EmptyState } from '@/components/ui'
 
 interface Scholarship {
   id: string
@@ -26,24 +27,27 @@ export const WorkspaceScholarshipsPage: React.FC = () => {
   })
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="font-display text-[28px] font-black text-w-text">Стипендии и программы</h1>
-        <p className="mt-2 text-sm text-w-muted">Образовательные программы и стипендии доступные студентам</p>
-      </div>
+    <div className="fade-in">
+      <PageHeader
+        eyebrow="Кабинет ментора"
+        title="Стипендии и программы"
+        description="Образовательные программы и стипендии, доступные студентам."
+        colorPrefix="w"
+      />
 
       {isLoading ? (
-        <div className="text-center py-12 text-w-muted">Загрузка...</div>
+        <div className="py-12 text-center text-sm text-w-muted">Загрузка...</div>
       ) : scholarships.length === 0 ? (
-        <div className="rounded-[14px] border border-w-line bg-w-panel p-8 text-center">
-          <Award className="w-6 h-6 text-w-brand mx-auto opacity-30" />
-          <h2 className="mt-4 text-sm font-extrabold text-w-text">Стипендии пока не добавлены</h2>
-        </div>
+        <EmptyState
+          icon={<Award className="h-5 w-5" />}
+          title="Стипендии пока не добавлены"
+          colorPrefix="w"
+        />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {scholarships.map((scholarship) => (
-            <div key={scholarship.id} className="rounded-[12px] border border-w-line bg-w-panel p-5">
-              <h3 className="font-bold text-w-text">{scholarship.name}</h3>
+            <AppCard key={scholarship.id} colorPrefix="w" className="p-5">
+              <h3 className="font-bold text-w-ink">{scholarship.name}</h3>
 
               {scholarship.description && (
                 <p className="mt-2 text-xs text-w-muted">{scholarship.description}</p>
@@ -52,18 +56,18 @@ export const WorkspaceScholarshipsPage: React.FC = () => {
               <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
                 {scholarship.amount && (
                   <div>
-                    <div className="text-w-muted font-bold">Размер</div>
-                    <div className="text-w-text font-bold">{scholarship.amount}</div>
+                    <div className="font-bold text-w-muted">Размер</div>
+                    <div className="font-bold text-w-ink">{scholarship.amount}</div>
                   </div>
                 )}
                 {scholarship.deadline && (
                   <div>
-                    <div className="text-w-muted font-bold">Срок</div>
-                    <div className="text-w-text font-bold">{new Date(scholarship.deadline).toLocaleDateString('ru-RU')}</div>
+                    <div className="font-bold text-w-muted">Срок</div>
+                    <div className="font-bold text-w-ink">{new Date(scholarship.deadline).toLocaleDateString('ru-RU')}</div>
                   </div>
                 )}
               </div>
-            </div>
+            </AppCard>
           ))}
         </div>
       )}

@@ -55,6 +55,7 @@ export function useStudentDirectory() {
   )
 
   return {
+    students,
     byId,
     years: facets?.years ?? [],
     countries: facets?.countries ?? [],

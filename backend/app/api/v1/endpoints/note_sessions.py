@@ -32,9 +32,9 @@ from app.schemas.note_session import (
     NoteTranscriptResponse,
 )
 from app.schemas.student_note import StudentNoteResponse
-from app.services.deepgram_rest import transcribe_audio_file
-from app.services.minio_service import minio_delete, minio_download, minio_upload_note_audio, minio_url
+from app.services.minio_service import minio_delete, minio_upload_note_audio, minio_url
 from app.services.note_sessions import generate_note_draft
+from app.services.queue import get_arq_pool
 from app.services.student_notes import render_change_preview, snapshot_student
 
 MAX_AUDIO_CHUNK_SIZE = 60 * 1024 * 1024  # 60 MB — generous headroom for a ~5 min opus segment
@@ -492,11 +492,14 @@ async def reconcile_audio(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Re-transcribes every backup segment that hasn't been transcribed yet
-    via Deepgram's pre-recorded REST API, and stitches the results into
-    session.backup_transcript_text — a second, independent transcript the
-    manager can compare against the live one rather than a silent auto-merge
-    (gap-detection between the two sources isn't reliable enough to trust)."""
+    """Queues re-transcription of every backup segment that hasn't been
+    transcribed yet, via Deepgram's pre-recorded REST API, stitching the
+    results into session.backup_transcript_text — a second, independent
+    transcript the manager can compare against the live one rather than a
+    silent auto-merge (gap-detection between the two sources isn't reliable
+    enough to trust). The actual STT calls run in the `worker` process
+    (see app/worker.py) instead of blocking this request — several managers
+    hitting this endpoint at once must not stall the whole site."""
     session, _ = await _session_context(db, session_id, current_user)
     result = await db.execute(
         select(NoteSessionAudioChunk)
@@ -504,30 +507,23 @@ async def reconcile_audio(
         .order_by(NoteSessionAudioChunk.chunk_index)
     )
     chunks = list(result.scalars())
+    pending = [c for c in chunks if c.status != NoteAudioChunkStatus.transcribed]
 
-    for chunk in chunks:
-        if chunk.status == NoteAudioChunkStatus.transcribed:
-            continue
-        try:
-            content = await minio_download(chunk.storage_path)
-            chunk.transcript_text = await transcribe_audio_file(content, "audio/webm")
-            chunk.status = NoteAudioChunkStatus.transcribed
-        except Exception:
-            logging.getLogger(__name__).exception(
-                "Failed to reconcile audio chunk %s for session %s", chunk.id, session_id
-            )
-            chunk.status = NoteAudioChunkStatus.failed
-
-    session.backup_transcript_text = " ".join(
-        c.transcript_text.strip() for c in chunks if c.transcript_text and c.transcript_text.strip()
-    )
-    await db.commit()
-    for chunk in chunks:
-        await db.refresh(chunk)
+    queued = False
+    if pending:
+        for chunk in pending:
+            chunk.status = NoteAudioChunkStatus.processing
+        await db.commit()
+        for chunk in chunks:
+            await db.refresh(chunk)
+        redis = await get_arq_pool()
+        await redis.enqueue_job("reconcile_audio_task", str(session_id))
+        queued = True
 
     return NoteSessionReconcileResponse(
         backup_transcript_text=session.backup_transcript_text or "",
         chunks=[await _chunk_to_response(c) for c in chunks],
+        queued=queued,
     )
 
 

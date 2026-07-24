@@ -34,98 +34,23 @@ def _check_production_secrets() -> None:
 async def lifespan(app: FastAPI):
     logger.info("TeenTechEd CRM starting up...")
     _check_production_secrets()
-    # Register Telegram webhook if token is configured
-    webhook_health_task = None
-    if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_WEBHOOK_URL:
-        try:
-            from app.services.telegram_bot import get_bot, webhook_health_loop
-            bot = get_bot()
-            webhook_url = f"{settings.TELEGRAM_WEBHOOK_URL}"
-            await bot.set_webhook(
-                webhook_url,
-                secret_token=settings.TELEGRAM_WEBHOOK_SECRET or None,
-                allowed_updates=["message", "my_chat_member", "chat_member"],
-            )
-            logger.info(f"Telegram webhook set: {webhook_url}")
-            import asyncio
-            webhook_health_task = asyncio.create_task(webhook_health_loop())
-        except Exception as e:
-            # Bug #6 fix: emit admin notification on webhook failure
-            logger.error(f"Failed to set Telegram webhook: {e}")
-            try:
-                from app.core.database import AsyncSessionLocal
-                from app.models.user import User, UserRole
-                from app.models.notification import Notification
-                from sqlalchemy import select
-                async with AsyncSessionLocal() as db:
-                    # Find all admins
-                    admin_result = await db.execute(
-                        select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager]))
-                    )
-                    admins = list(admin_result.scalars())
-                    for admin in admins:
-                        db.add(Notification(
-                            user_id=admin.id,
-                            kind="telegram_webhook_failed",
-                            title="Telegram webhook initialization failed",
-                            body=f"Failed to register Telegram webhook at {webhook_url}: {str(e)[:200]}. Messages may not be received.",
-                            priority="high",
-                        ))
-                    await db.commit()
-            except Exception as notif_error:
-                logger.exception(f"Failed to create admin notification for webhook failure: {notif_error}")
-    else:
-        logger.warning(
-            "Telegram integration disabled: TELEGRAM_BOT_TOKEN=%s TELEGRAM_WEBHOOK_URL=%s (both required)",
-            "set" if settings.TELEGRAM_BOT_TOKEN else "MISSING",
-            "set" if settings.TELEGRAM_WEBHOOK_URL else "MISSING",
-        )
 
-    # Автосинк анкет из Google Sheets (если настроен service account)
-    sheets_task = None
-    from app.services.sheets_sync import is_configured, sync_loop
-    if is_configured():
-        import asyncio
-        sheets_task = asyncio.create_task(sync_loop())
-    else:
-        logger.info("Sheets sync disabled: service account key is not configured")
+    # Per-process: with `uvicorn --workers N` this runs once per worker, which
+    # is correct — each worker holds its own local WebSocket connections and
+    # needs its own Redis subscriber to fan out to them (see app.services.ws_hub).
+    from app.services.ws_hub import manager as ws_manager
+    await ws_manager.start()
 
-    # Автосинк Notion-зеркала (если задан NOTION_API_KEY)
-    notion_task = None
-    from app.services import notion_sync
-    if notion_sync.is_configured():
-        import asyncio
-        notion_task = asyncio.create_task(notion_sync.sync_loop())
-    else:
-        logger.info("Notion sync disabled: NOTION_API_KEY / NOTION_DATABASE_ID not configured")
-
-    # Payment notifier: scan for upcoming payments and send notifications
-    payment_notifier_task = None
-    if settings.ENABLE_PAYMENT_NOTIFICATIONS:
-        import asyncio
-        from app.services.payment_notifier import payment_notifier_loop
-        payment_notifier_task = asyncio.create_task(payment_notifier_loop())
-        logger.info("Payment notifier started")
-    else:
-        logger.info("Payment notifications disabled")
+    # Singleton background loops (Telegram webhook registration/health,
+    # Sheets/Notion sync, payment notifier) deliberately do NOT run here.
+    # With multiple uvicorn workers, a per-worker lifespan would start each
+    # loop N times — N duplicate Notion syncs, N duplicate payment-due
+    # notifications sent to admins, etc. They run exactly once instead, in
+    # the single `worker` (arq) process — see app/worker.py's on_startup.
 
     yield
-    if sheets_task:
-        sheets_task.cancel()
-    if notion_task:
-        notion_task.cancel()
-    if webhook_health_task:
-        webhook_health_task.cancel()
-    if payment_notifier_task:
-        payment_notifier_task.cancel()
+    await ws_manager.stop()
     logger.info("TeenTechEd CRM shutting down...")
-    if settings.TELEGRAM_BOT_TOKEN:
-        try:
-            from app.services.telegram_bot import get_bot
-            bot = get_bot()
-            await bot.session.close()
-        except Exception:
-            pass
 
 
 # В проде Swagger/OpenAPI не светим наружу: схема API — подарок для перебора эндпоинтов

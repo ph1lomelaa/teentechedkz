@@ -4,9 +4,9 @@ import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { CheckCircle2 } from 'lucide-react'
 import { publicApi } from '@/api/public'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { AuthShell } from '@/components/auth/AuthShell'
 
@@ -36,7 +36,7 @@ export function JoinMentorPage() {
         title="Осталось дождаться одобрения"
         description="Аккаунт создан, но пока неактивен. Администратор проверит заявку и откроет доступ — после этого вы сможете войти со своим email и паролем."
       >
-        <div className="rounded-[16px] border border-emerald-400/20 bg-emerald-400/10 p-5 text-center">
+        <div className="rounded-card border border-emerald-400/20 bg-emerald-400/10 p-5 text-center">
           <CheckCircle2 className="mx-auto h-11 w-11 text-emerald-300" />
           <div className="mt-6 flex justify-center gap-2">
             <Link to="/" className="auth-secondary-button h-11 px-5 text-sm font-bold">
@@ -109,7 +109,7 @@ export function JoinMentorPage() {
         </Field>
 
         {(localError || mutation.isError) && (
-          <div className="rounded-[10px] border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
+          <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
             {localError ?? getErrorMessage(mutation.error)}
           </div>
         )}
@@ -118,7 +118,7 @@ export function JoinMentorPage() {
           <Button
             type="submit"
             disabled={mutation.isPending}
-            className="auth-primary-button h-11 rounded-[10px] border-0 px-6 hover:bg-[#E9C200]"
+            className="auth-primary-button h-11 rounded-ctl border-0 px-6 hover:bg-[#E9C200]"
           >
             {mutation.isPending ? 'Отправка…' : 'Отправить заявку'}
           </Button>

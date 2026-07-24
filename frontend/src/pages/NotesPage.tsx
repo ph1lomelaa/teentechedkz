@@ -1,21 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleDot, Plus, Search, Trash2 } from 'lucide-react'
+import { CircleDot, Plus, Search } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { studentsApi } from '@/api/students'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
+import { Input } from '@/components/ui/primitives/input'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
-import type { NoteSession, NoteSessionStatus, StudentListItem, StudentNote, StudentNoteStatus, DegreeLevel } from '@/types'
+import type { NoteSessionStatus, StudentListItem, StudentNoteStatus, DegreeLevel } from '@/types'
 import { DEGREE_LEVEL_LABELS } from '@/types'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 
@@ -41,8 +40,6 @@ export const NotesPage: React.FC = () => {
   const [studentSelect, setStudentSelect] = useState('')
   const [sessionStatus, setSessionStatus] = useState<NoteSessionStatus | 'all'>('all')
   const [noteStatus, setNoteStatus] = useState<StudentNoteStatus | 'all'>('all')
-  const [sessionDeleteTarget, setSessionDeleteTarget] = useState<NoteSession | null>(null)
-  const [noteDeleteTarget, setNoteDeleteTarget] = useState<StudentNote | null>(null)
   const [search, setSearch] = useState('')
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
@@ -89,17 +86,24 @@ export const NotesPage: React.FC = () => {
   )
 
   const q = search.trim().toLowerCase()
+  const matchesSearch = (title: string, studentName: string | null | undefined, studentId: string | null | undefined) => {
+    if (!q) return true
+    if (title.toLowerCase().includes(q)) return true
+    if ((studentName ?? '').toLowerCase().includes(q)) return true
+    const student = studentId ? directory.byId.get(studentId) : undefined
+    return Boolean(student?.phone?.toLowerCase().includes(q))
+  }
   const filteredSessions = useMemo(
     () =>
       sessions
-        .filter((s) => !q || s.title.toLowerCase().includes(q) || (s.student_name ?? '').toLowerCase().includes(q))
+        .filter((s) => matchesSearch(s.title, s.student_name, s.student_id))
         .filter((s) => matchesDirectoryFilters(s.student_id ? directory.byId.get(s.student_id) : undefined, directoryFilters)),
     [sessions, q, directoryFilters, directory.byId],
   )
   const filteredNotes = useMemo(
     () =>
       notes
-        .filter((n) => !q || n.title.toLowerCase().includes(q) || (n.student_name ?? '').toLowerCase().includes(q))
+        .filter((n) => matchesSearch(n.title, n.student_name, n.student_id))
         .filter((n) => matchesDirectoryFilters(n.student_id ? directory.byId.get(n.student_id) : undefined, directoryFilters)),
     [notes, q, directoryFilters, directory.byId],
   )
@@ -144,34 +148,9 @@ export const NotesPage: React.FC = () => {
     },
   })
 
-  const deleteSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => notesApi.deleteSession(sessionId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['note-sessions'] })
-      setSessionDeleteTarget(null)
-      toast({ title: 'Сессия удалена' })
-    },
-    onError: (err) => {
-      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось удалить сессию'), variant: 'destructive' })
-    },
-  })
-
-  const deleteNoteMutation = useMutation({
-    mutationFn: (noteId: string) => notesApi.delete(noteId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
-      queryClient.invalidateQueries({ queryKey: ['note-sessions'] })
-      setNoteDeleteTarget(null)
-      toast({ title: 'Конспект удалён' })
-    },
-    onError: (err) => {
-      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось удалить конспект'), variant: 'destructive' })
-    },
-  })
-
   return (
     <div className="space-y-5">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Конспекты"
         title="Сессии и конспекты"
         description="Откройте новую сессию, дайте доступ к микрофону или экрану, затем проверьте AI-черновик и примените изменения к профилю студента."
@@ -286,17 +265,17 @@ export const NotesPage: React.FC = () => {
             {sessionsLoading ? (
               <div className="py-12 text-center text-p-muted2">Загрузка...</div>
             ) : sessions.length === 0 ? (
-              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Сессий пока нет. Создайте первую и начните запись.
               </div>
             ) : filteredSessions.length === 0 ? (
-              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Ничего не найдено по текущим фильтрам.
               </div>
             ) : (
               <div className="grid gap-3">
                 {filteredSessions.map((session) => (
-                  <div key={session.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
+                  <div key={session.id} className="rounded-panel border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-xs text-p-muted2 uppercase tracking-[0.2em]">
@@ -329,14 +308,6 @@ export const NotesPage: React.FC = () => {
                           <Link to={`/notes/${session.note_id}`}>Конспект</Link>
                         </Button>
                       )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => setSessionDeleteTarget(session)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
                     </div>
                   </div>
                 ))}
@@ -370,17 +341,17 @@ export const NotesPage: React.FC = () => {
             {notesLoading ? (
               <div className="py-12 text-center text-p-muted2">Загрузка...</div>
             ) : notes.length === 0 ? (
-              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Конспектов пока нет.
               </div>
             ) : filteredNotes.length === 0 ? (
-              <div className="rounded-[2px] border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
                 Ничего не найдено по текущим фильтрам.
               </div>
             ) : (
               <div className="grid gap-3">
                 {filteredNotes.map((note) => (
-                  <div key={note.id} className="rounded-[2px] border border-p-line bg-p-bg p-4">
+                  <div key={note.id} className="rounded-panel border border-p-line bg-p-bg p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <Link to={`/notes/${note.id}`} className="block font-semibold text-p-text hover:underline underline-offset-4">
@@ -397,14 +368,6 @@ export const NotesPage: React.FC = () => {
                         <span className="rounded-full border border-p-line bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-p-muted">
                           {note.status}
                         </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => setNoteDeleteTarget(note)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
                       </div>
                     </div>
                   </div>
@@ -440,53 +403,6 @@ export const NotesPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={!!sessionDeleteTarget} onOpenChange={() => setSessionDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Удалить сессию?</DialogTitle>
-            <DialogDescription>
-              «{sessionDeleteTarget?.title}» и все её фрагменты транскрипта будут удалены без возможности восстановления.
-              {sessionDeleteTarget?.note_id && ' Связанный конспект удалён не будет.'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSessionDeleteTarget(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => sessionDeleteTarget && deleteSessionMutation.mutate(sessionDeleteTarget.id)}
-              disabled={deleteSessionMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!noteDeleteTarget} onOpenChange={() => setNoteDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Удалить конспект?</DialogTitle>
-            <DialogDescription>
-              «{noteDeleteTarget?.title}» будет удалён без возможности восстановления. Уже применённые изменения профиля студента отменены не будут.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNoteDeleteTarget(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => noteDeleteTarget && deleteNoteMutation.mutate(noteDeleteTarget.id)}
-              disabled={deleteNoteMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -517,7 +433,7 @@ function StudentSearchPicker({
         onChange={(e) => setQuery(e.target.value)}
         className="h-10"
       />
-      <div className="max-h-56 overflow-y-auto rounded-[2px] border border-p-line divide-y divide-p-line">
+      <div className="max-h-56 overflow-y-auto rounded-panel border border-p-line divide-y divide-p-line">
         <button
           type="button"
           onClick={() => onChange('')}

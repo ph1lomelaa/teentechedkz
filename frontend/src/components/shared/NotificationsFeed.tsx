@@ -5,6 +5,7 @@ import { Bell, Check, Star, X } from 'lucide-react'
 import { notificationsApi } from '@/api'
 import { cn } from '@/lib/utils'
 import { useLocalState } from '@/lib/use-local-state'
+import { SegmentedTabs } from '@/components/ui'
 
 const PAGE_SIZE = 30
 
@@ -61,38 +62,21 @@ export const NotificationsFeed: React.FC<{ variant: 'portal' | 'workspace' }> = 
       <h1 className={cn('mt-2 mb-6 font-display text-[32px] font-black tracking-tight', w ? 'text-w-ink' : 'text-p-text')}>Уведомления</h1>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className={cn('inline-flex rounded-[12px] border p-1', w ? 'border-w-line bg-w-panel' : 'border-p-line bg-p-panel')}>
-          <button
-            type="button"
-            onClick={() => setFilter('all')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-[12.5px] font-bold transition-colors',
-              filter === 'all'
-                ? (w ? 'bg-w-accent text-black' : 'bg-brand text-black')
-                : (w ? 'text-w-muted hover:text-w-ink' : 'text-p-muted hover:text-p-text')
-            )}
-          >
-            Все · {total}
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('unread')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-[12.5px] font-bold transition-colors',
-              filter === 'unread'
-                ? (w ? 'bg-w-accent text-black' : 'bg-brand text-black')
-                : (w ? 'text-w-muted hover:text-w-ink' : 'text-p-muted hover:text-p-text')
-            )}
-          >
-            Непрочитанные · {unreadCount}
-          </button>
-        </div>
+        <SegmentedTabs
+          colorPrefix={w ? 'w' : 'p'}
+          tabs={[
+            { value: 'all', label: `Все · ${total}` },
+            { value: 'unread', label: `Непрочитанные · ${unreadCount}` },
+          ]}
+          value={filter}
+          onChange={(value) => setFilter(value as Filter)}
+        />
         {unreadCount > 0 && (
           <button
             type="button"
             onClick={markAll}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-xs font-bold transition-colors',
+              'inline-flex items-center gap-1.5 rounded-ctl border px-3 py-2 text-xs font-bold transition-colors',
               w ? 'border-w-line bg-w-panel text-w-muted hover:text-w-ink' : 'border-p-line bg-p-panel text-p-muted hover:text-p-text'
             )}
           >
@@ -104,8 +88,8 @@ export const NotificationsFeed: React.FC<{ variant: 'portal' | 'workspace' }> = 
       {isLoading && offset === 0 ? (
         <p className={cn('text-sm', w ? 'text-w-muted' : 'text-p-muted')}>Загрузка…</p>
       ) : items.length === 0 ? (
-        <div className={cn('rounded-[16px] border p-8 text-center', w ? 'border-w-line bg-w-panel' : 'border-p-line bg-p-panel')}>
-          <div className={cn('mx-auto grid h-11 w-11 place-items-center rounded-[13px]', w ? 'bg-w-accent/15' : 'bg-brand/15')}>
+        <div className={cn('rounded-card border p-8 text-center', w ? 'border-w-line bg-w-panel' : 'border-p-line bg-p-panel')}>
+          <div className={cn('mx-auto grid h-11 w-11 place-items-center rounded-panel', w ? 'bg-w-accent/15' : 'bg-brand/15')}>
             <Bell className={cn('h-5 w-5', w ? 'text-w-accentText' : 'text-brand')} />
           </div>
           <h2 className={cn('mt-4 text-base font-extrabold', w ? 'text-w-ink' : 'text-p-text')}>
@@ -119,7 +103,7 @@ export const NotificationsFeed: React.FC<{ variant: 'portal' | 'workspace' }> = 
               <div
                 key={n.id}
                 className={cn(
-                  'group flex cursor-pointer items-start gap-3 rounded-[13px] border p-3.5 transition-colors',
+                  'group flex cursor-pointer items-start gap-3 rounded-panel border p-3.5 transition-colors',
                   w ? 'border-w-line bg-w-panel2' : 'border-p-line bg-p-panel2',
                   !n.is_read && (w ? 'bg-w-accent/10' : 'bg-brand/5')
                 )}
@@ -160,7 +144,7 @@ export const NotificationsFeed: React.FC<{ variant: 'portal' | 'workspace' }> = 
               type="button"
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
               className={cn(
-                'mt-4 w-full rounded-[13px] border py-2.5 text-xs font-bold transition-colors',
+                'mt-4 w-full rounded-ctl border py-2.5 text-xs font-bold transition-colors',
                 w ? 'border-w-line bg-w-panel2 text-w-muted hover:text-w-ink' : 'border-p-line bg-p-panel2 text-p-muted hover:text-p-text'
               )}
             >

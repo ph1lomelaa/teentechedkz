@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import logging
 
-from aiogram import Bot
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
+from app.models.telegram_attachment import TelegramAttachment
 from app.models.telegram_chat import TelegramChat
 from app.models.telegram_chat_session import TelegramChatSession
 from app.models.telegram_message import TelegramMessage, TelegramMessageType
-from app.models.document import Document, DocSource, DocType
-from app.services.minio_service import minio_upload, minio_upload_raw
-from app.services.deepgram_rest import transcribe_audio_file
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +27,34 @@ def _message_type(message: Message) -> TelegramMessageType:
     return TelegramMessageType.other
 
 
+def _extract_file_ref(message: Message) -> tuple[object | None, str, str | None]:
+    """Returns (file_ref, filename, mime_type) for the message's attachment, if any."""
+    if message.photo:
+        file_ref = message.photo[-1]
+        return file_ref, f"{file_ref.file_id}.jpg", "image/jpeg"
+    if message.document:
+        return message.document, message.document.file_name or "file", message.document.mime_type
+    if message.voice:
+        file_ref = message.voice
+        return file_ref, f"{file_ref.file_id}.ogg", message.voice.mime_type or "audio/ogg"
+    if message.video_note:
+        file_ref = message.video_note
+        return file_ref, f"{file_ref.file_id}.mp4", "video/mp4"
+    return None, "file", None
+
+
 async def ingest_message(
     db: AsyncSession,
-    bot: Bot,
     chat: TelegramChat,
     session: TelegramChatSession | None,
     message: Message,
     update_id: int,
-) -> TelegramMessage:
-    # Bug #3 fix: transcribe voice/video messages before creating the row
+) -> tuple[TelegramMessage, TelegramAttachment | None]:
+    """Fast, DB-only ingestion — creates the message row and (if present) a
+    `pending` attachment row. Downloading the file from Telegram, transcribing
+    voice/video-note audio, and uploading to MinIO all happen later in the
+    `worker` process (see app/worker.py: process_telegram_attachment_task) so
+    a burst of incoming media never blocks the webhook response."""
     raw_text = message.text or message.caption or ""
     message_type = _message_type(message)
 
@@ -57,26 +72,8 @@ async def ingest_message(
     db.add(row)
     await db.flush()
 
-    file_ref = None
-    filename = "file"
-    mime_type = None
-    if message.photo:
-        file_ref = message.photo[-1]
-        filename = f"{file_ref.file_id}.jpg"
-        mime_type = "image/jpeg"
-    elif message.document:
-        file_ref = message.document
-        filename = message.document.file_name or filename
-        mime_type = message.document.mime_type
-    elif message.voice:
-        file_ref = message.voice
-        filename = f"{file_ref.file_id}.ogg"
-        mime_type = message.voice.mime_type or "audio/ogg"
-    elif message.video_note:
-        file_ref = message.video_note
-        filename = f"{file_ref.file_id}.mp4"
-        mime_type = "video/mp4"
-
+    file_ref, filename, mime_type = _extract_file_ref(message)
+    attachment = None
     if file_ref is not None:
         attachment = TelegramAttachment(
             message_id=row.id,
@@ -87,50 +84,5 @@ async def ingest_message(
         )
         db.add(attachment)
         await db.flush()
-        try:
-            tg_file = await bot.get_file(file_ref.file_id)
-            buffer = await bot.download_file(tg_file.file_path)
-            content = buffer.read()
 
-            # Bug #3 fix: transcribe voice/video messages
-            if message_type in (TelegramMessageType.voice, TelegramMessageType.video_note) and not raw_text:
-                try:
-                    transcript = await transcribe_audio_file(content, mime_type or "audio/ogg")
-                    if transcript:
-                        row.raw_text = transcript
-                except Exception:
-                    logger.exception("Failed to transcribe Telegram audio message %s", row.id)
-
-            storage_path = await minio_upload_raw(
-                content=content, chat_id=chat.id, filename=filename, mime_type=mime_type or "application/octet-stream"
-            )
-            attachment.storage_path = storage_path
-            attachment.status = TelegramAttachmentStatus.downloaded
-            if session and session.student_id and session.opened_by:
-                try:
-                    document_path = await minio_upload(
-                        content=content,
-                        student_id=session.student_id,
-                        filename=filename,
-                        mime_type=mime_type or "application/octet-stream",
-                    )
-                    db.add(
-                        Document(
-                            student_id=session.student_id,
-                            uploaded_by=session.opened_by,
-                            doc_type=DocType.other,
-                            file_name=filename,
-                            file_size=getattr(file_ref, "file_size", None) or len(content),
-                            mime_type=mime_type or "application/octet-stream",
-                            storage_path=document_path,
-                            source=DocSource.telegram,
-                            source_telegram_attachment_id=attachment.id,
-                        )
-                    )
-                except Exception:
-                    logger.exception("Failed to register Telegram attachment %s as document", attachment.id)
-        except Exception:
-            logger.exception("Failed to download Telegram attachment %s", file_ref.file_id)
-            attachment.status = TelegramAttachmentStatus.failed
-
-    return row
+    return row, attachment

@@ -49,7 +49,7 @@ export const PortalQuestionnaireDialog: React.FC<{
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[18px] border border-p-line bg-p-panel"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-card border border-p-line bg-p-panel"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-p-line px-5 py-4">
@@ -57,7 +57,7 @@ export const PortalQuestionnaireDialog: React.FC<{
             <p className="font-display text-[10px] font-black uppercase tracking-[0.24em] text-brand">Анкета</p>
             <div className="truncate font-display text-lg font-black text-p-text">{q?.title || 'Анкета'}</div>
           </div>
-          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-[10px] border border-p-line text-p-muted transition hover:text-p-text">
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-ctl border border-p-line text-p-muted transition hover:text-p-text">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -69,7 +69,7 @@ export const PortalQuestionnaireDialog: React.FC<{
             <div className="space-y-5">
               {q.description && <p className="text-sm text-p-muted">{q.description}</p>}
               {readOnly && (
-                <div className="rounded-[12px] border border-p-line bg-p-panel2 px-3 py-2 text-xs font-bold text-p-muted">
+                <div className="rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-xs font-bold text-p-muted">
                   {q.status === 'reviewed' ? 'Анкета проверена ментором' : 'Ответы отправлены'} — только просмотр.
                 </div>
               )}
@@ -93,7 +93,7 @@ export const PortalQuestionnaireDialog: React.FC<{
             <button
               type="button"
               onClick={onClose}
-              className="rounded-[11px] border border-p-line px-4 py-2 text-xs font-bold text-p-muted transition hover:text-p-text"
+              className="rounded-ctl border border-p-line px-4 py-2 text-xs font-bold text-p-muted transition hover:text-p-text"
             >
               Отмена
             </button>
@@ -101,7 +101,7 @@ export const PortalQuestionnaireDialog: React.FC<{
               type="button"
               disabled={submitMut.isPending}
               onClick={() => { setError(null); submitMut.mutate() }}
-              className="inline-flex items-center gap-1.5 rounded-[11px] bg-brand px-4 py-2 text-xs font-black text-black transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-ctl bg-brand px-4 py-2 text-xs font-black text-black transition disabled:opacity-50"
             >
               <Check className="h-4 w-4" /> {submitMut.isPending ? 'Отправляем…' : 'Отправить'}
             </button>
@@ -128,7 +128,7 @@ const QuestionField: React.FC<{
       {question.help_text && <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-p-muted">{question.help_text}</p>}
     </div>
   )
-  const base = 'w-full rounded-[11px] border border-p-line bg-p-panel2 px-3 py-2 text-sm text-p-text outline-none placeholder:text-p-muted2 focus:border-brand disabled:opacity-60'
+  const base = 'w-full rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-sm text-p-text outline-none placeholder:text-p-muted2 focus:border-brand disabled:opacity-60'
 
   if (question.kind === 'long_text') {
     return (
@@ -150,7 +150,7 @@ const QuestionField: React.FC<{
               disabled={disabled}
               onClick={() => onChange(val)}
               className={cn(
-                'rounded-[11px] border px-4 py-2 text-sm font-bold transition',
+                'rounded-ctl border px-4 py-2 text-sm font-bold transition',
                 (value === val) ? 'border-brand bg-brand text-black' : 'border-p-line text-p-muted hover:text-p-text',
                 disabled && 'opacity-60'
               )}
@@ -168,7 +168,7 @@ const QuestionField: React.FC<{
         {label}
         <div className="space-y-1.5">
           {question.options.map((opt) => (
-            <label key={opt} className={cn('flex items-center gap-2 rounded-[10px] border px-3 py-2 text-sm', value === opt ? 'border-brand text-p-text' : 'border-p-line text-p-muted')}>
+            <label key={opt} className={cn('flex items-center gap-2 rounded-ctl border px-3 py-2 text-sm', value === opt ? 'border-brand text-p-text' : 'border-p-line text-p-muted')}>
               <input type="radio" disabled={disabled} checked={value === opt} onChange={() => onChange(opt)} className="accent-brand" />
               {opt}
             </label>
@@ -186,7 +186,7 @@ const QuestionField: React.FC<{
           {question.options.map((opt) => {
             const checked = arr.includes(opt)
             return (
-              <label key={opt} className={cn('flex items-center gap-2 rounded-[10px] border px-3 py-2 text-sm', checked ? 'border-brand text-p-text' : 'border-p-line text-p-muted')}>
+              <label key={opt} className={cn('flex items-center gap-2 rounded-ctl border px-3 py-2 text-sm', checked ? 'border-brand text-p-text' : 'border-p-line text-p-muted')}>
                 <input
                   type="checkbox"
                   disabled={disabled}

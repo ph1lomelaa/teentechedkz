@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils'
 import { PageShell } from '@/components/shared/PageShell'
 import { StatCard, EmptyState } from '@/components/ui'
 
-function roadmapProgress(roadmap: Roadmap | null | undefined) {
-  const tasks = roadmap?.stages.flatMap((s) => s.tasks) ?? []
+function roadmapProgress(roadmaps: Roadmap[] | undefined) {
+  const tasks = (roadmaps ?? []).flatMap((r) => r.stages.flatMap((s) => s.tasks))
   const done = tasks.filter((t) => t.status === 'done').length
   return { done, total: tasks.length, pct: tasks.length ? Math.round((done / tasks.length) * 100) : 0 }
 }
@@ -35,12 +35,12 @@ export const PortalHomePage: React.FC = () => {
   const { user } = useAuth()
   const firstName = user?.name?.split(' ')[0] || 'студент'
 
-  const { data: roadmap } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmap })
+  const { data: roadmaps } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
   const { data: tasks = [] } = useQuery({ queryKey: ['portal', 'tasks'], queryFn: roadmapApi.myTasks })
   const { data: meetings = [] } = useQuery({ queryKey: ['portal', 'meetings'], queryFn: meetingsApi.myMeetings })
   const { data: profile } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
 
-  const progress = roadmapProgress(roadmap)
+  const progress = roadmapProgress(roadmaps)
   const openTasks = tasks.filter((t) => t.status !== 'done')
   const overdue = openTasks.filter((t) => t.due_date && new Date(t.due_date) < new Date(new Date().toDateString())).length
   const nextTasks = [...openTasks]
@@ -101,12 +101,12 @@ export const PortalHomePage: React.FC = () => {
                 <div
                   key={t.id}
                   className={cn(
-                    'flex w-full items-center gap-3.5 rounded-xl border border-p-line p-3.5 text-left transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
+                    'flex w-full items-center gap-3.5 rounded-panel border border-p-line p-3.5 text-left transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
                     i < nextTasks.length - 1 ? 'mb-2.5' : ''
                   )}
                 >
                   <span
-                    className="grid h-[22px] w-[22px] flex-none place-items-center rounded-md border-2"
+                    className="grid h-[22px] w-[22px] flex-none place-items-center rounded-ctl border-2"
                     style={{
                       borderColor: t.status === 'done' ? 'var(--p-accent)' : 'var(--p-muted2)',
                       backgroundColor: t.status === 'done' ? 'var(--p-accent)' : 'transparent'
@@ -147,11 +147,11 @@ export const PortalHomePage: React.FC = () => {
                 <div
                   key={m.id}
                   className={cn(
-                    'flex items-center gap-3.5 rounded-xl border border-p-line p-3.5 transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
+                    'flex items-center gap-3.5 rounded-panel border border-p-line p-3.5 transition last:mb-0 hover:border-p-accent-dim hover:bg-p-panel2',
                     i < upcoming.length - 1 ? 'mb-2.5' : ''
                   )}
                 >
-                  <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[9px] bg-p-panel2">
+                  <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-ctl bg-p-panel2">
                     <CalendarDays className="h-4 w-4 text-p-accent" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -165,7 +165,7 @@ export const PortalHomePage: React.FC = () => {
                       href={m.meeting_link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-none whitespace-nowrap rounded-[9px] bg-p-accent px-3.5 py-1.5 text-[11.5px] font-bold text-black transition hover:-translate-y-px"
+                      className="flex-none whitespace-nowrap rounded-ctl bg-p-accent px-3.5 py-1.5 text-[11.5px] font-bold text-black transition hover:-translate-y-px"
                     >
                       Подключиться
                     </a>

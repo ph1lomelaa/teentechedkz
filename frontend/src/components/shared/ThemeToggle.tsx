@@ -15,8 +15,8 @@ export const ThemeToggle: React.FC<{ variant?: 'crm' | 'portal' }> = ({ variant 
       className={cn(
         'w-9 h-9 grid place-items-center border',
         portal
-          ? 'border-w-line rounded-[11px] bg-w-panel text-w-muted hover:text-w-accentText'
-          : 'border-gray-200 rounded-[5px] text-gray-500 hover:text-black'
+          ? 'border-w-line rounded-ctl bg-w-panel text-w-muted hover:text-w-accentText'
+          : 'border-gray-200 rounded-ctl text-gray-500 hover:text-black'
       )}
       aria-label={isDark ? 'Включить светлую тему' : 'Включить тёмную тему'}
       title={isDark ? 'Светлая тема' : 'Тёмная тема'}

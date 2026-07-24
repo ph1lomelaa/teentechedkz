@@ -77,6 +77,8 @@ export interface NotionFinanceSummary {
     ielts_exam_fee: number
     total_company: number
   }
+  client_remaining_known_count: number
+  client_remaining_total_count: number
   rows: {
     id: string
     student_id?: string | null

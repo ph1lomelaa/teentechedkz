@@ -22,7 +22,7 @@ export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string 
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-[20px] border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-6',
+        'relative overflow-hidden rounded-card border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-6',
         className
       )}
     >

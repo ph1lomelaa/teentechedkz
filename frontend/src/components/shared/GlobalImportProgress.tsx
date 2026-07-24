@@ -34,7 +34,7 @@ function JobCard({
   onDismiss: () => void
 }) {
   return (
-    <div className="pointer-events-auto w-80 rounded-[2px] border border-p-line bg-p-panel shadow-lg p-3">
+    <div className="pointer-events-auto w-80 rounded-panel border border-p-line bg-p-panel shadow-lg p-3">
       <div className="flex items-start justify-between gap-2">
         <Link to={link} className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

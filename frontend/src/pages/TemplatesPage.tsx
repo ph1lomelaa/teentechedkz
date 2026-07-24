@@ -13,9 +13,9 @@ import {
   Eye,
   FileText,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
+import { Input } from '@/components/ui/primitives/input'
 import { useToast } from '@/hooks/use-toast'
 import {
   roadmapApi,
@@ -25,7 +25,7 @@ import {
   Priority,
 } from '@/api/roadmap'
 import { questionnairesApi } from '@/api/questionnaires'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 
 const PRIORITIES: { value: Priority; label: string }[] = [
@@ -72,6 +72,13 @@ export const TemplatesPage: React.FC = () => {
       ? 100
       : importJob?.progress?.template_total
         ? renderProgressPercent(importJob.progress.template_index || 0, importJob.progress.template_total)
+        : null
+
+  const syncPercent =
+    syncJob?.status === 'done'
+      ? 100
+      : syncJob?.progress?.total
+        ? renderProgressPercent(syncJob.progress.index || 0, syncJob.progress.total)
         : null
 
   const { data: templates = [], isLoading } = useQuery({
@@ -155,13 +162,13 @@ export const TemplatesPage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Roadmap"
         title="Шаблоны дорожных карт"
         description="Создание, импорт и настройка шаблонов поступления."
       />
 
-      <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+      <div className="mb-6 rounded-card border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-p-text">Импорт из Notion</h2>
@@ -214,7 +221,7 @@ export const TemplatesPage: React.FC = () => {
         </div>
 
         {importJob && (
-          <div className="mt-4 rounded-[2px] border border-border bg-muted p-3">
+          <div className="mt-4 rounded-panel border border-border bg-muted p-3">
             <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
               <div
                 className={`h-full bg-amber-500 transition-all duration-300 ${importJob.status === 'running' && importPercent === null ? 'w-1/3 animate-pulse' : ''}`}
@@ -249,7 +256,7 @@ export const TemplatesPage: React.FC = () => {
             {importJob.error && <p className="mt-3 text-xs text-red-600">{importJob.error}</p>}
 
             {importJob.events?.length > 0 && (
-              <div className="mt-3 max-h-36 overflow-auto rounded border border-border bg-card p-2 font-mono text-[11px] text-p-muted">
+              <div className="mt-3 max-h-36 overflow-auto rounded-panel border border-border bg-card p-2 font-mono text-[11px] text-p-muted">
                 {importJob.events.slice(-8).map((event, index) => (
                   <div key={index}>{String(event.message || event.type || '')}</div>
                 ))}
@@ -259,7 +266,7 @@ export const TemplatesPage: React.FC = () => {
         )}
       </div>
 
-      <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+      <div className="mb-6 rounded-card border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-p-text">Описания вопросов в анкетах</h2>
@@ -279,15 +286,22 @@ export const TemplatesPage: React.FC = () => {
         </div>
 
         {syncJob && (
-          <div className="mt-4 rounded-[2px] border border-border bg-muted p-3">
+          <div className="mt-4 rounded-panel border border-border bg-muted p-3">
             <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
               <div
-                className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' ? 'w-1/3 animate-pulse' : ''}`}
-                style={syncJob.status === 'done' ? { width: '100%' } : undefined}
+                className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' && syncPercent === null ? 'w-1/3 animate-pulse' : ''}`}
+                style={syncPercent !== null ? { width: `${syncPercent}%` } : undefined}
               />
             </div>
-            <div className="text-xs font-semibold text-p-text">
-              Job {syncJob.job_id.slice(0, 8)} · {syncJob.status === 'running' ? 'идёт' : syncJob.status === 'done' ? 'готово' : 'ошибка'}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-p-text">
+                Job {syncJob.job_id.slice(0, 8)} · {syncJob.status === 'running' ? 'идёт' : syncJob.status === 'done' ? 'готово' : 'ошибка'}
+              </div>
+              {syncJob.progress?.total ? (
+                <div className="text-xs text-p-muted">
+                  {syncJob.progress.phase === 'attach' ? 'Анкета' : 'Блок'} {syncJob.progress.index}/{syncJob.progress.total}
+                </div>
+              ) : null}
             </div>
             {syncJob.result && (
               <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -302,7 +316,7 @@ export const TemplatesPage: React.FC = () => {
         )}
       </div>
 
-      <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+      <div className="mb-6 rounded-card border border-border bg-card p-4">
         <h2 className="text-sm font-semibold text-p-text mb-3">Новый шаблон</h2>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <Input placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
@@ -310,7 +324,7 @@ export const TemplatesPage: React.FC = () => {
           <select
             value={degree}
             onChange={(e) => setDegree(e.target.value)}
-            className="h-10 px-3 text-sm border border-p-line rounded-[2px] bg-white"
+            className="h-10 px-3 text-sm border border-p-line rounded-ctl bg-white"
           >
             <option value="bachelors">Бакалавриат</option>
             <option value="masters">Магистратура</option>
@@ -337,7 +351,7 @@ export const TemplatesPage: React.FC = () => {
       ) : templates.length === 0 ? (
         <p className="text-sm text-p-muted2">Шаблонов пока нет.</p>
       ) : (
-        <div className="divide-y divide-border rounded-[2px] border border-border bg-card">
+        <div className="divide-y divide-border rounded-card border border-border bg-card">
           {templates.map((t) => (
             <div key={t.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
@@ -387,7 +401,7 @@ export const TemplatesPage: React.FC = () => {
 }
 
 const ImportStat: React.FC<{ label: string; value: number | string }> = ({ label, value }) => (
-  <div className="rounded-[2px] border border-border bg-card px-3 py-2">
+  <div className="rounded-panel border border-border bg-card px-3 py-2">
     <div className="text-[10px] uppercase tracking-[0.16em] text-p-muted2">{label}</div>
     <div className="mt-1 text-sm font-semibold text-p-text">{value}</div>
   </div>
@@ -434,13 +448,13 @@ const TemplatePreview: React.FC<{ templateId: string | null; onClose: () => void
               )}
 
               {template.stages.length === 0 ? (
-                <div className="rounded-[2px] border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-panel border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
                   В шаблоне пока нет этапов.
                 </div>
               ) : (
                 <div className="space-y-4">
                   {template.stages.map((stage, stageIndex) => (
-                    <section key={stage.id} className="overflow-hidden rounded-[2px] border border-border">
+                    <section key={stage.id} className="overflow-hidden rounded-panel border border-border">
                       <div className="flex items-start gap-3 border-b border-border bg-muted/50 px-4 py-3">
                         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-xs font-bold text-brand-ink">
                           {stageIndex + 1}
@@ -466,7 +480,7 @@ const TemplatePreview: React.FC<{ templateId: string | null; onClose: () => void
                                 <div className="min-w-0 flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <h4 className="text-sm font-medium text-foreground">{task.title}</h4>
-                                    <span className="rounded-[2px] border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    <span className="rounded-pill border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                                       {PRIORITIES.find((priority) => priority.value === task.priority)?.label || task.priority}
                                     </span>
                                   </div>
@@ -561,7 +575,7 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-p-muted hover:text-black mb-4">
         <ChevronLeft className="w-4 h-4" /> К списку шаблонов
       </button>
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Редактор шаблона"
         title={tpl?.name || 'Шаблон Roadmap'}
         action={(
@@ -573,7 +587,7 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
 
       <div className="space-y-4">
         {stages.map((s, si) => (
-          <div key={si} className="border border-p-line rounded-[2px] p-4">
+          <div key={si} className="border border-p-line rounded-panel p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-6 h-6 rounded-full bg-brand text-brand-ink grid place-items-center text-xs font-bold shrink-0">
                 {si + 1}
@@ -590,13 +604,13 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
 
             <div className="space-y-2 pl-8">
               {(s.tasks || []).map((t: TaskInput, ti) => (
-                <div key={ti} className="border border-p-line rounded-[2px] p-2.5 bg-p-bg/50">
+                <div key={ti} className="border border-p-line rounded-panel p-2.5 bg-p-bg/50">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-p-text flex-1">{t.title}</span>
                     <select
                       value={t.priority}
                       onChange={(e) => update((d) => (d[si].tasks![ti].priority = e.target.value as Priority))}
-                      className="h-7 px-2 text-xs border border-p-line rounded-[2px] bg-white"
+                      className="h-7 px-2 text-xs border border-p-line rounded-ctl bg-white"
                     >
                       {PRIORITIES.map((p) => (
                         <option key={p.value} value={p.value}>
@@ -648,7 +662,7 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
 
         <button
           onClick={addStage}
-          className="w-full border border-dashed border-p-line rounded-[2px] py-3 text-sm text-p-muted hover:text-black hover:border-gray-400 inline-flex items-center justify-center gap-2"
+          className="w-full border border-dashed border-p-line rounded-ctl py-3 text-sm text-p-muted hover:text-black hover:border-gray-400 inline-flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" /> Добавить этап
         </button>

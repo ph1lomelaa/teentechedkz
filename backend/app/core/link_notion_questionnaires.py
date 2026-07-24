@@ -53,13 +53,13 @@ async def resolve(on_event: Callable[[dict], None] | None = None, block_id: str 
         linked = imported = failed = 0
         for idx, bid in enumerate(block_ids):
             try:
-                block = client.request("GET", f"/blocks/{bid}")
+                block = await client.request("GET", f"/blocks/{bid}")
                 parent = block.get("parent", {})
                 db_id = parent.get("database_id")
                 if not db_id:
                     failed += 1
                     continue
-                dbjson = client.request("GET", f"/databases/{db_id}")
+                dbjson = await client.request("GET", f"/databases/{db_id}")
                 title = _db_title(dbjson)
                 country, degree, step = _parse_title(title)
                 questions = _questions_from_db(dbjson, form_block_id=bid)
@@ -104,7 +104,12 @@ async def resolve(on_event: Callable[[dict], None] | None = None, block_id: str 
             if idx % 20 == 0:
                 await db.commit()
                 if on_event:
-                    on_event({"message": f"resolve {idx + 1}/{len(block_ids)}", "index": idx + 1, "total": len(block_ids)})
+                    on_event({
+                        "message": f"resolve {idx + 1}/{len(block_ids)}",
+                        "index": idx + 1,
+                        "total": len(block_ids),
+                        "phase": "resolve",
+                    })
         await db.commit()
     return {"blocks": len(block_ids), "linked": linked, "imported": imported, "failed": failed}
 
@@ -123,6 +128,13 @@ async def attach(on_event: Callable[[dict], None] | None = None) -> dict:
                 created += 1
             if idx % 50 == 0:
                 await db.commit()
+                if on_event:
+                    on_event({
+                        "message": f"attach {idx + 1}/{len(tasks)}",
+                        "index": idx + 1,
+                        "total": len(tasks),
+                        "phase": "attach",
+                    })
         await db.commit()
     return {"tasks": len(tasks), "created": created}
 

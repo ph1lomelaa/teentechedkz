@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ImportJobsProvider } from '@/contexts/ImportJobsContext'
 import { AppLayout } from '@/components/shared/Layout'
-import { Toaster } from '@/components/ui/toaster'
+import { Toaster } from '@/components/ui/primitives/toaster'
 
 import { LandingPage } from '@/pages/LandingPage'
 import { StudentLandingPage } from '@/pages/StudentLandingPage'
@@ -113,7 +113,7 @@ class AppErrorBoundary extends React.Component<
 
     return (
       <div className="min-h-screen bg-[#0A0A0A] px-6 py-10 text-white">
-        <div className="mx-auto max-w-xl rounded-[22px] border border-white/10 bg-[#141414] p-6 shadow-2xl">
+        <div className="mx-auto max-w-xl rounded-card border border-white/10 bg-[#141414] p-6 shadow-2xl">
           <div className="text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">
             TeenTechEd
           </div>
@@ -121,20 +121,20 @@ class AppErrorBoundary extends React.Component<
           <p className="mt-2 text-sm leading-6 text-white/65">
             Страница упала в runtime. Теперь вместо белого экрана показываем ошибку, чтобы её можно было быстро исправить.
           </p>
-          <pre className="mt-4 max-h-52 overflow-auto rounded-[14px] border border-white/10 bg-black/40 p-3 text-xs text-white/70">
+          <pre className="mt-4 max-h-52 overflow-auto rounded-panel border border-white/10 bg-black/40 p-3 text-xs text-white/70">
             {this.state.error.message}
           </pre>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-[12px] bg-[#FFD400] px-4 py-2 text-xs font-black text-black"
+              className="rounded-ctl bg-[#FFD400] px-4 py-2 text-xs font-black text-black"
             >
               Обновить страницу
             </button>
             <a
               href="/workspace"
-              className="rounded-[12px] border border-white/15 px-4 py-2 text-xs font-bold text-white/75 hover:text-white"
+              className="rounded-ctl border border-white/15 px-4 py-2 text-xs font-bold text-white/75 hover:text-white"
             >
               В кабинет
             </a>

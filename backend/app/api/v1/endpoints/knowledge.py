@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +17,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models.knowledge_article import KnowledgeArticle
 from app.models.user import UserRole
+from app.services import background_jobs
 
 router = APIRouter(prefix="/knowledge-articles", tags=["knowledge"])
 
@@ -68,60 +68,41 @@ async def get_article(
 
 
 # --------------------------------------------------------------------------
-# Notion sync — same in-memory job pattern as roadmap/questionnaire imports.
+# Notion sync — job state persisted in background_jobs (survives restarts),
+# same pattern as roadmap/questionnaire imports.
 # --------------------------------------------------------------------------
-_SYNC_JOBS: dict[str, dict] = {}
-
-
-def _job_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_SYNC_JOB_KIND = "knowledge_sync"
 
 
 @router.post("/sync/notion", status_code=202)
 async def start_notion_knowledge_sync(current_user: CurrentUser):
     if current_user.role not in _MANAGE_ROLES:
         raise _FORBIDDEN
-    running = next((job for job in _SYNC_JOBS.values() if job.get("status") == "running"), None)
+    running = await background_jobs.get_running_job(_SYNC_JOB_KIND)
     if running:
-        raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": running["job_id"]})
+        raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": str(running.id)})
 
-    job_id = str(uuid.uuid4())
-    job = {
-        "job_id": job_id,
-        "status": "running",
-        "started_at": _job_now(),
-        "finished_at": None,
-        "events": [],
-        "result": None,
-        "error": None,
-    }
-    _SYNC_JOBS[job_id] = job
+    job = await background_jobs.create_job(_SYNC_JOB_KIND)
 
     async def runner() -> None:
         from app.core.import_notion_knowledge_pages import run_import
 
-        def on_event(event: dict) -> None:
-            job["events"].append({"at": _job_now(), **event})
-            job["events"] = job["events"][-80:]
-
+        on_event = background_jobs.make_on_event(job.id)
         try:
-            job["result"] = await run_import(on_event=on_event)
-            job["status"] = "done"
+            result = await run_import(on_event=on_event)
+            await background_jobs.finish_job(job.id, status="done", result=result)
         except Exception as exc:
-            job["status"] = "failed"
-            job["error"] = str(exc)
-        finally:
-            job["finished_at"] = _job_now()
+            await background_jobs.finish_job(job.id, status="failed", error=str(exc))
 
     asyncio.create_task(runner())
-    return job
+    return background_jobs.serialize(job)
 
 
 @router.get("/sync/notion/{job_id}")
 async def get_notion_knowledge_sync_job(job_id: str, current_user: CurrentUser):
     if current_user.role not in _MANAGE_ROLES:
         raise _FORBIDDEN
-    job = _SYNC_JOBS.get(job_id)
+    job = await background_jobs.get_job(_SYNC_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND
-    return job
+    return background_jobs.serialize(job)

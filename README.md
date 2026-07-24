@@ -1,6 +1,8 @@
 # TeenTechEd CRM
 
-Full-stack CRM приложение для образовательного консалтинга, построенное на FastAPI + React 18 с PostgreSQL.
+Full-stack CRM для образовательного консалтинга: FastAPI (async) + React 18 + PostgreSQL, с фоновым воркером на `arq`, Redis и MinIO.
+
+Если интересует, как всё это устроено внутри (веб-процесс vs воркер, очереди, Notion/Telegram/Deepgram интеграции) — смотри [ARCHITECTURE.md](ARCHITECTURE.md). Этот файл — только про то, как поднять проект локально.
 
 ## 📋 Требования
 
@@ -8,7 +10,7 @@ Full-stack CRM приложение для образовательного ко
 - **Docker Compose** (версия 2.0+)
 - **Git**
 
-Никаких других требований не нужно — всё остальное работает в контейнерах.
+Никаких других требований не нужно — всё остальное (Python, Node, Postgres) работает в контейнерах.
 
 ## 🚀 Быстрый старт
 
@@ -16,7 +18,7 @@ Full-stack CRM приложение для образовательного ко
 
 ```bash
 git clone <repository-url>
-cd teenteched
+cd teentechedkz
 ```
 
 ### 2. Создай файл `.env` из примера
@@ -25,7 +27,7 @@ cd teenteched
 cp .env.example .env
 ```
 
-Для локальной разработки значения по умолчанию уже настроены и работают. Если нужны специфические ключи (например, для Telegram или OpenAI), добавь их в `.env`.
+Для локальной разработки значения по умолчанию уже настроены и работают. Внешние интеграции (Telegram, Notion, Deepgram, OpenAI/Anthropic) — опциональны: без них приложение полностью работает, просто соответствующие функции (Telegram-инбокс, синк Notion, транскрипция, AI-инсайты) будут неактивны. Добавь ключи в `.env`, когда понадобятся.
 
 ### 3. Запусти проект
 
@@ -33,266 +35,192 @@ cp .env.example .env
 docker compose up --build
 ```
 
-При первом запуске Docker соберёт образы и создаст все необходимые сервисы. Дождись, пока вывод стабилизируется (примерно 30-60 секунд).
+Поднимаются 6 сервисов: `postgres`, `redis`, `minio`, `backend`, **`worker`**, `frontend`. При первом запуске Docker соберёт образы и применит миграции — подожди, пока вывод стабилизируется (примерно 30-60 секунд).
+
+> **Важно:** `worker` — не опциональный сервис для фоновых задач "на будущее". Он обязателен уже сейчас: там крутятся Notion/Sheets-синк, payment notifier, Telegram-вебхук health-check, и туда же уезжает вся тяжёлая обработка (транскрипция аудио, вложения из Telegram, AI-извлечение инсайтов) — без него эти функции просто не будут работать, хотя сам сайт и API останутся доступны. Подробнее — в ARCHITECTURE.md.
 
 ### 4. Готово! Открой приложение
 
 | Сервис | URL | Описание |
 |--------|-----|---------|
-| **Frontend** | http://localhost:3000 | React приложение |
+| **Frontend** | http://localhost:3000 | React-приложение |
 | **API** | http://localhost:8001 | FastAPI (Swagger: http://localhost:8001/docs) |
 | **PostgreSQL** | localhost:5432 | База данных (пользователь: `tte`, пароль: `tte`) |
-| **Redis** | localhost:6379 | Кэш и очереди |
+| **Redis** | localhost:6379 | Rate-limit, очередь `arq`, WebSocket pub/sub |
 | **MinIO** | http://localhost:9001 | S3-совместимое хранилище (консоль) |
 
 ## 🔐 Вход в приложение
 
-При первом запуске создаётся тестовый администратор:
+При первом запуске сидируется тестовый администратор:
 
-- **Email**: admin@teenteched.kz
-- **Пароль**: Admin1234!
+- **Email**: `admin@teenteched.kz`
+- **Пароль**: `Admin1234!`
 
-Также создаются тестовые менторы и студенты для локальной разработки. После входа получишь доступ ко всем функциям в зависимости от роли.
+Смени пароль сразу после первого входа (Настройки → аккаунт) — значение по умолчанию совпадает с тем, что лежит в `.env.example`, и держать его в проде нельзя.
 
 ## 📁 Структура проекта
 
 ```
-teenteched/
+teentechedkz/
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/endpoints/         # API маршруты
-│   │   ├── models/                   # SQLAlchemy модели
-│   │   ├── schemas/                  # Pydantic схемы
-│   │   ├── services/                 # Бизнес-логика
-│   │   ├── core/                     # Конфигурация, зависимости
-│   │   └── main.py                   # FastAPI приложение
+│   │   ├── api/v1/endpoints/   # ~40 роутеров: students, roadmaps, chat, telegram_webhook, notion...
+│   │   ├── models/             # SQLAlchemy-модели (~40 таблиц)
+│   │   ├── schemas/            # Pydantic-схемы запросов/ответов
+│   │   ├── services/           # Бизнес-логика: notion_sync, telegram_bot, deepgram_rest, queue...
+│   │   ├── core/                # config, database, security, deps
+│   │   ├── main.py              # FastAPI-приложение (веб-тир, uvicorn)
+│   │   └── worker.py            # arq-воркер (фоновый тир) — см. ARCHITECTURE.md
+│   ├── alembic/versions/        # миграции БД
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/
-│   │   ├── api/                      # HTTP клиент
-│   │   ├── components/               # React компоненты
-│   │   ├── pages/                    # Страницы
-│   │   └── App.tsx
-│   ├── Dockerfile
-│   └── package.json
-├── docker-compose.yml                # Docker Compose конфигурация
-├── .env.example                      # Шаблон переменных окружения
-└── README.md                         # Этот файл
+│   └── src/
+│       ├── api/                 # HTTP-клиенты по доменам
+│       ├── components/
+│       │   ├── portal/          # компоненты студенческого кабинета
+│       │   ├── workspace/       # компоненты тёмной workspace-темы для менторов
+│       │   └── shared/          # общие для классического CRM и workspace
+│       ├── pages/
+│       │   ├── portal/          # /portal/* — кабинет студента
+│       │   ├── workspace/       # /workspace/* — альтернативный UI для менторов
+│       │   └── *.tsx            # классический CRM (/students, /finances, /statistics...)
+│       └── App.tsx
+├── migration/                    # скрипты миграции данных из Notion/Google Sheets
+├── docker-compose.yml            # dev-конфигурация
+├── docker-compose.prod.yml       # prod-конфигурация (multi-worker uvicorn, отдельные .env-параметры)
+├── .env.example
+├── README.md                     # этот файл
+└── ARCHITECTURE.md               # как всё устроено внутри
 ```
 
 ## 🛠️ Разработка
 
 ### Просмотр логов
 
-Для просмотра логов всех сервисов:
-
 ```bash
 docker compose logs -f
-```
-
-Для конкретного сервиса:
-
-```bash
 docker compose logs -f backend
+docker compose logs -f worker      # Notion/Sheets синк, транскрипция, Telegram-обработка — здесь
 docker compose logs -f frontend
 ```
 
 ### Остановка и перезагрузка
 
-Остановить все сервисы:
-
 ```bash
-docker compose down
+docker compose down          # остановить все сервисы
+docker compose down -v       # + удалить данные из БД/MinIO (полная очистка)
+docker compose restart backend worker   # применить изменения без пересборки образа
 ```
 
-Полная очистка (удалит все данные из БД):
+### Пересборка после изменения зависимостей
+
+Если менял `requirements.txt` или `package.json` — просто `restart` не подхватит новые пакеты:
 
 ```bash
-docker compose down -v
+docker compose up -d --build backend worker
 ```
 
-Перезагрузить после изменения кода:
+### Миграции БД
 
 ```bash
-docker compose restart backend
-docker compose restart frontend
+docker compose exec backend alembic upgrade head            # применить миграции
+docker compose exec backend alembic revision -m "название"  # создать новую
 ```
 
-### Запуск команд в контейнере
-
-Если нужно запустить команду внутри контейнера (например, миграцию БД):
-
-```bash
-docker compose exec backend python -m app.core.create_tables
-```
+Если добавляешь модель/поле — создавай миграцию сразу и не забудь применить её (`alembic upgrade head`) при следующем деплое или локальном обновлении: без этого прод/локалка упадут с `UndefinedColumnError` при первом же запросе к новой колонке.
 
 ## 📝 Переменные окружения
 
-### Backend (`.env`)
-
-Скопируй `.env.example` и отредактируй при необходимости. Для локальной разработки все основные значения уже настроены:
+Полный список — в `.env.example`, там же комментарии по каждой группе. Коротко:
 
 ```
-# БД (default значения подходят для локалки)
+# БД (значения по умолчанию подходят для локалки)
 POSTGRES_USER=tte
 POSTGRES_PASSWORD=tte
 POSTGRES_DB=tte_db
 
-# Storage (S3-совместимое)
+# Storage (S3-совместимое, MinIO)
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 
-# Auth (сгенерируются при первом запуске)
+# Auth — смени в проде на случайную строку 32+ символов
 JWT_SECRET_KEY=change-me-in-production-min-32-chars-long-random
 PGCRYPTO_KEY=change-me-in-production-min-32-chars-long-random
 
-# Опционально — для интеграций
-TELEGRAM_BOT_TOKEN=<если_нужен>
-OPENAI_API_KEY=<если_нужен>
-DEEPGRAM_API_KEY=<если_нужен>
-NOTION_API_KEY=<если_нужен>
+# Масштабирование веб-тира (используется только в docker-compose.prod.yml)
+UVICORN_WORKERS=2
+DB_POOL_SIZE=10
+DB_MAX_OVERFLOW=5
+
+# Опционально — интеграции, без них приложение работает, но без этих функций
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_URL=
+NOTION_API_KEY=
+NOTION_DATABASE_ID=
+DEEPGRAM_API_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GOOGLE_SERVICE_ACCOUNT_JSON=
 ```
 
-Полный список со всеми вариантами смотри в `.env.example`. Для локальной разработки обычно не требуется менять ничего кроме секретных ключей для внешних API.
-
-### Frontend
-
-Фронтенд использует VITE_API_URL из `.env`, по умолчанию уже указан `http://localhost:8001`.
+Frontend использует `VITE_API_URL` (по умолчанию `http://localhost:8001` в dev-конфиге).
 
 ## 🐛 Решение проблем
 
-### "Port 3000/8001 уже занят"
-
-Если порты заняты другими приложениями:
-
-1. Найди процесс: `lsof -i :3000`
-2. Или измени порты в `docker-compose.yml`:
-   ```yaml
-   ports:
-     - "3001:3000"  # frontend
-     - "8002:8000"  # backend
-   ```
-
-### "PostgreSQL не готов"
-
-Иногда БД медленно запускается. Просто дождись или перезагрузи:
+### "Port 3000/8001/5432 уже занят"
 
 ```bash
-docker compose restart backend
+lsof -i :3000
+```
+Либо смени порты в `docker-compose.yml` (левая часть `ports:` — порт на хосте).
+
+### "Логин не проходит / 500 ошибка на /auth/login"
+
+Почти всегда значит, что миграции не применены после обновления кода:
+```bash
+docker compose exec backend alembic upgrade head
 ```
 
 ### "Изменения в коде не применяются"
 
-- **Backend**: Должен перезагружаться автоматически (uvicorn --reload). Если нет — перезагрузи контейнер.
-- **Frontend**: Должен обновляться автоматически (Vite HMR). Если нет — проверь консоль браузера.
+- **Backend**: перезагружается автоматически (`uvicorn --reload`). Если код в `worker.py` или сервисах, которые импортирует воркер, — воркер `--reload` не поддерживает, перезапусти вручную: `docker compose restart worker`.
+- **Frontend**: обновляется автоматически (Vite HMR). Если нет — смотри консоль браузера.
+
+### "Telegram-сообщения не приходят"
+
+Проверь `docker compose logs worker` — регистрация вебхука и health-check живут там, не в `backend`. Также нужен публично доступный `TELEGRAM_WEBHOOK_URL` (Telegram не может достучаться до `localhost`) — для локальной разработки обычно используют туннель (ngrok и т.п.).
+
+### "Docker не находит образы / странно себя ведёт после обновления кода"
 
 ```bash
-docker compose restart backend frontend
-```
-
-### "Нет доступа к MinIO консоли"
-
-Обычно это проблема с браузером. Попробуй:
-- Обновить страницу (Ctrl+Shift+R / Cmd+Shift+R)
-- Очистить кэш браузера
-- Использовать другой браузер
-
-### "Docker не находит образы"
-
-```bash
-docker compose pull
-docker compose up --build
+docker compose up -d --build
 ```
 
 ## 🔍 Отладка
 
-### Проверить здоровье сервисов
-
 ```bash
-docker compose ps
-```
-
-Все сервисы должны иметь статус `Up`. Если какой-то упал — посмотри логи.
-
-### Подключиться к PostgreSQL
-
-```bash
-docker compose exec postgres psql -U tte -d tte_db
-```
-
-### Проверить Redis
-
-```bash
-docker compose exec redis redis-cli ping
+docker compose ps                                    # статус всех сервисов, все должны быть Up
+docker compose exec postgres psql -U tte -d tte_db   # подключиться к БД
+docker compose exec redis redis-cli ping             # проверить Redis
 ```
 
 ## 📚 Документация API
 
-Swagger документация доступна по адресу: **http://localhost:8001/docs**
+Swagger — **http://localhost:8001/docs** (отключён в проде). Можно отправлять тестовые запросы прямо из браузера.
 
-Туда же можно отправлять тестовые запросы прямо из браузера.
+## 📊 Загрузка данных при первом запуске
 
-## 📊 Загрузка данных (студентов, анкет и т.д.)
+При первом старте создаются только администратор и справочник стран. Дальше — на выбор:
 
-### При первом запуске создаются только:
-- Администратор (admin@teenteched.kz)
-- Справочник стран
+1. **Notion-синк** (если используется как источник данных) — задай `NOTION_API_KEY`/`NOTION_DATABASE_ID` в `.env`, запусти вручную через Swagger (`POST /api/v1/notion/run`) или дождись автосинка (раз в час, крутится в `worker`).
+2. **Google Sheets-синк** — аналогично, `GOOGLE_SERVICE_ACCOUNT_JSON` + `POST /api/v1/sync/run`.
+3. **Вручную через интерфейс** — залогинься админом и создавай студентов/менторов через UI.
 
-### Варианты загрузки данных:
+## 🚀 Продакшн
 
-#### 1️⃣ Синхронизация из Google Sheets (рекомендуется для локалки)
-
-Если в prod данные синхронизируются из Google Sheets:
-
-```bash
-# Добавь в .env
-GOOGLE_SERVICE_ACCOUNT_JSON=<JSON-ключ сервисного аккаунта>
-SHEETS_SYNC_INTERVAL_SECONDS=300
-```
-
-Потом вручную запусти синхронизацию через Swagger:
-1. Открой http://localhost:8001/docs
-2. Найди `POST /api/v1/sync/run`
-3. Нажми "Try it out" → "Execute"
-
-#### 2️⃣ Синхронизация из Notion (если используется)
-
-```bash
-# Добавь в .env
-NOTION_API_KEY=<твой-ключ>
-NOTION_DATABASE_ID=<ID базы>
-```
-
-Запусти через Swagger как выше.
-
-#### 3️⃣ Создать тестовые данные вручную
-
-Логинься как администратор и создавай студентов, менторов и прочее через интерфейс.
-
-#### 4️⃣ Восстановить БД из backup'а (если нужна полная копия prod)
-
-Попроси у ведущего разработчика dump'а prod базы:
-
-```bash
-# Очисти локальную БД
-docker compose down -v
-
-# Загрузи dump (если есть backup.sql)
-docker compose up -d postgres
-docker compose exec -T postgres psql -U tte -d tte_db < backup.sql
-
-# Перезагрузи бэкенд
-docker compose restart backend
-```
+Отдельная конфигурация — `docker-compose.prod.yml`. Ключевые отличия от dev: без `--reload`, несколько uvicorn-воркеров (`UVICORN_WORKERS`), явные лимиты пула соединений к БД. Подробности — в разделе «Масштабирование» [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## 🚀 Отправка в production
-
-Для production используется отдельная конфигурация. Подробно смотри в документации (если нужно).
-
----
-
-**Вопросы?** Напиши в канал разработки или создай issue в репозитории.
-
+**Вопросы?** Смотри ARCHITECTURE.md или пиши в канал разработки.

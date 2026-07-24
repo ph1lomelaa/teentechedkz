@@ -113,3 +113,4 @@ class NoteSessionAudioChunkResponse(BaseModel):
 class NoteSessionReconcileResponse(BaseModel):
     backup_transcript_text: str
     chunks: list[NoteSessionAudioChunkResponse]
+    queued: bool = False

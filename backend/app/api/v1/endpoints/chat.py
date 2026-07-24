@@ -1,8 +1,9 @@
 """In-app chat (student ↔ mentor) + notifications, pushed over WebSocket.
 
 Sending goes through REST; the WebSocket is server→client push only
-(new messages, new notifications). Prod is single-worker, so the in-process
-hub (app.services.ws_hub) is sufficient — no Redis.
+(new messages, new notifications). Fan-out to the right socket, regardless
+of which uvicorn worker process holds it, goes through app.services.ws_hub
+(Redis pub/sub-backed).
 """
 from __future__ import annotations
 

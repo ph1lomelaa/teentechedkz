@@ -6,6 +6,7 @@ interface ProgressBarProps {
   colorPrefix?: 'p' | 'w' | 'ds'
   showLabel?: boolean
   className?: string
+  label?: string
 }
 
 export const ProgressBar: React.FC<ProgressBarProps> = ({
@@ -13,6 +14,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   colorPrefix = 'p',
   showLabel = true,
   className,
+  label = 'Прогресс',
 }) => {
   const barBgClass = colorPrefix === 'p' 
     ? 'bg-p-panel' 
@@ -30,7 +32,14 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
 
   return (
     <div className={cn('w-full', className)}>
-      <div className={cn('h-2 overflow-hidden rounded-full', barBgClass)}>
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={clampedValue}
+        className={cn('h-2 overflow-hidden rounded-full', barBgClass)}
+      >
         <div
           className={cn('h-full transition-all duration-500', progressClass)}
           style={{ width: `${clampedValue}%` }}

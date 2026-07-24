@@ -225,7 +225,7 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Поиск по названию, городу или стране…"
-          className="h-12 w-full rounded-[13px] border border-p-line bg-p-panel2 pl-4 pr-12 text-sm text-p-text outline-none transition-colors placeholder:text-p-muted2 focus:border-brand-dim"
+          className="h-12 w-full rounded-ctl border border-p-line bg-p-panel2 pl-4 pr-12 text-sm text-p-text outline-none transition-colors placeholder:text-p-muted2 focus:border-brand-dim"
         />
         <Search className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-p-muted2" />
       </div>
@@ -255,12 +255,12 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-52 animate-pulse rounded-[20px] border border-p-line bg-p-panel" />
+            <div key={i} className="h-52 animate-pulse rounded-card border border-p-line bg-p-panel" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-brand/15">
+        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
+          <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
             <Globe className="h-5 w-5 text-brand" />
           </div>
           <h2 className="mt-4 text-base font-extrabold text-p-text">Ничего не найдено</h2>
@@ -283,7 +283,7 @@ export const UniversitiesCatalog: React.FC<{ eyebrow?: string }> = ({ eyebrow = 
 }
 
 const UniversityCard: React.FC<{ u: University }> = ({ u }) => (
-  <article className="relative overflow-hidden rounded-[20px] border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-[22px] transition-colors hover:border-brand-dim">
+  <article className="relative overflow-hidden rounded-card border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-[22px] transition-colors hover:border-brand-dim">
     {u.country_flag_url && (
       <div
         className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-cover bg-center opacity-[0.14] [filter:grayscale(0.2)]"
@@ -326,7 +326,7 @@ const UniversityCard: React.FC<{ u: University }> = ({ u }) => (
             rel="noreferrer"
             title="Открыть сайт университета"
             aria-label={`Сайт университета ${u.name}`}
-            className="ml-auto grid h-9 w-9 flex-none place-items-center rounded-[10px] border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-brand"
+            className="ml-auto grid h-9 w-9 flex-none place-items-center rounded-ctl border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-brand"
           >
             <ExternalLink className="h-4 w-4" />
           </a>

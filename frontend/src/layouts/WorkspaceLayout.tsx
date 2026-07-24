@@ -146,10 +146,10 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
       <div className="relative px-2 pb-5">
         <Link
           to={brandDestination}
-          className="flex items-center gap-2.5 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent"
+          className="flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent"
           title={canPreviewMentor ? 'Вернуться в CRM' : 'На главную кабинета'}
         >
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-w-accent">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-w-accent">
             <GraduationCap className="h-[22px] w-[22px] text-black" strokeWidth={2.2} />
           </div>
           <div className="min-w-0">
@@ -174,7 +174,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 key={item.path}
                 to={workspaceTo(item.path)}
                 className={cn(
-                  'relative flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm font-semibold transition',
+                  'relative flex items-center gap-3 rounded-ctl px-3 py-2.5 text-sm font-semibold transition',
                   active
                     ? 'bg-w-accent text-black'
                     : 'text-white/65 hover:bg-[#141414] hover:text-white'
@@ -200,14 +200,14 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         <div className="mt-auto border-t border-white/10 pt-3.5">
           <Link
             to="/change-password"
-            className="mb-1 flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
+            className="mb-1 flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
           >
             <KeyRound className="h-4 w-4" />
             Сменить пароль
           </Link>
           <button
             onClick={() => logout()}
-            className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/50 transition hover:bg-[#141414] hover:text-white"
+            className="flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/50 transition hover:bg-[#141414] hover:text-white"
           >
             <LogOut className="h-4 w-4" />
             Выйти
@@ -231,7 +231,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             <button
               type="button"
               onClick={() => setMobileNavOpen(false)}
-              className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-[11px] border border-white/10 bg-black text-white"
+              className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-ctl border border-white/10 bg-black text-white"
               aria-label="Закрыть меню"
             >
               <X className="h-4 w-4" />
@@ -244,7 +244,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            className="grid h-9 w-9 place-items-center rounded-[11px] border border-w-line bg-w-panel text-w-ink lg:hidden"
+            className="grid h-9 w-9 place-items-center rounded-ctl border border-w-line bg-w-panel text-w-ink lg:hidden"
             aria-label="Открыть меню"
           >
             <Menu className="h-4 w-4" />
@@ -271,7 +271,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
         <main id="workspace-main" tabIndex={-1} className="mx-auto w-full max-w-[1180px] flex-1 px-4 py-6 sm:px-5 md:px-8 md:py-7">
           {isPreview && canPreviewMentor && (
-            <div className="mb-5 rounded-[18px] border border-w-accentDim/40 bg-w-accent/10 p-4">
+            <div className="mb-5 rounded-card border border-w-accentDim/40 bg-w-accent/10 p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="font-display text-[11px] font-black uppercase tracking-[0.22em] text-w-accentText">
@@ -287,7 +287,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 <button
                   type="button"
                   onClick={() => setMentorFilter('')}
-                  className="w-fit rounded-[12px] border border-w-line px-3 py-2 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
+                  className="w-fit rounded-ctl border border-w-line px-3 py-2 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
                 >
                   Сбросить preview
                 </button>

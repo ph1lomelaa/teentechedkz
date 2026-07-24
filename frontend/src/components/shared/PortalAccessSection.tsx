@@ -5,10 +5,10 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/accordion'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+} from '@/components/ui/primitives/accordion'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Badge } from '@/components/ui/primitives/badge'
 import { useToast } from '@/hooks/use-toast'
 import { portalAccessApi } from '@/api/portalAccess'
 
@@ -145,7 +145,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
   const canAddEmail = hasAccess && allEmails.length < 2
 
   return (
-    <AccordionItem value="portal-access" className="border border-gray-200 rounded-[2px] px-4">
+    <AccordionItem value="portal-access" className="border border-gray-200 rounded-card px-4">
       <AccordionTrigger className="text-base font-semibold">
         <span className="flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-gray-500" />
@@ -167,7 +167,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
         ) : hasAccess ? (
           <div className="space-y-4 py-1">
             {!access?.primary_mentor_id && (
-              <div className="rounded-[4px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 У студента нет активного основного ментора. Назначьте ментора в карточке, чтобы roadmap, встречи и чат были связаны с ответственным.
               </div>
             )}
@@ -191,7 +191,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
                   {extraEmails.map((e) => (
                     <div
                       key={e.id}
-                      className="flex items-center justify-between gap-3 rounded-[4px] border border-gray-200 px-3 py-1.5 text-sm"
+                      className="flex items-center justify-between gap-3 rounded-panel border border-gray-200 px-3 py-1.5 text-sm"
                     >
                       <span className="text-gray-900 truncate">{e.email}</span>
                       <Button
@@ -266,12 +266,12 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
         ) : (
           <div className="space-y-4 py-1">
             {!access?.primary_mentor_id && (
-              <div className="rounded-[4px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 Сначала лучше назначить основного ментора. Тогда студент сразу увидит контакт в чате, а встречи и roadmap будут привязаны к ответственному.
               </div>
             )}
             {access?.primary_mentor_name && (
-              <div className="rounded-[4px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <div className="rounded-panel border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                 Основной ментор: {access.primary_mentor_name}
               </div>
             )}
@@ -312,7 +312,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
         )}
 
         {tempPassword && (
-          <div className="mt-4 rounded-[4px] border border-brand/40 bg-brand/10 p-4">
+          <div className="mt-4 rounded-panel border border-brand/40 bg-brand/10 p-4">
             <p className="label-caps text-gray-600 mb-2">Временный пароль — покажите один раз</p>
             <div className="flex items-center gap-3">
               <code className="font-mono text-base font-semibold tracking-wide text-gray-900">
@@ -331,7 +331,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
         )}
 
         {inviteUrl && (
-          <div className="mt-4 rounded-[4px] border border-brand/40 bg-brand/10 p-4">
+          <div className="mt-4 rounded-panel border border-brand/40 bg-brand/10 p-4">
             <p className="label-caps text-gray-600 mb-2">Ссылка-приглашение — одноразовая</p>
             <div className="flex items-center gap-3">
               <code className="flex-1 truncate font-mono text-xs text-gray-900">{inviteUrl}</code>

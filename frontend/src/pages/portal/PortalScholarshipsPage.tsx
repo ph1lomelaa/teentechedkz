@@ -39,7 +39,7 @@ export const PortalScholarshipsPage: React.FC = () => {
       ) : (
         <div className="space-y-4">
           {scholarships.map((scholarship) => (
-            <div key={scholarship.id} className="rounded-[13px] border border-p-line bg-p-panel p-6">
+            <div key={scholarship.id} className="rounded-card border border-p-line bg-p-panel p-6">
               <h3 className="font-bold text-p-text text-lg">{scholarship.name}</h3>
 
               {scholarship.description && (

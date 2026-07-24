@@ -4,16 +4,22 @@ import { Map } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { PortalRoadmap } from '@/components/portal/PortalRoadmap'
-import { EmptyState } from '@/components/ui'
+import { EmptyState, SegmentedTabs } from '@/components/ui'
 
 export const PortalRoadmapPage: React.FC = () => {
-  const { data, isLoading } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmap })
-  const [roadmap, setRoadmap] = useState<Roadmap | null>(null)
+  const { data, isLoading } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
+  const [roadmaps, setRoadmaps] = useState<Roadmap[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   useEffect(() => {
-    if (data !== undefined) setRoadmap(data)
+    if (data !== undefined) {
+      setRoadmaps(data)
+      setSelectedId((current) => (current && data.some((r) => r.id === current)) ? current : data[0]?.id ?? null)
+    }
   }, [data])
 
   if (isLoading) return <div className="text-p-muted text-sm">Загрузка…</div>
+
+  const selected = roadmaps.find((r) => r.id === selectedId) ?? null
 
   return (
     <PageShell maxWidth="full">
@@ -22,10 +28,21 @@ export const PortalRoadmapPage: React.FC = () => {
         Дорожная карта поступления
       </p>
 
-      {!roadmap ? (
+      {roadmaps.length === 0 ? (
         <EmptyState icon={<Map className="w-5 h-5" />} title="Roadmap ещё не назначен" description="Как только ментор назначит вам дорожную карту, здесь появится интерактивный таймлайн этапов с задачами." colorPrefix="p" />
       ) : (
-        <PortalRoadmap roadmap={roadmap} onChanged={setRoadmap} />
+        <>
+          {roadmaps.length > 1 && (
+            <SegmentedTabs
+              className="mb-4"
+              colorPrefix="p"
+              value={selectedId ?? ''}
+              onChange={setSelectedId}
+              tabs={roadmaps.map((r) => ({ value: r.id, label: r.name }))}
+            />
+          )}
+          {selected && <PortalRoadmap roadmap={selected} />}
+        </>
       )}
       </div>
     </PageShell>

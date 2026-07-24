@@ -32,7 +32,7 @@ export const PortalImportantNotesPage: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {notes.map((note) => (
-            <article key={note.id} className="rounded-[16px] border border-p-line bg-p-panel p-5">
+            <article key={note.id} className="rounded-card border border-p-line bg-p-panel p-5">
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-p-text">{note.note_text}</p>
               <p className="mt-3 text-[12px] text-p-muted">{fmt(note.created_at)}</p>
             </article>

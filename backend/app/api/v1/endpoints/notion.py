@@ -137,7 +137,7 @@ async def sync_status(
 ):
     return {
         "configured": notion_sync.is_configured(),
-        "last_run": notion_sync.last_run,
+        "last_run": await notion_sync.last_run(),
         "needs_review": await notion_sync.unmatched_count(db),
     }
 
@@ -190,10 +190,22 @@ async def finance_summary(
     by_status: dict[str, int] = {}
     rows: list[dict] = []
     synced_at = None
+    # "Остаток клиента" в Notion иногда просто не заполнен (Empty) — это не то
+    # же самое, что подтверждённый 0. totals["client_remaining"] суммирует
+    # только заполненные ячейки; client_remaining_known_count/total_count
+    # показывают, по какой доле записей эта сумма вообще посчитана, чтобы
+    # фронт не выдавал частичную сумму за полную картину.
+    client_remaining_known_count = 0
     for s in snapshots:
         d = s.normalized_data or {}
         for f in _FINANCE_TOTAL_FIELDS:
+            if f == "client_remaining":
+                continue
             totals[f] += _as_float(d.get(f))
+        remaining_raw = d.get("client_remaining")
+        if remaining_raw not in (None, ""):
+            totals["client_remaining"] += _as_float(remaining_raw)
+            client_remaining_known_count += 1
         status = d.get("payment_status_raw") or "Без статуса"
         by_status[status] = by_status.get(status, 0) + 1
         pf = portfolio_map.get(s.student_id) if s.student_id else None
@@ -236,11 +248,14 @@ async def finance_summary(
         if s.synced_at and (synced_at is None or s.synced_at > synced_at):
             synced_at = s.synced_at
 
+    last_run = await notion_sync.last_run()
     return {
         "records": len(snapshots),
         # last_run — время последнего прохода синка (строки без изменений не трогаются)
-        "synced_at": notion_sync.last_run.get("at") or (synced_at.isoformat() if synced_at else None),
+        "synced_at": last_run.get("at") or (synced_at.isoformat() if synced_at else None),
         "totals": totals,
+        "client_remaining_known_count": client_remaining_known_count,
+        "client_remaining_total_count": len(snapshots),
         "rows": rows,
         "by_status": sorted(
             ({"status": k, "count": v} for k, v in by_status.items()),

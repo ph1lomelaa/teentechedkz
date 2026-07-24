@@ -27,6 +27,31 @@ def _require_admin_mzk(user):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
+@router.get("")
+async def list_payments(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    _require_admin_mzk(current_user)
+
+    result = await db.execute(
+        select(Payment, Student.id, Student.full_name)
+        .join(Contract, Contract.id == Payment.contract_id)
+        .join(Student, Student.id == Contract.student_id)
+        .order_by(Payment.paid_at.desc().nulls_last())
+    )
+    rows = result.all()
+
+    return [
+        {
+            **_payment_to_dict(p),
+            "student_id": str(student_id),
+            "student_name": student_name,
+        }
+        for p, student_id, student_name in rows
+    ]
+
+
 @router.post("")
 async def create_payment(
     body: dict,
@@ -97,26 +122,54 @@ async def finance_summary(
 
     contracts_result = await db.execute(
         select(
+            Contract.currency,
             func.count(Contract.id).label("total_contracts"),
             func.sum(Contract.amount).label("total_amount"),
             func.sum(Contract.client_remaining_amount).label("total_remaining"),
-        )
+            # client_remaining_amount не заполнен для большинства договоров,
+            # пока их не подтвердили из Notion вручную или через синк — сумма
+            # без этого счётчика выглядит как «весь остаток», хотя на деле
+            # это остаток только по know_count из total_contracts договоров.
+            func.count(Contract.client_remaining_amount).label("remaining_known_count"),
+        ).group_by(Contract.currency)
     )
-    row = contracts_result.one()
+    contract_rows = contracts_result.all()
 
     paid_result = await db.execute(
-        select(func.sum(Payment.amount)).where(
+        select(Contract.currency, func.sum(Payment.amount))
+        .select_from(Payment)
+        .join(Contract, Contract.id == Payment.contract_id)
+        .where(
             Payment.type == PaymentType.client_payment,
             Payment.status == PaymentStatus.paid,
         )
+        .group_by(Contract.currency)
     )
-    total_paid = paid_result.scalar() or Decimal("0")
+    paid_by_currency = {r[0]: r[1] or Decimal("0") for r in paid_result.all()}
+
+    by_currency = [
+        {
+            "currency": r.currency,
+            "total_contracts": r.total_contracts or 0,
+            "total_amount": str(r.total_amount or 0),
+            "total_paid": str(paid_by_currency.get(r.currency, Decimal("0"))),
+            "total_remaining": str(r.total_remaining or 0),
+            "remaining_known_count": r.remaining_known_count or 0,
+        }
+        for r in contract_rows
+    ]
+    # Витрина верхнего уровня показывает валюту с наибольшим числом договоров,
+    # остальные валюты доступны в by_currency — суммы разных валют не смешиваем.
+    primary = max(by_currency, key=lambda c: c["total_contracts"]) if by_currency else None
 
     return {
-        "total_contracts": row.total_contracts or 0,
-        "total_amount": str(row.total_amount or 0),
-        "total_paid": str(total_paid),
-        "total_remaining": str(row.total_remaining or 0),
+        "total_contracts": primary["total_contracts"] if primary else 0,
+        "total_amount": primary["total_amount"] if primary else "0",
+        "total_paid": primary["total_paid"] if primary else "0",
+        "total_remaining": primary["total_remaining"] if primary else "0",
+        "remaining_known_count": primary["remaining_known_count"] if primary else 0,
+        "currency": primary["currency"] if primary else "KZT",
+        "by_currency": by_currency,
     }
 
 
@@ -217,11 +270,12 @@ async def mentor_payouts(
     result = await db.execute(
         select(
             Payment.mentor_id,
+            Payment.currency,
             func.sum(Payment.amount).filter(Payment.status == PaymentStatus.paid).label("paid"),
             func.sum(Payment.amount).filter(Payment.status == PaymentStatus.to_be_paid).label("to_be_paid"),
         )
         .where(Payment.type == PaymentType.mentor_payout, Payment.mentor_id.isnot(None))
-        .group_by(Payment.mentor_id)
+        .group_by(Payment.mentor_id, Payment.currency)
     )
     rows = result.all()
 
@@ -235,6 +289,7 @@ async def mentor_payouts(
             "mentor_name": users.get(r.mentor_id, "Unknown"),
             "paid": str(r.paid or 0),
             "to_be_paid": str(r.to_be_paid or 0),
+            "currency": r.currency,
         }
         for r in rows
     ]

@@ -150,17 +150,17 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
   }
 
   const card = workspace
-    ? 'rounded-[16px] border border-w-line bg-w-panel2 p-4'
-    : 'rounded-[4px] border border-gray-200 bg-gray-50 p-4'
+    ? 'rounded-panel border border-w-line bg-w-panel2 p-4'
+    : 'rounded-panel border border-gray-200 bg-gray-50 p-4'
   const button = workspace
     ? 'inline-flex h-9 items-center justify-center gap-2 rounded-full bg-w-accent px-4 text-xs font-bold text-black transition hover:brightness-95 disabled:opacity-50'
-    : 'inline-flex h-9 items-center justify-center gap-2 rounded-[3px] bg-gray-900 px-4 text-xs font-medium text-white transition hover:bg-black disabled:opacity-50'
+    : 'inline-flex h-9 items-center justify-center gap-2 rounded-ctl bg-gray-900 px-4 text-xs font-medium text-white transition hover:bg-black disabled:opacity-50'
   const secondaryButton = workspace
     ? 'inline-flex h-9 items-center justify-center gap-2 rounded-full border border-w-line bg-w-panel px-4 text-xs font-bold text-w-ink hover:border-w-accentDim disabled:opacity-50'
-    : 'inline-flex h-9 items-center justify-center gap-2 rounded-[3px] border border-gray-300 bg-white px-4 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50'
+    : 'inline-flex h-9 items-center justify-center gap-2 rounded-ctl border border-gray-300 bg-white px-4 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50'
   const input = workspace
-    ? 'h-10 w-full rounded-[12px] border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none focus:border-w-accentDim'
-    : 'h-10 w-full rounded-[3px] border border-gray-300 bg-white px-3 text-sm outline-none focus:border-gray-700'
+    ? 'h-10 w-full rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none focus:border-w-accentDim'
+    : 'h-10 w-full rounded-ctl border border-gray-300 bg-white px-3 text-sm outline-none focus:border-gray-700'
 
   if (!chat) {
     return (
@@ -270,7 +270,7 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
           </div>
         )}
         {readiness && !readiness.ready && readiness.issues.length > 0 && (
-          <div className={cn('mt-3 rounded-[10px] p-3 text-xs', workspace ? 'bg-amber-500/10 text-w-ink' : 'bg-amber-50 text-amber-900')}>
+          <div className={cn('mt-3 rounded-ctl p-3 text-xs', workspace ? 'bg-amber-500/10 text-w-ink' : 'bg-amber-50 text-amber-900')}>
             {readiness.issues.join(' · ')}
           </div>
         )}
@@ -315,7 +315,7 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
           )}
         </div>
         {studentInvite && (
-          <div className={cn('mt-4 rounded-[10px] border p-3', workspace ? 'border-w-accentDim/40 bg-w-accent/10' : 'border-amber-200 bg-amber-50')}>
+          <div className={cn('mt-4 rounded-ctl border p-3', workspace ? 'border-w-accentDim/40 bg-w-accent/10' : 'border-amber-200 bg-amber-50')}>
             <div className="break-all text-sm">{studentInvite.invite_link}</div>
             <div className="mt-1 text-xs opacity-60">Действует до {formatDate(studentInvite.expires_at)} · привяжется первый, кто вступит. Отправьте ссылку ученику, не открывайте сами.</div>
             <div className="mt-3 flex flex-wrap gap-2">

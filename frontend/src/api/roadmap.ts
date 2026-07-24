@@ -214,10 +214,13 @@ export interface FlatTask {
 const data = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data)
 
 export const roadmapApi = {
-  // live roadmap
-  myRoadmap: () => data<Roadmap | null>(apiClient.get('/portal/roadmap')),
-  studentRoadmap: (studentId: string) =>
-    data<Roadmap | null>(apiClient.get(`/students/${studentId}/roadmap`)),
+  // live roadmap — a student may have several active at once
+  myRoadmaps: () => data<Roadmap[]>(apiClient.get('/portal/roadmap')),
+  studentRoadmaps: (studentId: string) =>
+    data<Roadmap[]>(apiClient.get(`/students/${studentId}/roadmap`)),
+  getRoadmap: (roadmapId: string) => data<Roadmap>(apiClient.get(`/roadmaps/${roadmapId}`)),
+  archiveRoadmap: (roadmapId: string) =>
+    data<Roadmap>(apiClient.patch(`/roadmaps/${roadmapId}/archive`)),
 
   myTasks: () => data<FlatTask[]>(apiClient.get('/portal/tasks')),
   studentTasks: (studentId: string) =>

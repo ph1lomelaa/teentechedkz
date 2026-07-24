@@ -13,7 +13,7 @@ import {
   Rocket,
   type LucideIcon,
 } from 'lucide-react'
-import { BeeMark, Reveal } from '@/pages/LandingPage'
+import { BeeMark, HeroHeadline, Reveal } from '@/pages/LandingPage'
 
 /**
  * Публичный лендинг для учеников: /student
@@ -113,7 +113,7 @@ export function StudentLandingPage() {
       >
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6 md:px-8">
           <Link to="/" className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-[#FFD400]">
+            <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
             </span>
             <span className="text-sm font-black uppercase tracking-tight">
@@ -146,17 +146,16 @@ export function StudentLandingPage() {
 
       {/* HERO */}
       <section className="relative px-6 pb-20 pt-32 text-center md:px-8 md:pt-44">
-        <div className="pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
+        <div className="glow-pulse pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[1200px]">
-          <p className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-[#FFD400]">
+          <p className="mb-4 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">
             Кабинет ученика
           </p>
-          <h1 className="mb-6 text-[40px] font-black leading-[1.02] tracking-tight md:text-[56px]">
-            Весь путь в университет
-            <br />
-            <span className="text-[#FFD400]">в одном кабинете</span>
-          </h1>
+          <HeroHeadline
+            lines={['Весь путь в университет', 'в одном кабинете']}
+            accentLine={1}
+          />
 
           <p className="mx-auto mb-10 max-w-[600px] text-lg leading-relaxed text-[#B0B0B0]">
             Roadmap, задачи, документы и встречи с ментором — ничего не теряется в чатах.
@@ -168,7 +167,7 @@ export function StudentLandingPage() {
             </Link>
             <Link
               to="/apply"
-              className="inline-flex h-12 items-center justify-center rounded-[10px] border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-colors hover:border-[#FFD400] hover:bg-[#FFD400]/10"
+              className="inline-flex h-12 items-center justify-center rounded-ctl border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-all hover:-translate-y-0.5 hover:border-[#FFD400] hover:bg-[#FFD400]/10"
             >
               Оставить заявку
             </Link>
@@ -188,8 +187,8 @@ export function StudentLandingPage() {
       <section id="inside" className="scroll-mt-16 border-t border-white/10 bg-[#111111] px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[1200px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">Что внутри</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">Что внутри</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">
               Всё для вашего поступления
             </h2>
           </Reveal>
@@ -197,7 +196,7 @@ export function StudentLandingPage() {
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {PORTAL_FEATURES.map((f, i) => (
               <Reveal key={f.title} delay={(i % 3) * 100}>
-                <div className="h-full rounded-xl border border-white/10 bg-[#161616] p-6 transition-colors hover:border-[#FFD400]/30">
+                <div className="h-full rounded-card border border-white/10 bg-[#161616] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#FFD400]/30">
                   <f.icon className="mb-5 h-8 w-8 text-[#FFD400]" strokeWidth={1.75} />
                   <h3 className="mb-2 text-lg font-bold tracking-tight">{f.title}</h3>
                   <p className="text-sm leading-relaxed text-white/50">{f.desc}</p>
@@ -212,22 +211,20 @@ export function StudentLandingPage() {
       <section id="access" className="scroll-mt-16 border-t border-white/10 px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[1000px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">Доступ</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">Как получить доступ</h2>
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">Доступ</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">Как получить доступ</h2>
           </Reveal>
 
           <div className="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-6">
             {ACCESS_STEPS.map((step, i) => (
               <Reveal key={step.title} delay={i * 100}>
-                <div className="relative">
-                  <div className="mb-4 flex items-center gap-4">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#FFD400] text-[#0A0A0A]">
-                      <step.icon className="h-5 w-5" strokeWidth={2.2} />
-                    </span>
-                    {i < ACCESS_STEPS.length - 1 && (
-                      <span className="hidden h-px flex-1 bg-gradient-to-r from-[#FFD400]/50 to-white/10 md:block" />
-                    )}
-                  </div>
+                <div className="relative text-center">
+                  <span className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-full bg-[#FFD400] text-[#0A0A0A]">
+                    <step.icon className="h-5 w-5" strokeWidth={2.2} />
+                  </span>
+                  {i < ACCESS_STEPS.length - 1 && (
+                    <span className="absolute left-[calc(50%+20px)] right-0 top-5 hidden h-px bg-gradient-to-r from-[#FFD400]/50 to-white/10 md:block" />
+                  )}
                   <h3 className="mb-2 text-lg font-bold tracking-tight">{step.title}</h3>
                   <p className="text-sm leading-relaxed text-white/50">{step.desc}</p>
                 </div>
@@ -241,14 +238,14 @@ export function StudentLandingPage() {
       <section id="faq" className="scroll-mt-16 border-t border-white/10 bg-[#111111] px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[760px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">FAQ</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">Частые вопросы</h2>
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">FAQ</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">Частые вопросы</h2>
           </Reveal>
 
           <div className="space-y-4">
             {FAQ.map((item, i) => (
               <Reveal key={item.q} delay={i * 100}>
-                <div className="rounded-xl border border-white/10 bg-[#161616] p-6">
+                <div className="rounded-card border border-white/10 bg-[#161616] p-6">
                   <h3 className="mb-2 text-base font-bold tracking-tight">{item.q}</h3>
                   <p className="text-sm leading-relaxed text-white/50">{item.a}</p>
                 </div>
@@ -259,35 +256,11 @@ export function StudentLandingPage() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-white/10 px-6 py-24 text-center md:px-8">
-        <div className="relative mx-auto max-w-[760px]">
-          <div className="pointer-events-none absolute left-1/2 top-0 h-[300px] w-[500px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.06] blur-3xl" />
-          <Reveal className="relative">
-            <h2 className="mb-4 text-3xl font-black tracking-tight md:text-4xl">
-              Готовы двигаться к цели?
-            </h2>
-            <p className="mx-auto mb-8 max-w-[480px] text-base leading-relaxed text-[#B0B0B0]">
-              Войдите в кабинет — или оставьте заявку, и команда TeenTechEd подберёт вам ментора.
-            </p>
-            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link to="/login" className="auth-primary-button h-12 px-7 text-sm">
-                Войти в кабинет →
-              </Link>
-              <Link
-                to="/apply"
-                className="inline-flex h-12 items-center justify-center rounded-[10px] border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-colors hover:border-[#FFD400] hover:bg-[#FFD400]/10"
-              >
-                Оставить заявку
-              </Link>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
+      
       <footer className="border-t border-white/10 px-6 py-12 md:px-8">
         <div className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-[#FFD400]">
+            <span className="grid h-6 w-6 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-4 w-4" />
             </span>
             <span className="text-xs font-medium tracking-tight">TeenTechEd</span>

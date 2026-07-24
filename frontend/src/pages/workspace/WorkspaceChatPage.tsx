@@ -12,14 +12,7 @@ import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
-import {
-  WorkspaceButton,
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { AppButton, AppCard, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
 
 type Channel = 'all' | 'telegram' | 'internal'
 type UnifiedConversation = {
@@ -212,14 +205,14 @@ export const WorkspaceChatPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader colorPrefix="w"
         eyebrow={isPreview ? 'Preview чатов ментора' : 'Кабинет ментора'}
         title="Чат"
         description="Telegram и внутренние диалоги со студентами в одном рабочем разделе."
       />
 
       {connectGroupOpen && !isPreview && (
-        <WorkspaceCard className="mb-5 p-5">
+        <AppCard colorPrefix="w" className="mb-5 p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="font-display text-xl font-black text-w-ink">Telegram-группа ученика</div>
@@ -253,7 +246,7 @@ export const WorkspaceChatPage: React.FC = () => {
               value={connectStudentId}
               onChange={(event) => setConnectStudentId(event.target.value)}
               disabled={studentsLoading}
-              className="h-11 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
+              className="h-11 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
             >
               <option value="">Выберите ученика</option>
               {assignedStudents.map((item) => (
@@ -268,7 +261,7 @@ export const WorkspaceChatPage: React.FC = () => {
             {studentsLoading ? (
               <p className="text-sm text-w-muted">Загрузка учеников...</p>
             ) : !assignedStudents.length ? (
-              <WorkspaceEmptyState title="Нет доступных учеников" text="Сначала назначьте ученика себе или выберите ментора в режиме preview." />
+              <EmptyState colorPrefix="w" title="Нет доступных учеников" description="Сначала назначьте ученика себе или выберите ментора в режиме preview." />
             ) : connectStudent ? (
               <TelegramGroupManager
                 key={connectStudent.id}
@@ -278,14 +271,14 @@ export const WorkspaceChatPage: React.FC = () => {
                 variant="workspace"
               />
             ) : (
-              <WorkspaceEmptyState title="Выберите ученика" text="После выбора появятся инструменты создания и подключения Telegram-группы." />
+              <EmptyState colorPrefix="w" title="Выберите ученика" description="После выбора появятся инструменты создания и подключения Telegram-группы." />
             )}
           </div>
-        </WorkspaceCard>
+        </AppCard>
       )}
 
       {createInternalOpen && !isPreview && (
-        <WorkspaceCard className="mb-5 p-5">
+        <AppCard colorPrefix="w" className="mb-5 p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="font-display text-xl font-black text-w-ink">Новый внутренний диалог</div>
@@ -310,7 +303,7 @@ export const WorkspaceChatPage: React.FC = () => {
               value={createInternalStudentId}
               onChange={(event) => setCreateInternalStudentId(event.target.value)}
               disabled={studentsLoading}
-              className="h-11 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
+              className="h-11 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm font-bold text-w-ink outline-none focus:border-w-accentDim"
             >
               <option value="">Выберите ученика</option>
               {assignedStudents.map((item) => (
@@ -325,22 +318,22 @@ export const WorkspaceChatPage: React.FC = () => {
             <div className="text-xs text-w-muted">
               {createInternalStudent ? `Будет открыт диалог со студентом ${createInternalStudent.full_name}.` : 'Выберите студента для запуска чата.'}
             </div>
-            <WorkspaceButton
+            <AppButton colorPrefix="w"
               size="sm"
               disabled={!createInternalStudentId || createInternalMutation.isPending}
               onClick={() => createInternalMutation.mutate()}
             >
               {createInternalMutation.isPending ? 'Открываем...' : 'Открыть чат'}
-            </WorkspaceButton>
+            </AppButton>
           </div>
-        </WorkspaceCard>
+        </AppCard>
       )}
 
       <div className="mb-5">
-        <WorkspaceSegmentedTabs
+        <SegmentedTabs colorPrefix="w"
           value={channel}
-          onChange={setChannel}
-          options={[
+          onChange={(value) => setChannel(value as Channel)}
+          tabs={[
             { value: 'telegram', label: 'Telegram' },
             { value: 'internal', label: 'Внутренний чат' },
           ]}
@@ -348,26 +341,26 @@ export const WorkspaceChatPage: React.FC = () => {
       </div>
 
       {!loading && items.length === 0 ? (
-        <WorkspaceEmptyState
+        <EmptyState colorPrefix="w"
           title={channel === 'telegram' ? 'Telegram-диалогов пока нет' : 'Внутренних диалогов пока нет'}
-          text={channel === 'telegram'
+          description={channel === 'telegram'
             ? 'Подключите Telegram-группу студента, чтобы сообщения появились в ленте.'
             : 'Это отдельный чат кабинета. Откройте новый диалог со студентом.'}
           action={!isPreview ? (
             channel === 'telegram' ? (
-              <WorkspaceButton size="sm" onClick={() => setConnectGroupOpen(true)}>
+              <AppButton colorPrefix="w" size="sm" onClick={() => setConnectGroupOpen(true)}>
                 <Plus className="h-4 w-4" /> Подключить группу
-              </WorkspaceButton>
+              </AppButton>
             ) : (
-              <WorkspaceButton size="sm" onClick={() => setCreateInternalOpen(true)}>
+              <AppButton colorPrefix="w" size="sm" onClick={() => setCreateInternalOpen(true)}>
                 <Plus className="h-4 w-4" /> Открыть внутренний чат
-              </WorkspaceButton>
+              </AppButton>
             )
           ) : undefined}
         />
       ) : (
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <WorkspaceCard className="p-3">
+        <AppCard colorPrefix="w" className="p-3">
           {loading ? (
             <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
           ) : (
@@ -381,7 +374,7 @@ export const WorkspaceChatPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedKey(item.key)}
                     className={cn(
-                      'w-full rounded-[16px] border border-w-line px-3 py-3 text-left transition',
+                      'w-full rounded-panel border border-w-line px-3 py-3 text-left transition',
                       active
                         ? 'border-l-[3px] border-l-w-accent bg-w-accent/10 text-w-ink'
                         : 'bg-w-panel2 text-w-ink hover:border-w-accentDim',
@@ -407,11 +400,11 @@ export const WorkspaceChatPage: React.FC = () => {
               })}
             </div>
           )}
-        </WorkspaceCard>
+        </AppCard>
 
-        <WorkspaceCard className="p-5">
+        <AppCard colorPrefix="w" className="p-5">
           {!selected || !user ? (
-            <WorkspaceEmptyState title="Выберите диалог" text="Сообщения откроются справа." />
+            <EmptyState colorPrefix="w" title="Выберите диалог" description="Сообщения откроются справа." />
           ) : channel === 'all' ? (
             selected.studentId ? (
               <UnifiedThread
@@ -441,7 +434,7 @@ export const WorkspaceChatPage: React.FC = () => {
           ) : selected.telegram ? (
             <TelegramThread chat={selected.telegram} readOnly={isPreview} />
           ) : null}
-        </WorkspaceCard>
+        </AppCard>
       </div>
       )}
     </div>
@@ -585,27 +578,27 @@ function UnifiedThread({
         <ConversationHeader title={title} channel="Все каналы" />
         <div className="flex gap-2">
           {!readOnly && (
-            <WorkspaceButton size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
+            <AppButton colorPrefix="w" size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
               <Sparkles className="h-3.5 w-3.5" />{draftMutation.isPending ? 'AI анализирует...' : 'Общий AI-разбор'}
-            </WorkspaceButton>
+            </AppButton>
           )}
-          {telegram && <WorkspaceButton size="sm" variant="ghost" onClick={() => onOpenChannel('telegram')}>Telegram-инструменты</WorkspaceButton>}
-          {internal && <WorkspaceButton size="sm" variant="ghost" onClick={() => onOpenChannel('internal')}>Внутренний чат</WorkspaceButton>}
+          {telegram && <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => onOpenChannel('telegram')}>Telegram-инструменты</AppButton>}
+          {internal && <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => onOpenChannel('internal')}>Внутренний чат</AppButton>}
         </div>
       </div>
 
       {draft && (
-        <div className="mb-4 rounded-[16px] border border-w-accentDim/40 bg-w-accent/10 p-4">
+        <div className="mb-4 rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
           <div className="mb-2 flex items-center gap-2 font-display text-sm font-black text-w-accentText"><Bot className="h-4 w-4" />Предпросмотр общей истории</div>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-w-ink">{draft.summary}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <WorkspaceStatusPill>Профиль: {draft.profile_updates.length}</WorkspaceStatusPill>
-            <WorkspaceStatusPill>Задачи: {draft.follow_ups.length}</WorkspaceStatusPill>
-            <WorkspaceStatusPill>Документы: {draft.document_flags.length}</WorkspaceStatusPill>
+            <Pill colorPrefix="w">Профиль: {draft.profile_updates.length}</Pill>
+            <Pill colorPrefix="w">Задачи: {draft.follow_ups.length}</Pill>
+            <Pill colorPrefix="w">Документы: {draft.document_flags.length}</Pill>
           </div>
           <div className="mt-4 flex gap-2">
-            <WorkspaceButton size="sm" onClick={() => applyDraftMutation.mutate()} disabled={applyDraftMutation.isPending}>Подтвердить и применить</WorkspaceButton>
-            <WorkspaceButton size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</WorkspaceButton>
+            <AppButton colorPrefix="w" size="sm" onClick={() => applyDraftMutation.mutate()} disabled={applyDraftMutation.isPending}>Подтвердить и применить</AppButton>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</AppButton>
           </div>
         </div>
       )}
@@ -616,16 +609,16 @@ function UnifiedThread({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Поиск по Telegram и внутреннему чату"
-          className="h-10 w-full rounded-[11px] border border-w-line bg-w-panel2 pl-9 pr-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+          className="h-10 w-full rounded-ctl border border-w-line bg-w-panel2 pl-9 pr-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
         />
       </div>
 
-      <div className="h-[520px] space-y-2.5 overflow-y-auto rounded-[16px] border border-w-line bg-w-panel2 p-4">
+      <div className="h-[520px] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-4">
         {hasNextPage && (
           <div className="text-center">
-            <WorkspaceButton size="sm" variant="ghost" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>
               {isFetchingNextPage ? 'Загрузка...' : 'Загрузить более ранние сообщения'}
-            </WorkspaceButton>
+            </AppButton>
           </div>
         )}
         {isLoading ? (
@@ -637,13 +630,13 @@ function UnifiedThread({
             id={`workspace-message-${message.id}`}
             key={`${message.source}-${message.id}`}
             className={cn(
-              'flex rounded-[14px] transition',
+              'flex rounded-panel transition',
               message.is_current_user ? 'justify-end' : 'justify-start',
               highlightedMessageId === message.id && 'ring-2 ring-w-accent ring-offset-2 ring-offset-w-panel2',
             )}
           >
             <div className={cn(
-              'max-w-[82%] rounded-[12px] border px-3 py-2 text-sm',
+              'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
               message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
             )}>
               <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.08em]">
@@ -659,7 +652,7 @@ function UnifiedThread({
                   type="button"
                   disabled={!attachment.can_download}
                   onClick={() => download(attachment.kind, attachment.id, attachment.file_name || 'attachment')}
-                  className="mt-2 flex w-full items-center gap-2 rounded-[10px] border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted disabled:opacity-50"
+                  className="mt-2 flex w-full items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted disabled:opacity-50"
                 >
                   <Paperclip className="h-3.5 w-3.5" />
                   <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
@@ -687,7 +680,7 @@ function UnifiedThread({
               if (selectedFile) uploadMutation.mutate(selectedFile)
             }}
           />
-          <WorkspaceButton
+          <AppButton colorPrefix="w"
             size="sm"
             variant="ghost"
             disabled={uploadMutation.isPending}
@@ -695,7 +688,7 @@ function UnifiedThread({
             aria-label="Прикрепить файл"
           >
             <Paperclip className="h-4 w-4" />
-          </WorkspaceButton>
+          </AppButton>
           <input
             value={messageText}
             onChange={(event) => setMessageText(event.target.value)}
@@ -706,16 +699,16 @@ function UnifiedThread({
               }
             }}
             placeholder="Ответить во внутренний чат…"
-            className="h-10 flex-1 rounded-[11px] border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+            className="h-10 flex-1 rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
           />
-          <WorkspaceButton
+          <AppButton colorPrefix="w"
             size="sm"
             disabled={!messageText.trim() || sendMutation.isPending}
             onClick={() => sendMutation.mutate()}
             aria-label="Отправить во внутренний чат"
           >
             <Send className="h-4 w-4" />
-          </WorkspaceButton>
+          </AppButton>
         </div>
       )}
       {!internal && (
@@ -732,7 +725,7 @@ function ConversationHeader({ title, channel }: { title: string; channel: string
         <div className="font-display text-lg font-black text-w-ink">{title}</div>
         <div className="mt-1 text-xs text-w-muted">{channel}</div>
       </div>
-      <WorkspaceStatusPill>{channel}</WorkspaceStatusPill>
+      <Pill colorPrefix="w">{channel}</Pill>
     </div>
   )
 }
@@ -818,35 +811,35 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <ConversationHeader title={chat.student_name || chat.title || String(chat.chat_id)} channel="Telegram" />
         {!readOnly && (
-          <WorkspaceButton size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
+          <AppButton colorPrefix="w" size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
             <Sparkles className="h-3.5 w-3.5" />
             {draftMutation.isPending ? 'AI анализирует...' : 'AI-разбор'}
-          </WorkspaceButton>
+          </AppButton>
         )}
       </div>
 
       {draft && (
-        <div className="mb-4 rounded-[16px] border border-w-accentDim/40 bg-w-accent/10 p-4">
+        <div className="mb-4 rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
           <div className="mb-2 flex items-center gap-2 font-display text-sm font-black text-w-accentText">
             <Bot className="h-4 w-4" /> Предпросмотр AI-разбора
           </div>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-w-ink">{draft.summary}</p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-w-muted">
-            <WorkspaceStatusPill>Изменения профиля: {draft.profile_updates.length}</WorkspaceStatusPill>
-            <WorkspaceStatusPill>Задачи: {draft.follow_ups.length}</WorkspaceStatusPill>
-            <WorkspaceStatusPill>Документы: {draft.document_flags.length}</WorkspaceStatusPill>
+            <Pill colorPrefix="w">Изменения профиля: {draft.profile_updates.length}</Pill>
+            <Pill colorPrefix="w">Задачи: {draft.follow_ups.length}</Pill>
+            <Pill colorPrefix="w">Документы: {draft.document_flags.length}</Pill>
           </div>
           <div className="mt-4 flex gap-2">
-            <WorkspaceButton size="sm" onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending}>
+            <AppButton colorPrefix="w" size="sm" onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending}>
               Подтвердить и применить
-            </WorkspaceButton>
-            <WorkspaceButton size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</WorkspaceButton>
+            </AppButton>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</AppButton>
           </div>
         </div>
       )}
 
       {participants.length > 0 && (
-        <div className="mb-4 rounded-[16px] border border-w-line bg-w-panel2 p-4">
+        <div className="mb-4 rounded-panel border border-w-line bg-w-panel2 p-4">
           <div className="text-xs font-black uppercase tracking-[0.14em] text-w-muted">Какой Telegram-аккаунт ваш?</div>
           <div className="mt-3 flex flex-wrap gap-2">
             {participants.map((participant) => (
@@ -856,7 +849,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                 disabled={participant.is_current_user || identifyMutation.isPending}
                 onClick={() => identifyMutation.mutate(participant.telegram_user_id)}
                 className={cn(
-                  'rounded-[10px] border px-3 py-2 text-xs font-bold transition',
+                  'rounded-ctl border px-3 py-2 text-xs font-bold transition',
                   participant.is_current_user
                     ? 'border-w-good/40 bg-w-good/10 text-w-good'
                     : 'border-w-line bg-w-panel text-w-muted hover:border-w-accentDim hover:text-w-accentText',
@@ -871,7 +864,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
       )}
 
       {sessions.length > 0 && (
-        <div className="mb-4 overflow-hidden rounded-[16px] border border-w-line bg-w-panel2">
+        <div className="mb-4 overflow-hidden rounded-panel border border-w-line bg-w-panel2">
           <button
             type="button"
             onClick={() => setHistoryOpen((value) => !value)}
@@ -886,12 +879,12 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
             <div className="border-t border-w-line px-4 py-3">
               <div className="space-y-2">
                 {sessions.map((session) => (
-                  <div key={session.id} className="rounded-[11px] border border-w-line bg-w-panel px-3 py-2 text-xs">
+                  <div key={session.id} className="rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-bold text-w-ink">{session.student_name || 'Студент не указан'}</span>
-                      <WorkspaceStatusPill tone={session.status === 'active' ? 'good' : 'neutral'}>
+                      <Pill colorPrefix="w" tone={session.status === 'active' ? 'good' : 'neutral'}>
                         {session.status === 'active' ? 'Активна' : 'Закрыта'}
-                      </WorkspaceStatusPill>
+                      </Pill>
                     </div>
                     <div className="mt-1 text-w-muted">
                       {formatDate(session.opened_at)}
@@ -906,7 +899,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
         </div>
       )}
 
-      <div className="h-[560px] space-y-2.5 overflow-y-auto rounded-[16px] border border-w-line bg-w-panel2 p-4">
+      <div className="h-[560px] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-4">
         {isLoading ? (
           <p className="text-center text-sm text-w-muted">Загрузка сообщений...</p>
         ) : messages.length === 0 ? (
@@ -915,7 +908,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
           messages.map((message) => (
             <div key={message.id} className={cn('flex', message.is_current_user ? 'justify-end' : 'justify-start')}>
               <div className={cn(
-                'max-w-[82%] rounded-[12px] border px-3 py-2 text-sm',
+                'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
                 message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
               )}>
                 <div className={cn('mb-1 text-[11px] font-bold', message.is_current_user ? 'text-black/90' : 'text-w-accentText')}>
@@ -928,7 +921,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                     type="button"
                     disabled={!attachment.can_download}
                     onClick={() => download(attachment.id, attachment.file_name || 'telegram-file')}
-                    className="mt-2 flex w-full items-center gap-2 rounded-[10px] border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                    className="mt-2 flex w-full items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
                   >
                     <Paperclip className="h-3.5 w-3.5" />
                     <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
@@ -954,11 +947,11 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
               }
             }}
             placeholder="Отправить сообщение в Telegram…"
-            className="h-10 flex-1 rounded-[11px] border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+            className="h-10 flex-1 rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
           />
-          <WorkspaceButton size="sm" disabled={!outgoingText.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate()}>
+          <AppButton colorPrefix="w" size="sm" disabled={!outgoingText.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate()}>
             <Send className="h-4 w-4" />
-          </WorkspaceButton>
+          </AppButton>
         </div>
       )}
     </>

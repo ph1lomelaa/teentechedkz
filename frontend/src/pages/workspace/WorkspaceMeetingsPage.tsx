@@ -13,16 +13,7 @@ import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { FollowUpReviewDialog } from '@/components/shared/FollowUpReviewDialog'
 import { WorkspaceNotesPage } from '@/pages/workspace/WorkspaceNotesPage'
-import {
-  WorkspaceButton,
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspaceInput,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-  WorkspaceSelect,
-  WorkspaceStatusPill,
-} from '@/components/workspace/ui'
+import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
 
 const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   scheduled: 'Запланирована',
@@ -194,14 +185,14 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   return (
     <>
     <div className="fade-in">
-      <WorkspacePageHeader
+      <PageHeader colorPrefix="w"
         eyebrow="Кабинет ментора"
         title="Встречи"
         description="Рабочий список звонков: планирование, быстрый вход, запись, транскрипт и конспект по каждому студенту."
       />
 
       <div className="mb-5">
-        <WorkspaceSegmentedTabs
+        <SegmentedTabs colorPrefix="w"
           value={section}
           onChange={(value) => {
             const next = new URLSearchParams(searchParams)
@@ -210,7 +201,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             setSearchParams(next, { replace: true })
             if (value === 'upcoming') setScope('upcoming')
           }}
-          options={[
+          tabs={[
             { value: 'upcoming', label: 'Ближайшие' },
             { value: 'notes', label: 'Конспекты' },
           ]}
@@ -222,13 +213,13 @@ export const WorkspaceMeetingsPage: React.FC = () => {
       ) : (
         <>
 
-      <WorkspaceCard className="mb-5 p-5">
+      <AppCard colorPrefix="w" className="mb-5 p-5">
         <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink">
           <Calendar className="h-4 w-4 text-w-accentText" />
           Быстро создать встречу
         </div>
         <div className="grid gap-2 md:grid-cols-[240px_1fr_220px]">
-          <WorkspaceSelect
+          <AppSelect colorPrefix="w"
             value={studentId}
             onChange={(e) => setStudentId(e.target.value)}
             className="bg-w-panel2"
@@ -237,14 +228,14 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             {students.map((student) => (
               <option key={student.id} value={student.id}>{student.full_name}</option>
             ))}
-          </WorkspaceSelect>
-          <WorkspaceInput
+          </AppSelect>
+          <AppInput colorPrefix="w"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Название встречи"
             className="bg-w-panel2"
           />
-          <WorkspaceSelect
+          <AppSelect colorPrefix="w"
             value={meetingType}
             onChange={(e) => setMeetingType(e.target.value as MeetingType)}
             className="bg-w-panel2"
@@ -252,14 +243,14 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             {Object.entries(MEETING_TYPE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
-          </WorkspaceSelect>
-          <WorkspaceInput
+          </AppSelect>
+          <AppInput colorPrefix="w"
             type="datetime-local"
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
             className="bg-w-panel2"
           />
-          <WorkspaceInput
+          <AppInput colorPrefix="w"
             value={link}
             onChange={(e) => setLink(e.target.value)}
             placeholder="Zoom/Meet ссылка"
@@ -269,22 +260,22 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Повестка / что проверить на звонке"
-            className="min-h-20 rounded-[11px] border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink outline-none placeholder:text-w-muted2 transition focus:border-w-accentDim md:col-span-2"
+            className="min-h-20 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink outline-none placeholder:text-w-muted2 transition focus:border-w-accentDim md:col-span-2"
           />
-          <WorkspaceButton
+          <AppButton colorPrefix="w"
             disabled={!studentId || !title.trim() || !startsAt || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             {createMutation.isPending ? 'Создаем...' : 'Создать'}
-          </WorkspaceButton>
+          </AppButton>
         </div>
-      </WorkspaceCard>
+      </AppCard>
 
-      <WorkspaceCard className="mb-5 flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-        <WorkspaceSegmentedTabs
+      <AppCard colorPrefix="w" className="mb-5 flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+        <SegmentedTabs colorPrefix="w"
           value={scope}
-          onChange={setScope}
-          options={[
+          onChange={(value) => setScope(value as typeof scope)}
+          tabs={[
             { value: 'upcoming', label: 'Ближайшие' },
             { value: 'scheduled', label: 'Запланированы' },
             { value: 'completed', label: 'Проведены' },
@@ -292,7 +283,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             { value: 'all', label: 'Все' },
           ]}
         />
-        <WorkspaceSelect
+        <AppSelect colorPrefix="w"
           value={studentFilter}
           onChange={(event) => setStudentFilter(event.target.value)}
           className="bg-w-panel2 md:min-w-[260px]"
@@ -301,24 +292,24 @@ export const WorkspaceMeetingsPage: React.FC = () => {
           {students.map((student) => (
             <option key={student.id} value={student.id}>{student.full_name}</option>
           ))}
-        </WorkspaceSelect>
-      </WorkspaceCard>
+        </AppSelect>
+      </AppCard>
 
-      <WorkspaceCard className="p-5">
+      <AppCard colorPrefix="w" className="p-5">
         {loading ? (
           <p className="text-sm text-w-muted">Загрузка встреч...</p>
         ) : meetings.length === 0 ? (
-          <WorkspaceEmptyState title="Встреч нет" text="Создайте первую встречу." />
+          <EmptyState colorPrefix="w" title="Встреч нет" description="Создайте первую встречу." />
         ) : (
           <div className="space-y-2">
             {meetings.map((meeting) => (
-              <div key={meeting.id} className="flex flex-col gap-3 rounded-[16px] border border-w-line bg-w-panel2 p-4 md:flex-row md:items-start">
+              <div key={meeting.id} className="flex flex-col gap-3 rounded-panel border border-w-line bg-w-panel2 p-4 md:flex-row md:items-start">
                 <Clock className="h-4 w-4 shrink-0 text-w-accentText" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="truncate text-sm font-bold text-w-ink">{meeting.title}</div>
-                    <WorkspaceStatusPill tone={MEETING_STATUS_TONE[meeting.status]}>{MEETING_STATUS_LABELS[meeting.status]}</WorkspaceStatusPill>
-                    <WorkspaceStatusPill>{MEETING_TYPE_LABELS[meeting.meeting_type]}</WorkspaceStatusPill>
+                    <Pill colorPrefix="w" tone={MEETING_STATUS_TONE[meeting.status]}>{MEETING_STATUS_LABELS[meeting.status]}</Pill>
+                    <Pill colorPrefix="w">{MEETING_TYPE_LABELS[meeting.meeting_type]}</Pill>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-w-muted">
                     <Link to={`/workspace/students/${meeting.student_id}#meetings`} className="text-w-accentText hover:underline">
@@ -339,10 +330,10 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link to={`/workspace/students/${meeting.student_id}#meetings`}>
-                      <WorkspaceButton size="sm" variant="ghost">Карточка</WorkspaceButton>
+                      <AppButton colorPrefix="w" size="sm" variant="ghost">Карточка</AppButton>
                     </Link>
                     {meeting.note_session_id ? (
-                      <Link to={`/workspace/meetings/session/${meeting.note_session_id}`} className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-accentDim/40 px-3 py-1.5 text-[11.5px] font-bold text-w-accentText hover:bg-w-accent/10">
+                      <Link to={`/workspace/meetings/session/${meeting.note_session_id}`} className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-accentDim/40 px-3 py-1.5 text-[11.5px] font-bold text-w-accentText hover:bg-w-accent/10">
                         <Mic className="h-3.5 w-3.5" />
                         Открыть конспект
                       </Link>
@@ -351,7 +342,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                         type="button"
                         onClick={() => createNoteSessionMutation.mutate(meeting)}
                         disabled={createNoteSessionMutation.isPending}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                        className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
                       >
                         <Mic className="h-3.5 w-3.5" />
                         Конспект
@@ -361,7 +352,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                       type="button"
                       onClick={() => createFollowUpMutation.mutate(meeting)}
                       disabled={createFollowUpMutation.isPending}
-                      className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                      className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       Задача из итога
@@ -370,7 +361,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                       type="button"
                       onClick={() => createAiActionsMutation.mutate(meeting)}
                       disabled={createAiActionsMutation.isPending}
-                      className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                      className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
                       AI-разбор
@@ -379,19 +370,19 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                       type="button"
                       onClick={() => createFollowUpDraftMutation.mutate(meeting)}
                       disabled={createFollowUpDraftMutation.isPending}
-                      className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                      className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
                     >
                       <MessageSquareText className="h-3.5 w-3.5" />
                       Follow-up текст
                     </button>
                     {meeting.recording_url && (
-                      <a href={meeting.recording_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText">
+                      <a href={meeting.recording_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText">
                         <Video className="h-3.5 w-3.5" />
                         Запись
                       </a>
                     )}
                     {meeting.transcript_url && (
-                      <a href={meeting.transcript_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-[11px] border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText">
+                      <a href={meeting.transcript_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-bold text-w-muted hover:border-w-accentDim hover:text-w-accentText">
                         <FileText className="h-3.5 w-3.5" />
                         Транскрипт
                       </a>
@@ -399,7 +390,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                   </div>
                 </div>
                 {meeting.meeting_link && (
-                  <a href={meeting.meeting_link} target="_blank" rel="noreferrer" className="shrink-0 rounded-[10px] bg-w-accent px-3 py-1.5 text-xs font-black text-black">
+                  <a href={meeting.meeting_link} target="_blank" rel="noreferrer" className="shrink-0 rounded-ctl bg-w-accent px-3 py-1.5 text-xs font-black text-black">
                     Join
                   </a>
                 )}
@@ -407,7 +398,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             ))}
           </div>
         )}
-      </WorkspaceCard>
+      </AppCard>
         </>
       )}
     </div>

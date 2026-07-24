@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, ExternalLink, ChevronRight, BookOpen } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/primitives/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { knowledgeApi, KnowledgeArticleSummary } from '@/api/knowledge'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 
@@ -54,14 +54,14 @@ export const KnowledgeBasePage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Справочники"
         title="База знаний"
         description="Стипендии, регламенты и пакеты — импортировано из Notion, только для чтения."
       />
 
       {canSync && (
-        <div className="mb-6 rounded-[2px] border border-border bg-card p-4">
+        <div className="mb-6 rounded-card border border-border bg-card p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-relaxed text-p-muted">
               Подтягивает содержимое из закреплённого списка Notion-страниц (не создаёт новые записи по совпадению названий).
@@ -77,7 +77,7 @@ export const KnowledgeBasePage: React.FC = () => {
             </Button>
           </div>
           {syncJob && (
-            <div className="mt-3 rounded-[2px] border border-border bg-muted p-3 text-xs">
+            <div className="mt-3 rounded-panel border border-border bg-muted p-3 text-xs">
               <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
                 <div
                   className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' ? 'w-1/3 animate-pulse' : ''}`}
@@ -102,7 +102,7 @@ export const KnowledgeBasePage: React.FC = () => {
       {isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : articles.length === 0 ? (
-        <div className="rounded-[2px] border border-dashed border-border px-4 py-8 text-center text-sm text-p-muted2">
+        <div className="rounded-card border border-dashed border-border px-4 py-8 text-center text-sm text-p-muted2">
           <BookOpen className="mx-auto mb-2 h-5 w-5 text-p-muted2" />
           Пока пусто.{canSync ? ' Нажмите «Обновить из Notion», чтобы загрузить материалы.' : ''}
         </div>
@@ -111,7 +111,7 @@ export const KnowledgeBasePage: React.FC = () => {
           {grouped.map(([category, items]) => (
             <div key={category}>
               <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-p-muted2">{category}</h2>
-              <div className="divide-y divide-border rounded-[2px] border border-border bg-card">
+              <div className="divide-y divide-border rounded-card border border-border bg-card">
                 {items.map((article) => (
                   <button
                     key={article.id}

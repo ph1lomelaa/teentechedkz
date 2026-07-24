@@ -5,7 +5,7 @@ import { countriesApi } from '@/api/index'
 import { useLocalState } from '@/lib/use-local-state'
 import { roadmapApi, RoadmapTemplate, TemplateListItem } from '@/api/roadmap'
 import type { Country } from '@/types'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 
 export const PortalCountriesCatalog: React.FC = () => {
   const { data: countries = [], isLoading } = useQuery({
@@ -62,7 +62,7 @@ export const PortalCountriesCatalog: React.FC = () => {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Поиск по стране или дедлайну…"
-            className="h-12 w-full rounded-[13px] border border-p-line bg-p-panel2 pl-4 pr-12 text-sm text-p-text outline-none transition-colors placeholder:text-p-muted2 focus:border-brand-dim"
+            className="h-12 w-full rounded-ctl border border-p-line bg-p-panel2 pl-4 pr-12 text-sm text-p-text outline-none transition-colors placeholder:text-p-muted2 focus:border-brand-dim"
           />
           <Search className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-p-muted2" />
         </div>
@@ -91,12 +91,12 @@ export const PortalCountriesCatalog: React.FC = () => {
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-48 animate-pulse rounded-[20px] border border-p-line bg-p-panel" />
+            <div key={i} className="h-48 animate-pulse rounded-card border border-p-line bg-p-panel" />
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-brand/15">
+        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
+          <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
             <Globe className="h-5 w-5 text-brand" />
           </div>
           <h2 className="mt-4 text-base font-extrabold text-p-text">Страны не найдены</h2>
@@ -139,7 +139,7 @@ function RoadmapPreview({ selection, onClose }: { selection: { country: Country;
           </DialogTitle>
         </DialogHeader>
         {!selection.template ? (
-          <div className="rounded-[16px] border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
+          <div className="rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
             Для этого направления roadmap-шаблон пока не добавлен.
           </div>
         ) : isLoading || !template ? (
@@ -157,7 +157,7 @@ function TemplateStages({ template }: { template: RoadmapTemplate }) {
     <div className="space-y-3">
       {template.description && <p className="text-sm leading-6 text-p-muted">{template.description}</p>}
       {template.stages.map((stage, index) => (
-        <section key={stage.id} className="rounded-[16px] border border-p-line bg-p-panel2 p-4">
+        <section key={stage.id} className="rounded-panel border border-p-line bg-p-panel2 p-4">
           <div className="flex items-center gap-3">
             <span className="grid h-7 w-7 place-items-center rounded-full bg-brand text-xs font-black text-black">
               {index + 1}
@@ -180,7 +180,7 @@ function TemplateStages({ template }: { template: RoadmapTemplate }) {
 }
 
 const CountryCard: React.FC<CountryCardProps> = ({ country, onOpenRoadmap }) => (
-  <article className="relative overflow-hidden rounded-[20px] border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-[22px] transition-colors hover:border-brand-dim">
+  <article className="relative overflow-hidden rounded-card border border-p-line bg-gradient-to-b from-p-panel to-p-bg p-[22px] transition-colors hover:border-brand-dim">
     {country.flag_url && (
       <div
         className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-cover bg-center opacity-[0.14] [filter:grayscale(0.2)]"

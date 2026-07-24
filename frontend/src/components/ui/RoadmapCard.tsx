@@ -91,7 +91,7 @@ export const RoadmapCard: React.FC<RoadmapCardProps> = ({
         {/* Stats grid: 4 blocks */}
         <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {/* Stages */}
-          <div className={cn('rounded-[11px] border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
+          <div className={cn('rounded-ctl border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
             <div className="flex items-center gap-1.5">
               <Trophy size={16} className={accentClass} />
               <span className={cn('text-[11px] font-bold opacity-70', textClass)}>Этапов</span>
@@ -102,7 +102,7 @@ export const RoadmapCard: React.FC<RoadmapCardProps> = ({
           </div>
 
           {/* Total Tasks */}
-          <div className={cn('rounded-[11px] border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
+          <div className={cn('rounded-ctl border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={16} className={accentClass} />
               <span className={cn('text-[11px] font-bold opacity-70', textClass)}>Всего</span>
@@ -113,7 +113,7 @@ export const RoadmapCard: React.FC<RoadmapCardProps> = ({
           </div>
 
           {/* Completed */}
-          <div className={cn('rounded-[11px] border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
+          <div className={cn('rounded-ctl border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={16} className="text-green-500" />
               <span className={cn('text-[11px] font-bold opacity-70', textClass)}>Готово</span>
@@ -124,7 +124,7 @@ export const RoadmapCard: React.FC<RoadmapCardProps> = ({
           </div>
 
           {/* Progress % */}
-          <div className={cn('rounded-[11px] border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
+          <div className={cn('rounded-ctl border border-opacity-30 bg-opacity-30 p-3', barBgClass)}>
             <div className="flex items-center gap-1.5">
               <Map size={16} className={accentClass} />
               <span className={cn('text-[11px] font-bold opacity-70', textClass)}>Прогресс</span>

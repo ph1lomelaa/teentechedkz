@@ -5,7 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/accordion'
+} from '@/components/ui/primitives/accordion'
 import { useAuth } from '@/contexts/AuthContext'
 import { chatApi } from '@/api/chat'
 import { ChatThread } from '@/components/shared/ChatThread'
@@ -19,7 +19,7 @@ export const StudentChatSection: React.FC<{ studentId: string }> = ({ studentId 
   })
 
   return (
-    <AccordionItem value="chat" className="border border-gray-200 rounded-[2px] px-4">
+    <AccordionItem value="chat" className="border border-gray-200 rounded-card px-4">
       <AccordionTrigger className="text-base font-semibold">
         <span className="flex items-center gap-2">
           <MessageCircle className="w-4 h-4 text-gray-500" />

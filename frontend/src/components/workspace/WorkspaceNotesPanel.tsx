@@ -4,7 +4,7 @@ import { Plus, Shield } from 'lucide-react'
 import { confidentialNotesApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
-import { WorkspaceButton, WorkspaceSelect } from '@/components/workspace/ui'
+import { AppButton, AppSelect } from '@/components/ui'
 import { formatDate } from '@/lib/utils'
 import type { ConfidentialNote, NoteVisibility } from '@/types'
 
@@ -74,20 +74,20 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
       {notes.length > 0 && (
         <div className="space-y-2.5">
           {notes.map((note) => (
-            <div key={note.id} className="rounded-[13px] border border-w-line bg-w-panel2 p-3.5">
+            <div key={note.id} className="rounded-panel border border-w-line bg-w-panel2 p-3.5">
               <p className="text-sm text-w-ink">{note.note_text}</p>
               <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] text-w-muted">
                   Видят: {VISIBILITY_LABEL[note.visible_to_role]} · {formatDate(note.created_at)}
                 </p>
-                <WorkspaceButton
+                <AppButton colorPrefix="w"
                   size="sm"
                   variant="ghost"
                   disabled={visibilityMutation.isPending}
                   onClick={() => visibilityMutation.mutate({ noteId: note.id, visible: !note.visible_to_student })}
                 >
                   {note.visible_to_student ? 'Скрыть от ученика' : 'Показать ученику'}
-                </WorkspaceButton>
+                </AppButton>
               </div>
               {note.visible_to_student && (
                 <p className="mt-1.5 text-[11px] font-bold text-w-good">Видно ученику в разделе «Заметки»</p>
@@ -98,9 +98,9 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
       )}
 
       {!adding ? (
-        <WorkspaceButton size="sm" variant="soft" onClick={() => setAdding(true)}>
+        <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => setAdding(true)}>
           <Plus className="h-3.5 w-3.5" /> Добавить заметку
-        </WorkspaceButton>
+        </AppButton>
       ) : (
         <div className="space-y-2.5">
           <textarea
@@ -108,22 +108,22 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
             onChange={(e) => setText(e.target.value)}
             placeholder="Заметка..."
             rows={3}
-            className="w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 py-2.5 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+            className="w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2.5 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
           />
           <div className="flex flex-wrap items-center gap-2">
             {canPickVisibility && (
-              <WorkspaceSelect value={role} onChange={(e) => setRole(e.target.value as NoteVisibility)} className="w-44">
+              <AppSelect colorPrefix="w" value={role} onChange={(e) => setRole(e.target.value as NoteVisibility)} className="w-44">
                 <option value="admin_only">Только admin</option>
                 <option value="admin_and_mzk">Admin и MZK</option>
                 <option value="all_mentors">Все менторы</option>
-              </WorkspaceSelect>
+              </AppSelect>
             )}
-            <WorkspaceButton size="sm" disabled={!text.trim() || addMutation.isPending} onClick={() => addMutation.mutate()}>
+            <AppButton colorPrefix="w" size="sm" disabled={!text.trim() || addMutation.isPending} onClick={() => addMutation.mutate()}>
               Сохранить
-            </WorkspaceButton>
-            <WorkspaceButton size="sm" variant="ghost" onClick={() => { setAdding(false); setText('') }}>
+            </AppButton>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => { setAdding(false); setText('') }}>
               Отмена
-            </WorkspaceButton>
+            </AppButton>
           </div>
         </div>
       )}

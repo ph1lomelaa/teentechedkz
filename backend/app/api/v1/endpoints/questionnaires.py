@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.deps import CurrentUser
+from app.services import background_jobs
 from app.core.import_notion_questionnaires import (
     _form_question_configs,
     _legacy_rich_text_plain,
@@ -402,64 +403,44 @@ async def list_questionnaire_templates(
 
 # --------------------------------------------------------------------------
 # Notion sync — resolve form captions + attach questionnaires to tasks.
-# Same in-memory job pattern as /roadmap-templates/import/notion. Lets staff
-# refresh question descriptions from the workspace instead of a manual CLI run.
+# Job state is persisted in background_jobs (kind="questionnaire_sync") so it
+# survives a backend restart, instead of living only in a process-local dict.
 # --------------------------------------------------------------------------
-_SYNC_JOBS: dict[str, dict] = {}
-
-
-def _sync_job_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_SYNC_JOB_KIND = "questionnaire_sync"
 
 
 @router.post("/questionnaires/sync/notion", status_code=202)
 async def start_notion_questionnaire_sync(current_user: CurrentUser):
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise _FORBIDDEN
-    running = next((job for job in _SYNC_JOBS.values() if job.get("status") == "running"), None)
+    running = await background_jobs.get_running_job(_SYNC_JOB_KIND)
     if running:
-        raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": running["job_id"]})
+        raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": str(running.id)})
 
-    job_id = str(uuid.uuid4())
-    job = {
-        "job_id": job_id,
-        "status": "running",
-        "started_at": _sync_job_now(),
-        "finished_at": None,
-        "events": [],
-        "result": None,
-        "error": None,
-    }
-    _SYNC_JOBS[job_id] = job
+    job = await background_jobs.create_job(_SYNC_JOB_KIND)
 
     async def runner() -> None:
         from app.core.link_notion_questionnaires import run as run_link
 
-        def on_event(event: dict) -> None:
-            job["events"].append({"at": _sync_job_now(), **event})
-            job["events"] = job["events"][-80:]
-
+        on_event = background_jobs.make_on_event(job.id)
         try:
-            job["result"] = await run_link(on_event=on_event)
-            job["status"] = "done"
+            result = await run_link(on_event=on_event)
+            await background_jobs.finish_job(job.id, status="done", result=result)
         except Exception as exc:
-            job["status"] = "failed"
-            job["error"] = str(exc)
-        finally:
-            job["finished_at"] = _sync_job_now()
+            await background_jobs.finish_job(job.id, status="failed", error=str(exc))
 
     asyncio.create_task(runner())
-    return job
+    return background_jobs.serialize(job)
 
 
 @router.get("/questionnaires/sync/notion/{job_id}")
 async def get_notion_questionnaire_sync_job(job_id: str, current_user: CurrentUser):
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise _FORBIDDEN
-    job = _SYNC_JOBS.get(job_id)
+    job = await background_jobs.get_job(_SYNC_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND
-    return job
+    return background_jobs.serialize(job)
 
 
 @router.post("/roadmap-tasks/{task_id}/questionnaire/from-template/{template_id}")

@@ -536,6 +536,7 @@ async def on_message(message: Message, update_id: int):
     from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
     from app.models.telegram_message import TelegramMessage
     from app.services.telegram_ingest import ingest_message
+    from app.services.queue import get_arq_pool
 
     if message.migrate_to_chat_id:
         # System notice for the *old* chat_id, fired right before the actual
@@ -566,17 +567,25 @@ async def on_message(message: Message, update_id: int):
         )
         session = session_result.scalars().first()
 
-        row = await ingest_message(
-            db, bot=get_bot(), chat=chat, session=session, message=message, update_id=update_id
+        row, attachment = await ingest_message(
+            db, chat=chat, session=session, message=message, update_id=update_id
         )
-
-        if chat.status != TelegramChatStatus.paused:
-            from app.services.telegram_extraction import extract_insight_from_message
-
-            await extract_insight_from_message(db, row)
+        chat_paused = chat.status == TelegramChatStatus.paused
+        row_id = row.id
+        attachment_id = attachment.id if attachment else None
 
         await db.commit()
-        # No "file received" acknowledgement — the bot stays silent for clients.
+
+    # Heavy work (Telegram file download, Deepgram transcription, MinIO
+    # upload, AI insight extraction) runs in the separate `worker` process —
+    # never block the Telegram webhook response on it (Telegram retries/backs
+    # off webhooks that don't answer quickly).
+    pool = await get_arq_pool()
+    if attachment_id is not None:
+        await pool.enqueue_job("process_telegram_attachment_task", str(attachment_id))
+    elif not chat_paused:
+        await pool.enqueue_job("extract_telegram_insight_task", str(row_id))
+    # No "file received" acknowledgement — the bot stays silent for clients.
 
 
 async def webhook_health_loop(interval_seconds: int = 600) -> None:

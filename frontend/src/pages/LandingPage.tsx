@@ -12,17 +12,18 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-const STATS = [
-  { value: '20+', label: 'менторов' },
-  { value: '5', label: 'стран поступления' },
-]
-
 const UNIVERSITIES = [
-  'Fudan University',
-  'Peking University',
   'Tsinghua University',
+  'Peking University',
+  'Fudan University',
+  'Zhejiang University',
+  'Shanghai Jiao Tong University',
+  'Technical University of Munich',
+  'Heidelberg University',
+  'RWTH Aachen University',
   'Seoul National University',
-  'TUM',
+  'KAIST',
+  'Yonsei University',
 ]
 
 const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
@@ -105,7 +106,7 @@ export function LandingPage() {
       >
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6 md:px-8">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-[#FFD400]">
+            <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
             </span>
             <span className="text-sm font-black uppercase tracking-tight">
@@ -144,14 +145,13 @@ export function LandingPage() {
 
       {/* HERO */}
       <section className="relative px-6 pb-20 pt-32 text-center md:px-8 md:pt-44">
-        <div className="pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
+        <div className="glow-pulse pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[1200px]">
-          <h1 className="mb-6 text-[40px] font-black leading-[1.02] tracking-tight md:text-[56px]">
-            Ведём студентов
-            <br />
-            <span className="text-[#FFD400]">от заявки до зачисления</span>
-          </h1>
+          <HeroHeadline
+            lines={['Ведём студентов', 'от заявки до зачисления']}
+            accentLine={1}
+          />
 
           <p className="mx-auto mb-10 max-w-[600px] text-lg leading-relaxed text-[#B0B0B0]">
             Пайплайн, документы, звонки и менторы — в одной системе.
@@ -163,7 +163,7 @@ export function LandingPage() {
             </Link>
             <Link
               to="/join"
-              className="inline-flex h-12 items-center justify-center rounded-[10px] border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-colors hover:border-[#FFD400] hover:bg-[#FFD400]/10"
+              className="inline-flex h-12 items-center justify-center rounded-ctl border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-all hover:-translate-y-0.5 hover:border-[#FFD400] hover:bg-[#FFD400]/10"
             >
               Оставить заявку
             </Link>
@@ -183,35 +183,19 @@ export function LandingPage() {
       </section>
 
       {/* SOCIAL PROOF */}
-      <section className="border-y border-white/10 bg-white/[0.03] px-6 py-10 md:px-8">
-        <div className="mx-auto max-w-[1000px]">
-          <div className="mx-auto mb-8 grid max-w-[420px] grid-cols-2 gap-8">
-            {STATS.map((s) => (
-              <div key={s.label} className="text-center">
-                <div className="text-2xl font-black tracking-tight text-white md:text-3xl">{s.value}</div>
-                <div className="mt-1 text-xs uppercase tracking-widest text-white/40">{s.label}</div>
-              </div>
-            ))}
-          </div>
-          <p className="mb-4 text-center text-[10px] font-bold uppercase tracking-[0.22em] text-white/30">
-            Студенты поступают в
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-            {UNIVERSITIES.map((name) => (
-              <span key={name} className="text-sm font-semibold tracking-tight text-white/50">
-                {name}
-              </span>
-            ))}
-          </div>
-        </div>
+      <section className="border-y border-white/10 bg-white/[0.03] py-10">
+        <p className="mb-6 text-center text-[10px] font-bold uppercase tracking-[0.22em] text-white/30">
+          Студенты поступают в
+        </p>
+        <UniversityMarquee names={UNIVERSITIES} />
       </section>
 
       {/* FEATURES */}
       <section id="features" className="scroll-mt-16 px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[1200px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">Возможности</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">Возможности</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">
               Всё для работы с абитуриентами
             </h2>
           </Reveal>
@@ -219,7 +203,7 @@ export function LandingPage() {
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f, i) => (
               <Reveal key={f.title} delay={(i % 3) * 100}>
-                <div className="h-full rounded-xl border border-white/10 bg-[#141414] p-6 transition-colors hover:border-[#FFD400]/30">
+                <div className="h-full rounded-card border border-white/10 bg-[#141414] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#FFD400]/30">
                   <f.icon className="mb-5 h-8 w-8 text-[#FFD400]" strokeWidth={1.75} />
                   <h3 className="mb-2 text-lg font-bold tracking-tight">{f.title}</h3>
                   <p className="text-sm leading-relaxed text-white/50">{f.desc}</p>
@@ -234,22 +218,20 @@ export function LandingPage() {
       <section id="how" className="scroll-mt-16 border-t border-white/10 bg-[#111111] px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[1200px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">Как это работает</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">Четыре шага до зачисления</h2>
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">Как это работает</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">Четыре шага до зачисления</h2>
           </Reveal>
 
           <div className="grid grid-cols-1 gap-10 md:grid-cols-4 md:gap-6">
             {STEPS.map((step, i) => (
               <Reveal key={step.title} delay={i * 100}>
-                <div className="relative">
-                  <div className="mb-4 flex items-center gap-4">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#FFD400] text-sm font-black text-[#0A0A0A]">
-                      {i + 1}
-                    </span>
-                    {i < STEPS.length - 1 && (
-                      <span className="hidden h-px flex-1 bg-gradient-to-r from-[#FFD400]/50 to-white/10 md:block" />
-                    )}
-                  </div>
+                <div className="relative text-center">
+                  <span className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-full bg-[#FFD400] text-sm font-black text-[#0A0A0A]">
+                    {i + 1}
+                  </span>
+                  {i < STEPS.length - 1 && (
+                    <span className="absolute left-[calc(50%+20px)] right-0 top-5 hidden h-px bg-gradient-to-r from-[#FFD400]/50 to-white/10 md:block" />
+                  )}
                   <h3 className="mb-2 text-lg font-bold tracking-tight">{step.title}</h3>
                   <p className="text-sm leading-relaxed text-white/50">{step.desc}</p>
                 </div>
@@ -263,8 +245,8 @@ export function LandingPage() {
       <section id="for-whom" className="scroll-mt-16 border-t border-white/10 px-6 py-24 md:px-8 md:py-32">
         <div className="mx-auto max-w-[1200px]">
           <Reveal className="mb-14 text-center">
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#FFD400]">Для кого</p>
-            <h2 className="text-3xl font-black tracking-tight md:text-4xl">Каждому — своё рабочее место</h2>
+            <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">Для кого</p>
+            <h2 className="font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl">Каждому — своё рабочее место</h2>
           </Reveal>
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -273,7 +255,7 @@ export function LandingPage() {
               { title: 'Для управляющих и владельцев', items: FOR_OWNERS },
             ].map((col, i) => (
               <Reveal key={col.title} delay={i * 100}>
-                <div className="h-full rounded-xl border border-white/10 bg-[#141414] p-8">
+                <div className="h-full rounded-card border border-white/10 bg-[#141414] p-8 transition-all duration-300 hover:-translate-y-1 hover:border-[#FFD400]/30">
                   <h3 className="mb-6 text-xl font-bold tracking-tight">{col.title}</h3>
                   <ul className="space-y-4">
                     {col.items.map((item) => (
@@ -293,7 +275,7 @@ export function LandingPage() {
       <footer className="border-t border-white/10 px-6 py-12 md:px-8">
         <div className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-6 md:flex-row md:items-center">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-[#FFD400]">
+            <span className="grid h-6 w-6 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-4 w-4" />
             </span>
             <span className="text-xs font-medium tracking-tight">TeenTechEd</span>
@@ -413,6 +395,63 @@ function ProductMockup() {
         </div>
       </div>
     </div>
+  )
+}
+
+/* Бесконечная бегущая строка с названиями университетов: дублируем список
+   и анимируем трек на -50%, чтобы стык был незаметен. */
+function UniversityMarquee({ names }: { names: string[] }) {
+  return (
+    <div className="marquee-mask relative overflow-hidden">
+      <div className="marquee-track flex w-max items-center gap-12 whitespace-nowrap">
+        {[...names, ...names].map((name, i) => (
+          <span key={`${name}-${i}`} className="flex items-center gap-12">
+            <span className="font-display text-2xl font-black uppercase tracking-tight text-white/40 transition-colors hover:text-[#FFD400] md:text-4xl">
+              {name}
+            </span>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#FFD400]/40" />
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* Заголовок героя: слова появляются с небольшим сдвигом по времени при монтировании.
+   accentLine — индекс строки, которая красится в акцентный жёлтый. */
+export function HeroHeadline({ lines, accentLine }: { lines: [string, string]; accentLine: 0 | 1 }) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  let wordIndex = 0
+
+  return (
+    <h1 className="mb-6 font-display text-[40px] font-black leading-[1.02] tracking-tight md:text-[56px]">
+      {lines.map((line, lineIdx) => (
+        <span key={line} className={lineIdx === accentLine ? 'text-[#FFD400]' : undefined}>
+          {line.split(' ').map((word, i) => {
+            const delay = wordIndex * 45
+            wordIndex += 1
+            return (
+              <span
+                key={`${word}-${i}`}
+                className={`inline-block whitespace-pre transition-all duration-500 ease-out motion-reduce:translate-y-0 motion-reduce:opacity-100 motion-reduce:transition-none ${
+                  mounted ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
+                }`}
+                style={{ transitionDelay: `${delay}ms` }}
+              >
+                {word}{i < line.split(' ').length - 1 ? ' ' : ''}
+              </span>
+            )
+          })}
+          {lineIdx < lines.length - 1 && <br />}
+        </span>
+      ))}
+    </h1>
   )
 }
 

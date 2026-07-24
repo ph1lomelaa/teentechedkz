@@ -10,8 +10,8 @@ import {
   DEGREE_LEVEL_COLORS,
   PipelineStatus,
 } from '@/types'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Button } from '@/components/ui/primitives/button'
 import {
   Table,
   TableBody,
@@ -19,16 +19,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/primitives/table'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/ui/primitives/select'
 import { debounce } from '@/lib/utils'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 
 export const MyStudentsPage: React.FC = () => {
   const [search, setSearch] = useState('')
@@ -65,7 +65,7 @@ export const MyStudentsPage: React.FC = () => {
 
   return (
     <div>
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Студенты"
         title="Мои студенты"
         description="Студенты с активным назначением в CRM. Эти же студенты будут открываться в личном кабинете ментора."
@@ -149,13 +149,13 @@ export const MyStudentsPage: React.FC = () => {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                       {DEGREE_LEVEL_LABELS[student.degree_level]}
                     </span>
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
@@ -180,7 +180,7 @@ export const MyStudentsPage: React.FC = () => {
       </div>
 
       {!isLoading && students.length === 0 && (
-        <div className="mt-4 rounded-[2px] border border-p-line bg-p-bg px-4 py-3 text-sm text-p-muted">
+        <div className="mt-4 rounded-card border border-p-line bg-p-bg px-4 py-3 text-sm text-p-muted">
           У вас нет активных ответственных назначений. В CRM откройте студента и назначьте ментора в блоке «Ответственные»
           или нажмите «Взять» в общем списке.
         </div>

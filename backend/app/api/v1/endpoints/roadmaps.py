@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.services import background_jobs
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
 from app.services.questionnaire_seed import seed_questionnaire_for_task
@@ -53,11 +54,7 @@ class NotionRoadmapImportRequest(BaseModel):
     only: str | None = None
 
 
-_IMPORT_JOBS: dict[str, dict] = {}
-
-
-def _job_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_IMPORT_JOB_KIND = "roadmap_import"
 
 
 # --------------------------------------------------------------------------
@@ -158,50 +155,26 @@ async def create_template(body: TemplateCreate, current_user: CurrentUser, db: A
 @router.post("/roadmap-templates/import/notion", status_code=202)
 async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_user: CurrentUser):
     _assert_template_admin(current_user)
-    running = next((job for job in _IMPORT_JOBS.values() if job.get("status") == "running"), None)
+    running = await background_jobs.get_running_job(_IMPORT_JOB_KIND)
     if running:
-        raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": running["job_id"]})
+        raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": str(running.id)})
 
-    job_id = str(uuid.uuid4())
-    job = {
-        "job_id": job_id,
-        "status": "running",
-        "started_at": _job_now(),
-        "finished_at": None,
-        "request": body.model_dump(),
-        "progress": {
+    job = await background_jobs.create_job(
+        _IMPORT_JOB_KIND,
+        request=body.model_dump(),
+        progress={
             "message": "Импорт Notion запущен",
             "template_index": 0,
             "template_total": 0,
             "task_index": 0,
             "task_total": 0,
         },
-        "events": [],
-        "result": None,
-        "error": None,
-    }
-    _IMPORT_JOBS[job_id] = job
+    )
 
     async def runner() -> None:
         from app.core.import_notion_root_roadmaps import run_import_summary
 
-        def on_event(event: dict) -> None:
-            snapshot = {
-                "at": _job_now(),
-                **event,
-            }
-            job["events"].append(snapshot)
-            job["events"] = job["events"][-120:]
-            progress = job["progress"]
-            progress["message"] = event.get("message") or progress.get("message")
-            for key in ("template_index", "template_total", "task_index", "task_total", "title"):
-                if key in event:
-                    progress[key] = event[key]
-            if "index" in event:
-                progress["template_index"] = event["index"]
-            if "total" in event:
-                progress["template_total"] = event["total"]
-
+        on_event = background_jobs.make_on_event(job.id)
         try:
             result = await run_import_summary(
                 dry_run=body.dry_run,
@@ -210,33 +183,30 @@ async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_
                 skip_subtasks=body.skip_subtasks,
                 on_event=on_event,
             )
-            job["result"] = result.as_dict()
-            job["status"] = "done" if result.ok else "failed"
-            job["error"] = result.error
+            await background_jobs.finish_job(
+                job.id, status="done" if result.ok else "failed", result=result.as_dict(), error=result.error,
+            )
         except Exception as exc:
-            job["status"] = "failed"
-            job["error"] = str(exc)
-        finally:
-            job["finished_at"] = _job_now()
+            await background_jobs.finish_job(job.id, status="failed", error=str(exc))
 
     asyncio.create_task(runner())
-    return job
+    return background_jobs.serialize(job)
 
 
 @router.get("/roadmap-templates/import/notion/{job_id}")
 async def get_notion_roadmap_import_job(job_id: str, current_user: CurrentUser):
     _assert_template_admin(current_user)
-    job = _IMPORT_JOBS.get(job_id)
+    job = await background_jobs.get_job(_IMPORT_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND
-    return job
+    return background_jobs.serialize(job)
 
 
 @router.get("/roadmap-templates/import/notion")
 async def list_notion_roadmap_import_jobs(current_user: CurrentUser):
     _assert_template_admin(current_user)
-    jobs = sorted(_IMPORT_JOBS.values(), key=lambda item: item["started_at"], reverse=True)
-    return jobs[:10]
+    jobs = await background_jobs.list_jobs(_IMPORT_JOB_KIND, limit=10)
+    return [background_jobs.serialize(job) for job in jobs]
 
 
 @router.get("/roadmap-templates/{template_id}", response_model=TemplateOut)
@@ -283,12 +253,8 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
     await _assert_staff(db, body.student_id, current_user)
     tpl = await _get_template_or_404(db, template_id)
 
-    existing = await db.execute(
-        select(Roadmap.id).where(Roadmap.student_id == body.student_id, Roadmap.status == RoadmapStatus.active)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="У студента уже есть активный roadmap — архивируйте его сначала")
-
+    # A student can have several roadmaps active at once (e.g. parallel
+    # applications to different countries/programs) — no longer blocked here.
     mentor_id = body.mentor_id
     if mentor_id is None and current_user.role == UserRole.mentor:
         mentor_id = current_user.id
@@ -340,26 +306,42 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
 # ==========================================================================
 # Live roadmap — read
 # ==========================================================================
-@router.get("/students/{student_id}/roadmap", response_model=RoadmapOut | None)
+@router.get("/students/{student_id}/roadmap", response_model=list[RoadmapOut])
 async def get_student_roadmap(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """A student can have several roadmaps active at once — returns all of
+    them, newest first."""
     await _assert_view(db, student_id, current_user)
-    return await _active_roadmap(db, student_id)
+    return await _active_roadmaps(db, student_id)
 
 
-@router.get("/portal/roadmap", response_model=RoadmapOut | None)
+@router.get("/roadmaps/{roadmap_id}", response_model=RoadmapOut)
+async def get_roadmap(roadmap_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Fetch one specific roadmap by id — used to refresh a single roadmap
+    after an edit, now that a student can have several active at once."""
+    student_id = await _student_of_roadmap(db, roadmap_id)
+    if student_id is None:
+        raise _NOT_FOUND
+    await _assert_view(db, student_id, current_user)
+    roadmap = await _load_roadmap(db, roadmap_id)
+    if roadmap is None:
+        raise _NOT_FOUND
+    return roadmap
+
+
+@router.get("/portal/roadmap", response_model=list[RoadmapOut])
 async def get_my_roadmap(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     if current_user.role != UserRole.student:
         raise _FORBIDDEN
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    return await _active_roadmap(db, sid)
+    return await _active_roadmaps(db, sid)
 
 
 @router.get("/students/{student_id}/tasks", response_model=list[TaskFlatOut])
 async def get_student_tasks(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     await _assert_view(db, student_id, current_user)
-    return _flatten_tasks(await _active_roadmap(db, student_id))
+    return _flatten_tasks(await _active_roadmaps(db, student_id))
 
 
 @router.get("/portal/tasks", response_model=list[TaskFlatOut])
@@ -369,7 +351,22 @@ async def get_my_tasks(current_user: CurrentUser, db: Annotated[AsyncSession, De
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    return _flatten_tasks(await _active_roadmap(db, sid))
+    return _flatten_tasks(await _active_roadmaps(db, sid))
+
+
+@router.patch("/roadmaps/{roadmap_id}/archive", response_model=RoadmapOut)
+async def archive_roadmap(roadmap_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Retires one of a student's roadmaps without deleting it — used when a
+    student has several active roadmaps and one of them is no longer needed
+    (e.g. an application track was dropped)."""
+    student_id = await _student_of_roadmap(db, roadmap_id)
+    if student_id is None:
+        raise _NOT_FOUND
+    await _assert_staff(db, student_id, current_user)
+    roadmap = await db.get(Roadmap, roadmap_id)
+    roadmap.status = RoadmapStatus.archived
+    await db.commit()
+    return await _load_roadmap(db, roadmap_id)
 
 
 # ==========================================================================
@@ -381,14 +378,10 @@ async def update_stage(stage_id: uuid.UUID, body: StageUpdate, current_user: Cur
     if not stage:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, stage.roadmap_id)
+    # Roadmap is mentor-managed end to end — students only fill questionnaires
+    # and view progress, they never edit stage/task status directly anymore.
+    await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
-    if current_user.role == UserRole.student:
-        # students may only move their own stage status
-        await _assert_view(db, student_id, current_user)
-        if set(data) - {"status"}:
-            raise _FORBIDDEN
-    else:
-        await _assert_staff(db, student_id, current_user)
     for field, value in data.items():
         setattr(stage, field, value)
     await db.commit()
@@ -423,13 +416,10 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
     if not task:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
+    # Roadmap is mentor-managed end to end — students only fill questionnaires
+    # and view progress, they never edit task status directly anymore.
+    await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
-    if current_user.role == UserRole.student:
-        await _assert_view(db, student_id, current_user)
-        if set(data) - {"status"}:
-            raise _FORBIDDEN
-    else:
-        await _assert_staff(db, student_id, current_user)
     for field, value in data.items():
         setattr(task, field, value)
     await db.commit()
@@ -466,13 +456,10 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
         raise _NOT_FOUND
     task = await db.get(RoadmapTask, sub.task_id)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
+    # Roadmap is mentor-managed end to end — students only fill questionnaires
+    # and view progress, they never edit subtask status directly anymore.
+    await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
-    if current_user.role == UserRole.student:
-        await _assert_view(db, student_id, current_user)
-        if set(data) - {"is_done"}:
-            raise _FORBIDDEN
-    else:
-        await _assert_staff(db, student_id, current_user)
     for field, value in data.items():
         setattr(sub, field, value)
     await db.commit()
@@ -526,38 +513,41 @@ async def _get_template_or_404(db: AsyncSession, template_id: uuid.UUID) -> Road
     return tpl
 
 
-def _flatten_tasks(roadmap: Roadmap | None) -> list[TaskFlatOut]:
-    if roadmap is None:
-        return []
+def _flatten_tasks(roadmaps: list[Roadmap]) -> list[TaskFlatOut]:
     out: list[TaskFlatOut] = []
-    for stage in roadmap.stages:
-        for task in stage.tasks:
-            out.append(TaskFlatOut(
-                id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
-                stage_name=stage.name, stage_position=stage.position,
-                title=task.title, description=task.description,
-                expected_result=task.expected_result,
-                needs_document=task.needs_document,
-                needs_zoom=task.needs_zoom,
-                questionnaire_url=task.questionnaire_url,
-                priority=task.priority, audience=task.audience, status=task.status,
-                due_date=task.due_date, position=task.position,
-                subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks],
-            ))
+    for roadmap in roadmaps:
+        for stage in roadmap.stages:
+            for task in stage.tasks:
+                out.append(TaskFlatOut(
+                    id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
+                    stage_name=stage.name, stage_position=stage.position,
+                    title=task.title, description=task.description,
+                    expected_result=task.expected_result,
+                    needs_document=task.needs_document,
+                    needs_zoom=task.needs_zoom,
+                    questionnaire_url=task.questionnaire_url,
+                    priority=task.priority, audience=task.audience, status=task.status,
+                    due_date=task.due_date, position=task.position,
+                    subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks],
+                ))
     return out
 
 
-async def _active_roadmap(db: AsyncSession, student_id: uuid.UUID) -> Roadmap | None:
+async def _active_roadmaps(db: AsyncSession, student_id: uuid.UUID) -> list[Roadmap]:
+    """A student may have several roadmaps active at once (parallel
+    applications to different countries/programs) — this returns all of
+    them, newest first."""
     res = await db.execute(
         select(Roadmap)
         .where(Roadmap.student_id == student_id, Roadmap.status == RoadmapStatus.active)
         .order_by(Roadmap.created_at.desc())
         .options(_ROADMAP_LOADER)
     )
-    roadmap = res.scalars().first()
-    await attach_flags(db, roadmap)
-    await _attach_mentor_name(db, roadmap)
-    return roadmap
+    roadmaps = list(res.scalars().all())
+    for roadmap in roadmaps:
+        await attach_flags(db, roadmap)
+        await _attach_mentor_name(db, roadmap)
+    return roadmaps
 
 
 async def _attach_mentor_name(db: AsyncSession, roadmap: Roadmap | None) -> None:

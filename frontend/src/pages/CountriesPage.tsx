@@ -4,18 +4,18 @@ import { Edit2, Plus } from 'lucide-react'
 import { countriesApi } from '@/api/index'
 import { useAuth } from '@/contexts/AuthContext'
 import { Country } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
+import { Checkbox } from '@/components/ui/primitives/checkbox'
+import { Textarea } from '@/components/ui/primitives/textarea'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import {
   Table,
   TableBody,
@@ -23,9 +23,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/primitives/table'
 import { toast } from '@/hooks/use-toast'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 
 function CountryModal({
   country,
@@ -124,7 +124,7 @@ export const CountriesPage: React.FC = () => {
 
   return (
     <div>
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Справочник"
         title="Страны"
         description="Требования, дедлайны и примечания по направлениям поступления."
@@ -166,7 +166,7 @@ export const CountriesPage: React.FC = () => {
                   <TableCell className="font-medium text-p-text">{country.country_name}</TableCell>
                   <TableCell>
                     {country.vpp_required ? (
-                      <span className="px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 text-[11px] rounded-[2px] font-medium uppercase tracking-wide">
+                      <span className="px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 text-[11px] rounded-pill font-medium uppercase tracking-wide">
                         Нужно
                       </span>
                     ) : (

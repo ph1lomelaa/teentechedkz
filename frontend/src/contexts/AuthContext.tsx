@@ -50,13 +50,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [])
 
   useEffect(() => {
-    const restoreSession = async () => {
+    const restoreSession = async (isRetry = false) => {
       try {
         const refreshData = await authApi.refresh()
         setAccessToken(refreshData.access_token)
         const user = await authApi.me()
         setAuth(user, refreshData.access_token)
-      } catch {
+      } catch (err) {
+        // A real 401 means the session is genuinely gone — sign out.
+        // Anything else (dropped connection, backend hiccup) is transient:
+        // retry once before giving up, instead of forcing a fresh login.
+        const status = (err as { response?: { status?: number } })?.response?.status
+        if (status !== 401 && !isRetry) {
+          setTimeout(() => restoreSession(true), 800)
+          return
+        }
         setAuth(null, null)
       }
     }

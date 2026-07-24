@@ -1,7 +1,7 @@
 import React from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Eye, EyeOff } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/primitives/button'
 import { useToast } from '@/hooks/use-toast'
 import { documentsApi } from '@/api/documents'
 

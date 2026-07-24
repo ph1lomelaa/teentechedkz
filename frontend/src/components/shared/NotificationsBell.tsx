@@ -69,8 +69,8 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal' }> = ({ va
         className={cn(
           'relative w-9 h-9 grid place-items-center border',
           portal
-            ? 'border-w-line rounded-[11px] bg-w-panel text-w-muted hover:text-w-accentText'
-            : 'border-gray-200 rounded-[5px] text-gray-500 hover:text-black'
+            ? 'border-w-line rounded-ctl bg-w-panel text-w-muted hover:text-w-accentText'
+            : 'border-gray-200 rounded-ctl text-gray-500 hover:text-black'
         )}
         aria-label="Уведомления"
       >
@@ -88,7 +88,7 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal' }> = ({ va
       {open && (
         <div className={cn(
           'absolute right-0 mt-2 w-80 max-w-[90vw] border z-50 overflow-hidden',
-          portal ? 'bg-w-panel border-w-line rounded-[16px]' : 'bg-white border-gray-200 rounded-[6px] shadow-lg'
+          portal ? 'bg-w-panel border-w-line rounded-panel' : 'bg-white border-gray-200 rounded-panel shadow-lg'
         )}>
           <div className={cn('flex items-center justify-between px-3 py-2.5 border-b', portal ? 'border-w-line' : 'border-gray-100')}>
             <span className={cn('text-xs font-bold uppercase tracking-wider', portal ? 'text-w-muted' : 'text-gray-500')}>Уведомления</span>

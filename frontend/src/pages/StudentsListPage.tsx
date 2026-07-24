@@ -17,9 +17,9 @@ import {
   SERVICE_STATUS_LABELS,
   ServiceType,
 } from '@/types'
-import { Button } from '@/components/ui/button'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/primitives/button'
+import { PageHeader } from '@/components/ui'
+import { Input } from '@/components/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -27,7 +27,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import {
   Table,
   TableBody,
@@ -35,14 +35,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '@/components/ui/primitives/table'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/ui/primitives/select'
 import { downloadBlob } from '@/lib/utils'
 import { debounce } from '@/lib/utils'
 import { fuzzyStudentMatch } from '@/lib/fuzzyName'
@@ -125,7 +125,7 @@ function LinkDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-p-line rounded-[2px] divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-gray-100">
             {filtered.map((s) => (
               <button
                 key={s.id}
@@ -234,11 +234,11 @@ function IntakeInbox() {
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
-    <div className="border border-p-line rounded-[2px]">
+    <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Входящие анкеты · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
+          <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
               { value: 'new', label: 'Новые' },
               { value: 'hidden', label: 'Скрытые' },
@@ -247,7 +247,7 @@ function IntakeInbox() {
               <button
                 key={item.value}
                 onClick={() => setIntakeView(item.value as typeof intakeView)}
-                className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
                   intakeView === item.value
                     ? 'bg-white text-black'
                     : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -301,7 +301,7 @@ function IntakeInbox() {
             {items.map((sub) => (
               <TableRow key={sub.id} className="border-p-line hover:bg-p-bg">
                 <TableCell>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${
+                  <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
                     sub.source === 'package'
                       ? 'bg-sky-50 text-sky-700 border border-sky-200'
                       : 'bg-violet-50 text-violet-700 border border-violet-200'
@@ -383,7 +383,7 @@ function IntakeInbox() {
               Будет привязано до {linkableCount} новых анкет к предложенным студентам. Анкеты без кандидата не будут затронуты.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Если кандидат выбран неверно, откройте анкету и привяжите её вручную.
           </div>
           <DialogFooter>
@@ -404,7 +404,7 @@ function IntakeInbox() {
               не переносятся — их менеджер вносит вручную.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             С кандидатом на привязку: {linkableCount}. Эти анкеты не будут созданы как новые студенты, чтобы не плодить дубли.
           </div>
           <DialogFooter>
@@ -483,7 +483,7 @@ function NotionLinkDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-p-line rounded-[2px] divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-gray-100">
             {filtered.map((s) => (
               <button
                 key={s.id}
@@ -585,11 +585,11 @@ function NotionInbox() {
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
-    <div className="border border-p-line rounded-[2px]">
+    <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
+          <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
               { value: 'new', label: 'Новые' },
               { value: 'ignored', label: 'Скрытые' },
@@ -598,7 +598,7 @@ function NotionInbox() {
               <button
                 key={item.value}
                 onClick={() => setView(item.value as typeof view)}
-                className={`px-3 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
                   view === item.value
                     ? 'bg-white text-black'
                     : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -734,7 +734,7 @@ function NotionInbox() {
               Будет привязано до {linkableCount} записей Notion к предложенным студентам. Записи без кандидата не будут затронуты.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Если кандидат выбран неверно, откройте запись и привяжите её вручную.
           </div>
           <DialogFooter>
@@ -754,7 +754,7 @@ function NotionInbox() {
               только записи без кандидата на привязку. Записи с кандидатом останутся на ручное решение.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-[2px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             С кандидатом на привязку: {linkableCount}. Эти записи останутся в списке для ручной проверки.
           </div>
           <DialogFooter>
@@ -1115,7 +1115,7 @@ export const StudentsListPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Студенты"
         title="Общая база"
         description={`Все студенты CRM · всего: ${total}`}
@@ -1172,7 +1172,7 @@ export const StudentsListPage: React.FC = () => {
             <button
               onClick={() => navigate('/students/new')}
               className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold uppercase tracking-caps
-                         bg-black text-white rounded-[2px] hover:bg-black/85
+                         bg-black text-white rounded-ctl hover:bg-black/85
                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40
                          transition-colors duration-150"
             >
@@ -1218,7 +1218,7 @@ export const StudentsListPage: React.FC = () => {
             )}
           </Button>
           {filtersOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-[2px] border border-p-line bg-white shadow-lg">
+            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg">
               <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
                 <button
@@ -1232,7 +1232,7 @@ export const StudentsListPage: React.FC = () => {
               <div className="p-3 space-y-4">
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Видимость</p>
-                  <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
+                  <div className="grid grid-cols-4 gap-1 rounded-panel border border-p-line bg-p-bg p-1">
                     {[
                       { value: 'all', label: 'Все' },
                       { value: 'mine', label: 'Мои' },
@@ -1243,7 +1243,7 @@ export const StudentsListPage: React.FC = () => {
                         key={item.value}
                         type="button"
                         onClick={() => setScope(item.value as typeof scope)}
-                        className={`px-2 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                        className={`px-2 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
                           scope === item.value
                             ? 'bg-white text-black shadow-sm'
                             : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -1404,7 +1404,7 @@ export const StudentsListPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setResponsibleFilter(responsibleRole)}
-                          className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+                          className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
                             selectedResponsibleId === ''
                               ? 'border-black bg-black text-white'
                               : 'border-p-line bg-white hover:bg-p-bg text-p-text'
@@ -1419,7 +1419,7 @@ export const StudentsListPage: React.FC = () => {
                               key={user.id}
                               type="button"
                               onClick={() => setResponsibleFilter(responsibleRole, user.id)}
-                              className={`w-full text-left px-2 py-1.5 text-sm rounded-[2px] border transition-colors ${
+                              className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
                                 selectedResponsibleId === user.id
                                   ? 'border-black bg-black text-white'
                                   : 'border-p-line bg-white hover:bg-p-bg text-p-text'
@@ -1467,7 +1467,7 @@ export const StudentsListPage: React.FC = () => {
           {activeFilterChips.map((chip) => (
             <span
               key={chip.key}
-              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-[2px] border border-p-line bg-p-bg text-p-text"
+              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-ctl border border-p-line bg-p-bg text-p-text"
             >
               {chip.label}
               <button
@@ -1535,13 +1535,13 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                       {DEGREE_LEVEL_LABELS[student.degree_level]}
                     </span>
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
@@ -1556,7 +1556,7 @@ export const StudentsListPage: React.FC = () => {
                           <span
                             key={service.id}
                             title={`${SERVICE_TYPE_LABELS[service.service_type]} · ${SERVICE_STATUS_LABELS[service.status]}${service.assigned_mentor_name ? ` · ${service.assigned_mentor_name}` : ''}`}
-                            className={`rounded-[2px] border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            className={`rounded-pill border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                               service.status === 'completed'
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : service.status === 'in_progress' || service.status === 'scheduled'
@@ -1571,7 +1571,7 @@ export const StudentsListPage: React.FC = () => {
                         <span className="text-xs text-p-muted2">—</span>
                       )}
                       {(student.services_summary?.items.length ?? 0) > 3 && (
-                        <span className="rounded-[2px] border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-muted">
+                        <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-muted">
                           +{(student.services_summary?.items.length ?? 0) - 3}
                         </span>
                       )}
@@ -1580,7 +1580,7 @@ export const StudentsListPage: React.FC = () => {
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       {student.is_mine && (
-                        <span className="w-fit text-[10px] px-1.5 py-0.5 rounded-[2px] border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
+                        <span className="w-fit text-[10px] px-1.5 py-0.5 rounded-pill border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
                           Мой
                         </span>
                       )}
@@ -1594,7 +1594,7 @@ export const StudentsListPage: React.FC = () => {
                       <div className="flex items-center gap-1">
                         <span
                           title="Пакет сопровождения (менеджер)"
-                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-[2px] border font-semibold ${
+                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
                             intake?.has_package
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                               : 'border-p-line text-p-muted2'
@@ -1604,7 +1604,7 @@ export const StudentsListPage: React.FC = () => {
                         </span>
                         <span
                           title="Кейс студента"
-                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-[2px] border font-semibold ${
+                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
                             intake?.has_cases
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                               : 'border-p-line text-p-muted2'

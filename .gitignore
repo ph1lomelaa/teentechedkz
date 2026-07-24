@@ -68,3 +68,5 @@ docs/
 *.jpg
 *.png
 
+.claude/skills
+

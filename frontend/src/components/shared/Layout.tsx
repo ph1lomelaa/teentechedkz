@@ -232,10 +232,10 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           <button
             type="button"
             onClick={() => setModeOpen((v) => !v)}
-            className="group flex items-center gap-2.5 text-left flex-1 min-w-0 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            className="group flex items-center gap-2.5 text-left flex-1 min-w-0 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             aria-expanded={modeOpen}
           >
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-brand">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-brand">
               <GraduationCap className="w-[22px] h-[22px] text-black" strokeWidth={2.2} />
             </div>
             <div className="min-w-0 flex-1">
@@ -249,7 +249,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             <ChevronDown className="h-4 w-4 text-white/45 transition group-hover:text-white/70 shrink-0" />
           </button>
           {modeOpen && (
-            <div className="absolute left-4 right-4 top-[68px] z-20 overflow-hidden rounded-[11px] border border-white/10 bg-[#1C1C1C] shadow-xl">
+            <div className="absolute left-4 right-4 top-[68px] z-20 overflow-hidden rounded-ctl border border-white/10 bg-[#1C1C1C] shadow-xl">
               <Link
                 to="/dashboard"
                 onClick={() => setModeOpen(false)}
@@ -287,7 +287,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  'flex items-center gap-2.5 mx-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium transition-colors duration-150',
+                  'flex items-center gap-2.5 mx-3 px-3 py-2.5 rounded-ctl text-[14px] font-medium transition-colors duration-150',
                   isActive
                     ? 'bg-brand text-black'
                     : 'text-white/65 hover:bg-white/[0.06] hover:text-white/85'
@@ -305,7 +305,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
         <div className="mt-auto border-t border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
           <button
             onClick={() => logout()}
-            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm font-medium text-white/50 transition hover:bg-white/[0.06] hover:text-white/85"
+            className="flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-medium text-white/50 transition hover:bg-white/[0.06] hover:text-white/85"
           >
             <LogOut className="w-4 h-4" />
             Выйти

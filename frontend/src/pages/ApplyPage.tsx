@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { CheckCircle2 } from 'lucide-react'
 import { publicApi } from '@/api/public'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Textarea } from '@/components/ui/primitives/textarea'
+import { Label } from '@/components/ui/primitives/label'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { AuthShell } from '@/components/auth/AuthShell'
 
@@ -42,7 +42,7 @@ export function ApplyPage() {
         title="Спасибо! Всё получилось"
         description="Мы получили заявку. Команда TeenTechEd свяжется с вами и после обработки выдаст доступ в личный кабинет."
       >
-        <div className="rounded-[16px] border border-emerald-400/20 bg-emerald-400/10 p-5 text-center">
+        <div className="rounded-card border border-emerald-400/20 bg-emerald-400/10 p-5 text-center">
           <CheckCircle2 className="mx-auto h-11 w-11 text-emerald-300" />
           <div className="mt-6 flex justify-center gap-2">
             <Link to="/" className="auth-secondary-button h-11 px-5 text-sm font-bold">
@@ -87,7 +87,7 @@ export function ApplyPage() {
               <select
                 value={form.degree_level}
                 onChange={(e) => setForm({ ...form, degree_level: e.target.value })}
-                className="h-10 w-full rounded-[10px] border px-3 text-sm"
+                className="h-10 w-full rounded-ctl border px-3 text-sm"
               >
                 <option value="undergraduate">Бакалавриат</option>
                 <option value="foundation">Foundation</option>
@@ -115,13 +115,13 @@ export function ApplyPage() {
             </div>
 
             {mutation.isError && (
-              <div className="rounded-[10px] border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300 sm:col-span-2">
+              <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300 sm:col-span-2">
                 {getErrorMessage(mutation.error)}
               </div>
             )}
 
             <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
-              <Button type="submit" disabled={mutation.isPending} className="auth-primary-button h-11 rounded-[10px] border-0 px-6 hover:bg-[#E9C200]">
+              <Button type="submit" disabled={mutation.isPending} className="auth-primary-button h-11 rounded-ctl border-0 px-6 hover:bg-[#E9C200]">
                 {mutation.isPending ? 'Отправка…' : 'Отправить заявку'}
               </Button>
               <Link to="/login" className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]">

@@ -13,9 +13,9 @@ import {
   DegreeLevel,
   hasReviewPending,
 } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/primitives/button'
+import { Input } from '@/components/ui/primitives/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import {
   Dialog,
   DialogContent,
@@ -23,14 +23,14 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 import { toast } from '@/hooks/use-toast'
-import { ToastAction } from '@/components/ui/toast'
+import { ToastAction } from '@/components/ui/primitives/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 
 const TABS: { value: TelegramChatStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -219,7 +219,7 @@ export default function TelegramInboxPage() {
 
   return (
     <div className="space-y-4">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="Коммуникации"
         title="Чаты"
         description="Telegram-диалоги со студентами. Внутренний чат со студентом открывается прямо внутри диалога."
@@ -237,7 +237,7 @@ export default function TelegramInboxPage() {
         </div>
         <FilterPopover activeCount={activeFiltersCount} onReset={resetDirectoryFilters}>
           <FilterField label="Видимость">
-            <div className="grid grid-cols-4 gap-1 rounded-[2px] border border-p-line bg-p-bg p-1">
+            <div className="grid grid-cols-4 gap-1 rounded-panel border border-p-line bg-p-bg p-1">
               {[
                 { value: 'all', label: 'Все' },
                 { value: 'mine', label: 'Мои' },
@@ -248,7 +248,7 @@ export default function TelegramInboxPage() {
                   key={item.value}
                   type="button"
                   onClick={() => setScope(item.value as typeof scope)}
-                  className={`px-2 py-1.5 text-[12px] font-medium rounded-[2px] transition-colors ${
+                  className={`px-2 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
                     scope === item.value
                       ? 'bg-white text-black shadow-sm'
                       : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -325,7 +325,7 @@ export default function TelegramInboxPage() {
 
       <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2px] border border-p-line bg-p-bg px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-p-line bg-p-bg px-3 py-2">
         <div className="text-sm text-p-muted">
           {filtered.length} из {chats.length} чатов
           {quickFilter !== 'none' ? ' · включён быстрый фильтр' : ''}
@@ -379,7 +379,7 @@ export default function TelegramInboxPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((chat) => (
-            <div key={chat.id} className="rounded-[2px] border border-p-line bg-card px-3 py-2.5">
+            <div key={chat.id} className="rounded-panel border border-p-line bg-card px-3 py-2.5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-p-text">{chat.student_name || chat.title || `Чат ${chat.chat_id}`}</div>
@@ -389,8 +389,8 @@ export default function TelegramInboxPage() {
               </div>
 
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span className={`rounded-[2px] px-1.5 py-0.5 ${TELEGRAM_STATUS_COLORS[chat.status]}`}>{TELEGRAM_STATUS_LABELS[chat.status]}</span>
-                {hasReviewPending(chat) && <span className="rounded-[2px] border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-700">на проверку</span>}
+                <span className={`rounded-pill px-1.5 py-0.5 ${TELEGRAM_STATUS_COLORS[chat.status]}`}>{TELEGRAM_STATUS_LABELS[chat.status]}</span>
+                {hasReviewPending(chat) && <span className="rounded-pill border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-700">на проверку</span>}
                 <span className="text-p-muted">{chat.chat_type}</span>
               </div>
 

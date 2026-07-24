@@ -7,12 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useWsEvent } from '@/lib/ws'
 import { ChatThread } from '@/components/shared/ChatThread'
 import { cn, formatDate } from '@/lib/utils'
-import {
-  WorkspaceCard,
-  WorkspaceEmptyState,
-  WorkspacePageHeader,
-  WorkspaceSegmentedTabs,
-} from '@/components/workspace/ui'
+import { PageHeader, AppCard, EmptyState, SegmentedTabs } from '@/components/ui'
 
 type Channel = 'internal' | 'telegram'
 
@@ -87,17 +82,19 @@ export const PortalChatPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl animate-fade-in">
-      <WorkspacePageHeader
+      <PageHeader
         eyebrow="Кабинет ученика"
         title="Чат"
         description="Telegram-группа с ментором и внутренний диалог с командой в одном разделе."
+        colorPrefix="p"
       />
 
       <div className="mb-5">
-        <WorkspaceSegmentedTabs
+        <SegmentedTabs
           value={channel}
-          onChange={setChannel}
-          options={[
+          onChange={(value) => setChannel(value as Channel)}
+          colorPrefix="p"
+          tabs={[
             { value: 'telegram', label: 'Telegram-группа' },
             { value: 'internal', label: 'Внутренний чат' },
           ]}
@@ -105,51 +102,52 @@ export const PortalChatPage: React.FC = () => {
       </div>
 
       {channel === 'telegram' ? (
-        <WorkspaceCard className="p-5">
+        <AppCard colorPrefix="p" className="p-5">
           {telegramLoading ? (
-            <p className="text-sm text-w-muted">Загрузка сообщений…</p>
+            <p className="text-sm text-p-muted">Загрузка сообщений…</p>
           ) : !telegram?.chat ? (
-            <WorkspaceEmptyState
+            <EmptyState
               icon={<Send className="h-5 w-5" />}
               title="Telegram-группа ещё не подключена"
-              text="Как только ментор подключит вашу Telegram-группу, переписка появится здесь."
+              description="Как только ментор подключит вашу Telegram-группу, переписка появится здесь."
+              colorPrefix="p"
             />
           ) : (
             <>
-              <div className="mb-4 border-b border-w-line pb-4">
-                <div className="text-base font-black text-w-ink">{telegram.chat.title || 'Telegram-группа'}</div>
-                <div className="mt-1 text-xs text-w-muted">
+              <div className="mb-4 border-b border-p-line pb-4">
+                <div className="text-base font-black text-p-text">{telegram.chat.title || 'Telegram-группа'}</div>
+                <div className="mt-1 text-xs text-p-muted">
                   Отправляй сообщения прямо из кабинета
                 </div>
               </div>
               <div className="mb-4 flex flex-col gap-3">
-                <div className="h-[480px] space-y-2.5 overflow-y-auto rounded-[16px] border border-w-line bg-w-panel2 p-4">
+                <div className="h-[480px] space-y-2.5 overflow-y-auto rounded-panel border border-p-line bg-p-panel2 p-4">
                   {telegram.messages.length === 0 ? (
-                    <p className="mt-8 text-center text-sm text-w-muted">Сообщений пока нет.</p>
+                    <p className="mt-8 text-center text-sm text-p-muted">Сообщений пока нет.</p>
                   ) : (
                     <>
                       {telegram.messages.map((message) => (
                         <div key={message.id} className={cn('flex', message.is_me ? 'justify-end' : 'justify-start')}>
                           <div
                             className={cn(
-                              'max-w-[82%] rounded-[12px] border px-3 py-2 text-sm',
-                              message.is_me ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
+                              'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
+                              message.is_me ? 'border-p-accent bg-p-accent text-black' : 'border-p-line bg-p-panel text-p-text',
                             )}
                           >
-                            <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-w-accentText')}>
+                            <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-p-accent')}>
                               {message.sender_name || 'Участник'}
                             </div>
                             {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
                             {message.attachments.map((attachment) => (
                               <div
                                 key={attachment.id}
-                                className="mt-2 flex items-center gap-2 rounded-[10px] border border-w-line bg-w-panel2 px-3 py-2 text-xs font-bold text-w-muted"
+                                className="mt-2 flex items-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-xs font-bold text-p-muted"
                               >
                                 <Paperclip className="h-3.5 w-3.5" />
                                 <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
                               </div>
                             ))}
-                            <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/80' : 'text-w-muted2')}>
+                            <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/80' : 'text-p-muted2')}>
                               {formatDate(message.created_at)}
                             </div>
                           </div>
@@ -161,7 +159,7 @@ export const PortalChatPage: React.FC = () => {
                 </div>
 
                 {sendMessageMutation.isError && (
-                  <div className="flex items-center gap-2 rounded-[12px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600">
+                  <div className="flex items-center gap-2 rounded-ctl border border-p-danger/30 bg-p-danger/10 px-3 py-2 text-xs text-p-danger">
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     {sendMessageMutation.error instanceof Error ? sendMessageMutation.error.message : 'Ошибка отправки'}
                   </div>
@@ -174,12 +172,12 @@ export const PortalChatPage: React.FC = () => {
                     onChange={(e) => setMessageText(e.target.value)}
                     placeholder="Напиши сообщение..."
                     disabled={sendMessageMutation.isPending}
-                    className="flex-1 rounded-[12px] border border-w-line bg-w-panel px-3 py-2.5 text-sm text-w-ink placeholder-w-muted outline-none transition disabled:opacity-50"
+                    className="flex-1 rounded-ctl border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-text placeholder-p-muted outline-none transition disabled:opacity-50"
                   />
                   <button
                     type="submit"
                     disabled={!messageText.trim() || sendMessageMutation.isPending}
-                    className="rounded-[12px] border border-w-accent bg-w-accent px-3 py-2.5 text-black transition hover:opacity-90 disabled:opacity-50"
+                    className="rounded-ctl border border-p-accent bg-p-accent px-3 py-2.5 text-black transition hover:opacity-90 disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
                   </button>
@@ -187,28 +185,29 @@ export const PortalChatPage: React.FC = () => {
               </div>
             </>
           )}
-        </WorkspaceCard>
+        </AppCard>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-          <WorkspaceCard className="p-3">
+          <AppCard colorPrefix="p" className="p-3">
             <div className="mb-2 px-1">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
                 <input
                   value={dialogSearch}
                   onChange={(e) => setDialogSearch(e.target.value)}
                   placeholder="Поиск диалогов"
-                  className="h-9 w-full rounded-[10px] border border-w-line bg-w-panel2 pl-9 pr-3 text-sm text-w-ink placeholder:text-w-muted2 outline-none"
+                  className="h-9 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-sm text-p-text placeholder:text-p-muted2 outline-none"
                 />
               </div>
             </div>
             {isLoading ? (
-              <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
+              <p className="p-3 text-sm text-p-muted">Загрузка диалогов...</p>
             ) : visibleConversations.length === 0 && newContacts.length === 0 ? (
-              <WorkspaceEmptyState
+              <EmptyState
                 icon={<MessageCircle className="h-5 w-5" />}
                 title="Диалогов пока нет"
-                text="Когда ментор будет назначен, здесь появится внутренний чат."
+                description="Когда ментор будет назначен, здесь появится внутренний чат."
+                colorPrefix="p"
               />
             ) : (
               <div className="space-y-1.5">
@@ -220,28 +219,28 @@ export const PortalChatPage: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedId(conversation.id)}
                       className={cn(
-                        'w-full rounded-[16px] border px-3 py-3 text-left transition relative overflow-hidden',
+                        'w-full rounded-panel border px-3 py-3 text-left transition relative overflow-hidden',
                         active
-                          ? 'border-w-accent bg-w-accent text-black'
-                          : 'border-w-line bg-w-panel2 text-w-ink hover:border-w-accentDim',
+                          ? 'border-p-accent bg-p-accent text-black'
+                          : 'border-p-line bg-p-panel2 text-p-text hover:border-p-accent-dim',
                       )}
                     >
-                      {active && <span className="absolute inset-y-0 left-0 w-1 bg-w-accent" />}
+                      {active && <span className="absolute inset-y-0 left-0 w-1 bg-p-accent" />}
                       <div className="flex items-center gap-2">
                         <MessageCircle className="h-4 w-4 shrink-0" />
                         <div className="min-w-0 flex-1 truncate text-sm font-black">
                           {conversation.other?.name || conversation.title || 'Команда TeenTechEd'}
                         </div>
                         {conversation.unread > 0 && (
-                          <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', active ? 'bg-black text-w-accent' : 'bg-w-accent text-black')}>
+                          <span className={cn('rounded-pill px-2 py-0.5 text-[10px] font-black', active ? 'bg-black text-p-accent' : 'bg-p-accent text-black')}>
                             {conversation.unread}
                           </span>
                         )}
                       </div>
-                      <div className={cn('mt-1 truncate text-xs', active ? 'text-black' : 'text-w-muted')}>
+                      <div className={cn('mt-1 truncate text-xs', active ? 'text-black' : 'text-p-muted')}>
                         {conversation.last_message?.body || 'Нет сообщений'}
                       </div>
-                      <div className={cn('mt-1 text-[11px]', active ? 'text-black/85' : 'text-w-muted2')}>
+                      <div className={cn('mt-1 text-[11px]', active ? 'text-black/85' : 'text-p-muted2')}>
                         {formatDate(conversation.updated_at)}
                       </div>
                     </button>
@@ -253,7 +252,7 @@ export const PortalChatPage: React.FC = () => {
                     key={contact.id}
                     type="button"
                     onClick={() => startWith(contact.id)}
-                    className="w-full rounded-[16px] border border-dashed border-w-line bg-w-panel px-3 py-3 text-left text-w-muted transition hover:border-w-accentDim hover:text-w-ink"
+                    className="w-full rounded-panel border border-dashed border-p-line bg-p-panel px-3 py-3 text-left text-p-muted transition hover:border-p-accent-dim hover:text-p-text"
                   >
                     <div className="flex items-center gap-2 text-sm font-black">
                       <MessageCircle className="h-4 w-4" />
@@ -263,16 +262,16 @@ export const PortalChatPage: React.FC = () => {
                 ))}
               </div>
             )}
-          </WorkspaceCard>
+          </AppCard>
 
-          <WorkspaceCard className="p-5">
+          <AppCard colorPrefix="p" className="p-5">
             {activeConversation && user ? (
               <>
-                <div className="mb-4 border-b border-w-line pb-4">
-                  <div className="text-base font-black text-w-ink">
+                <div className="mb-4 border-b border-p-line pb-4">
+                  <div className="text-base font-black text-p-text">
                     {activeConversation.other?.name || activeConversation.title || 'Команда TeenTechEd'}
                   </div>
-                  <div className="mt-1 text-xs text-w-muted">Внутренний чат</div>
+                  <div className="mt-1 text-xs text-p-muted">Внутренний чат</div>
                 </div>
                 <ChatThread
                   conversationId={activeConversation.id}
@@ -283,13 +282,14 @@ export const PortalChatPage: React.FC = () => {
                 />
               </>
             ) : (
-              <WorkspaceEmptyState
+              <EmptyState
                 icon={<MessageCircle className="h-5 w-5" />}
                 title="Выберите диалог"
-                text="Сообщения откроются справа."
+                description="Сообщения откроются справа."
+                colorPrefix="p"
               />
             )}
-          </WorkspaceCard>
+          </AppCard>
         </div>
       )}
     </div>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Send, Copy } from 'lucide-react'
 import { MeetingFollowUpDraft } from '@/api/meetings'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/primitives/button'
+import { Textarea } from '@/components/ui/primitives/textarea'
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 
 export function FollowUpReviewDialog({
   draft,
@@ -46,7 +46,7 @@ export function FollowUpReviewDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="rounded-[12px] border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          <div className="rounded-panel border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
             {draft?.student_name ? `Студент: ${draft.student_name}` : 'Студент не указан'}
           </div>
           <Textarea

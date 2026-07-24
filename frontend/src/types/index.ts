@@ -174,6 +174,8 @@ export interface Payment {
   paid_at?: string
   mentor_id?: string
   note?: string
+  student_id?: string
+  student_name?: string
 }
 
 export interface Contract {
@@ -346,10 +348,11 @@ export interface NoteSession {
 
 export interface NoteSessionDetail extends NoteSession {
   transcripts: NoteTranscript[]
+  backup_transcript_text?: string | null
   note?: StudentNote | null
 }
 
-export type NoteAudioChunkStatus = 'pending' | 'transcribed' | 'failed'
+export type NoteAudioChunkStatus = 'pending' | 'processing' | 'transcribed' | 'failed'
 
 export interface NoteSessionAudioChunk {
   id: string
@@ -365,6 +368,7 @@ export interface NoteSessionAudioChunk {
 export interface NoteSessionReconcileResult {
   backup_transcript_text: string
   chunks: NoteSessionAudioChunk[]
+  queued: boolean
 }
 
 export interface NoteSessionDraft {
@@ -649,12 +653,23 @@ export interface Country {
   degree_levels: Array<'undergraduate' | 'graduate'>
 }
 
+export interface FinanceSummaryByCurrency {
+  currency: string
+  total_contracts: number
+  total_amount: string
+  total_paid: string
+  total_remaining: string
+  remaining_known_count: number
+}
+
 export interface FinanceSummary {
   total_contracts: number
   total_amount: string
   total_paid: string
   total_remaining: string
+  remaining_known_count: number
   currency?: string
+  by_currency?: FinanceSummaryByCurrency[]
 }
 
 export interface FinanceBreakdownContract {

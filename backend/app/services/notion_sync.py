@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract
+from app.services import background_jobs
 
 # migration/ монтируется в контейнер как /app/migration — переиспользуем читалку
 sys.path.insert(0, "/app") if "/app" not in sys.path else None
@@ -27,13 +28,20 @@ logger = logging.getLogger(__name__)
 
 _sync_lock = asyncio.Lock()
 
-# Последний запуск (в памяти процесса) — для GET /notion/status
-last_run: dict = {
-    "at": None,       # ISO datetime
-    "ok": None,       # bool
-    "error": None,    # str | None
-    "counters": None, # {"total": n, "created": n, "updated": n, "auto_linked": n, "needs_review": n}
-}
+_STATUS_KIND = "notion_sync_status"
+
+
+async def last_run() -> dict:
+    """Последний запуск (персистится в background_jobs) — для GET /notion/status."""
+    job = await background_jobs.get_status(_STATUS_KIND)
+    if not job:
+        return {"at": None, "ok": None, "error": None, "counters": None}
+    return {
+        "at": job.finished_at.isoformat() if job.finished_at else None,
+        "ok": job.status == "done",
+        "error": job.error,
+        "counters": (job.result or {}).get("counters"),
+    }
 
 
 def is_configured() -> bool:
@@ -196,13 +204,11 @@ async def run_sync(db: AsyncSession) -> dict:
                 "auto_linked": auto_linked,
                 "needs_review": needs_review,
             }
-            last_run.update(at=now.isoformat(), ok=True, error=None, counters=counters)
+            await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Notion sync done: {counters}")
             return counters
         except Exception as e:
-            last_run.update(
-                at=datetime.now(timezone.utc).isoformat(), ok=False, error=str(e), counters=None
-            )
+            await background_jobs.upsert_status(_STATUS_KIND, ok=False, error=str(e), counters=None)
             raise
 
 

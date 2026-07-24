@@ -8,7 +8,7 @@ import {
   QUESTION_KIND_LABEL,
   QUESTIONNAIRE_STATUS_LABEL,
 } from '@/api/questionnaires'
-import { WorkspaceButton, WorkspaceInput, WorkspaceSelect } from '@/components/workspace/ui'
+import { AppButton, AppInput, AppSelect } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 
@@ -126,7 +126,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
         role="dialog"
         aria-modal="true"
         aria-labelledby="workspace-questionnaire-title"
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-[22px] border border-w-line bg-w-panel"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-card border border-w-line bg-w-panel"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-w-line px-6 py-4">
@@ -146,7 +146,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                 {QUESTIONNAIRE_STATUS_LABEL[status]}
               </span>
             )}
-            <button type="button" aria-label="Закрыть анкету" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-[10px] border border-w-line text-w-muted transition hover:text-w-ink">
+            <button type="button" aria-label="Закрыть анкету" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-ctl border border-w-line text-w-muted transition hover:text-w-ink">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -159,7 +159,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-w-muted2">Название</label>
-                <WorkspaceInput disabled={readOnly} value={title} onChange={(e) => setTitle(e.target.value)} className="bg-w-panel2" placeholder="Название анкеты" />
+                <AppInput colorPrefix="w" disabled={readOnly} value={title} onChange={(e) => setTitle(e.target.value)} className="bg-w-panel2" placeholder="Название анкеты" />
               </div>
               <div>
                 <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-w-muted2">Описание</label>
@@ -168,7 +168,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                   disabled={readOnly}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Короткое пояснение для студента"
-                  className="min-h-16 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                  className="min-h-16 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
                 />
               </div>
 
@@ -191,7 +191,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                   {questions.map((item, idx) => {
                     const answer = q?.answers?.[item.key]
                     return (
-                      <div key={item.key} className="rounded-[14px] border border-w-line bg-w-panel2 p-3">
+                      <div key={item.key} className="rounded-panel border border-w-line bg-w-panel2 p-3">
                         <div className="flex items-start gap-2">
                           <span className="mt-2 text-xs font-bold text-w-muted2">{idx + 1}.</span>
                           <div className="min-w-0 flex-1 space-y-2">
@@ -206,7 +206,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                                 value={item.label}
                                 onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, label: e.target.value } : x))}
                                 placeholder="Текст вопроса"
-                                className="min-h-16 w-full resize-y whitespace-pre-wrap break-words rounded-[11px] border border-w-line bg-w-panel px-3 py-2.5 text-base font-black leading-6 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                                className="min-h-16 w-full resize-y whitespace-pre-wrap break-words rounded-ctl border border-w-line bg-w-panel px-3 py-2.5 text-base font-black leading-6 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
                               />
                             )}
                             <textarea
@@ -214,10 +214,10 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                               value={item.helpText}
                               onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, helpText: e.target.value } : x))}
                               placeholder="Описание или подсказка под вопросом"
-                              className="min-h-20 w-full resize-y rounded-[11px] border border-w-line bg-w-panel px-3 py-2 text-sm leading-5 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim disabled:opacity-70"
+                              className="min-h-20 w-full resize-y rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-sm leading-5 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim disabled:opacity-70"
                             />
                             <div className="flex flex-wrap items-center gap-2">
-                              <WorkspaceSelect
+                              <AppSelect colorPrefix="w"
                                 value={item.kind}
                                 disabled={readOnly}
                                 onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, kind: e.target.value as QuestionKind } : x))}
@@ -226,7 +226,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                                 {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => (
                                   <option key={k} value={k}>{QUESTION_KIND_LABEL[k]}</option>
                                 ))}
-                              </WorkspaceSelect>
+                              </AppSelect>
                               <label className="flex items-center gap-1.5 text-xs font-bold text-w-muted">
                                 <input
                                   type="checkbox"
@@ -239,7 +239,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                               </label>
                             </div>
                             {['choice', 'multi'].includes(item.kind) && (
-                              <WorkspaceInput
+                              <AppInput colorPrefix="w"
                                 disabled={readOnly}
                                 value={item.options}
                                 onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, options: e.target.value } : x))}
@@ -247,7 +247,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                               />
                             )}
                             {answer !== undefined && answer !== '' && (
-                              <div className="rounded-[10px] border border-w-good/30 bg-w-good/10 px-3 py-2 text-sm text-w-ink">
+                              <div className="rounded-ctl border border-w-good/30 bg-w-good/10 px-3 py-2 text-sm text-w-ink">
                                 <span className="text-[10px] font-bold uppercase tracking-wide text-w-good">Ответ студента</span>
                                 <div className="mt-0.5">{Array.isArray(answer) ? answer.join(', ') : String(answer)}</div>
                               </div>
@@ -274,22 +274,22 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-w-line px-6 py-4">
           {!exists ? (
-            <WorkspaceButton disabled={busy || !questions.some((x) => x.label.trim())} onClick={() => createMut.mutate()}>
+            <AppButton colorPrefix="w" disabled={busy || !questions.some((x) => x.label.trim())} onClick={() => createMut.mutate()}>
               {createMut.isPending ? 'Создаём…' : 'Создать анкету'}
-            </WorkspaceButton>
+            </AppButton>
           ) : (
             <>
-              {!readOnly && <WorkspaceButton variant="ghost" disabled={busy} onClick={() => saveMut.mutate()}>
+              {!readOnly && <AppButton colorPrefix="w" variant="ghost" disabled={busy} onClick={() => saveMut.mutate()}>
                 <Check className="mr-1.5 h-4 w-4" /> Сохранить
-              </WorkspaceButton>}
+              </AppButton>}
               {status === 'submitted' && (
-                <WorkspaceButton variant="ghost" disabled={busy} onClick={() => reviewMut.mutate()}>
+                <AppButton colorPrefix="w" variant="ghost" disabled={busy} onClick={() => reviewMut.mutate()}>
                   <ShieldCheck className="mr-1.5 h-4 w-4" /> Проверено
-                </WorkspaceButton>
+                </AppButton>
               )}
-              {!readOnly && <WorkspaceButton disabled={busy || !q?.questions.length} onClick={() => sendMut.mutate()}>
+              {!readOnly && <AppButton colorPrefix="w" disabled={busy || !q?.questions.length} onClick={() => sendMut.mutate()}>
                 <Send className="mr-1.5 h-4 w-4" /> {status === 'draft' ? 'Отправить студенту' : 'Отправить снова'}
-              </WorkspaceButton>}
+              </AppButton>}
             </>
           )}
         </div>

@@ -7,7 +7,7 @@ import { PortalMonthCalendar } from '@/components/portal/PortalMonthCalendar'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
-import { AppButton } from '@/components/ui'
+import { AppButton, SegmentedTabs } from '@/components/ui'
 
 function d(iso: string) {
   return new Date(iso)
@@ -73,22 +73,15 @@ export const PortalMeetingsPage: React.FC = () => {
       </p>
 
       <div className="mt-5 mb-5 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-[12px] border border-p-line bg-p-panel p-1">
-          <button
-            type="button"
-            onClick={() => setView('list')}
-            className={view === 'list' ? 'rounded-lg bg-brand px-4 py-2 text-[12px] font-black text-black' : 'rounded-lg px-4 py-2 text-[12px] font-bold text-p-muted hover:text-p-text'}
-          >
-            Список
-          </button>
-          <button
-            type="button"
-            onClick={() => setView('calendar')}
-            className={view === 'calendar' ? 'rounded-lg bg-brand px-4 py-2 text-[12px] font-black text-black' : 'rounded-lg px-4 py-2 text-[12px] font-bold text-p-muted hover:text-p-text'}
-          >
-            Календарь
-          </button>
-        </div>
+        <SegmentedTabs
+          colorPrefix="p"
+          tabs={[
+            { value: 'list', label: 'Список' },
+            { value: 'calendar', label: 'Календарь' },
+          ]}
+          value={view}
+          onChange={(value) => setView(value as 'list' | 'calendar')}
+        />
         {meetings.length > 0 && (
           <AppButton
             onClick={() => downloadMutation.mutate()}
@@ -108,8 +101,8 @@ export const PortalMeetingsPage: React.FC = () => {
       {isLoading && meetings.length === 0 ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : active.length === 0 ? (
-        <div className="rounded-[16px] border border-p-line bg-p-panel p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-brand/15">
+        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
+          <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
             <CalendarDays className="h-5 w-5 text-brand" />
           </div>
           <h2 className="mt-4 text-base font-extrabold text-p-text">Встреч пока нет</h2>
@@ -128,8 +121,8 @@ export const PortalMeetingsPage: React.FC = () => {
                   <span className="rounded-full bg-p-line/80 px-2.5 py-0.5 text-[10px] font-bold text-p-muted2">{upcoming.length}</span>
                 </div>
                 {upcoming.length === 0 ? (
-                  <div className="rounded-[14px] border border-p-line bg-p-panel p-10 text-center">
-                    <div className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-p-panel2">
+                  <div className="rounded-card border border-p-line bg-p-panel p-10 text-center">
+                    <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-p-panel2">
                       <CalendarDays className="h-5 w-5 text-p-muted" />
                     </div>
                     <h3 className="mt-4 text-[16px] font-extrabold text-p-text">Нет предстоящих встреч</h3>
@@ -161,8 +154,8 @@ export const PortalMeetingsPage: React.FC = () => {
 }
 
 const MeetingCard: React.FC<{ m: Meeting; upcoming?: boolean }> = ({ m, upcoming }) => (
-  <div className="flex gap-4 rounded-[12px] border border-p-line bg-p-panel2 p-3.5 transition hover:border-p-accent-dim">
-    <div className="h-[52px] w-[52px] shrink-0 rounded-[10px] border border-p-line bg-p-panel text-center leading-none">
+  <div className="flex gap-4 rounded-panel border border-p-line bg-p-panel2 p-3.5 transition hover:border-p-accent-dim">
+    <div className="h-[52px] w-[52px] shrink-0 rounded-ctl border border-p-line bg-p-panel text-center leading-none">
       <div className="pt-[7px] font-display text-[30px] font-black text-p-text">{dayNum(m.starts_at)}</div>
       <div className="-mt-0.5 text-[9px] uppercase tracking-wider text-p-muted2">{monthShort(m.starts_at)}</div>
     </div>
@@ -180,7 +173,7 @@ const MeetingCard: React.FC<{ m: Meeting; upcoming?: boolean }> = ({ m, upcoming
             href={m.meeting_link}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-[10px] bg-brand px-3 py-1.5 text-xs font-extrabold text-black hover:bg-brand-dark"
+            className="inline-flex items-center gap-1.5 rounded-ctl bg-brand px-3 py-1.5 text-xs font-extrabold text-black hover:bg-brand-dark"
           >
             <Video className="w-3.5 h-3.5" /> Подключиться
           </a>
@@ -190,7 +183,7 @@ const MeetingCard: React.FC<{ m: Meeting; upcoming?: boolean }> = ({ m, upcoming
             href={m.recording_url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-[10px] border border-brand/70 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10"
+            className="inline-flex items-center gap-1.5 rounded-ctl border border-brand/70 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10"
           >
             <PlayCircle className="w-3.5 h-3.5" /> Запись
           </a>
@@ -200,13 +193,13 @@ const MeetingCard: React.FC<{ m: Meeting; upcoming?: boolean }> = ({ m, upcoming
             href={m.transcript_url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-[10px] border border-brand/70 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10"
+            className="inline-flex items-center gap-1.5 rounded-ctl border border-brand/70 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10"
           >
             <FileText className="w-3.5 h-3.5" /> Транскрипт
           </a>
         )}
         {!upcoming && !m.recording_url && !m.transcript_url && (
-          <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-p-line px-3 py-1.5 text-[11px] font-semibold text-p-muted">
+          <span className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-3 py-1.5 text-[11px] font-semibold text-p-muted">
             <Clock3 className="h-3.5 w-3.5" /> Материалы появятся позже
           </span>
         )}

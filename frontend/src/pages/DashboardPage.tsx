@@ -30,17 +30,17 @@ import {
   DEGREE_LEVEL_COLORS,
   PIPELINE_COLUMNS,
 } from '@/types'
-import { CrmPageHeader } from '@/components/shared/CrmPageHeader'
+import { PageHeader } from '@/components/ui'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/primitives/button'
 import { Check, UserPlus, X } from 'lucide-react'
 
 // Флаг по названию страны (данные в базе преимущественно на русском,
@@ -96,7 +96,7 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
 
   return (
     <div
-      className={`relative bg-white rounded-[2px] border p-3 transition-colors ${selectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'border-brand bg-brand/10' : 'border-p-line hover:border-p-line'} ${isDragging ? 'opacity-40 scale-95' : ''}`}
+      className={`relative bg-white rounded-panel border p-3 transition-colors ${selectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'border-brand bg-brand/10' : 'border-p-line hover:border-p-line'} ${isDragging ? 'opacity-40 scale-95' : ''}`}
       onClick={selectionMode && !alreadyAssigned ? () => onToggleSelected?.(student.id) : undefined}
     >
       <div className="flex items-start gap-2">
@@ -109,7 +109,7 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
         </Link>
         {selectionMode && (
           alreadyAssigned ? (
-            <span className="shrink-0 rounded-[2px] border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
+            <span className="shrink-0 rounded-pill border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
               Уже мой
             </span>
           ) : (
@@ -119,7 +119,7 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
                 event.stopPropagation()
                 onToggleSelected?.(student.id)
               }}
-              className={`grid h-5 w-5 shrink-0 place-items-center rounded-[4px] border transition-colors ${selected ? 'border-brand bg-brand text-black' : 'border-p-line bg-transparent text-transparent hover:border-brand'}`}
+              className={`grid h-5 w-5 shrink-0 place-items-center rounded-ctl border transition-colors ${selected ? 'border-brand bg-brand text-black' : 'border-p-line bg-transparent text-transparent hover:border-brand'}`}
               aria-label={selected ? `Убрать ${student.full_name} из выбора` : `Выбрать ${student.full_name}`}
               aria-pressed={selected}
             >
@@ -130,11 +130,11 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
       </div>
 
       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
           {DEGREE_LEVEL_LABELS[student.degree_level]}
         </span>
         {mentors.slice(0, 2).map((name) => (
-          <span key={name} className="text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium bg-p-panel text-p-muted max-w-[7rem] truncate">
+          <span key={name} className="text-[10px] px-1.5 py-0.5 rounded-pill font-medium bg-p-panel text-p-muted max-w-[7rem] truncate">
             {name}
           </span>
         ))}
@@ -209,12 +209,12 @@ function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, a
   const { setNodeRef } = useDroppable({ id: status })
 
   return (
-    <div ref={setNodeRef} className="kanban-column flex flex-col rounded-[2px] bg-p-bg/50 border border-p-line">
+    <div ref={setNodeRef} className="kanban-column flex flex-col rounded-card bg-p-bg/50 border border-p-line">
       <div className="px-3 pt-3 pb-2 flex items-center justify-between border-b border-p-line">
         <span className="text-[11px] font-semibold text-p-muted uppercase tracking-caps">
           {PIPELINE_STATUS_LABELS[status]}
         </span>
-        <span className="text-[10px] text-p-muted border border-p-line rounded-[2px] px-1.5 py-0.5 font-semibold">
+        <span className="text-[10px] text-p-muted border border-p-line rounded-pill px-1.5 py-0.5 font-semibold">
           {students.length}
         </span>
       </div>
@@ -458,7 +458,7 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <CrmPageHeader
+      <PageHeader
         eyebrow="CRM"
         title="Обзор студентов"
         description={canSelectStudents
@@ -480,7 +480,7 @@ export const DashboardPage: React.FC = () => {
       />
 
       {selectionMode && (
-        <div className="mb-4 flex flex-col gap-3 rounded-[2px] border border-brand/35 bg-brand/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-4 flex flex-col gap-3 rounded-card border border-brand/35 bg-brand/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-p-text">Выбрано: {selectedIds.size}</div>
             <p className="mt-0.5 text-xs text-p-muted">Студенты с отметкой «Уже мой» повторно не назначаются.</p>

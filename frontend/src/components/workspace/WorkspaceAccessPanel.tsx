@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, KeyRound, Link2, Power, RotateCcw, UserPlus } from 'lucide-react'
 import { portalAccessApi } from '@/api/portalAccess'
 import { toast } from '@/hooks/use-toast'
-import { WorkspaceButton } from '@/components/workspace/ui'
+import { AppButton } from '@/components/ui'
 import { cn, formatDate } from '@/lib/utils'
 
 type Props = {
@@ -136,15 +136,15 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <WorkspaceButton size="sm" variant="ghost" disabled={inviteMutation.isPending} onClick={() => inviteMutation.mutate()}>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={inviteMutation.isPending} onClick={() => inviteMutation.mutate()}>
               <Link2 className="h-3.5 w-3.5" /> Ссылка-приглашение
-            </WorkspaceButton>
-            <WorkspaceButton size="sm" variant="ghost" disabled={resetMutation.isPending} onClick={() => resetMutation.mutate()}>
+            </AppButton>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={resetMutation.isPending} onClick={() => resetMutation.mutate()}>
               <RotateCcw className="h-3.5 w-3.5" /> Сбросить пароль
-            </WorkspaceButton>
-            <WorkspaceButton size="sm" variant="ghost" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate(!access?.is_active)}>
+            </AppButton>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate(!access?.is_active)}>
               <Power className="h-3.5 w-3.5" /> {access?.is_active ? 'Отключить доступ' : 'Включить доступ'}
-            </WorkspaceButton>
+            </AppButton>
           </div>
         </div>
       ) : (
@@ -161,7 +161,7 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="student@example.com"
-                className="h-10 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                className="h-10 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
               />
             </label>
             <label className="block">
@@ -171,36 +171,36 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="как в карточке"
-                className="h-10 w-full rounded-[12px] border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                className="h-10 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
               />
             </label>
           </div>
-          <WorkspaceButton size="sm" disabled={grantMutation.isPending || !email.trim()} onClick={() => grantMutation.mutate()}>
+          <AppButton colorPrefix="w" size="sm" disabled={grantMutation.isPending || !email.trim()} onClick={() => grantMutation.mutate()}>
             <UserPlus className="h-3.5 w-3.5" /> {grantMutation.isPending ? 'Выдаём...' : 'Выдать доступ'}
-          </WorkspaceButton>
+          </AppButton>
         </div>
       )}
 
       {tempPassword && (
-        <div className="rounded-[14px] border border-w-accentDim/40 bg-w-accent/10 p-4">
+        <div className="rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-w-muted">Временный пароль — покажите один раз</p>
           <div className="mt-2 flex items-center gap-3">
             <code className="font-mono text-base font-bold tracking-wide text-w-ink">{tempPassword}</code>
-            <WorkspaceButton size="sm" variant="ghost" onClick={() => copy(tempPassword, 'pw')}>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => copy(tempPassword, 'pw')}>
               {copied === 'pw' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Копировать
-            </WorkspaceButton>
+            </AppButton>
           </div>
         </div>
       )}
 
       {inviteUrl && (
-        <div className="rounded-[14px] border border-w-accentDim/40 bg-w-accent/10 p-4">
+        <div className="rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-w-muted">Ссылка-приглашение — одноразовая</p>
           <div className="mt-2 flex items-center gap-3">
             <code className="min-w-0 flex-1 truncate font-mono text-xs text-w-ink">{inviteUrl}</code>
-            <WorkspaceButton size="sm" variant="ghost" onClick={() => copy(inviteUrl, 'invite')}>
+            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => copy(inviteUrl, 'invite')}>
               {copied === 'invite' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Копировать
-            </WorkspaceButton>
+            </AppButton>
           </div>
           <p className="mt-2 text-xs text-w-muted">
             По ссылке студент задаёт пароль сам. Действует до {inviteExpiresAt ? formatDate(inviteExpiresAt) : '—'} и сгорает после
@@ -214,7 +214,7 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[12px] border border-w-line bg-w-panel2 px-3 py-2">
+    <div className="rounded-ctl border border-w-line bg-w-panel2 px-3 py-2">
       <div className="text-[10px] uppercase tracking-[0.14em] text-w-muted2">{label}</div>
       <div className="mt-1 truncate text-sm font-bold text-w-ink">{value}</div>
     </div>

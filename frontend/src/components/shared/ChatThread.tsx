@@ -113,7 +113,7 @@ export const ChatThread: React.FC<{
   return (
     <div className={cn(
       'flex flex-col border overflow-hidden',
-      portal ? 'border-w-line rounded-[16px] bg-w-panel' : 'border-gray-200 rounded-[6px] bg-white'
+      portal ? 'border-w-line rounded-panel bg-w-panel' : 'border-gray-200 rounded-panel bg-white'
     )}>
       {/* Search bar */}
       {variant === 'portal' && showSearch && (
@@ -124,7 +124,7 @@ export const ChatThread: React.FC<{
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Поиск по сообщениям…"
-              className="h-9 w-full rounded-[8px] border border-w-line bg-w-panel pl-9 pr-9 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-brand transition"
+              className="h-9 w-full rounded-ctl border border-w-line bg-w-panel pl-9 pr-9 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-brand transition"
             />
             {search && (
               <button
@@ -159,7 +159,7 @@ export const ChatThread: React.FC<{
                   onMouseEnter={() => setReactionHover(m.id)}
                   onMouseLeave={() => setReactionHover(null)}
                   className={cn(
-                    'relative max-w-[75%] rounded-[10px] px-3 py-2 text-sm',
+                    'relative max-w-[75%] rounded-ctl px-3 py-2 text-sm',
                     mine
                       ? portal ? 'bg-w-accent text-black' : 'bg-brand text-black'
                       : portal
@@ -176,7 +176,7 @@ export const ChatThread: React.FC<{
                       type="button"
                       onClick={() => download(attachment.id, attachment.file_name)}
                       className={cn(
-                        'mt-2 flex w-full items-center gap-2 rounded-[9px] border px-2.5 py-2 text-left text-xs font-bold',
+                        'mt-2 flex w-full items-center gap-2 rounded-ctl border px-2.5 py-2 text-left text-xs font-bold',
                         mine ? 'border-black/15 bg-black/5 text-black' : portal ? 'border-w-line bg-w-panel2 text-w-muted' : 'border-gray-200 bg-gray-50 text-gray-700',
                       )}
                     >
@@ -191,7 +191,7 @@ export const ChatThread: React.FC<{
 
                   {/* Reaction button on hover */}
                   {isHovering && !readOnly && portal && (
-                    <div className="absolute -top-10 right-0 bg-w-panel border border-w-line rounded-[8px] p-1.5 shadow-lg flex gap-1 z-10">
+                    <div className="absolute -top-10 right-0 bg-w-panel border border-w-line rounded-ctl p-1.5 shadow-lg flex gap-1 z-10">
                       {['👍', '❤️', '😂', '🎉'].map((emoji) => (
                         <button
                           key={emoji}
@@ -214,7 +214,7 @@ export const ChatThread: React.FC<{
       </div>
       <div className={cn('flex items-center gap-2 border-t p-2.5', portal ? 'border-w-line bg-w-panel' : 'border-gray-200 bg-white')}>
         {readOnly && (
-          <div className={cn('flex-1 rounded-[11px] border px-3 py-2 text-sm', portal ? 'border-w-line bg-w-panel2 text-w-muted' : 'border-gray-200 bg-gray-50 text-gray-500')}>
+          <div className={cn('flex-1 rounded-ctl border px-3 py-2 text-sm', portal ? 'border-w-line bg-w-panel2 text-w-muted' : 'border-gray-200 bg-gray-50 text-gray-500')}>
             Preview mode: можно читать, но нельзя писать от имени другого ментора.
           </div>
         )}
@@ -232,7 +232,7 @@ export const ChatThread: React.FC<{
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           className={cn(
-            'grid h-10 w-10 shrink-0 place-items-center rounded-[11px] border disabled:opacity-50',
+            'grid h-10 w-10 shrink-0 place-items-center rounded-ctl border disabled:opacity-50',
             portal ? 'border-w-line bg-w-panel2 text-w-muted hover:border-w-accentDim hover:text-w-accentText' : 'border-gray-300 text-gray-600',
           )}
           aria-label="Прикрепить файл"
@@ -252,15 +252,15 @@ export const ChatThread: React.FC<{
           className={cn(
             'flex-1 h-10 px-3 text-sm border focus:outline-none',
             portal
-              ? 'rounded-[11px] border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus:border-w-accentDim'
-              : 'rounded-[5px] border-gray-300 focus:border-gray-700'
+              ? 'rounded-ctl border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus:border-w-accentDim'
+              : 'rounded-ctl border-gray-300 focus:border-gray-700'
           )}
         />
         <button
           onClick={send}
           disabled={!text.trim() || sending}
           className={cn(
-            'h-10 w-10 grid place-items-center rounded-[11px] text-black disabled:opacity-50 shrink-0',
+            'h-10 w-10 grid place-items-center rounded-ctl text-black disabled:opacity-50 shrink-0',
             portal ? 'bg-w-accent hover:brightness-95' : 'bg-brand hover:bg-brand-dark'
           )}
           aria-label="Отправить"

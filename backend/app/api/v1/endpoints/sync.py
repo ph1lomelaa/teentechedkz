@@ -72,7 +72,7 @@ async def sync_status(
 ):
     return {
         "configured": sheets_sync.is_configured(),
-        "last_run": sheets_sync.last_run,
+        "last_run": await sheets_sync.last_run(),
         "new_submissions": await sheets_sync.new_submissions_count(db),
     }
 

@@ -116,7 +116,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   const sidebar = (
     <>
       <div className="flex items-center gap-3 px-2 pt-1.5 pb-5">
-        <div className="w-[38px] h-[38px] rounded-[10px] bg-brand grid place-items-center shrink-0">
+        <div className="w-[38px] h-[38px] rounded-ctl bg-p-accent grid place-items-center shrink-0">
           <GraduationCap className="w-[22px] h-[22px] text-black" strokeWidth={2.2} />
         </div>
         <div>
@@ -146,8 +146,8 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
               key={item.path}
               to={item.path}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-[11px] text-[14px] font-semibold transition-colors',
-                active ? 'bg-brand text-black' : 'text-white/55 hover:bg-white/[0.06] hover:text-white'
+                'flex items-center gap-3 px-3 py-2.5 rounded-ctl text-[14px] font-semibold transition-colors',
+                active ? 'bg-p-accent text-black' : 'text-white/55 hover:bg-white/[0.06] hover:text-white'
               )}
             >
               <span className={active ? 'text-black' : 'text-white/45'}>{item.icon}</span>
@@ -156,7 +156,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
                 <span
                   className={cn(
                     'ml-auto min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-[10px] font-black',
-                    active ? 'bg-black/20 text-black' : 'bg-brand text-black'
+                    active ? 'bg-black/20 text-black' : 'bg-p-accent text-black'
                   )}
                 >
                   {badge > 9 ? '9+' : badge}
@@ -170,7 +170,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
       <div className="mt-auto border-t border-white/10 pt-3">
         <button
           onClick={() => logout()}
-          className="w-full flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-left text-sm font-semibold text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+          className="w-full flex items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/55 transition hover:bg-white/[0.06] hover:text-white"
         >
           <LogOut className="h-4 w-4" />
           Выйти
@@ -182,7 +182,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   return (
     <div className="portal min-h-[100dvh] relative" data-theme={theme}>
       {/* Yellow radial blur glow background */}
-      <div className="pointer-events-none absolute left-1/2 top-20 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-brand/[0.05] blur-3xl" />
+      <div className="pointer-events-none absolute left-1/2 top-20 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-p-accent/[0.05] blur-3xl" />
 
       <div className="lg:grid lg:grid-cols-[248px_1fr] min-h-[100dvh] relative z-10">
         {/* mobile backdrop */}
@@ -221,7 +221,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
               <NotificationsBell variant="portal" />
               <div className="flex items-center gap-2 rounded-full border border-p-line bg-p-panel px-2 py-1.5">
                 <span className="max-w-[140px] truncate text-[11px] font-semibold text-p-muted">Студент · {user?.name || 'Пользователь'}</span>
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-brand text-[11px] font-black text-black">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-p-accent text-[11px] font-black text-black">
                   {initials(user?.name) || 'С'}
                 </span>
               </div>
@@ -232,7 +232,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
             <React.Suspense
               fallback={(
                 <div className="flex min-h-[50vh] items-center justify-center text-sm text-p-muted">
-                  <span className="mr-3 h-2.5 w-2.5 animate-pulse rounded-full bg-brand" />
+                  <span className="mr-3 h-2.5 w-2.5 animate-pulse rounded-full bg-p-accent" />
                   Загрузка…
                 </div>
               )}

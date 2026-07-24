@@ -11,8 +11,8 @@ import {
   TELEGRAM_STATUS_COLORS,
   TELEGRAM_STATUS_LABELS,
 } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/primitives/button'
+import { Badge } from '@/components/ui/primitives/badge'
 import {
   Dialog,
   DialogContent,
@@ -20,22 +20,22 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '@/components/ui/primitives/dialog'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+} from '@/components/ui/primitives/select'
+import { Input } from '@/components/ui/primitives/input'
+import { Textarea } from '@/components/ui/primitives/textarea'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { StudentChatSection } from '@/components/shared/StudentChatSection'
-import { Accordion } from '@/components/ui/accordion'
+import { Accordion } from '@/components/ui/primitives/accordion'
 import { toast } from '@/hooks/use-toast'
-import { ToastAction } from '@/components/ui/toast'
+import { ToastAction } from '@/components/ui/primitives/toast'
 import { downloadBlob } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errorMessage'
 import type { TelegramAttachment, TelegramContextDraft } from '@/types'
@@ -316,7 +316,7 @@ export default function TelegramChatDetailPage() {
           <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Telegram</div>
           <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text md:text-4xl">{chat.title || `Чат ${chat.chat_id}`}</h1>
           <div className="flex items-center gap-2 mt-1">
-            <span className={`px-2 py-0.5 rounded-[2px] text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
+            <span className={`px-2 py-0.5 rounded-pill text-xs ${TELEGRAM_STATUS_COLORS[chat.status]}`}>
               {TELEGRAM_STATUS_LABELS[chat.status]}
             </span>
             {chat.student_name && chat.student_id ? (
@@ -383,7 +383,7 @@ export default function TelegramChatDetailPage() {
         )}
       </div>
 
-      <div className="border border-p-line rounded-[2px]">
+      <div className="border border-p-line rounded-card">
         <div className="px-4 py-2 border-b border-p-line">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="font-medium text-sm text-p-text">
@@ -420,7 +420,7 @@ export default function TelegramChatDetailPage() {
                         type="button"
                         disabled={!a.can_download}
                         onClick={() => void handleDownloadAttachment(a)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-[2px] text-xs border ${
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-ctl text-xs border ${
                           a.can_download
                             ? 'border-p-line text-p-text hover:bg-p-bg'
                             : 'border-p-line text-p-muted2 cursor-not-allowed'
@@ -433,7 +433,7 @@ export default function TelegramChatDetailPage() {
                         <button
                           title="В документы"
                           onClick={() => setSaveAsDocTarget(a.id)}
-                          className="inline-flex items-center px-1.5 py-1 rounded-[2px] text-xs border border-p-line text-p-muted hover:bg-p-bg"
+                          className="inline-flex items-center px-1.5 py-1 rounded-ctl text-xs border border-p-line text-p-muted hover:bg-p-bg"
                         >
                           <FolderInput className="w-3 h-3" />
                         </button>
@@ -453,7 +453,7 @@ export default function TelegramChatDetailPage() {
         </Accordion>
       )}
 
-      <div className="border border-p-line rounded-[2px]">
+      <div className="border border-p-line rounded-card">
         <div className="px-4 py-2 border-b border-p-line">
           <div className="font-medium text-sm text-p-text">Авто-изменения полей ({insights.length})</div>
           <p className="mt-0.5 text-xs text-p-muted2">
@@ -462,7 +462,7 @@ export default function TelegramChatDetailPage() {
         </div>
         <div className="max-h-[400px] overflow-y-auto p-4 space-y-3">
           {chat.has_context_signal && (
-            <div className="rounded-[2px] border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+            <div className="rounded-panel border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
               В последних сообщениях есть потенциально важный контекст: экзамены, документы, даты или вложения.
             </div>
           )}
@@ -479,7 +479,7 @@ export default function TelegramChatDetailPage() {
         </div>
       </div>
 
-      <div className="border border-p-line rounded-[2px]">
+      <div className="border border-p-line rounded-card">
         <div className="px-4 py-2 border-b border-p-line">
           <div className="flex items-center gap-2 font-medium text-sm text-p-text">
             <History className="h-4 w-4 text-p-muted2" />
@@ -495,7 +495,7 @@ export default function TelegramChatDetailPage() {
           ) : (
             <div className="space-y-2">
               {sessions.map((session) => (
-                <div key={session.id} className="flex flex-col gap-1 rounded-[2px] border border-p-line p-3 text-sm md:flex-row md:items-center md:justify-between">
+                <div key={session.id} className="flex flex-col gap-1 rounded-panel border border-p-line p-3 text-sm md:flex-row md:items-center md:justify-between">
                   <div>
                     <div className="font-medium text-p-text">{session.student_name || 'Без студента'}</div>
                     <div className="text-xs text-p-muted">
@@ -524,7 +524,7 @@ export default function TelegramChatDetailPage() {
           {contextDraft && (
             <div className="space-y-5">
               {contextDraft.source_filter?.q && (
-                <div className="rounded-[2px] border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                <div className="rounded-panel border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
                   AI-разбор создан только по сообщениям, найденным по запросу: “{contextDraft.source_filter.q}”.
                 </div>
               )}
@@ -558,7 +558,7 @@ export default function TelegramChatDetailPage() {
                 ) : (
                   <div className="space-y-2">
                     {contextDraft.profile_updates.map((item, index) => (
-                      <div key={index} className="grid gap-2 rounded-[2px] border border-p-line p-3 md:grid-cols-[1fr_1fr_auto]">
+                      <div key={index} className="grid gap-2 rounded-panel border border-p-line p-3 md:grid-cols-[1fr_1fr_auto]">
                         <Input
                           value={item.field}
                           placeholder="field"
@@ -618,7 +618,7 @@ export default function TelegramChatDetailPage() {
               {renderDraftTextList('Предупреждения качества', 'quality_warnings')}
 
               {contextDraft.ignored_as_noise.length > 0 && (
-                <div className="rounded-[2px] border border-p-line bg-p-bg p-3">
+                <div className="rounded-panel border border-p-line bg-p-bg p-3">
                   <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Не сохранять</p>
                   <ul className="mt-2 list-disc pl-5 text-sm text-p-muted">
                     {contextDraft.ignored_as_noise.map((item, index) => <li key={index}>{item}</li>)}
