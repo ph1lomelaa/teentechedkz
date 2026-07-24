@@ -24,7 +24,7 @@ import {
   ServiceType,
   StudentListItem,
 } from '@/types'
-import { PageHeader } from '@/components/ui'
+import { PageHeader, SegmentedTabs } from '@/components/ui'
 import { FilterChips, FilterField, FilterPopover, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory } from '@/hooks/useStudentDirectory'
 import { StatCard } from '@/components/ui'
@@ -39,6 +39,16 @@ import {
 } from '@/components/ui/primitives/table'
 
 type ListScope = 'all' | 'mine' | 'assigned' | 'unassigned'
+
+// Секции страницы — чисто визуальная группировка уже существующих блоков.
+type StatsSection = 'overview' | 'funnel-risks' | 'services' | 'team'
+
+const STATS_SECTION_TABS: { value: StatsSection; label: string }[] = [
+  { value: 'overview', label: 'Обзор' },
+  { value: 'funnel-risks', label: 'Воронка и риски' },
+  { value: 'services', label: 'Услуги' },
+  { value: 'team', label: 'Команда' },
+]
 
 type RiskGroup = 'healthy' | 'attention' | 'risk' | 'neutral'
 
@@ -138,6 +148,7 @@ export function StatisticsPage() {
     key: 'students_total',
     dir: 'desc',
   })
+  const [section, setSection] = useState<StatsSection>('overview')
 
   const directory = useStudentDirectory()
   const workspaceScope = scope === 'mine' ? 'mine' : 'all'
@@ -206,6 +217,14 @@ export function StatisticsPage() {
         return (b.student.days_in_work ?? 0) - (a.student.days_in_work ?? 0)
       })
       .slice(0, 15)
+  }, [students])
+
+  // Только для подписи «Показаны X из N» под таблицей — сам riskList не меняется.
+  const riskTotal = useMemo(() => {
+    return students.filter((student) => {
+      const status = pipelineOf(student)
+      return PIPELINE_RISK_GROUP[status] === 'risk' || agingBucket(student.days_in_work ?? 0) !== 'low'
+    }).length
   }, [students])
 
   const countryTop = useMemo(() => {
@@ -336,6 +355,14 @@ export function StatisticsPage() {
         description="Операционная сводка по студентам, рискам и нагрузке. Финансовые показатели — на отдельной странице «Финансы»."
       />
 
+      <SegmentedTabs
+        className="mb-5"
+        colorPrefix="p"
+        tabs={STATS_SECTION_TABS}
+        value={section}
+        onChange={(value) => setSection(value as StatsSection)}
+      />
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-p-line bg-white px-3 py-2.5">
         <div className="text-sm text-p-muted">
           {studentsLoading ? 'Загрузка данных...' : `В выборке ${students.length} студентов`}
@@ -424,225 +451,151 @@ export function StatisticsPage() {
         </FilterPopover>
       </div>
 
-      <div className="mb-8">
-        <FilterChips chips={filterChips} onResetAll={resetFilters} />
-      </div>
+      {filterChips.length > 0 && (
+        <div className="mb-8">
+          <FilterChips chips={filterChips} onResetAll={resetFilters} />
+        </div>
+      )}
 
-      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          colorPrefix="p"
-          label="Студенты"
-          value={studentsLoading ? '…' : String(stats.students_total)}
-          sub={`${stats.active_work} в активной работе`}
-          icon={<Users className="h-4 w-4" />}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="Без roadmap"
-          value={studentsLoading ? '…' : String(stats.without_roadmap)}
-          sub="студентов без назначенного плана"
-          icon={<RouteIcon className="h-4 w-4" />}
-          warn={stats.without_roadmap > 0}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="Telegram-сигналы"
-          value={studentsLoading ? '…' : String(stats.telegram_signals)}
-          sub="ждут разбора по всем менторам"
-          icon={<MessageCircle className="h-4 w-4" />}
-          warn={stats.telegram_signals > 0}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="Документы на проверку"
-          value={studentsLoading ? '…' : String(stats.documents_unverified)}
-          sub="требуют верификации"
-          icon={<FileWarning className="h-4 w-4" />}
-          warn={stats.documents_unverified > 0}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="Открытых задач"
-          value={studentsLoading ? '…' : String(stats.open_internal_tasks)}
-          sub={`${stats.open_roadmap_tasks} задач в roadmap`}
-          icon={<Bell className="h-4 w-4" />}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="С ближайшей встречей"
-          value={studentsLoading ? '…' : String(stats.with_next_meeting)}
-          sub="студентов с next meeting"
-          icon={<Sparkles className="h-4 w-4" />}
-        />
-        <StatCard
-          colorPrefix="p"
-          label="Без доступа в портал"
-          value={studentsLoading ? '…' : String(stats.without_portal)}
-          sub="нужна активация student portal"
-          icon={<Users className="h-4 w-4" />}
-          warn={stats.without_portal > 0}
-        />
-        <Link
-          to="/finances"
-          className="flex min-w-0 flex-col justify-between rounded-card border border-p-line bg-p-panel p-5 transition hover:-translate-y-0.5 hover:border-p-accent-dim"
-        >
-          <span className="label-caps text-p-muted">Финансы</span>
-          <span className="mt-2.5 flex items-center gap-1 font-display text-lg font-black leading-none tracking-tight text-p-text">
-            Договоры и платежи
-            <ChevronRight className="h-4 w-4" />
-          </span>
-          <span className="mt-2 text-xs text-p-muted">Суммы, остатки и сверка с Notion — на странице «Финансы»</span>
-        </Link>
-      </div>
-
-      <section className="mb-10">
-        <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">
-          Воронка по статусам pipeline
-        </h2>
-        <div className="rounded-card border border-p-line p-5">
+      {section === 'overview' && (
+        <div className="mb-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {studentsLoading ? (
-            <p className="text-sm text-p-muted">Загрузка…</p>
+            Array.from({ length: 7 }).map((_, idx) => (
+              <div key={idx} className="h-[122px] animate-pulse rounded-card border border-p-line bg-p-panel" />
+            ))
           ) : (
             <>
-              <div className="space-y-3">
-                {funnel.map((row) => (
-                  <div key={row.status} className="flex items-center gap-3">
-                    <span className="w-44 shrink-0 truncate text-sm text-p-text">{row.label}</span>
-                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-p-bg">
-                      <div
-                        className={`h-full rounded-full ${RISK_GROUP_BAR_CLASS[row.riskGroup]}`}
-                        style={{ width: `${Math.max(2, (row.count / funnelMax) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="w-10 shrink-0 text-right text-sm font-bold text-p-text">{row.count}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-p-line pt-3">
-                {(Object.keys(RISK_GROUP_LABELS) as RiskGroup[]).map((group) => (
-                  <span key={group} className="inline-flex items-center gap-1.5 text-xs text-p-muted">
-                    <span className={`h-2 w-2 rounded-full ${RISK_GROUP_BAR_CLASS[group]}`} />
-                    {RISK_GROUP_LABELS[group]}
-                  </span>
-                ))}
-              </div>
+              <StatCard
+                colorPrefix="p"
+                label="Студенты"
+                value={String(stats.students_total)}
+                sub={`${stats.active_work} в активной работе`}
+                icon={<Users className="h-4 w-4" />}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="Без roadmap"
+                value={String(stats.without_roadmap)}
+                sub="студентов без назначенного плана"
+                icon={<RouteIcon className="h-4 w-4" />}
+                warn={stats.without_roadmap > 0}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="Telegram-сигналы"
+                value={String(stats.telegram_signals)}
+                sub="ждут разбора по всем менторам"
+                icon={<MessageCircle className="h-4 w-4" />}
+                warn={stats.telegram_signals > 0}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="Документы на проверку"
+                value={String(stats.documents_unverified)}
+                sub="требуют верификации"
+                icon={<FileWarning className="h-4 w-4" />}
+                warn={stats.documents_unverified > 0}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="Открытых задач"
+                value={String(stats.open_internal_tasks)}
+                sub={`${stats.open_roadmap_tasks} задач в roadmap`}
+                icon={<Bell className="h-4 w-4" />}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="С ближайшей встречей"
+                value={String(stats.with_next_meeting)}
+                sub="студентов с next meeting"
+                icon={<Sparkles className="h-4 w-4" />}
+              />
+              <StatCard
+                colorPrefix="p"
+                label="Без доступа в портал"
+                value={String(stats.without_portal)}
+                sub="нужна активация student portal"
+                icon={<Users className="h-4 w-4" />}
+                warn={stats.without_portal > 0}
+              />
             </>
           )}
+          <Link
+            to="/finances"
+            className="group flex min-w-0 flex-col justify-between rounded-card border border-dashed border-p-line bg-p-panel p-5 transition hover:-translate-y-0.5 hover:border-p-accent-dim"
+          >
+            <span className="label-caps text-p-muted">Финансы</span>
+            <span className="mt-2.5 flex items-center gap-1 font-display text-lg font-black leading-none tracking-tight text-p-text">
+              Договоры и платежи
+              <ChevronRight className="h-5 w-5 flex-none text-brand transition-transform group-hover:translate-x-0.5" />
+            </span>
+            <span className="mt-2 text-xs text-p-muted">Суммы, остатки и сверка с Notion — на странице «Финансы»</span>
+          </Link>
         </div>
-      </section>
+      )}
 
-      <section className="mb-10">
-        <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-black tracking-tight text-p-text">
-          <AlertTriangle className="h-4 w-4 text-red-600" />
-          Риск-лист
-        </h2>
-        <p className="mb-3 text-xs text-p-muted">
-          Студенты в статусах риска (на визе / подвешено / перевели / на возврате) и/или дольше 30 дней в текущей работе.
-        </p>
-        <div className="rounded-card border border-p-line">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Студент</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead>Причина</TableHead>
-                <TableHead>Страна</TableHead>
-                <TableHead>Ответственный</TableHead>
-                <TableHead className="text-right">Дней в работе</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {studentsLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
-                </TableRow>
-              ) : riskList.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-p-muted">Рисковых студентов нет</TableCell>
-                </TableRow>
-              ) : riskList.map(({ student, status, pipelineRisk, bucket }) => (
-                <TableRow key={student.id}>
-                  <TableCell className="font-medium text-p-text">{student.full_name}</TableCell>
-                  <TableCell>
-                    <span className={`rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PIPELINE_STATUS_COLORS[status]}`}>
-                      {PIPELINE_STATUS_LABELS[status]}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {pipelineRisk && (
-                        <span className="rounded-pill bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                          Риск-статус
-                        </span>
-                      )}
-                      {bucket !== 'low' && (
-                        <span className={`rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${AGING_BUCKET_STYLE[bucket]}`}>
-                          {AGING_BUCKET_LABELS[bucket]}
-                        </span>
-                      )}
+      {section === 'funnel-risks' && (
+        <section className="mb-10">
+          <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+            <span className="h-5 w-1 flex-none rounded bg-brand" />
+            Воронка по статусам pipeline
+          </h2>
+          <div className="rounded-card border border-p-line p-5">
+            {studentsLoading ? (
+              <p className="text-sm text-p-muted">Загрузка…</p>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {funnel.map((row) => (
+                    <div key={row.status} className="flex items-center gap-3">
+                      <span className="w-44 shrink-0 truncate text-sm text-p-text">{row.label}</span>
+                      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-p-bg">
+                        <div
+                          className={`h-full rounded-full ${RISK_GROUP_BAR_CLASS[row.riskGroup]}`}
+                          style={{ width: row.count === 0 ? '0%' : `${Math.max(2, (row.count / funnelMax) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-10 shrink-0 text-right text-base font-bold tabular-nums text-p-text">{row.count}</span>
                     </div>
-                  </TableCell>
-                  <TableCell className="text-p-muted">{student.country || '—'}</TableCell>
-                  <TableCell className="text-p-muted">{studentResponsibles(student)}</TableCell>
-                  <TableCell className="text-right font-semibold">{student.days_in_work ?? 0}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-
-      <section className="mb-10 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div className="rounded-card border border-p-line p-5">
-          <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">Топ стран</h2>
-          <div className="space-y-2">
-            {countryTop.length === 0 ? (
-              <p className="text-sm text-p-muted">Нет данных по странам</p>
-            ) : countryTop.map(([country, count]) => (
-              <div key={country} className="flex items-center gap-2">
-                <span className="w-40 truncate text-sm text-p-text">{country}</span>
-                <div className="h-2 flex-1 rounded-full bg-p-bg">
-                  <div className="h-full rounded-full bg-sky-600" style={{ width: `${Math.max(3, (count / Math.max(countryTop[0]?.[1] || 1, 1)) * 100)}%` }} />
+                  ))}
                 </div>
-                <span className="w-10 text-right text-sm font-semibold text-p-text">{count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-card border border-p-line p-5">
-          <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">Ступени</h2>
-          <div className="space-y-2">
-            {degreeStats.length === 0 ? (
-              <p className="text-sm text-p-muted">Нет данных по ступеням</p>
-            ) : degreeStats.map(([degree, count]) => (
-              <div key={degree} className="flex items-center gap-2">
-                <span className="w-28 truncate text-sm text-p-text">
-                  {DEGREE_LEVEL_LABELS[degree as keyof typeof DEGREE_LEVEL_LABELS] ?? degree}
-                </span>
-                <div className="h-2 flex-1 rounded-full bg-p-bg">
-                  <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(3, (count / Math.max(degreeStats[0]?.[1] || 1, 1)) * 100)}%` }} />
+                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-p-line pt-3">
+                  {(Object.keys(RISK_GROUP_LABELS) as RiskGroup[]).map((group) => (
+                    <span key={group} className="inline-flex items-center gap-1.5 text-xs text-p-muted">
+                      <span className={`h-2 w-2 rounded-full ${RISK_GROUP_BAR_CLASS[group]}`} />
+                      {RISK_GROUP_LABELS[group]}
+                    </span>
+                  ))}
                 </div>
-                <span className="w-10 text-right text-sm font-semibold text-p-text">{count}</span>
-              </div>
-            ))}
+              </>
+            )}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <section className="mb-10">
-        <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">Услуги</h2>
-        <div className="grid grid-cols-1 gap-3">
-          <div className="overflow-x-auto rounded-card border border-p-line">
+      {section === 'funnel-risks' && (
+        <section className="mb-10">
+          <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+            <span className="h-5 w-1 flex-none rounded bg-brand" />
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            Риск-лист
+            <span className="rounded-full border border-p-line bg-p-panel px-2.5 py-0.5 text-2xs text-p-muted2">
+              {riskList.length}
+            </span>
+          </h2>
+          <p className="mb-3 text-xs text-p-muted">
+            Студенты в статусах риска (на визе / подвешено / перевели / на возврате) и/или дольше 30 дней в текущей работе.
+          </p>
+          <div className="rounded-card border border-p-line">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Услуга</TableHead>
-                  <TableHead className="text-right">Всего</TableHead>
-                  <TableHead className="text-right">В процессе</TableHead>
-                  <TableHead className="text-right">Запланировано</TableHead>
-                  <TableHead className="text-right">Завершено</TableHead>
-                  <TableHead className="text-right">Просрочено</TableHead>
+                  <TableHead>Студент</TableHead>
+                  <TableHead>Статус</TableHead>
+                  <TableHead>Причина</TableHead>
+                  <TableHead>Страна</TableHead>
+                  <TableHead>Ответственный</TableHead>
+                  <TableHead className="text-right">Дней в работе</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -650,162 +603,297 @@ export function StatisticsPage() {
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
                   </TableRow>
-                ) : serviceStats.byType.length === 0 ? (
+                ) : riskList.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-sm text-p-muted">Нет данных по услугам</TableCell>
+                    <TableCell colSpan={6} className="text-center text-sm text-p-muted">Рисковых студентов нет</TableCell>
                   </TableRow>
-                ) : serviceStats.byType.map(([type, data]) => (
-                  <TableRow key={type}>
-                    <TableCell className="font-medium text-p-text">{SERVICE_TYPE_LABELS[type]}</TableCell>
-                    <TableCell className="text-right">{data.total}</TableCell>
-                    <TableCell className="text-right">{data.in_progress}</TableCell>
-                    <TableCell className="text-right">{data.scheduled}</TableCell>
-                    <TableCell className="text-right text-emerald-700">{data.completed}</TableCell>
-                    <TableCell className={`text-right ${data.overdue > 0 ? 'font-semibold text-red-600' : 'text-p-muted2'}`}>
-                      {data.overdue}
+                ) : riskList.map(({ student, status, pipelineRisk, bucket }) => (
+                  <TableRow key={student.id}>
+                    <TableCell>
+                      <Link
+                        to={`/students/${student.id}`}
+                        className="font-medium text-p-text hover:text-brand hover:underline"
+                      >
+                        {student.full_name}
+                      </Link>
                     </TableCell>
+                    <TableCell>
+                      <span className={`rounded-pill px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide ${PIPELINE_STATUS_COLORS[status]}`}>
+                        {PIPELINE_STATUS_LABELS[status]}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {pipelineRisk && (
+                          <span className="rounded-pill bg-red-50 border border-red-200 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-red-700">
+                            Риск-статус
+                          </span>
+                        )}
+                        {bucket !== 'low' && (
+                          <span className={`rounded-pill px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide ${AGING_BUCKET_STYLE[bucket]}`}>
+                            {AGING_BUCKET_LABELS[bucket]}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-p-muted">{student.country || '—'}</TableCell>
+                    <TableCell className="text-p-muted">{studentResponsibles(student)}</TableCell>
+                    <TableCell className="text-right font-semibold">{student.days_in_work ?? 0}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+          {!studentsLoading && riskTotal > riskList.length && (
+            <p className="mt-2 text-xs text-p-muted">
+              Показаны {riskList.length} из {riskTotal} ·{' '}
+              <Link to="/at-risk" className="font-medium underline hover:text-brand">
+                Открыть полный риск-лист →
+              </Link>
+            </p>
+          )}
+        </section>
+      )}
+
+      {section === 'funnel-risks' && (
+        <section className="mb-10 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="rounded-card border border-p-line p-5">
+            <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+              <span className="h-5 w-1 flex-none rounded bg-brand" />
+              Топ стран
+            </h2>
+            <div className="space-y-2">
+              {countryTop.length === 0 ? (
+                <p className="text-sm text-p-muted">Нет данных по странам</p>
+              ) : countryTop.map(([country, count]) => (
+                <div key={country} className="flex items-center gap-2">
+                  <span className="w-44 truncate text-sm text-p-text">{country}</span>
+                  <div className="h-2 flex-1 rounded-full bg-p-bg">
+                    <div className="h-full rounded-full bg-sky-600" style={{ width: count === 0 ? '0%' : `${Math.max(3, (count / Math.max(countryTop[0]?.[1] || 1, 1)) * 100)}%` }} />
+                  </div>
+                  <span className="w-10 text-right text-base font-bold tabular-nums text-p-text">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div className="rounded-card border border-p-line p-5">
-            <h3 className="mb-3 text-sm font-semibold text-p-text">
-              Просроченные дедлайны {serviceStats.overdueTotal > 0 && `(${serviceStats.overdueTotal})`}
-            </h3>
-            {serviceStats.overdueItems.length === 0 ? (
-              <p className="text-sm text-p-muted">Просроченных дедлайнов нет.</p>
-            ) : (
-              <div className="space-y-2">
-                {serviceStats.overdueItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-3 rounded-panel border border-p-line bg-p-bg px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-p-text">{item.student_name}</div>
-                      <div className="text-[11px] text-p-muted">{SERVICE_TYPE_LABELS[item.service_type]}</div>
-                    </div>
-                    <span className="shrink-0 text-xs font-semibold text-red-600">
-                      {new Date(item.deadline).toLocaleDateString('ru-RU')}
-                    </span>
+            <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+              <span className="h-5 w-1 flex-none rounded bg-brand" />
+              Ступени
+            </h2>
+            <div className="space-y-2">
+              {degreeStats.length === 0 ? (
+                <p className="text-sm text-p-muted">Нет данных по ступеням</p>
+              ) : degreeStats.map(([degree, count]) => (
+                <div key={degree} className="flex items-center gap-2">
+                  <span className="w-44 truncate text-sm text-p-text">
+                    {DEGREE_LEVEL_LABELS[degree as keyof typeof DEGREE_LEVEL_LABELS] ?? degree}
+                  </span>
+                  <div className="h-2 flex-1 rounded-full bg-p-bg">
+                    <div className="h-full rounded-full bg-amber-500" style={{ width: count === 0 ? '0%' : `${Math.max(3, (count / Math.max(degreeStats[0]?.[1] || 1, 1)) * 100)}%` }} />
                   </div>
-                ))}
-              </div>
-            )}
+                  <span className="w-10 text-right text-base font-bold tabular-nums text-p-text">{count}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <section className="mb-10">
-        <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">
-          Нагрузка по менторам
-        </h2>
-        {scope !== 'all' && scope !== 'mine' && (
-          <div className="mb-3 rounded-card border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-            Для workload используется workspace scope: {workspaceScope === 'mine' ? 'мои' : 'все'}.
-          </div>
-        )}
-        <div className="rounded-card border border-p-line">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ментор</TableHead>
-                <TableHead>Роль</TableHead>
-                {WORKLOAD_COLUMNS.map((col) => {
-                  const active = workloadSort.key === col.key
-                  return (
-                    <TableHead key={col.key} className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => toggleWorkloadSort(col.key)}
-                        className="inline-flex items-center gap-1 hover:text-p-text"
-                      >
-                        {col.label}
-                        {active && (workloadSort.dir === 'desc' ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
-                      </button>
-                    </TableHead>
-                  )
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {dashboardLoading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
-                </TableRow>
-              ) : sortedWorkload.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center text-sm text-p-muted">Нет назначенных менторов</TableCell>
-                </TableRow>
-              ) : (
-                sortedWorkload.map((row) => {
-                  const overloaded = workloadAvgStudents > 0 && row.students_total > workloadAvgStudents * 1.5
-                  return (
-                    <TableRow key={row.mentor.id} className={overloaded ? 'bg-amber-50/60' : undefined}>
-                      <TableCell className="font-medium text-p-text">
-                        <span className="inline-flex items-center gap-1.5">
-                          {row.mentor.name}
-                          {overloaded && (
-                            <span title="Перегружен относительно средней нагрузки">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                            </span>
-                          )}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-p-muted">{row.roles.join(', ')}</TableCell>
-                      <TableCell className="text-right">{row.students_total}</TableCell>
-                      <TableCell className="text-right">{row.open_tasks}</TableCell>
-                      <TableCell className="text-right">{row.telegram_signals}</TableCell>
-                      <TableCell className="text-right">{row.documents_unverified}</TableCell>
-                      <TableCell className="text-right">{row.ai_drafts}</TableCell>
-                      <TableCell className="text-right">
-                        {row.health_warnings > 0 ? (
-                          <span className="inline-flex rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                            {row.health_warnings}
-                          </span>
-                        ) : (
-                          <span className="text-p-muted2">0</span>
-                        )}
+      {section === 'services' && (
+        <section className="mb-10">
+          <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+            <span className="h-5 w-1 flex-none rounded bg-brand" />
+            Услуги
+            <span className="rounded-full border border-p-line bg-p-panel px-2.5 py-0.5 text-2xs text-p-muted2">
+              {serviceStats.byType.length}
+            </span>
+          </h2>
+          <div className="grid grid-cols-1 gap-3">
+            <div className="overflow-x-auto rounded-card border border-p-line">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Услуга</TableHead>
+                    <TableHead className="text-right">Всего</TableHead>
+                    <TableHead className="text-right">В процессе</TableHead>
+                    <TableHead className="text-right">Запланировано</TableHead>
+                    <TableHead className="text-right">Завершено</TableHead>
+                    <TableHead className="text-right">Просрочено</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {studentsLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
+                    </TableRow>
+                  ) : serviceStats.byType.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-sm text-p-muted">Нет данных по услугам</TableCell>
+                    </TableRow>
+                  ) : serviceStats.byType.map(([type, data]) => (
+                    <TableRow key={type}>
+                      <TableCell className="font-medium text-p-text">{SERVICE_TYPE_LABELS[type]}</TableCell>
+                      <TableCell className="text-right">{data.total}</TableCell>
+                      <TableCell className="text-right">{data.in_progress}</TableCell>
+                      <TableCell className="text-right">{data.scheduled}</TableCell>
+                      <TableCell className="text-right text-emerald-700">{data.completed}</TableCell>
+                      <TableCell className={`text-right ${data.overdue > 0 ? 'font-semibold text-red-600' : 'text-p-muted2'}`}>
+                        {data.overdue}
                       </TableCell>
                     </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-      <section>
-        <h2 className="mb-4 font-display text-lg font-black tracking-tight text-p-text">
-          Операционные сигналы
-        </h2>
-        {dashboardLoading ? (
-          <p className="text-sm text-p-muted">Загрузка signals…</p>
-        ) : healthSignals.length === 0 ? (
-          <div className="rounded-card border border-p-line p-5 text-sm text-p-muted">
-            Критичных операционных сигналов нет.
+            <div className="rounded-card border border-p-line p-5">
+              <h3 className="mb-3 text-sm font-semibold text-p-text">
+                Просроченные дедлайны {serviceStats.overdueTotal > 0 && `(${serviceStats.overdueTotal})`}
+              </h3>
+              {serviceStats.overdueItems.length === 0 ? (
+                <p className="text-sm text-p-muted">Просроченных дедлайнов нет.</p>
+              ) : (
+                <div className="space-y-2">
+                  {serviceStats.overdueItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-3 rounded-panel border border-p-line bg-p-bg px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-p-text">{item.student_name}</div>
+                        <div className="text-[11px] text-p-muted">{SERVICE_TYPE_LABELS[item.service_type]}</div>
+                      </div>
+                      <span className="shrink-0 text-xs font-semibold text-red-600">
+                        {new Date(item.deadline).toLocaleDateString('ru-RU')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {healthSignals.map((signal) => {
-              const SEVERITY_STYLE: Record<string, string> = {
-                high: 'bg-red-50 text-red-700 border border-red-200',
-                medium: 'bg-orange-50 text-orange-700 border border-orange-200',
-                low: 'bg-gray-50 text-gray-600 border border-gray-200',
-              }
-              return (
-                <span
-                  key={signal.kind}
-                  className={`inline-flex items-center gap-2 rounded-ctl px-3 py-2 text-sm font-medium ${SEVERITY_STYLE[signal.severity] ?? SEVERITY_STYLE.low}`}
-                >
-                  {signal.label}
-                  <span className="font-black">{signal.count}</span>
-                </span>
-              )
-            })}
+        </section>
+      )}
+
+      {section === 'team' && (
+        <section className="mb-10">
+          <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+            <span className="h-5 w-1 flex-none rounded bg-brand" />
+            Нагрузка по менторам
+            <span className="rounded-full border border-p-line bg-p-panel px-2.5 py-0.5 text-2xs text-p-muted2">
+              {workload.length}
+            </span>
+          </h2>
+          {scope !== 'all' && scope !== 'mine' && (
+            <div className="mb-3 rounded-card border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              Для workload используется workspace scope: {workspaceScope === 'mine' ? 'мои' : 'все'}.
+            </div>
+          )}
+          <div className="rounded-card border border-p-line">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ментор</TableHead>
+                  <TableHead>Роль</TableHead>
+                  {WORKLOAD_COLUMNS.map((col) => {
+                    const active = workloadSort.key === col.key
+                    return (
+                      <TableHead key={col.key} className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => toggleWorkloadSort(col.key)}
+                          className="inline-flex items-center gap-1 hover:text-p-text"
+                        >
+                          {col.label}
+                          {active && (workloadSort.dir === 'desc' ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                        </button>
+                      </TableHead>
+                    )
+                  })}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dashboardLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
+                  </TableRow>
+                ) : sortedWorkload.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-sm text-p-muted">Нет назначенных менторов</TableCell>
+                  </TableRow>
+                ) : (
+                  sortedWorkload.map((row) => {
+                    const overloaded = workloadAvgStudents > 0 && row.students_total > workloadAvgStudents * 1.5
+                    return (
+                      <TableRow key={row.mentor.id} className={overloaded ? 'bg-amber-50/60' : undefined}>
+                        <TableCell className="font-medium text-p-text">
+                          <span className="inline-flex items-center gap-1.5">
+                            {row.mentor.name}
+                            {overloaded && (
+                              <span title="Перегружен относительно средней нагрузки">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                              </span>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-p-muted">{row.roles.join(', ')}</TableCell>
+                        <TableCell className="text-right">{row.students_total}</TableCell>
+                        <TableCell className="text-right">{row.open_tasks}</TableCell>
+                        <TableCell className="text-right">{row.telegram_signals}</TableCell>
+                        <TableCell className="text-right">{row.documents_unverified}</TableCell>
+                        <TableCell className="text-right">{row.ai_drafts}</TableCell>
+                        <TableCell className="text-right">
+                          {row.health_warnings > 0 ? (
+                            <span className="inline-flex rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                              {row.health_warnings}
+                            </span>
+                          ) : (
+                            <span className="text-p-muted2">0</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {section === 'team' && (
+        <section>
+          <h2 className="mb-4 flex items-center gap-3 font-display text-xl font-black tracking-tight text-p-text">
+            <span className="h-5 w-1 flex-none rounded bg-brand" />
+            Операционные сигналы
+          </h2>
+          {dashboardLoading ? (
+            <p className="text-sm text-p-muted">Загрузка signals…</p>
+          ) : healthSignals.length === 0 ? (
+            <div className="rounded-card border border-p-line p-5 text-sm text-p-muted">
+              Критичных операционных сигналов нет.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {healthSignals.map((signal) => {
+                const SEVERITY_STYLE: Record<string, string> = {
+                  high: 'bg-red-50 text-red-700 border border-red-200',
+                  medium: 'bg-orange-50 text-orange-700 border border-orange-200',
+                  low: 'bg-gray-50 text-gray-600 border border-gray-200',
+                }
+                return (
+                  <span
+                    key={signal.kind}
+                    className={`inline-flex items-center gap-2 rounded-ctl px-3 py-2 text-sm font-medium ${SEVERITY_STYLE[signal.severity] ?? SEVERITY_STYLE.low}`}
+                  >
+                    {signal.label}
+                    <span className="font-black">{signal.count}</span>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
