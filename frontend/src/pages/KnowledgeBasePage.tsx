@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, ExternalLink, ChevronRight, BookOpen } from 'lucide-react'
+import { RefreshCw, ExternalLink, ChevronRight, BookOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { knowledgeApi, KnowledgeArticleSummary } from '@/api/knowledge'
-import { PageHeader } from '@/components/ui'
+import { PageHeader, SegmentedTabs } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 
@@ -15,6 +15,8 @@ export const KnowledgeBasePage: React.FC = () => {
   const { user } = useAuth()
   const canSync = user?.role === 'admin' || user?.role === 'mzk_manager'
   const [openId, setOpenId] = useState<string | null>(null)
+  const [activeCategory, setActiveCategory] = useState<string>('all')
+  const [search, setSearch] = useState('')
   const { setKnowledgeJobId: setSyncJobId, knowledgeJob: syncJob } = useImportJobs()
 
   const { data: articles = [], isLoading } = useQuery({
@@ -51,6 +53,25 @@ export const KnowledgeBasePage: React.FC = () => {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
   }, [articles])
+
+  const categoryTabs = useMemo(
+    () => [{ value: 'all', label: 'Все' }, ...grouped.map(([category]) => ({ value: category, label: category }))],
+    [grouped]
+  )
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return grouped
+      .filter(([category]) => activeCategory === 'all' || category === activeCategory)
+      .map(
+        ([category, items]) =>
+          [category, query ? items.filter((article) => article.title.toLowerCase().includes(query)) : items] as [
+            string,
+            KnowledgeArticleSummary[],
+          ]
+      )
+      .filter(([, items]) => items.length > 0)
+  }, [grouped, activeCategory, search])
 
   return (
     <div className="mx-auto w-full">
@@ -107,26 +128,59 @@ export const KnowledgeBasePage: React.FC = () => {
           Пока пусто.{canSync ? ' Нажмите «Обновить из Notion», чтобы загрузить материалы.' : ''}
         </div>
       ) : (
-        <div className="space-y-6">
-          {grouped.map(([category, items]) => (
-            <div key={category}>
-              <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-p-muted2">{category}</h2>
-              <div className="divide-y divide-border rounded-card border border-border bg-card">
-                {items.map((article) => (
-                  <button
-                    key={article.id}
-                    type="button"
-                    onClick={() => setOpenId(article.id)}
-                    className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
-                  >
-                    <span className="truncate text-sm font-medium text-p-text">{article.title}</span>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-p-muted2 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                ))}
-              </div>
+        <>
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <SegmentedTabs
+              tabs={categoryTabs}
+              value={activeCategory}
+              onChange={setActiveCategory}
+              colorPrefix="p"
+            />
+            <div className="relative w-full lg:w-80">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Поиск по статьям…"
+                className="w-full rounded-ctl border border-p-line bg-p-panel2 py-2.5 pl-10 pr-4 text-sm text-p-text placeholder:text-p-muted2 transition-colors hover:border-p-accent-dim focus:border-p-accent-dim focus:outline-none"
+              />
             </div>
-          ))}
-        </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="rounded-card border border-dashed border-border px-4 py-8 text-center text-sm text-p-muted2">
+              <BookOpen className="mx-auto mb-2 h-5 w-5 text-p-muted2" />
+              Ничего не найдено. Попробуйте изменить запрос или категорию.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {filtered.map(([category, items]) => (
+                <div key={category}>
+                  <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-p-muted2">{category}</h2>
+                  <div className="divide-y divide-border rounded-card border border-border bg-card">
+                    {items.map((article) => (
+                      <button
+                        key={article.id}
+                        type="button"
+                        onClick={() => setOpenId(article.id)}
+                        className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/50"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-p-text">{article.title}</span>
+                        {activeCategory === 'all' && (
+                          <span className="shrink-0 rounded-full border border-p-line bg-p-panel2 px-2.5 py-0.5 text-2xs text-p-muted">
+                            {category}
+                          </span>
+                        )}
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-p-muted2 transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <ArticleDialog articleId={openId} onClose={() => setOpenId(null)} />
@@ -143,10 +197,10 @@ const ArticleDialog: React.FC<{ articleId: string | null; onClose: () => void }>
 
   return (
     <Dialog open={Boolean(articleId)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl gap-0 p-0">
+      <DialogContent className="max-w-4xl gap-0 p-0">
         <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6">
           <p className="label-caps text-muted-foreground">{article?.category || 'База знаний'}</p>
-          <DialogTitle className="text-xl text-foreground">
+          <DialogTitle className="font-display text-2xl font-black leading-tight text-foreground">
             {article?.title || (isLoading ? 'Загрузка…' : 'Материал')}
           </DialogTitle>
           {article?.source_notion_url && (
@@ -160,7 +214,7 @@ const ArticleDialog: React.FC<{ articleId: string | null; onClose: () => void }>
             </a>
           )}
         </DialogHeader>
-        <div className="max-h-[70dvh] overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="px-5 py-5 sm:px-6">
           {isLoading && <p className="text-sm text-muted-foreground">Загружаем…</p>}
           {isError && <p className="text-sm text-destructive">Не удалось загрузить материал.</p>}
           {article && <div className="kb-content" dangerouslySetInnerHTML={{ __html: article.body_html }} />}
