@@ -247,7 +247,7 @@ function IntakeInbox() {
               <button
                 key={item.value}
                 onClick={() => setIntakeView(item.value as typeof intakeView)}
-                className={`px-3 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                   intakeView === item.value
                     ? 'bg-white text-black'
                     : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -301,7 +301,7 @@ function IntakeInbox() {
             {items.map((sub) => (
               <TableRow key={sub.id} className="border-p-line hover:bg-p-bg">
                 <TableCell>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
+                  <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
                     sub.source === 'package'
                       ? 'bg-sky-50 text-sky-700 border border-sky-200'
                       : 'bg-violet-50 text-violet-700 border border-violet-200'
@@ -598,7 +598,7 @@ function NotionInbox() {
               <button
                 key={item.value}
                 onClick={() => setView(item.value as typeof view)}
-                className={`px-3 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                   view === item.value
                     ? 'bg-white text-black'
                     : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -1171,7 +1171,7 @@ export const StudentsListPage: React.FC = () => {
           {canAccess('all_students') && (
             <button
               onClick={() => navigate('/students/new')}
-              className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold uppercase tracking-caps
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold uppercase tracking-caps
                          bg-black text-white rounded-ctl hover:bg-black/85
                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40
                          transition-colors duration-150"
@@ -1212,7 +1212,7 @@ export const StudentsListPage: React.FC = () => {
             <Filter className="w-3.5 h-3.5" />
             Фильтры
             {activeFiltersCount > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-white/15 text-[11px] font-semibold">
+              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-white/15 text-2xs font-semibold">
                 {activeFiltersCount}
               </span>
             )}
@@ -1220,7 +1220,7 @@ export const StudentsListPage: React.FC = () => {
           {filtersOpen && (
             <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg">
               <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
+                <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
                 <button
                   type="button"
                   className="text-p-muted2 hover:text-p-text"
@@ -1231,7 +1231,7 @@ export const StudentsListPage: React.FC = () => {
               </div>
               <div className="p-3 space-y-4">
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Видимость</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Видимость</p>
                   <div className="grid grid-cols-4 gap-1 rounded-panel border border-p-line bg-p-bg p-1">
                     {[
                       { value: 'all', label: 'Все' },
@@ -1243,7 +1243,7 @@ export const StudentsListPage: React.FC = () => {
                         key={item.value}
                         type="button"
                         onClick={() => setScope(item.value as typeof scope)}
-                        className={`px-2 py-1.5 text-[12px] font-medium rounded-ctl transition-colors ${
+                        className={`px-2 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                           scope === item.value
                             ? 'bg-white text-black shadow-sm'
                             : 'text-p-muted hover:text-black hover:bg-p-bg'
@@ -1256,7 +1256,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Статус договора</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус договора</p>
                   <Select
                     value={statusFilter || 'all'}
                     onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
@@ -1276,7 +1276,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Контроль работы</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Контроль работы</p>
                   <Select
                     value={operationalFilter}
                     onValueChange={(v) => setOperationalFilter(v as OperationalFilter)}
@@ -1297,7 +1297,7 @@ export const StudentsListPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Год</p>
+                    <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Год</p>
                     <Select
                       value={intakeYearFilter || 'all'}
                       onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}
@@ -1316,7 +1316,7 @@ export const StudentsListPage: React.FC = () => {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Ступень</p>
+                    <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Ступень</p>
                     <Select
                       value={degreeFilter || 'all'}
                       onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}
@@ -1337,7 +1337,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Страна поступления</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Страна поступления</p>
                   <Select
                     value={countryFilter || 'all'}
                     onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}
@@ -1357,7 +1357,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Программа / услуга</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Программа / услуга</p>
                   <Select
                     value={serviceTypeFilter || 'all'}
                     onValueChange={(v) => setServiceTypeFilter(v === 'all' ? '' : v)}
@@ -1377,7 +1377,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Ответственный</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Ответственный</p>
                   <Select
                     value={responsibleRole}
                     onValueChange={(v) => setResponsibleFilter(v as ResponsibleRoleFilter)}
@@ -1467,7 +1467,7 @@ export const StudentsListPage: React.FC = () => {
           {activeFilterChips.map((chip) => (
             <span
               key={chip.key}
-              className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-ctl border border-p-line bg-p-bg text-p-text"
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-ctl border border-p-line bg-p-bg text-p-text"
             >
               {chip.label}
               <button
@@ -1483,7 +1483,7 @@ export const StudentsListPage: React.FC = () => {
           <button
             type="button"
             onClick={resetFilters}
-            className="text-[12px] text-p-muted hover:text-black underline underline-offset-4 ml-1"
+            className="text-xs text-p-muted hover:text-black underline underline-offset-4 ml-1"
           >
             Сбросить всё
           </button>
@@ -1535,13 +1535,13 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                    <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                       {DEGREE_LEVEL_LABELS[student.degree_level]}
                     </span>
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                      <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
@@ -1556,7 +1556,7 @@ export const StudentsListPage: React.FC = () => {
                           <span
                             key={service.id}
                             title={`${SERVICE_TYPE_LABELS[service.service_type]} · ${SERVICE_STATUS_LABELS[service.status]}${service.assigned_mentor_name ? ` · ${service.assigned_mentor_name}` : ''}`}
-                            className={`rounded-pill border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            className={`rounded-pill border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
                               service.status === 'completed'
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : service.status === 'in_progress' || service.status === 'scheduled'
@@ -1571,7 +1571,7 @@ export const StudentsListPage: React.FC = () => {
                         <span className="text-xs text-p-muted2">—</span>
                       )}
                       {(student.services_summary?.items.length ?? 0) > 3 && (
-                        <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-muted">
+                        <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-2xs font-semibold text-p-muted">
                           +{(student.services_summary?.items.length ?? 0) - 3}
                         </span>
                       )}
@@ -1580,7 +1580,7 @@ export const StudentsListPage: React.FC = () => {
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       {student.is_mine && (
-                        <span className="w-fit text-[10px] px-1.5 py-0.5 rounded-pill border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
+                        <span className="w-fit text-2xs px-1.5 py-0.5 rounded-pill border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
                           Мой
                         </span>
                       )}
@@ -1594,7 +1594,7 @@ export const StudentsListPage: React.FC = () => {
                       <div className="flex items-center gap-1">
                         <span
                           title="Пакет сопровождения (менеджер)"
-                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
+                          className={`text-2xs w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
                             intake?.has_package
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                               : 'border-p-line text-p-muted2'
@@ -1604,7 +1604,7 @@ export const StudentsListPage: React.FC = () => {
                         </span>
                         <span
                           title="Кейс студента"
-                          className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
+                          className={`text-2xs w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
                             intake?.has_cases
                               ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                               : 'border-p-line text-p-muted2'

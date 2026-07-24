@@ -64,14 +64,14 @@ function NotionMoneyTile({
         : 'text-p-text'
   return (
     <div className="bg-white px-3 py-2.5 min-w-0 text-left w-full">
-      <p className="text-[10px] uppercase tracking-wide text-p-muted2 truncate">{label}</p>
+      <p className="text-2xs uppercase tracking-wide text-p-muted2 truncate">{label}</p>
       <p
         className={`text-sm font-semibold mt-0.5 truncate ${value ? valueColor : 'text-gray-300'}`}
         title={value ? formatMoney(value) : undefined}
       >
         {value ? formatCompactMoney(value) : '—'}
       </p>
-      {hint && <p className="text-[10px] text-amber-600 mt-0.5 truncate" title={hint}>{hint}</p>}
+      {hint && <p className="text-xs text-amber-600 mt-0.5 truncate" title={hint}>{hint}</p>}
     </div>
   )
 }
@@ -186,7 +186,7 @@ function NotionFinanceSection({
                           ? 'up'
                           : 'other',
               })}
-              className="text-[11px] font-semibold uppercase tracking-wide text-p-muted px-3 py-2 border-b border-p-line bg-p-bg flex items-center justify-between gap-2 text-left w-full hover:bg-p-panel transition-colors"
+              className="text-2xs font-semibold uppercase tracking-wide text-p-muted px-3 py-2 border-b border-p-line bg-p-bg flex items-center justify-between gap-2 text-left w-full hover:bg-p-panel transition-colors"
             >
               {group.title}
               <ChevronRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
@@ -208,7 +208,7 @@ function NotionFinanceSection({
                 key={s.status}
                 type="button"
                 onClick={() => onSelect({ source: 'notion', section: 'statuses' })}
-                className="text-[11px] px-2 py-0.5 rounded-pill border border-p-line bg-p-bg text-p-muted hover:bg-p-panel transition-colors"
+                className="text-2xs px-2 py-0.5 rounded-pill border border-p-line bg-p-bg text-p-muted hover:bg-p-panel transition-colors"
               >
                 {s.status} · {s.count}
               </button>
@@ -265,7 +265,7 @@ function MonthlyRevenueChart({ data, currency }: { data: { key: string; label: s
             style={{ height: `${Math.max(3, Math.round((d.total / max) * maxBarPx))}px` }}
             title={formatCurrency(d.total, currency)}
           />
-          <span className="text-[10px] text-p-muted2">{d.label}</span>
+          <span className="text-xs text-p-muted2">{d.label}</span>
         </div>
       ))}
     </div>
@@ -281,7 +281,7 @@ function MoneyProgress({ paid, total, tbp }: { paid?: number | null; total?: num
   }
   return (
     <div className="min-w-[130px]">
-      <div className="flex justify-between text-[11px] text-p-muted mb-0.5">
+      <div className="flex justify-between text-xs text-p-muted mb-0.5">
         <span>{formatCompactMoney(paidNum)}</span>
         <span>{formatCompactMoney(totalNum)}</span>
       </div>
@@ -292,7 +292,7 @@ function MoneyProgress({ paid, total, tbp }: { paid?: number | null; total?: num
         />
       </div>
       {!!tbp && tbp > 0 && (
-        <div className="text-[11px] text-red-600 mt-0.5">К выплате: {formatCompactMoney(tbp)}</div>
+        <div className="text-xs text-red-600 mt-0.5">К выплате: {formatCompactMoney(tbp)}</div>
       )}
     </div>
   )
@@ -322,10 +322,10 @@ function PortfolioBadge({
   if (!status) return <span className="text-xs text-p-muted">—</span>
   return (
     <div>
-      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PORTFOLIO_STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}>
+      <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PORTFOLIO_STATUS_COLORS[status] || 'bg-gray-100 text-gray-600'}`}>
         {PORTFOLIO_STATUS_LABELS[status] || status}
       </span>
-      <div className="text-[11px] text-p-muted mt-1">
+      <div className="text-xs text-p-muted mt-1">
         {achievements ?? 0} достиж. · {calls ?? 0} звонков
       </div>
     </div>
@@ -425,9 +425,9 @@ function CalendarGrid({
           ›
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-p-muted2">
+      <div className="grid grid-cols-7 gap-1 text-center text-xs text-p-muted2">
         {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((d) => (
-          <div key={d} className="text-[10px] font-medium">{d}</div>
+          <div key={d} className="text-2xs font-medium">{d}</div>
         ))}
         {Array.from({ length: days.startDay - 1 }).map((_, i) => (
           <div key={`pad-${i}`} />
@@ -453,7 +453,7 @@ function CalendarGrid({
                 }`}
               >
                 <div className="flex flex-col items-center">
-                  <div className="text-[12px]">{d.day}</div>
+                  <div className="text-xs">{d.day}</div>
                   {d.count > 0 && (
                     <div className={`h-1.5 w-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-p-bg' : 'bg-rose-500'}`} />
                   )}
@@ -470,7 +470,7 @@ function CalendarGrid({
           onMonthChange(new Date(now.getFullYear(), now.getMonth(), 1))
           onSelectDate(now.toISOString().slice(0, 10))
         }}
-        className="mt-2 text-[11px] text-p-muted underline hover:text-p-text"
+        className="mt-2 text-xs text-p-muted underline hover:text-p-text"
       >
         Сегодня
       </button>
@@ -902,7 +902,7 @@ export const FinancesPage: React.FC = () => {
             currency={summary?.currency ?? moneyCurrency}
           />
           {summary?.by_currency && summary.by_currency.length > 1 && (
-            <p className="mt-3 text-[11px] text-p-muted2">
+            <p className="mt-3 text-xs text-p-muted2">
               Договоры есть в {summary.by_currency.length} валютах, показана {summary.currency}. Остальные не смешиваем: {' '}
               {summary.by_currency
                 .filter((c) => c.currency !== summary.currency)
@@ -914,7 +914,7 @@ export const FinancesPage: React.FC = () => {
         <div className="border border-p-line rounded-card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-p-text">Оплаты по месяцам</h3>
-            <span className="text-[11px] text-p-muted2">
+            <span className="text-xs text-p-muted2">
               {monthlyRevenue.dominantCurrency}
               {monthlyRevenue.excludedOtherCurrency > 0 &&
                 ` · ${monthlyRevenue.excludedOtherCurrency} платежей в др. валюте не показаны`}
@@ -1065,7 +1065,7 @@ export const FinancesPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSelectedDate(null)}
-                    className="text-[11px] text-p-muted underline hover:text-p-text"
+                    className="text-xs text-p-muted underline hover:text-p-text"
                   >
                     Сбросить
                   </button>
@@ -1245,7 +1245,7 @@ export const FinancesPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-xs text-p-muted whitespace-nowrap">
                         {r.lead_mentor || (r.mentors && r.mentors.length > 0 ? r.mentors.join(', ') : '—')}
-                        {r.mzk && <div className="text-[10px] text-p-muted2">МЗК: {r.mzk}</div>}
+                        {r.mzk && <div className="text-xs text-p-muted2">МЗК: {r.mzk}</div>}
                       </TableCell>
                       <TableCell className="text-p-muted text-xs whitespace-nowrap">{r.payment_status}</TableCell>
                       <TableCell className={`font-medium whitespace-nowrap ${r.client_remaining > 0 ? 'text-red-600' : 'text-p-muted'}`}>
@@ -1411,13 +1411,13 @@ export const FinancesPage: React.FC = () => {
                             <Link to={`/students/${row.student_id}`} className="hover:underline">
                               {row.student_name}
                             </Link>
-                            <div className="text-[11px] text-p-muted2">
+                            <div className="text-xs text-p-muted2">
                               {row.degree_level} · {row.intake_year}
                             </div>
                           </TableCell>
                           <TableCell className="text-p-muted">
                             {row.responsible_name ?? row.manager_name ?? row.mentor_name ?? '—'}
-                            <div className="text-[11px] text-p-muted2">
+                            <div className="text-xs text-p-muted2">
                               {row.responsible_role === 'manager'
                                 ? 'менеджер'
                                 : row.responsible_role === 'mentor'
@@ -1428,7 +1428,7 @@ export const FinancesPage: React.FC = () => {
                           <TableCell>
                             {row.pipeline_status ? (
                               <span
-                                className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[row.pipeline_status]}`}
+                                className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[row.pipeline_status]}`}
                               >
                                 {PIPELINE_STATUS_LABELS[row.pipeline_status] ?? row.pipeline_status}
                               </span>
@@ -1463,7 +1463,7 @@ export const FinancesPage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 {notionSummary?.by_status.map((status) => (
                   <div key={status.status} className="px-3 py-2 border border-p-line rounded-panel">
-                    <div className="text-[11px] uppercase tracking-wide text-p-muted2">{status.status}</div>
+                    <div className="text-2xs uppercase tracking-wide text-p-muted2">{status.status}</div>
                     <div className="text-lg font-semibold text-p-text">{status.count}</div>
                   </div>
                 ))}
@@ -1473,25 +1473,25 @@ export const FinancesPage: React.FC = () => {
                 {selectedSummary && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                     <div className="border border-p-line rounded-panel p-2">
-                      <div className="text-[10px] uppercase tracking-wide text-p-muted2">
+                      <div className="text-2xs uppercase tracking-wide text-p-muted2">
                         {NOTION_SECTION_COLUMNS[selectedInsight.section]?.[0] ?? 'Сумма'}
                       </div>
                       <div className="text-sm font-semibold text-p-text">{formatMoney(selectedSummary.sumA)}</div>
                     </div>
                     <div className="border border-p-line rounded-panel p-2">
-                      <div className="text-[10px] uppercase tracking-wide text-p-muted2">
+                      <div className="text-2xs uppercase tracking-wide text-p-muted2">
                         {NOTION_SECTION_COLUMNS[selectedInsight.section]?.[1] ?? 'Выплачено'}
                       </div>
                       <div className="text-sm font-semibold text-emerald-700">{formatMoney(selectedSummary.sumB)}</div>
                     </div>
                     <div className="border border-p-line rounded-panel p-2">
-                      <div className="text-[10px] uppercase tracking-wide text-p-muted2">
+                      <div className="text-2xs uppercase tracking-wide text-p-muted2">
                         {selectedInsight.section === 'clients' ? 'Долг клиентов' : 'Долг (TBP)'}
                       </div>
                       <div className="text-sm font-semibold text-red-600">{formatMoney(selectedSummary.outstandingSum)}</div>
                     </div>
                     <div className="border border-p-line rounded-panel p-2">
-                      <div className="text-[10px] uppercase tracking-wide text-p-muted2">Участников / должников</div>
+                      <div className="text-2xs uppercase tracking-wide text-p-muted2">Участников / должников</div>
                       <div className="text-sm font-semibold text-p-text">
                         {selectedSummary.participants} / {selectedSummary.outstandingCount}
                         {selectedSummary.paidPct !== null && (
@@ -1533,7 +1533,7 @@ export const FinancesPage: React.FC = () => {
                               <TableRow key={row.id} className="border-p-line">
                                 <TableCell className="font-medium text-p-text">
                                   {row.full_name ?? '—'}
-                                  <div className="text-[11px] text-p-muted2">{row.intake ?? '—'}</div>
+                                  <div className="text-xs text-p-muted2">{row.intake ?? '—'}</div>
                                 </TableCell>
                                 <TableCell className="text-p-muted">{row.payment_status}</TableCell>
                                 <TableCell className="text-p-muted">{formatMoney(values[0])}</TableCell>

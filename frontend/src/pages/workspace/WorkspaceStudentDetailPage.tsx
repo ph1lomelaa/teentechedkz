@@ -523,12 +523,12 @@ function CardListView({
             </div>
             {showNotion && notion?.finance?.length ? (
               <div>
-                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Финансы из Notion · только просмотр</p>
+                <p className="mb-2 text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">Финансы из Notion · только просмотр</p>
                 <div className="overflow-x-auto rounded-panel border border-w-line bg-w-panel2">
                   <div className="min-w-[360px] divide-y divide-w-line">
                     {notion.finance.map((f) => (
                       <div key={f.label} className="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2.5 text-sm">
-                        <span className="text-[11px] uppercase tracking-[0.12em] text-w-muted2">{f.label}</span>
+                        <span className="text-2xs uppercase tracking-[0.12em] text-w-muted2">{f.label}</span>
                         <span className="font-bold text-w-ink">{f.value}</span>
                       </div>
                     ))}
@@ -542,7 +542,7 @@ function CardListView({
           </div>
           {student.achievements_text && (
             <div className="mt-4 rounded-panel border border-w-line bg-w-panel2 p-4">
-              <div className="text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">Достижения</div>
+              <div className="text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">Достижения</div>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-w-ink">{student.achievements_text}</p>
             </div>
           )}
@@ -569,7 +569,7 @@ function CardListView({
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[760px]">
-                <div className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] gap-3 border-b border-w-line px-3 pb-3 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
+                <div className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] gap-3 border-b border-w-line px-3 pb-3 text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">
                   <span>Страна / вуз</span><span>Статус</span><span>Подачи</span><span>Виза</span><span>Стипендия</span>
                 </div>
                 {applications.map((application) => (
@@ -617,7 +617,7 @@ function CardListView({
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[820px]">
-                <div className="grid grid-cols-[1.25fr_0.8fr_1fr_0.8fr_1fr_1.2fr] gap-3 border-b border-w-line px-3 pb-3 text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
+                <div className="grid grid-cols-[1.25fr_0.8fr_1fr_0.8fr_1fr_1.2fr] gap-3 border-b border-w-line px-3 pb-3 text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">
                   <span>Программа</span><span>Статус</span><span>Ответственный</span><span>Дедлайн</span><span>Результат</span><span>Заметки</span>
                 </div>
                 {services.map((service) => (
@@ -629,7 +629,7 @@ function CardListView({
                     )}
                   >
                     <span className="font-bold text-w-ink">{SERVICE_TYPE_LABELS[service.service_type]}</span>
-                    <span className={`w-fit rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wider ${programTone(service.status)}`}>
+                    <span className={`w-fit rounded-full border px-2 py-1 text-2xs font-black uppercase tracking-wider ${programTone(service.status)}`}>
                       {service.included ? SERVICE_STATUS_LABELS[service.status] : 'Не включена'}
                     </span>
                     <span className="truncate text-w-muted">{mentorName(service.assigned_mentor_id)}</span>
@@ -677,7 +677,7 @@ function WSection({
 
 function MismatchBadge({ count }: { count: number }) {
   return (
-    <span className="rounded-full border border-w-accentDim/50 bg-w-accent/10 px-2 py-0.5 text-[10px] font-black normal-case tracking-normal text-w-accentText">
+    <span className="rounded-full border border-w-accentDim/50 bg-w-accent/10 px-2 py-0.5 text-2xs font-black normal-case tracking-normal text-w-accentText">
       {count} расхожд.
     </span>
   )
@@ -702,7 +702,7 @@ function IntakeTable({ intake }: { intake: StudentIntake }) {
       <div className="overflow-x-auto rounded-panel border border-w-line">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-w-line text-left text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
+            <tr className="border-b border-w-line text-left text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">
               <th className="w-44 px-3 py-2">Поле</th>
               {intake.package && <th className="px-3 py-2">Менеджер · Пакет</th>}
               {intake.cases && <th className="px-3 py-2">Студент · Кейс</th>}
@@ -721,20 +721,20 @@ function IntakeTable({ intake }: { intake: StudentIntake }) {
                 >
                   <td className="whitespace-nowrap px-3 py-2 text-w-muted">
                     {row.label}
-                    {row.human_only && <span className="mt-0.5 block text-[10px] text-w-muted2">🔒 вручную</span>}
-                    {realMismatch && <span className="mt-0.5 block text-[10px] text-w-accentText">расхождение</span>}
-                    {crmMismatch && <span className="mt-0.5 block text-[10px] text-w-accentText">CRM расходится</span>}
+                    {row.human_only && <span className="mt-0.5 block text-xs text-w-muted2">🔒 вручную</span>}
+                    {realMismatch && <span className="mt-0.5 block text-xs text-w-accentText">расхождение</span>}
+                    {crmMismatch && <span className="mt-0.5 block text-xs text-w-accentText">CRM расходится</span>}
                     {aiSuggestsSame && (
-                      <span className="mt-0.5 block text-[10px] text-w-muted2" title={row.ai_note ?? undefined}>вероятно совпадает</span>
+                      <span className="mt-0.5 block text-xs text-w-muted2" title={row.ai_note ?? undefined}>вероятно совпадает</span>
                     )}
                   </td>
                   {intake.package && <td className="px-3 py-2 text-w-ink">{row.package ?? '—'}</td>}
                   {intake.cases && <td className="px-3 py-2 text-w-ink">{row.cases ?? '—'}</td>}
                   <td className="px-3 py-2 text-w-muted">
                     {row.crm_matches ? (
-                      <span className="text-[11px] text-w-good">✓ совпадает</span>
+                      <span className="text-xs text-w-good">✓ совпадает</span>
                     ) : row.crm_ai_same_meaning ? (
-                      <span className="text-[11px] text-w-muted2" title={row.crm_ai_note ?? undefined}>✓ вероятно совпадает</span>
+                      <span className="text-xs text-w-muted2" title={row.crm_ai_note ?? undefined}>✓ вероятно совпадает</span>
                     ) : (
                       row.crm ?? '—'
                     )}
@@ -785,12 +785,12 @@ function NotionBlock({
             <button
               type="button"
               onClick={() => setConfirmUnlink(true)}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-w-muted transition hover:text-w-danger"
+              className="inline-flex items-center gap-1 text-xs font-bold text-w-muted transition hover:text-w-danger"
             >
               <Link2Off className="h-3 w-3" /> Отвязать
             </button>
           ) : (
-            <span className="inline-flex items-center gap-2 text-[11px] text-w-muted">
+            <span className="inline-flex items-center gap-2 text-xs text-w-muted">
               Отвязать запись?
               <button
                 type="button"
@@ -810,7 +810,7 @@ function NotionBlock({
       <div className="overflow-x-auto rounded-panel border border-w-line">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-w-line text-left text-[10px] font-black uppercase tracking-[0.16em] text-w-muted2">
+            <tr className="border-b border-w-line text-left text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">
               <th className="w-44 px-3 py-2">Поле</th>
               <th className="px-3 py-2">Notion</th>
               <th className="px-3 py-2">CRM</th>
@@ -825,11 +825,11 @@ function NotionBlock({
               >
                 <td className="whitespace-nowrap px-3 py-2 text-w-muted">
                   {row.label}
-                  {row.matches === false && <span className="mt-0.5 block text-[10px] text-w-accentText">расхождение</span>}
+                  {row.matches === false && <span className="mt-0.5 block text-xs text-w-accentText">расхождение</span>}
                 </td>
                 <td className="px-3 py-2 text-w-ink">{row.notion ?? '—'}</td>
                 <td className="px-3 py-2">
-                  {row.matches ? <span className="text-[11px] text-w-good">✓ совпадает</span> : <span className="text-w-muted">{row.crm ?? '—'}</span>}
+                  {row.matches ? <span className="text-xs text-w-good">✓ совпадает</span> : <span className="text-w-muted">{row.crm ?? '—'}</span>}
                 </td>
                 <td className="px-3 py-2 text-right">
                   {row.matches === false && row.can_apply && (
@@ -837,7 +837,7 @@ function NotionBlock({
                       type="button"
                       disabled={applyingField === row.field}
                       onClick={() => onApplyField(row.field)}
-                      className="rounded-ctl border border-w-line px-2.5 py-1 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60"
+                      className="rounded-ctl border border-w-line px-2.5 py-1 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60"
                     >
                       {applyingField === row.field ? 'Применяем…' : 'Принять из Notion'}
                     </button>
@@ -1129,7 +1129,7 @@ function TasksTab({
                 <div className="mb-2.5 flex items-center gap-2.5">
                   <span className="h-4 w-1 rounded bg-w-accent" />
                   <b className="font-display text-xl font-extrabold leading-none text-w-ink">{stageName}</b>
-                  <span className="rounded-full bg-w-line/90 px-2.5 py-0.5 text-[10px] font-bold text-w-muted2">
+                  <span className="rounded-full bg-w-line/90 px-2.5 py-0.5 text-2xs font-bold text-w-muted2">
                     {tasks.length} задач
                   </span>
                 </div>
@@ -1262,7 +1262,7 @@ function DocumentsTab({
                     type="button"
                     disabled={pendingDocId === doc.id}
                     onClick={() => onToggleVisibility(doc)}
-                    className="mt-3 rounded-ctl border border-w-line px-3 py-1.5 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:cursor-wait disabled:opacity-60"
+                    className="mt-3 rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:cursor-wait disabled:opacity-60"
                   >
                     {pendingDocId === doc.id
                       ? 'Сохраняем...'
@@ -1304,7 +1304,7 @@ function TelegramTab({
             <div className="space-y-2">
               {messages.slice(-10).reverse().map((message) => (
                 <div key={message.id} className="rounded-panel border border-w-line bg-w-panel2 p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-w-muted">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-xs text-w-muted">
                     <span>{message.sender_name || 'Telegram'}</span>
                     <span>{formatDate(message.created_at)}</span>
                   </div>
@@ -1365,7 +1365,7 @@ function Panel({ title, icon, action, children }: { title: string; icon: React.R
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-panel border border-w-line bg-w-panel2 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-w-muted2">{label}</div>
+      <div className="text-2xs uppercase tracking-[0.16em] text-w-muted2">{label}</div>
       <div className="mt-1 min-h-5 text-sm font-bold text-w-ink">{value}</div>
     </div>
   )
@@ -1375,7 +1375,7 @@ function InfoLine({ label, value }: { label: string; value: string }) {
 function StatTile({ label, value, tone }: { label: string; value: string; tone?: 'warn' | 'good' }) {
   return (
     <div className="rounded-panel border border-w-line bg-w-panel px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-w-muted2">{label}</div>
+      <div className="text-2xs uppercase tracking-[0.18em] text-w-muted2">{label}</div>
       <div
         className={cn(
           'mt-1 truncate text-sm font-bold',
@@ -1439,7 +1439,7 @@ function TaskRow({
       </button>
       <div className="min-w-0 flex-1">
         <div className={cn('truncate text-[14px] font-bold', done ? 'text-w-muted' : 'text-w-ink')}>{task.title}</div>
-        <div className="mt-0.5 truncate text-[11px] text-w-muted">{meta}</div>
+        <div className="mt-0.5 truncate text-xs text-w-muted">{meta}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <Pill colorPrefix="w" tone={taskPriorityTone(task.priority)}>{taskPriorityLabel(task.priority)}</Pill>
@@ -1455,7 +1455,7 @@ function SimpleList({ rows }: { rows: Array<{ label: string; value: string }> })
       <div className="min-w-[560px] divide-y divide-w-line">
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-[220px_1fr] items-start gap-4 px-3 py-2.5 text-sm">
-            <span className="text-[11px] uppercase tracking-[0.12em] text-w-muted2">{row.label}</span>
+            <span className="text-2xs uppercase tracking-[0.12em] text-w-muted2">{row.label}</span>
             <span className="font-semibold text-w-ink">{row.value}</span>
           </div>
         ))}
