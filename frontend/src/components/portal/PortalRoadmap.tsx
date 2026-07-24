@@ -73,8 +73,26 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
   const [selected, setSelected] = useState(currentIdx === -1 ? 0 : currentIdx)
   const stage = roadmap.stages[selected]
 
+  // Заливка линии непрерывна: линия тянется от центра первого узла к центру
+  // последнего (n−1 сегментов), сегмент i заполняется пропорционально доле
+  // выполненных задач этапа i — каждая закрытая задача двигает линию вперёд.
   const n = roadmap.stages.length
-  const fillPct = n > 0 ? Math.min(100, Math.round((stageStatuses.reduce((acc, s) => acc + (s === 'done' ? 1 : s === 'in_progress' ? 0.5 : 0), 0) / n) * 100)) : 0
+  const stageFraction = (s: RoadmapStage, i: number): number => {
+    if (stageStatuses[i] === 'done') return 1
+    if (s.tasks.length > 0) return s.tasks.filter((t) => t.status === 'done').length / s.tasks.length
+    return stageStatuses[i] === 'in_progress' ? 0.5 : 0
+  }
+  const fillPct =
+    n > 1
+      ? Math.min(
+          100,
+          Math.round(
+            (roadmap.stages.slice(0, n - 1).reduce((acc, s, i) => acc + stageFraction(s, i), 0) / (n - 1)) * 100
+          )
+        )
+      : n === 1 && stageStatuses[0] === 'done'
+        ? 100
+        : 0
 
   return (
     <div>
