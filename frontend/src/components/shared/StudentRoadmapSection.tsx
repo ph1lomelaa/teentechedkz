@@ -122,11 +122,11 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
           <Route className="w-4 h-4 text-gray-500" />
           Roadmap поступления
           {roadmaps.length > 0 ? (
-            <Badge variant="outline" className="ml-1 text-[10px] font-medium">
+            <Badge variant="outline" className="ml-1 text-2xs font-medium">
               {roadmaps.length > 1 ? `${roadmaps.length} активных` : `${roadmaps[0].stages.length} этапов`}
             </Badge>
           ) : (
-            <Badge variant="outline" className="ml-1 text-[10px] font-medium text-gray-500">
+            <Badge variant="outline" className="ml-1 text-2xs font-medium text-gray-500">
               не назначен
             </Badge>
           )}

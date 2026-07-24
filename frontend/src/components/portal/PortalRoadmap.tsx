@@ -4,9 +4,9 @@ import { Roadmap, RoadmapStage, RoadmapTask, ItemStatus } from '@/api/roadmap'
 import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { questionnairesApi } from '@/api/questionnaires'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { StatusPill } from '@/components/ui'
+import { PriorityPill, StatusPill } from '@/components/ui'
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
   planned: 'Впереди',
@@ -21,10 +21,10 @@ const TIMELINE_SUB_LABEL: Record<ItemStatus, string> = {
   planned: 'скоро',
 }
 
-function taskSub(t: RoadmapTask): string {
-  if (t.description) return t.description
+// Строка срока — всегда видима, независимо от наличия description
+function taskDue(t: RoadmapTask): string {
   if (t.status === 'done') return 'Выполнено'
-  if (t.due_date) return `дедлайн ${t.due_date}`
+  if (t.due_date) return `дедлайн ${formatDate(t.due_date)}`
   return 'Без срока'
 }
 
@@ -68,13 +68,13 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
               <StageNode index={i} status={s.status} selected={i === selected} />
               <div
                 className={cn(
-                  'text-[11.5px] font-bold mt-3 px-1',
+                  'text-xs font-bold mt-3 px-1',
                   s.status === 'planned' ? 'text-p-muted' : 'text-p-text'
                 )}
               >
                 {s.name}
               </div>
-              <div className="text-[10px] text-p-muted2 mt-0.5">
+              <div className="text-2xs text-p-muted2 mt-0.5">
                 {TIMELINE_SUB_LABEL[s.status]}
               </div>
             </button>
@@ -98,7 +98,7 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
             <div className="mb-3 flex items-center gap-3">
               <span className="h-5 w-1 rounded bg-brand" />
               <b className="font-display text-base font-extrabold text-p-text">{st.name}</b>
-              <span className="rounded-full border border-p-line bg-p-panel px-2.5 py-0.5 text-[11px] text-p-muted2">
+              <span className="rounded-full border border-p-line bg-p-panel px-2.5 py-0.5 text-xs text-p-muted2">
                 {st.tasks.length} {plural(st.tasks.length, ['задача', 'задачи', 'задач'])}
               </span>
             </div>
@@ -118,15 +118,21 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
                       {t.status === 'done' ? <Check className="w-4 h-4" strokeWidth={3} /> : <FileText className="w-4 h-4" strokeWidth={1.8} />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <b className={cn('block truncate text-[13.5px] font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
+                      <b className={cn('block truncate text-sm font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
                         {t.title}
                       </b>
-                      <small className="block truncate text-[11px] text-p-muted">{taskSub(t)}</small>
+                      {t.description && (
+                        <small className="block truncate text-xs text-p-muted">{t.description}</small>
+                      )}
+                      <small className="block truncate text-xs text-p-muted2">{taskDue(t)}</small>
                       {(t.description || t.expected_result || t.needs_document || t.needs_zoom || t.questionnaire_url) && (
                         <TaskMeta task={t} compact />
                       )}
                     </div>
-                    <StatusPill status={t.status} colorPrefix="p" size="sm" />
+                    <div className="flex flex-none items-center gap-1.5">
+                      <PriorityPill priority={t.priority} colorPrefix="p" size="sm" />
+                      <StatusPill status={t.status} colorPrefix="p" size="sm" />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -163,11 +169,11 @@ const StageDetail: React.FC<{
     <div className="mt-5 border border-p-line rounded-panel bg-p-panel overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 bg-p-panel2 border-b border-p-line">
         <b className="font-display text-[15px] font-extrabold text-p-text">Этап: {stage.name}</b>
-        <span className="text-[11px] font-bold text-brand">{STATUS_LABEL[stage.status]}</span>
+        <span className="text-xs font-bold text-brand">{STATUS_LABEL[stage.status]}</span>
       </div>
       <div className="px-5 py-2">
         {filtered.length === 0 && (
-          <p className="text-[13px] text-p-muted2 py-4 text-center">Задач нет</p>
+          <p className="text-xs text-p-muted2 py-4 text-center">Задач нет</p>
         )}
         {filtered.map((t, i) => (
           <div key={t.id} className={cn('py-3.5', i < filtered.length - 1 && 'border-b border-p-line')}>
@@ -186,16 +192,22 @@ const StageDetail: React.FC<{
                   onClick={() => onExpandTask?.(expandedTask === t.id ? null : t.id)}
                   className="text-left hover:opacity-75 transition-opacity block w-full"
                 >
-                  <b className={cn('block truncate text-[13px] font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
+                  <b className={cn('block truncate text-sm font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
                     {t.title}
                   </b>
-                  <small className="block truncate text-[11px] text-p-muted">{taskSub(t)}</small>
+                  {t.description && expandedTask !== t.id && (
+                    <small className="block truncate text-xs text-p-muted">{t.description}</small>
+                  )}
+                  <small className="block truncate text-xs text-p-muted2">{taskDue(t)}</small>
                 </button>
                 {expandedTask === t.id && (t.description || t.expected_result || t.needs_document || t.needs_zoom || t.questionnaire_url) && (
                   <TaskMeta task={t} />
                 )}
               </div>
-              <StatusPill status={t.status} colorPrefix="p" size="sm" />
+              <div className="flex flex-none items-center gap-1.5">
+                <PriorityPill priority={t.priority} colorPrefix="p" size="sm" />
+                <StatusPill status={t.status} colorPrefix="p" size="sm" />
+              </div>
             </div>
 
             {expandedTask === t.id && t.subtasks.length > 0 && (
@@ -204,13 +216,13 @@ const StageDetail: React.FC<{
                   <div key={st.id} className="flex items-center gap-2.5">
                     <span
                       className={cn(
-                        'w-[15px] h-[15px] rounded border grid place-items-center shrink-0',
+                        'w-[18px] h-[18px] rounded border grid place-items-center shrink-0',
                         st.is_done ? 'bg-brand border-brand text-black' : 'border-p-muted2 text-transparent'
                       )}
                     >
-                      <Check className="w-2.5 h-2.5" strokeWidth={3.4} />
+                      <Check className="w-3 h-3" strokeWidth={3.4} />
                     </span>
-                    <span className={cn('text-[12.5px]', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
+                    <span className={cn('text-xs', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
                       {st.title}
                     </span>
                   </div>
@@ -227,22 +239,22 @@ const StageDetail: React.FC<{
 const TaskMeta: React.FC<{ task: RoadmapTask; compact?: boolean }> = ({ task, compact }) => (
   <div className={cn('mt-2 space-y-1.5', compact && 'mt-1.5')}>
     {task.description && !compact && (
-      <p className="text-[12px] leading-relaxed text-p-muted">{task.description}</p>
+      <p className="text-xs leading-relaxed text-p-muted">{task.description}</p>
     )}
     {task.expected_result && (
-      <p className="text-[12px] leading-relaxed text-p-muted">
+      <p className="text-xs leading-relaxed text-p-muted">
         <span className="font-bold text-p-text">Результат:</span> {task.expected_result}
       </p>
     )}
     {(task.needs_document || task.needs_zoom || task.questionnaire_url) && (
       <div className="flex flex-wrap gap-1.5">
         {task.needs_document && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-p-line bg-p-panel2 px-2 py-0.5 text-[10.5px] font-bold text-p-muted">
+          <span className="inline-flex items-center gap-1 rounded-full border border-p-line bg-p-panel2 px-2 py-0.5 text-2xs font-bold text-p-muted">
             <FileText className="h-3 w-3" /> Document
           </span>
         )}
         {task.needs_zoom && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-p-line bg-p-panel2 px-2 py-0.5 text-[10.5px] font-bold text-p-muted">
+          <span className="inline-flex items-center gap-1 rounded-full border border-p-line bg-p-panel2 px-2 py-0.5 text-2xs font-bold text-p-muted">
             <Video className="h-3 w-3" /> Zoom
           </span>
         )}
@@ -296,7 +308,7 @@ const QuestionnaireButton: React.FC<{ task: RoadmapTask }> = ({ task }) => {
         type="button"
         onClick={openQuestionnaire}
         disabled={loading}
-        className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10.5px] font-bold text-brand transition hover:border-brand hover:bg-brand/15 disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-2xs font-bold text-brand transition hover:border-brand hover:bg-brand/15 disabled:opacity-60"
       >
         <ClipboardList className="h-3 w-3" /> {loading ? 'Открываем…' : 'Анкета'}
       </button>

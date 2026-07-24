@@ -7,18 +7,9 @@ import {
   RoadmapTask,
   ItemStatus,
 } from '@/api/roadmap'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
+import { StatusPill, PriorityPill } from '@/components/ui'
 
-const PRIORITY_LABEL: Record<string, string> = {
-  required: 'Обязательно',
-  recommended: 'Желательно',
-  optional: 'По желанию',
-}
-const STAGE_STATUS_LABEL: Record<ItemStatus, string> = {
-  planned: 'Впереди',
-  in_progress: 'Сейчас',
-  done: 'Пройдено',
-}
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
   planned: 'in_progress',
   in_progress: 'done',
@@ -158,8 +149,8 @@ export const RoadmapTimeline: React.FC<{
                 >
                   {s.name}
                 </span>
-                <StatusPill status={s.status} />
-                <span className="text-[11px] text-gray-400">
+                <StatusPill status={s.status} colorPrefix="ds" showIcon={false} />
+                <span className="text-xs font-bold text-p-muted2 tabular-nums">
                   {s.tasks.filter((t) => t.status === 'done').length}/{s.tasks.length}
                 </span>
                 <ChevronRight
@@ -223,19 +214,6 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void }> = ({ stat
   </button>
 )
 
-const StatusPill: React.FC<{ status: ItemStatus }> = ({ status }) => (
-  <span
-    className={cn(
-      'text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full',
-      status === 'done' && 'bg-gray-100 text-gray-500',
-      status === 'in_progress' && 'bg-brand text-brand-ink',
-      status === 'planned' && 'border border-gray-200 text-gray-400'
-    )}
-  >
-    {STAGE_STATUS_LABEL[status]}
-  </span>
-)
-
 const TaskRow: React.FC<{
   task: RoadmapTask
   canManage: boolean
@@ -247,61 +225,69 @@ const TaskRow: React.FC<{
 }> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub }) => {
   const isDone = task.status === 'done'
   return (
-    <div className="border border-gray-200 rounded-panel bg-[#FBFAF7]">
-      <div className="flex items-start gap-3 p-3">
+    <div className="border border-p-line rounded-[13px] bg-p-bg transition hover:translate-x-[3px] hover:border-p-accent-dim">
+      <div className="flex items-start gap-3 px-[18px] py-[15px]">
         <button
           onClick={onToggle}
           className={cn(
-            'w-[18px] h-[18px] rounded-ctl grid place-items-center border shrink-0 mt-0.5',
-            isDone ? 'bg-brand border-brand text-brand-ink' : 'bg-white border-gray-300 text-transparent'
+            'w-[22px] h-[22px] rounded-md grid place-items-center border-2 shrink-0 mt-0.5 transition',
+            isDone ? 'bg-brand border-brand text-brand-ink' : 'border-p-muted2 text-transparent hover:border-p-accent-dim'
           )}
           aria-label={isDone ? 'Снять отметку' : 'Отметить готовым'}
         >
-          <Check className="w-3 h-3" strokeWidth={3.2} />
+          <Check className="w-3.5 h-3.5" strokeWidth={3} />
         </button>
         <div className="flex-1 min-w-0">
           <div
             className={cn(
-              'text-sm font-medium',
-              isDone ? 'line-through text-gray-400' : 'text-gray-900'
+              'text-sm font-bold',
+              isDone ? 'line-through text-p-muted2' : 'text-p-text'
             )}
           >
             {task.title}
           </div>
-          <div className="flex items-center gap-3 mt-1 text-[11.5px] text-gray-500 flex-wrap">
-            {task.due_date && <span className="tabular-nums">до {task.due_date}</span>}
-            {task.audience === 'coordinator' && <span className="text-gray-400">координатор</span>}
+          {task.description && (
+            <div className="mt-1 line-clamp-2 text-xs text-p-muted">{task.description}</div>
+          )}
+          {task.expected_result && (
+            <div className="mt-1 text-xs text-p-muted">
+              <span className="font-bold text-p-text">Результат:</span> {task.expected_result}
+            </div>
+          )}
+          <div className="flex items-center gap-3 mt-1 text-xs text-p-muted flex-wrap">
+            {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
+            {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
           </div>
         </div>
-        <PriorityPill priority={task.priority} />
+        <PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" />
         {canManage && (
-          <button onClick={onRemove} className="text-gray-300 hover:text-red-500 shrink-0" aria-label="Удалить задачу">
+          <button onClick={onRemove} className="text-p-muted2 hover:text-ds-danger shrink-0" aria-label="Удалить задачу">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
 
       {(task.subtasks.length > 0 || canManage) && (
-        <div className="border-t border-gray-100 px-3 py-2 pl-[42px] space-y-1.5">
+        <div className="border-t border-p-line px-[18px] py-2.5 pl-[52px] space-y-1.5">
           {task.subtasks.map((st) => (
             <div key={st.id} className="flex items-center gap-2 group">
               <button
                 onClick={() => onToggleSub(st.id, st.is_done)}
                 className={cn(
-                  'w-[15px] h-[15px] rounded border grid place-items-center shrink-0',
-                  st.is_done ? 'bg-brand border-brand text-brand-ink' : 'bg-white border-gray-300 text-transparent'
+                  'w-[18px] h-[18px] rounded-[5px] border-2 grid place-items-center shrink-0 transition',
+                  st.is_done ? 'bg-brand border-brand text-brand-ink' : 'border-p-muted2 text-transparent hover:border-p-accent-dim'
                 )}
                 aria-label={st.is_done ? 'Снять отметку' : 'Отметить'}
               >
-                <Check className="w-2.5 h-2.5" strokeWidth={3.4} />
+                <Check className="w-3 h-3" strokeWidth={3} />
               </button>
-              <span className={cn('text-[12.5px]', st.is_done ? 'line-through text-gray-400' : 'text-gray-700')}>
+              <span className={cn('text-xs', st.is_done ? 'line-through text-p-muted2' : 'text-p-muted')}>
                 {st.title}
               </span>
               {canManage && (
                 <button
                   onClick={() => onRemoveSub(st.id)}
-                  className="text-gray-300 hover:text-red-500 ml-auto opacity-0 group-hover:opacity-100"
+                  className="text-p-muted2 hover:text-ds-danger ml-auto opacity-0 group-hover:opacity-100"
                   aria-label="Удалить подзадачу"
                 >
                   <X className="w-3 h-3" />
@@ -312,7 +298,7 @@ const TaskRow: React.FC<{
           {canManage && (
             <button
               onClick={onAddSub}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-black"
+              className="inline-flex items-center gap-1 text-xs font-medium text-p-muted hover:text-p-text"
             >
               <Plus className="w-3 h-3" /> подзадача
             </button>
@@ -322,16 +308,3 @@ const TaskRow: React.FC<{
     </div>
   )
 }
-
-const PriorityPill: React.FC<{ priority: string }> = ({ priority }) => (
-  <span
-    className={cn(
-      'text-[9px] font-bold uppercase tracking-wide px-1.5 py-1 rounded shrink-0',
-      priority === 'required' && 'bg-sidebar text-white',
-      priority === 'recommended' && 'border border-brand/60 text-[#9a7d00]',
-      priority === 'optional' && 'border border-gray-200 text-gray-400'
-    )}
-  >
-    {PRIORITY_LABEL[priority] || priority}
-  </span>
-)
