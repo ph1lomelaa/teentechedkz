@@ -37,20 +37,44 @@ function plural(n: number, forms: [string, string, string]): string {
 }
 
 
+// Визуальный статус этапа для дорожки. Поле stage.status в БД меняется только
+// ментором вручную, поэтому узлы выводятся из фактического выполнения задач —
+// той же истины, по которой hero-карточка считает процент прогресса:
+// все задачи готовы (или ментор отметил этап) → done; первый незавершённый
+// этап — «текущий» (как во Vue, где первый этап создавался in_progress);
+// частичный прогресс тоже показывается как «в работе».
+function deriveStageStatuses(stages: RoadmapStage[]): ItemStatus[] {
+  const isDone = (s: RoadmapStage) => {
+    const total = s.tasks.length
+    const done = s.tasks.filter((t) => t.status === 'done').length
+    return s.status === 'done' || (total > 0 && done === total)
+  }
+  const currentIdx = stages.findIndex((s) => !isDone(s))
+  return stages.map((s, i) => {
+    if (isDone(s)) return 'done'
+    const hasProgress =
+      s.status === 'in_progress' ||
+      s.tasks.some((t) => t.status === 'done' || t.status === 'in_progress')
+    return hasProgress || i === currentIdx ? 'in_progress' : 'planned'
+  })
+}
+
 export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
   roadmap,
 }) => {
   const [expandedTask, setExpandedTask] = useState<string | null>(null)
 
+  const stageStatuses = React.useMemo(() => deriveStageStatuses(roadmap.stages), [roadmap])
+
   const currentIdx = Math.max(
     0,
-    roadmap.stages.findIndex((s) => s.status !== 'done')
+    stageStatuses.findIndex((s) => s !== 'done')
   )
   const [selected, setSelected] = useState(currentIdx === -1 ? 0 : currentIdx)
   const stage = roadmap.stages[selected]
 
   const n = roadmap.stages.length
-  const fillPct = n > 0 ? Math.min(100, Math.round((roadmap.stages.reduce((acc, s) => acc + (s.status === 'done' ? 1 : s.status === 'in_progress' ? 0.5 : 0), 0) / n) * 100)) : 0
+  const fillPct = n > 0 ? Math.min(100, Math.round((stageStatuses.reduce((acc, s) => acc + (s === 'done' ? 1 : s === 'in_progress' ? 0.5 : 0), 0) / n) * 100)) : 0
 
   return (
     <div>
@@ -65,17 +89,17 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
         <div className="flex justify-between gap-1.5 relative">
           {roadmap.stages.map((s, i) => (
             <button key={s.id} onClick={() => setSelected(i)} className="flex-1 text-center group">
-              <StageNode index={i} status={s.status} selected={i === selected} />
+              <StageNode index={i} status={stageStatuses[i]} selected={i === selected} />
               <div
                 className={cn(
                   'text-xs font-bold mt-3 px-1',
-                  s.status === 'planned' ? 'text-p-muted' : 'text-p-text'
+                  stageStatuses[i] === 'planned' ? 'text-p-muted' : 'text-p-text'
                 )}
               >
                 {s.name}
               </div>
               <div className="text-2xs text-p-muted2 mt-0.5">
-                {TIMELINE_SUB_LABEL[s.status]}
+                {TIMELINE_SUB_LABEL[stageStatuses[i]]}
               </div>
             </button>
           ))}
@@ -86,6 +110,7 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
       {stage && (
         <StageDetail
           stage={stage}
+          displayStatus={stageStatuses[selected]}
           expandedTask={expandedTask}
           onExpandTask={setExpandedTask}
         />
@@ -160,16 +185,17 @@ const StageNode: React.FC<{ index: number; status: ItemStatus; selected: boolean
 
 const StageDetail: React.FC<{
   stage: RoadmapStage
+  displayStatus?: ItemStatus
   expandedTask?: string | null
   onExpandTask?: (id: string | null) => void
-}> = ({ stage, expandedTask, onExpandTask }) => {
+}> = ({ stage, displayStatus, expandedTask, onExpandTask }) => {
   const filtered = stage.tasks
 
   return (
     <div className="mt-5 border border-p-line rounded-panel bg-p-panel overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 bg-p-panel2 border-b border-p-line">
         <b className="font-display text-[15px] font-extrabold text-p-text">Этап: {stage.name}</b>
-        <span className="text-xs font-bold text-brand">{STATUS_LABEL[stage.status]}</span>
+        <span className="text-xs font-bold text-brand">{STATUS_LABEL[displayStatus ?? stage.status]}</span>
       </div>
       <div className="px-5 py-2">
         {filtered.length === 0 && (
