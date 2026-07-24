@@ -25,6 +25,22 @@ export default {
       letterSpacing: {
         caps: '0.14em',
       },
+      // Readability lift (см. UI_REDESIGN_SPEC.md §4.1): xs 12→13px,
+      // sm 14→14.5px; '2xs' — новый минимальный санкционированный размер
+      // (чипы, табличный капс). lg…5xl прописаны явно = Tailwind-дефолты,
+      // чтобы ничего не сдвинулось.
+      fontSize: {
+        '2xs': ['0.75rem', { lineHeight: '1rem' }], // 12px — чипы, таблично-заголовочный капс
+        xs: ['0.8125rem', { lineHeight: '1.125rem' }], // 13px (было 12) — мета, подписи
+        sm: ['0.90625rem', { lineHeight: '1.375rem' }], // 14.5px (было 14) — основной текст
+        base: ['1rem', { lineHeight: '1.5rem' }], // 16px
+        lg: ['1.125rem', { lineHeight: '1.75rem' }],
+        xl: ['1.25rem', { lineHeight: '1.75rem' }],
+        '2xl': ['1.5rem', { lineHeight: '2rem' }],
+        '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+        '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+        '5xl': ['3rem', { lineHeight: '1' }],
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

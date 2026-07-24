@@ -277,29 +277,43 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 space-y-1 overflow-y-auto py-4">
-          {navGroups.flatMap((group) => group.items).map((item) => {
-            const isActive =
-              location.pathname === item.path ||
-              (item.path !== '/' && location.pathname.startsWith(item.path))
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
+        <nav className="flex-1 overflow-y-auto py-4">
+          {navGroups.map((group, groupIndex) => (
+            <div key={group.group}>
+              <div
                 className={cn(
-                  'flex items-center gap-2.5 mx-3 px-3 py-2.5 rounded-ctl text-[14px] font-medium transition-colors duration-150',
-                  isActive
-                    ? 'bg-brand text-black'
-                    : 'text-white/65 hover:bg-white/[0.06] hover:text-white/85'
+                  'mx-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35',
+                  groupIndex > 0 && 'pt-4'
                 )}
               >
-                <span className={isActive ? 'text-black' : 'text-white/50'}>
-                  {item.icon}
-                </span>
-                {item.label}
-              </Link>
-            )
-          })}
+                {group.group}
+              </div>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const isActive =
+                    location.pathname === item.path ||
+                    (item.path !== '/' && location.pathname.startsWith(item.path))
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={cn(
+                        'flex items-center gap-2.5 mx-3 px-3 py-2.5 rounded-ctl text-[14px] font-medium transition-colors duration-150',
+                        isActive
+                          ? 'bg-brand text-black'
+                          : 'text-white/65 hover:bg-white/[0.06] hover:text-white/85'
+                      )}
+                    >
+                      <span className={isActive ? 'text-black' : 'text-white/50'}>
+                        {item.icon}
+                      </span>
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="mt-auto border-t border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
@@ -342,16 +356,18 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
 
         {/* Content */}
         <main className="app-main flex-1 overflow-y-auto p-4 md:p-6">
-          <React.Suspense
-            fallback={(
-              <div className="flex min-h-[50vh] items-center justify-center text-sm crm-muted">
-                <span className="mr-3 h-2.5 w-2.5 animate-pulse rounded-full bg-brand" />
-                Загрузка…
-              </div>
-            )}
-          >
-            {children}
-          </React.Suspense>
+          <div className="mx-auto w-full max-w-[1180px]">
+            <React.Suspense
+              fallback={(
+                <div className="flex min-h-[50vh] items-center justify-center text-sm crm-muted">
+                  <span className="mr-3 h-2.5 w-2.5 animate-pulse rounded-full bg-brand" />
+                  Загрузка…
+                </div>
+              )}
+            >
+              {children}
+            </React.Suspense>
+          </div>
         </main>
       </div>
     </div>

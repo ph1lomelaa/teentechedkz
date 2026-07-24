@@ -46,7 +46,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         />
       </div>
       {showLabel && (
-        <div className="mt-1 text-right text-[11px] font-bold opacity-70">
+        <div className="mt-1 text-right text-2xs font-bold opacity-70">
           {clampedValue}%
         </div>
       )}

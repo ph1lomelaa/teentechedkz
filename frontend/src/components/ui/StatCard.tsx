@@ -34,7 +34,7 @@ export const StatCard: React.FC<StatCardProps> = ({ icon, label, value, sub, war
         className
       )}
     >
-      <div className={`flex items-center gap-2 text-[11px] tracking-wide ${mutedClass}`}>
+      <div className={`flex items-center gap-2 text-2xs tracking-wide ${mutedClass}`}>
         {icon && <div className={accentClass}>{icon}</div>}
         {label}
       </div>
@@ -44,7 +44,7 @@ export const StatCard: React.FC<StatCardProps> = ({ icon, label, value, sub, war
           {sub}
         </div>
       )}
-      <div className="pointer-events-none absolute -bottom-3.5 -right-3.5 select-none font-display text-[88px] font-black leading-none text-white opacity-[0.03]">
+      <div className="pointer-events-none absolute -bottom-3.5 -right-3.5 select-none font-display text-[88px] font-black leading-none text-current opacity-[0.03]">
         {value}
       </div>
     </Comp>

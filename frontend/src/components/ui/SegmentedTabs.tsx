@@ -45,7 +45,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ tabs, value, onCha
           aria-selected={value === tab.value}
           onClick={() => onChange(tab.value)}
           className={cn(
-            'shrink-0 rounded-ctl px-4 py-2 text-[12.5px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2',
+            'shrink-0 rounded-ctl px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2',
             value === tab.value ? ACTIVE_CLASS[colorPrefix] : INACTIVE_CLASS[colorPrefix]
           )}
         >

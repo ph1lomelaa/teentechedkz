@@ -38,7 +38,7 @@ const getClassForPriority = (priority: TaskPriority, prefix: ColorPrefix): strin
   // Default ds
   const classes: Record<TaskPriority, string> = {
     required: 'bg-ds-accent text-black',
-    recommended: 'bg-ds-line text-ds-text',
+    recommended: 'bg-ds-line text-ds-ink',
     optional: 'bg-ds-line text-ds-muted',
   }
   return classes[priority]
@@ -52,8 +52,8 @@ export const PriorityPill: React.FC<PriorityPillProps> = ({
   className,
 }) => {
   const baseClasses = size === 'sm'
-    ? 'px-2.5 py-1 text-[10.5px] font-bold'
-    : 'px-3 py-1.5 text-[11px] font-bold'
+    ? 'px-2.5 py-1 text-2xs font-bold'
+    : 'px-3 py-1.5 text-2xs font-bold'
 
   let icon = null
   if (showIcon) {
