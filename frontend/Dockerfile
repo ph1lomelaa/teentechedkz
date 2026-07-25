@@ -10,6 +10,9 @@ FROM node:20-alpine AS build
 WORKDIR /app
 ARG VITE_API_URL=http://localhost:8000
 ENV VITE_API_URL=${VITE_API_URL}
+# Sentry DSN зашивается в бандл на этапе сборки (Vite). Пусто => Sentry no-op.
+ARG VITE_SENTRY_DSN=
+ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 COPY package*.json ./
 RUN npm install
 COPY . .

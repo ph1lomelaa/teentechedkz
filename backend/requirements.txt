@@ -29,3 +29,5 @@ email-validator==2.1.1
 cryptography==42.0.5
 openai==1.57.4
 anthropic==0.45.2
+sentry-sdk[fastapi]==2.19.2
+prometheus-fastapi-instrumentator==7.0.0

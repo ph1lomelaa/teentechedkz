@@ -20,6 +20,12 @@ class Settings(BaseSettings):
 
     # App
     ENVIRONMENT: str = "development"
+    # Доверять заголовку X-Forwarded-For при определении IP клиента (rate-limit).
+    # True — когда бэкенд стоит ЗА доверенным прокси (Caddy) и НЕ опубликован в
+    # хост напрямую (как в docker-compose.prod.yml — у backend нет ports:). Тогда
+    # XFF может выставить только Caddy. Если бэкенд доступен напрямую — ставь
+    # False, иначе XFF легко подделать и обойти throttle по IP.
+    TRUST_PROXY_HEADERS: bool = True
     FRONTEND_URL: str = "http://localhost:3000"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
@@ -74,6 +80,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     ANTHROPIC_API_KEY: str = ""
+
+    # Observability — Sentry. Пусто => выключено (в dev обычно и не нужно).
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
     # Payment notifications
     ENABLE_PAYMENT_NOTIFICATIONS: bool = True
