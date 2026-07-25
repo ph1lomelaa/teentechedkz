@@ -8,22 +8,13 @@ import {
   ItemStatus,
 } from '@/api/roadmap'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
+import { PriorityPill, StatusPill } from '@/components/ui'
 import { cn, formatDate } from '@/lib/utils'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
 // uses (RoadmapTimeline), restyled with the dark w-* tokens so the mentor manages
 // stages/tasks/subtasks in place — no jump to the CRM card.
 
-const PRIORITY_LABEL: Record<string, string> = {
-  required: 'Обязательно',
-  recommended: 'Желательно',
-  optional: 'По желанию',
-}
-const STAGE_STATUS_LABEL: Record<ItemStatus, string> = {
-  planned: 'Впереди',
-  in_progress: 'Сейчас',
-  done: 'Пройдено',
-}
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
   planned: 'in_progress',
   in_progress: 'done',
@@ -151,8 +142,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
                 >
                   {s.name}
                 </span>
-                <StatusPill status={s.status} />
-                <span className="text-[11px] font-bold text-w-muted2">
+                <StatusPill status={s.status} colorPrefix="w" />
+                <span className="text-xs font-bold text-w-muted2">
                   {stageDone}/{s.tasks.length}
                 </span>
                 <ChevronRight
@@ -231,19 +222,6 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
   </button>
 )
 
-const StatusPill: React.FC<{ status: ItemStatus }> = ({ status }) => (
-  <span
-    className={cn(
-      'rounded-full px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider',
-      status === 'done' && 'bg-w-panel2 text-w-muted',
-      status === 'in_progress' && 'bg-w-accent text-black',
-      status === 'planned' && 'border border-w-line text-w-muted2'
-    )}
-  >
-    {STAGE_STATUS_LABEL[status]}
-  </span>
-)
-
 const TaskCard: React.FC<{
   task: RoadmapTask
   canManage: boolean
@@ -256,37 +234,45 @@ const TaskCard: React.FC<{
 }> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire }) => {
   const isDone = task.status === 'done'
   return (
-    <div className="rounded-panel border border-w-line bg-w-panel2">
-      <div className="flex items-start gap-3 p-3">
+    <div className="rounded-[13px] border border-w-line bg-w-panel2 transition hover:translate-x-[3px] hover:border-w-accentDim">
+      <div className="flex items-start gap-3 px-[18px] py-[15px]">
         <button
           type="button"
           onClick={onToggle}
           className={cn(
-            'mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-ctl border transition',
+            'mt-0.5 grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 transition',
             isDone ? 'border-w-good bg-w-good text-black' : 'border-w-line text-transparent hover:border-w-accentDim'
           )}
           aria-label={isDone ? 'Снять отметку' : 'Отметить готовым'}
         >
-          <Check className="h-3 w-3" strokeWidth={3.2} />
+          <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </button>
         <div className="min-w-0 flex-1">
           <div className={cn('text-sm font-bold', isDone ? 'text-w-muted line-through' : 'text-w-ink')}>
             {task.title}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-w-muted">
+          {task.description && (
+            <div className="mt-1 line-clamp-2 text-xs text-w-muted">{task.description}</div>
+          )}
+          {task.expected_result && (
+            <div className="mt-1 text-xs text-w-muted">
+              <span className="font-bold text-w-ink">Результат:</span> {task.expected_result}
+            </div>
+          )}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
             {task.audience === 'coordinator' && <span className="text-w-muted2">координатор</span>}
             {task.needs_document && (
-              <span className="inline-flex items-center gap-1 text-w-muted2"><FileUp className="h-3 w-3" /> документ</span>
+              <span className="inline-flex items-center gap-1 text-2xs text-w-muted2"><FileUp className="h-3 w-3" /> документ</span>
             )}
             {task.needs_zoom && (
-              <span className="inline-flex items-center gap-1 text-w-muted2"><Video className="h-3 w-3" /> zoom</span>
+              <span className="inline-flex items-center gap-1 text-2xs text-w-muted2"><Video className="h-3 w-3" /> zoom</span>
             )}
             {canManage ? (
               <button
                 type="button"
                 onClick={onOpenQuestionnaire}
-                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 font-bold text-w-accentText transition hover:bg-w-accent/10"
+                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
               >
                 <ClipboardList className="h-3 w-3" /> Анкета
               </button>
@@ -295,14 +281,14 @@ const TaskCard: React.FC<{
                 href={task.questionnaire_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 font-bold text-w-accentText transition hover:bg-w-accent/10"
+                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
               >
                 <ClipboardList className="h-3 w-3" /> Анкета
               </a>
             ) : null}
           </div>
         </div>
-        <PriorityPill priority={task.priority} />
+        <PriorityPill priority={task.priority} colorPrefix="w" className="shrink-0" />
         {canManage && (
           <button
             type="button"
@@ -316,21 +302,21 @@ const TaskCard: React.FC<{
       </div>
 
       {(task.subtasks.length > 0 || canManage) && (
-        <div className="space-y-1.5 border-t border-w-line px-3 py-2 pl-[42px]">
+        <div className="space-y-1.5 border-t border-w-line px-[18px] py-2 pl-[52px]">
           {task.subtasks.map((st) => (
             <div key={st.id} className="group flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onToggleSub(st.id, st.is_done)}
                 className={cn(
-                  'grid h-[15px] w-[15px] shrink-0 place-items-center rounded border transition',
+                  'grid h-[18px] w-[18px] shrink-0 place-items-center rounded border transition',
                   st.is_done ? 'border-w-good bg-w-good text-black' : 'border-w-line text-transparent hover:border-w-accentDim'
                 )}
                 aria-label={st.is_done ? 'Снять отметку' : 'Отметить'}
               >
-                <Check className="h-2.5 w-2.5" strokeWidth={3.4} />
+                <Check className="h-3 w-3" strokeWidth={3.2} />
               </button>
-              <span className={cn('text-[12.5px]', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')}>
+              <span className={cn('text-xs', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')}>
                 {st.title}
               </span>
               {canManage && (
@@ -349,7 +335,7 @@ const TaskCard: React.FC<{
             <button
               type="button"
               onClick={onAddSub}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-w-muted2 transition hover:text-w-accentText"
+              className="inline-flex items-center gap-1 text-2xs font-bold text-w-muted2 transition hover:text-w-accentText"
             >
               <Plus className="h-3 w-3" /> подзадача
             </button>
@@ -359,16 +345,3 @@ const TaskCard: React.FC<{
     </div>
   )
 }
-
-const PriorityPill: React.FC<{ priority: string }> = ({ priority }) => (
-  <span
-    className={cn(
-      'shrink-0 rounded px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide',
-      priority === 'required' && 'bg-w-accent text-black',
-      priority === 'recommended' && 'border border-w-accentDim/60 text-w-accentText',
-      priority === 'optional' && 'border border-w-line text-w-muted2'
-    )}
-  >
-    {PRIORITY_LABEL[priority] || priority}
-  </span>
-)

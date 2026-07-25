@@ -56,8 +56,8 @@ export const StatusPill: React.FC<StatusPillProps> = ({
   className,
 }) => {
   const baseClasses = size === 'sm'
-    ? 'px-2.5 py-1 text-[11px] font-bold'
-    : 'px-3.5 py-1.5 text-[12px] font-bold'
+    ? 'px-2.5 py-1 text-2xs font-bold'
+    : 'px-3.5 py-1.5 text-xs font-bold'
 
   let icon = null
   if (showIcon) {

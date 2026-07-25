@@ -38,7 +38,7 @@ export const AppInput = React.forwardRef<HTMLInputElement, AppInputProps>(
     return (
       <label className="block">
         {label && (
-          <span className={cn('mb-1.5 block text-[11px] font-bold uppercase tracking-widest', LABEL_CLASS[colorPrefix])}>
+          <span className={cn('mb-1.5 block text-2xs font-bold uppercase tracking-widest', LABEL_CLASS[colorPrefix])}>
             {label}
             {required && <span className={cn('ml-1', DANGER_CLASS[colorPrefix])}>*</span>}
           </span>
@@ -53,7 +53,7 @@ export const AppInput = React.forwardRef<HTMLInputElement, AppInputProps>(
           // text alone isn't a substitute for one (WCAG).
           aria-label={label ? ariaLabel : ariaLabel || placeholder || 'Поле ввода'}
           className={cn(
-            'w-full rounded-ctl border px-4 py-3 text-[13.5px] transition focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed',
+            'w-full rounded-ctl border px-4 py-3 text-sm transition focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed',
             FIELD_CLASS[colorPrefix],
             error && DANGER_BORDER_CLASS[colorPrefix],
             className

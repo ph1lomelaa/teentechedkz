@@ -42,7 +42,7 @@ const getVariantClass = (variant: ButtonVariant, prefix: ColorPrefix): string =>
 
 const SIZES: Record<ButtonSize, string> = {
   sm: 'px-3.5 py-2 text-xs',
-  md: 'px-5 py-3 text-[13px]',
+  md: 'px-5 py-3 text-sm',
 }
 
 export const AppButton = React.forwardRef<HTMLButtonElement, AppButtonProps>(
@@ -53,7 +53,7 @@ export const AppButton = React.forwardRef<HTMLButtonElement, AppButtonProps>(
         type={type}
         disabled={disabled}
         className={cn(
-          'inline-flex items-center justify-center gap-2 rounded-xl font-extrabold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50',
+          'inline-flex items-center justify-center gap-2 rounded-ctl font-extrabold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50',
           getVariantClass(variant, colorPrefix),
           SIZES[size],
           className

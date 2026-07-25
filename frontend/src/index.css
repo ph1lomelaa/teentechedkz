@@ -96,7 +96,7 @@ html[data-theme='light'] {
 
   /* Мелкий uppercase-лейбл с letter-spacing */
   .label-caps {
-    @apply text-[11px] uppercase tracking-caps text-muted-foreground font-medium;
+    @apply text-2xs uppercase tracking-caps text-muted-foreground font-medium;
   }
 
   /* Ghost-дубликат текста (hero-зоны на светлом фоне).
@@ -182,6 +182,11 @@ html[data-theme='light'] {
   --p-muted: var(--crm-muted);
   --p-muted2: var(--crm-muted-secondary);
   --p-good: #8BD46A;
+  /* Акцентные p-токены нужны и здесь: warn-подсветка StatCard и eyebrow
+     PageHeader на CRM-страницах используют text-p-accent — без проксирования
+     var() невалиден и подсветка молча не работает. */
+  --p-accent: #FFD400;
+  --p-accent-dim: #C9A800;
   --crm-bg: #0A0A0A;
   --crm-panel: #141414;
   --crm-panel-soft: #1C1C1C;
@@ -226,6 +231,10 @@ html[data-theme='light'] {
 }
 
 .crm-shell[data-theme='light'] {
+  /* Как в .portal[data-theme='light']: акцент остаётся жёлтым, dim темнеет
+     до #8A6F00 ради контраста на светлом фоне. */
+  --p-accent: #FFD400;
+  --p-accent-dim: #8A6F00;
   --crm-bg: #FAFAF7;
   --crm-panel: #FFFFFF;
   --crm-panel-soft: #F3F1EA;
@@ -577,7 +586,7 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
 }
 .auth-field-label {
   color: #9A9A94;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -714,19 +723,19 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   margin: 1.1em 0 0.4em;
   line-height: 1.3;
 }
-.kb-content h2 { font-size: 1.15rem; }
-.kb-content h3 { font-size: 1.05rem; }
-.kb-content h4 { font-size: 0.95rem; }
+.kb-content h2 { font-size: 1.5rem; }
+.kb-content h3 { font-size: 1.25rem; }
+.kb-content h4 { font-size: 1.05rem; }
 .kb-content p {
   margin: 0.5em 0;
   line-height: 1.6;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 .kb-content ul,
 .kb-content ol {
   margin: 0.4em 0 0.8em;
   padding-left: 1.4em;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   line-height: 1.6;
 }
 .kb-content li { margin: 0.2em 0; }
@@ -758,6 +767,15 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   border-radius: 8px;
 }
 .kb-content details summary { cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+/* Дифференциация уровней вложенности: до 6 уровней <details> из Notion
+   рисовали одинаковые рамочные коробки («вкладка во вкладке»). Вложенные
+   уровни теряют рамку-коробку и получают только левую линию + отступ. */
+.kb-content details details {
+  border: none;
+  border-left: 2px solid hsl(var(--border));
+  border-radius: 0;
+  padding: 0 0 0 0.9em;
+}
 
 /* Linked-database rows (e.g. package/pricing tables) — one collapsible card
    per row instead of a <table>, so a single long cell (e.g. a country list)
@@ -773,7 +791,8 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   padding: 0.6em 0.9em;
 }
 .kb-content .kb-row summary {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
   list-style: none;
 }
 .kb-content .kb-row summary::-webkit-details-marker { display: none; }
@@ -795,7 +814,7 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
 }
 .kb-content .kb-field { display: contents; }
 .kb-content .kb-field-label {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -803,7 +822,7 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   padding-top: 0.1em;
 }
 .kb-content .kb-field-value {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.5;
 }
 .kb-content pre {
@@ -811,13 +830,13 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   border-radius: 8px;
   padding: 0.8em;
   overflow-x: auto;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .kb-content table {
   width: 100%;
   border-collapse: collapse;
   margin: 0.6em 0 1em;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   display: block;
   overflow-x: auto;
 }

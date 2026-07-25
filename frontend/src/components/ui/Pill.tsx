@@ -35,7 +35,7 @@ const TONE_CLASS: Record<ColorPrefix, Record<Tone, string>> = {
 }
 
 export const Pill: React.FC<PillProps> = ({ children, tone = 'neutral', colorPrefix = 'ds', className }) => (
-  <span className={cn('inline-flex items-center gap-1 rounded-pill px-3 py-1 text-[11px] font-bold', TONE_CLASS[colorPrefix][tone], className)}>
+  <span className={cn('inline-flex items-center gap-1 rounded-pill px-3 py-1 text-2xs font-bold', TONE_CLASS[colorPrefix][tone], className)}>
     {children}
   </span>
 )

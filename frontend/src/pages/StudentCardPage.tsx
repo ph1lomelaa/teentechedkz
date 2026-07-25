@@ -762,19 +762,19 @@ export const StudentCardPage: React.FC = () => {
           Назад
         </Link>
         <div className="flex-1 min-w-[240px]">
-          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-yellow-500">Карточка студента</div>
+          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Карточка студента</div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text md:text-4xl">{student.full_name}</h1>
             {student.is_archived && (
-              <span className="text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
+              <span className="text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
                 Архивирован
               </span>
             )}
-            <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+            <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
               {DEGREE_LEVEL_LABELS[student.degree_level]}
             </span>
             {student.pipeline_status && (
-              <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+              <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                 {PIPELINE_STATUS_LABELS[student.pipeline_status]}
               </span>
             )}
@@ -818,13 +818,13 @@ export const StudentCardPage: React.FC = () => {
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
+          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
           <p className="mt-1 text-sm font-semibold text-p-text">
             {openTasks[0]?.task_text || (student.is_mine ? 'Открытых задач нет' : 'Назначьте ответственного')}
           </p>
         </div>
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
+          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
           <p className={`mt-1 text-sm font-semibold ${intakeMismatchCount + notionMismatchCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
             {intakeMismatchCount + notionMismatchCount > 0
               ? `${intakeMismatchCount + notionMismatchCount} расхожд.`
@@ -832,13 +832,13 @@ export const StudentCardPage: React.FC = () => {
           </p>
         </div>
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Последний контакт</p>
+          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Последний контакт</p>
           <p className="mt-1 truncate text-sm font-semibold text-p-text">
             {latestTelegramMessage?.raw_text || latestTelegramMessage?.message_type || 'Нет сообщений'}
           </p>
         </div>
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-p-muted2">Последнее изменение</p>
+          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Последнее изменение</p>
           <p className="mt-1 truncate text-sm font-semibold text-p-text">
             {latestHistoryEntry ? `${latestHistoryEntry.field_changed}: ${formatDate(latestHistoryEntry.changed_at)}` : 'История пуста'}
           </p>
@@ -864,7 +864,7 @@ export const StudentCardPage: React.FC = () => {
                       }`}
                     >
                       {responsible.name || 'Без имени'}
-                      <span className="text-[10px] uppercase tracking-wide opacity-70">
+                      <span className="text-2xs uppercase tracking-wide opacity-70">
                         {responsible.is_active ? 'активен' : 'снят'}
                       </span>
                     </span>
@@ -975,22 +975,22 @@ export const StudentCardPage: React.FC = () => {
                           <td className="px-3 py-2 text-p-muted align-top whitespace-nowrap">
                             {row.label}
                             {row.human_only && (
-                              <span className="block text-[10px] text-p-muted2 mt-0.5">
+                              <span className="block text-xs text-p-muted2 mt-0.5">
                                 🔒 вносится вручную
                               </span>
                             )}
                             {realMismatch && (
-                              <span className="block text-[10px] text-amber-600 mt-0.5">
+                              <span className="block text-xs text-amber-600 mt-0.5">
                                 расхождение
                               </span>
                             )}
                             {crmMismatch && (
-                              <span className="block text-[10px] text-amber-600 mt-0.5">
+                              <span className="block text-xs text-amber-600 mt-0.5">
                                 CRM расходится
                               </span>
                             )}
                             {aiSuggestsSame && (
-                              <span className="block text-[10px] text-sky-600 mt-0.5" title={row.ai_note ?? undefined}>
+                              <span className="block text-xs text-sky-600 mt-0.5" title={row.ai_note ?? undefined}>
                                 вероятно совпадает{row.ai_note ? ` · ${row.ai_note}` : ''}
                               </span>
                             )}
@@ -1037,7 +1037,7 @@ export const StudentCardPage: React.FC = () => {
               <span className="flex items-center gap-2.5">
                 Notion
                 {notion.comparison.some((r) => r.matches === false) && (
-                  <span className="text-[10px] font-medium normal-case tracking-normal px-1.5 py-0.5 rounded-pill bg-amber-50 text-amber-700 border border-amber-200">
+                  <span className="text-2xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded-pill bg-amber-50 text-amber-700 border border-amber-200">
                     есть расхождения
                   </span>
                 )}
@@ -1069,7 +1069,7 @@ export const StudentCardPage: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[11px] text-p-muted"
+                    className="h-6 text-xs text-p-muted"
                     disabled={unlinkNotionMutation.isPending}
                     title="Если запись Notion привязана не к тому студенту"
                     onClick={() => setUnlinkNotionConfirm(notion.snapshot!.id)}
@@ -1100,7 +1100,7 @@ export const StudentCardPage: React.FC = () => {
                         <td className="px-3 py-2 text-p-muted align-top whitespace-nowrap">
                           {row.label}
                           {row.matches === false && (
-                            <span className="block text-[10px] text-amber-600 mt-0.5">расхождение</span>
+                            <span className="block text-xs text-amber-600 mt-0.5">расхождение</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-p-text align-top">
@@ -1118,7 +1118,7 @@ export const StudentCardPage: React.FC = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-6 text-[11px]"
+                              className="h-6 text-xs"
                               disabled={applyNotionFieldMutation.isPending}
                               onClick={() => applyNotionFieldMutation.mutate(row.field)}
                             >
@@ -1137,7 +1137,7 @@ export const StudentCardPage: React.FC = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-p-panel2 border border-p-line rounded-panel overflow-hidden">
                     {notion.finance.map((f) => (
                       <div key={f.label} className="bg-white px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-p-muted2">{f.label}</p>
+                        <p className="text-2xs uppercase tracking-wide text-p-muted2">{f.label}</p>
                         <p className="text-sm text-p-text font-medium mt-0.5">{f.value}</p>
                       </div>
                     ))}
@@ -1397,7 +1397,7 @@ export const StudentCardPage: React.FC = () => {
                       <TableRow key={svc.id} className={!svc.included ? 'opacity-60' : undefined}>
                         <TableCell className="font-medium">{SERVICE_TYPE_LABELS[svc.service_type]}</TableCell>
                         <TableCell>
-                          <span className={`rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${serviceTone(svc.status)}`}>
+                          <span className={`rounded-pill border px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide ${serviceTone(svc.status)}`}>
                             {svc.included ? SERVICE_STATUS_LABELS[svc.status] : 'Не включена'}
                           </span>
                         </TableCell>
@@ -1599,11 +1599,11 @@ export const StudentCardPage: React.FC = () => {
               <span className="flex items-center gap-2.5">
                 Telegram
                 {telegramChat && telegramChat.status !== 'closed' ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="text-2xs px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
                     {telegramChat.status === 'active' ? 'подключён' : 'на паузе'}
                   </span>
                 ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-bg text-p-muted border border-p-line">
+                  <span className="text-2xs px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-bg text-p-muted border border-p-line">
                     не привязан
                   </span>
                 )}
@@ -1627,7 +1627,7 @@ export const StudentCardPage: React.FC = () => {
                     </div>
                     {telegramMessages.length > 0 ? telegramMessages.slice(-5).map((message) => (
                       <div key={message.id} className="rounded-panel border border-p-line bg-white p-2 text-sm">
-                        <p className="mb-0.5 text-[11px] text-p-muted">{message.sender_name || 'Без имени'} · {formatDate(message.created_at)}</p>
+                        <p className="mb-0.5 text-xs text-p-muted">{message.sender_name || 'Без имени'} · {formatDate(message.created_at)}</p>
                         <p className="text-p-text">{message.raw_text || `[${message.message_type}]`}</p>
                       </div>
                     )) : <p className="text-sm text-p-muted">Сообщений пока нет. После проверки готовности новые сообщения появятся здесь.</p>}
@@ -1713,7 +1713,7 @@ export const StudentCardPage: React.FC = () => {
                       </Button>
                     </div>
                     {note.visible_to_student && (
-                      <p className="mt-1 text-[11px] font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
+                      <p className="mt-1 text-xs font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
                     )}
                   </div>
                 ))}
@@ -1846,7 +1846,7 @@ export const StudentCardPage: React.FC = () => {
                     const content = (
                       <div className="border-l-2 border-p-line pl-3 py-1 transition hover:border-gray-400">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-p-muted">
+                          <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-p-muted">
                             {item.kind}
                           </span>
                           <span className="text-xs text-p-muted">{formatDate(item.at)}</span>

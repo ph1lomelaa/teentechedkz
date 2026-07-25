@@ -256,7 +256,7 @@ export const TemplatesPage: React.FC = () => {
             {importJob.error && <p className="mt-3 text-xs text-red-600">{importJob.error}</p>}
 
             {importJob.events?.length > 0 && (
-              <div className="mt-3 max-h-36 overflow-auto rounded-panel border border-border bg-card p-2 font-mono text-[11px] text-p-muted">
+              <div className="mt-3 max-h-36 overflow-auto rounded-panel border border-border bg-card p-2 font-mono text-xs text-p-muted">
                 {importJob.events.slice(-8).map((event, index) => (
                   <div key={index}>{String(event.message || event.type || '')}</div>
                 ))}
@@ -402,7 +402,7 @@ export const TemplatesPage: React.FC = () => {
 
 const ImportStat: React.FC<{ label: string; value: number | string }> = ({ label, value }) => (
   <div className="rounded-panel border border-border bg-card px-3 py-2">
-    <div className="text-[10px] uppercase tracking-[0.16em] text-p-muted2">{label}</div>
+    <div className="text-2xs uppercase tracking-[0.16em] text-p-muted2">{label}</div>
     <div className="mt-1 text-sm font-semibold text-p-text">{value}</div>
   </div>
 )
@@ -480,7 +480,7 @@ const TemplatePreview: React.FC<{ templateId: string | null; onClose: () => void
                                 <div className="min-w-0 flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <h4 className="text-sm font-medium text-foreground">{task.title}</h4>
-                                    <span className="rounded-pill border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    <span className="rounded-pill border border-border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                                       {PRIORITIES.find((priority) => priority.value === task.priority)?.label || task.priority}
                                     </span>
                                   </div>
@@ -644,7 +644,7 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
                   )}
                   <button
                     onClick={() => addSubtask(si, ti)}
-                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-p-muted hover:text-black"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-p-muted hover:text-black"
                   >
                     <Plus className="w-3 h-3" /> подзадача
                   </button>
