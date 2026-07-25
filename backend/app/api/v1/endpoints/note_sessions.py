@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.uploads import read_upload_capped
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.meeting import Meeting
 from app.models.note_session import NoteSession, NoteSessionStatus
@@ -416,9 +417,7 @@ async def upload_audio_chunk(
     arrive just after the session was ended."""
     session, _ = await _session_context(db, session_id, current_user)
 
-    content = await file.read()
-    if len(content) > MAX_AUDIO_CHUNK_SIZE:
-        raise HTTPException(status_code=413, detail="Аудиофрагмент слишком большой")
+    content = await read_upload_capped(file, MAX_AUDIO_CHUNK_SIZE)
 
     existing = await db.execute(
         select(NoteSessionAudioChunk).where(

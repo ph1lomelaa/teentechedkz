@@ -27,9 +27,12 @@ def _get_redis():
 
 
 def client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # X-Forwarded-For доверяем только за прокси (см. TRUST_PROXY_HEADERS): иначе
+    # клиент шлёт заголовок сам и обходит throttle по IP, назначая себе любой IP.
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 

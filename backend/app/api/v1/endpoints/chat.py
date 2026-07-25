@@ -24,6 +24,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.audit import log_change
 from app.core.security import decode_access_token
+from app.core.uploads import read_upload_capped
 from app.services.mentor_scope import require_student_access
 from app.services.ws_hub import manager
 from app.models.user import User, UserRole
@@ -462,11 +463,9 @@ async def send_attachment(
     student = await _conversation_student(db, conv_id)
     if not student:
         raise HTTPException(status_code=422, detail="Диалог не связан со студентом")
-    content = await file.read()
+    content = await read_upload_capped(file, CHAT_ATTACHMENT_MAX_BYTES)
     if not content:
         raise HTTPException(status_code=422, detail="Пустой файл")
-    if len(content) > CHAT_ATTACHMENT_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
     mime_type = file.content_type or "application/octet-stream"
     if mime_type not in CHAT_ATTACHMENT_MIME_TYPES:
         raise HTTPException(status_code=422, detail=f"Недопустимый тип файла: {mime_type}")

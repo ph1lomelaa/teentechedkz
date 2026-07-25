@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.audit import log_change
+from app.core.uploads import read_upload_capped
 from app.models.document import Document, DocType, DocSource
 from app.models.student import Student
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
@@ -50,9 +51,7 @@ async def upload_document(
         raise HTTPException(status_code=404, detail="Студент не найден")
     await require_student_access(db, student_id, current_user)
 
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
+    content = await read_upload_capped(file, MAX_FILE_SIZE)
 
     try:
         import magic
@@ -410,9 +409,7 @@ async def portal_upload(
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
 
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
+    content = await read_upload_capped(file, MAX_FILE_SIZE)
     try:
         import magic
         mime = magic.from_buffer(content, mime=True)
