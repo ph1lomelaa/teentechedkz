@@ -70,3 +70,6 @@ docs/
 
 .claude/skills
 
+# Local prod-hardening checklist (личный трекер, не в репо)
+TODO_PROD.md
+

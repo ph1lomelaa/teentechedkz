@@ -9,10 +9,28 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+
+    # Postgres для проверки миграций (alembic upgrade head на чистой БД).
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: tte
+          POSTGRES_PASSWORD: tte
+          POSTGRES_DB: tte_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tte"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ---------- Frontend ----------
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -24,21 +42,60 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Неблокирующий: 8 legacy react-hooks/exhaustive-deps предупреждений
+      # (см. TODO_PROD.md, блок 3). Ошибки eslint при этом уже блокируют — их нет.
+      - name: Lint frontend
+        working-directory: frontend
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Test frontend (vitest)
+        working-directory: frontend
+        run: npm run test
+
       - name: Build frontend
         working-directory: frontend
         env:
           VITE_API_URL: https://teenteched.duckdns.org
         run: npm run build
 
+      # ---------- Backend ----------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Check backend syntax
+      - name: Install system deps (libmagic for python-magic)
+        run: sudo apt-get update && sudo apt-get install -y libmagic1 postgresql-client
+
+      - name: Install backend deps
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Backend unit tests (pytest)
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Schema + migrations bootstrap cleanly (prod startup path)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://tte:tte@localhost:5432/tte_db
         run: |
-          python -m py_compile $(find backend -name '*.py' -not -path '*/tests/*')
+          # Повторяем ровно то, что делает бэкенд при старте в проде
+          # (см. docker-compose.prod.yml command:). Схема на проде строится через
+          # bootstrap_db (create_all + stamp head), а не прогоном миграций с нуля —
+          # поэтому `alembic upgrade head` с пустой БД тут НЕ подходит (упадёт).
+          # Эта проверка ловит: поломанные модели, ошибки импорта, битый alembic-конфиг.
+          PGPASSWORD=tte psql -h localhost -U tte -d tte_db \
+            -c "CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+          python -m app.core.bootstrap_db
+          alembic upgrade head
+          # Единственный head: ловит забытый merge при расхождении веток миграций.
+          heads=$(alembic heads | grep -c '(head)')
+          test "$heads" -eq 1 || { echo "Ожидался ровно 1 alembic head, найдено: $heads"; alembic heads; exit 1; }
 
+      # ---------- Compose ----------
       - name: Validate docker compose
         run: |
           touch .env
@@ -58,4 +115,9 @@ jobs:
           script: |
             cd "${{ secrets.DEPLOY_PATH }}"
             git pull origin main
+            # Бэкап БД ПЕРЕД накатом миграций: миграции идут в command: бэкенда при
+            # старте, откатить их без дампа нельзя. Не валим деплой, если бэкап
+            # не удался на самом первом запуске (контейнеров ещё нет) — но на
+            # рабочем проде дамп обязан сняться.
+            if [ -x scripts/backup.sh ]; then bash scripts/backup.sh || echo "WARN: backup failed before deploy"; fi
             docker compose -f docker-compose.prod.yml up -d --build

@@ -270,7 +270,7 @@ export function StatisticsPage() {
     const byType = new Map<ServiceType, { total: number; in_progress: number; scheduled: number; completed: number; overdue: number }>()
     const overdueItems: { student_name: string; service_type: ServiceType; deadline: string }[] = []
     students.forEach((student) => {
-      ;(student.services_summary?.items ?? []).forEach((item) => {
+      (student.services_summary?.items ?? []).forEach((item) => {
         const cur = byType.get(item.service_type) ?? { total: 0, in_progress: 0, scheduled: 0, completed: 0, overdue: 0 }
         cur.total += 1
         if (item.status === 'in_progress') cur.in_progress += 1
