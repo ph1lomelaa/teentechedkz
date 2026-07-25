@@ -22,6 +22,7 @@ import {
   Users,
 } from 'lucide-react'
 import { studentsApi } from '@/api/students'
+import { StudentAlertsBanner } from '@/components/shared/StudentAlertsBanner'
 import { roadmapApi, Roadmap, TemplateListItem } from '@/api/roadmap'
 import { meetingsApi } from '@/api/meetings'
 import { telegramApi } from '@/api/telegram'
@@ -152,6 +153,24 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       toast({ title: 'Не удалось применить', description: detail ?? 'Ошибка', variant: 'destructive' })
     },
   })
+  const pushNotionFieldMutation = useMutation({
+    mutationFn: ({ field, force }: { field: string; force?: boolean }) => notionApi.pushField(studentId!, field, force),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'student', studentId, 'notion'] })
+      toast({ title: 'Записано в Notion' })
+    },
+    onError: (err: unknown, variables) => {
+      const resp = (err as { response?: { status?: number; data?: { detail?: string } } }).response
+      // 409 — в Notion значение изменили после синка. Предлагаем осознанную перезапись (force).
+      if (resp?.status === 409 && !variables.force) {
+        if (window.confirm(`${resp.data?.detail ?? 'Конфликт с Notion.'}\n\nПерезаписать значением из CRM всё равно?`)) {
+          pushNotionFieldMutation.mutate({ field: variables.field, force: true })
+        }
+        return
+      }
+      toast({ title: 'Не удалось записать в Notion', description: resp?.data?.detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
   const unlinkNotionMutation = useMutation({
     mutationFn: (snapshotId: string) => notionApi.unlink(snapshotId),
     onSuccess: () => {
@@ -252,6 +271,8 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
         Мои студенты
       </Link>
 
+      <StudentAlertsBanner alerts={student.alerts} />
+
       <header className="mb-6 border-b border-w-line pb-6">
         <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-w-accentText">Карточка студента</div>
         <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-w-ink md:text-4xl">{student.full_name}</h1>
@@ -304,6 +325,10 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
           onApplyNotionField={(field) => applyNotionFieldMutation.mutate(field)}
           applyingNotionField={
             applyNotionFieldMutation.isPending ? applyNotionFieldMutation.variables : undefined
+          }
+          onPushNotionField={(field) => pushNotionFieldMutation.mutate({ field })}
+          pushingNotionField={
+            pushNotionFieldMutation.isPending ? pushNotionFieldMutation.variables?.field : undefined
           }
           onUnlinkNotion={(snapshotId) => unlinkNotionMutation.mutate(snapshotId)}
           unlinkingNotion={unlinkNotionMutation.isPending}
@@ -403,6 +428,8 @@ function CardListView({
   onOpenRoadmap,
   onApplyNotionField,
   applyingNotionField,
+  onPushNotionField,
+  pushingNotionField,
   onUnlinkNotion,
   unlinkingNotion,
 }: {
@@ -417,6 +444,8 @@ function CardListView({
   onOpenRoadmap: () => void
   onApplyNotionField: (field: string) => void
   applyingNotionField?: string
+  onPushNotionField: (field: string) => void
+  pushingNotionField?: string
   onUnlinkNotion: (snapshotId: string) => void
   unlinkingNotion: boolean
 }) {
@@ -493,6 +522,8 @@ function CardListView({
               notion={notion!}
               onApplyField={onApplyNotionField}
               applyingField={applyingNotionField}
+              onPushField={onPushNotionField}
+              pushingField={pushingNotionField}
               onUnlink={onUnlinkNotion}
               unlinking={unlinkingNotion}
             />
@@ -535,7 +566,7 @@ function CardListView({
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-w-muted2">
-                  Notion — источник по финансам, CRM назад в Notion не пишет. «Принять из Notion» переносит значение в карточку вручную.
+                  «Принять из Notion» переносит значение в карточку, «→ Записать в Notion» — из CRM обратно в Notion (с подтверждением).
                 </p>
               </div>
             ) : null}
@@ -757,16 +788,21 @@ function NotionBlock({
   notion,
   onApplyField,
   applyingField,
+  onPushField,
+  pushingField,
   onUnlink,
   unlinking,
 }: {
   notion: StudentNotion
   onApplyField: (field: string) => void
   applyingField?: string
+  onPushField: (field: string) => void
+  pushingField?: string
   onUnlink: (snapshotId: string) => void
   unlinking: boolean
 }) {
   const [confirmUnlink, setConfirmUnlink] = useState(false)
+  const [confirmPush, setConfirmPush] = useState<string | null>(null)
   const snapshot = notion.snapshot!
   return (
     <div className="space-y-3">
@@ -825,22 +861,65 @@ function NotionBlock({
               >
                 <td className="whitespace-nowrap px-3 py-2 text-w-muted">
                   {row.label}
-                  {row.matches === false && <span className="mt-0.5 block text-xs text-w-accentText">расхождение</span>}
+                  {row.matches === false && (
+                    <span className="mt-0.5 block text-xs text-w-accentText">
+                      {row.direction === 'notion_newer' ? 'изменено в Notion'
+                        : row.direction === 'crm_newer' ? 'изменено в CRM'
+                        : row.direction === 'conflict' ? 'конфликт — выбери сторону'
+                        : 'расхождение'}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-w-ink">{row.notion ?? '—'}</td>
                 <td className="px-3 py-2">
                   {row.matches ? <span className="text-xs text-w-good">✓ совпадает</span> : <span className="text-w-muted">{row.crm ?? '—'}</span>}
                 </td>
                 <td className="px-3 py-2 text-right">
-                  {row.matches === false && row.can_apply && (
-                    <button
-                      type="button"
-                      disabled={applyingField === row.field}
-                      onClick={() => onApplyField(row.field)}
-                      className="rounded-ctl border border-w-line px-2.5 py-1 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60"
-                    >
-                      {applyingField === row.field ? 'Применяем…' : 'Принять из Notion'}
-                    </button>
+                  {row.matches === false && (row.can_apply || row.can_push) && (
+                    <div className="flex flex-col items-end gap-1">
+                      {row.can_apply && (
+                        <button
+                          type="button"
+                          disabled={applyingField === row.field}
+                          onClick={() => onApplyField(row.field)}
+                          className={cn(
+                            'rounded-ctl border border-w-line px-2.5 py-1 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60',
+                            row.direction === 'notion_newer' && 'order-first border-w-accentDim text-w-accentText',
+                          )}
+                        >
+                          {applyingField === row.field ? 'Применяем…' : 'Принять из Notion'}
+                        </button>
+                      )}
+                      {row.can_push && confirmPush !== row.field && (
+                        <button
+                          type="button"
+                          disabled={pushingField === row.field}
+                          onClick={() => setConfirmPush(row.field)}
+                          className={cn(
+                            'rounded-ctl border border-w-line px-2.5 py-1 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-60',
+                            row.direction === 'crm_newer' && 'order-first border-w-accentDim text-w-accentText',
+                          )}
+                        >
+                          {pushingField === row.field ? 'Записываем…' : '→ Записать в Notion'}
+                        </button>
+                      )}
+                      {row.can_push && confirmPush === row.field && (
+                        <span className="inline-flex items-center gap-2 text-xs text-w-muted">
+                          Перезаписать в Notion?
+                          <button
+                            type="button"
+                            disabled={pushingField === row.field}
+                            onClick={() => { onPushField(row.field); setConfirmPush(null) }}
+                            className="font-black text-w-accentText disabled:opacity-60"
+                          >
+                            Да
+                          </button>
+                          <button type="button" onClick={() => setConfirmPush(null)} className="font-bold text-w-muted2">
+                            Нет
+                          </button>
+                        </span>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>

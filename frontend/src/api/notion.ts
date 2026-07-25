@@ -19,6 +19,8 @@ export interface NotionSnapshotItem {
   notion_last_edited_at?: string
 }
 
+export type NotionSyncDirection = 'notion_newer' | 'crm_newer' | 'conflict' | 'unknown' | 'resolved'
+
 export interface NotionComparisonRow {
   field: string
   label: string
@@ -26,6 +28,9 @@ export interface NotionComparisonRow {
   crm: string | null
   matches: boolean | null
   can_apply: boolean
+  can_push: boolean
+  // Какая сторона изменилась последней относительно эталона (для редактируемых полей).
+  direction?: NotionSyncDirection
 }
 
 export interface NotionFinanceRow {
@@ -77,6 +82,13 @@ export interface NotionFinanceSummary {
     ielts_exam_fee: number
     total_company: number
   }
+  crm_totals: {
+    client_remaining: number
+    english_tbp: number
+    mentor_tbp: number
+    tbp_total: number
+  }
+  crm_known_count: number
   client_remaining_known_count: number
   client_remaining_total_count: number
   rows: {
@@ -89,6 +101,13 @@ export interface NotionFinanceSummary {
     client_fee: number
     client_remaining: number
     client_remaining_filled?: boolean
+    // CRM-расчёт (источник правды): null, если у студента нет договора в CRM.
+    crm_client_remaining?: number | null
+    crm_english_tbp?: number | null
+    crm_mentor_tbp?: number | null
+    crm_tbp_total?: number | null
+    crm_client_paid?: number | null
+    crm_mentor_paid?: number | null
     lead_mentor?: string | null
     mentors?: string[]
     mzk?: string | null
@@ -159,5 +178,21 @@ export const notionApi = {
   applyField: async (studentId: string, field: string) => {
     const res = await apiClient.post(`/notion/students/${studentId}/apply-field`, { field })
     return res.data as { ok: boolean; field: string }
+  },
+  pushFieldPreview: async (studentId: string, field: string) => {
+    const res = await apiClient.post(`/notion/students/${studentId}/push-field/preview`, { field })
+    return res.data as {
+      ok: boolean
+      field: string
+      real_name: string
+      ptype: string
+      will_write: string | number | null
+      notion_current: string | number | null
+      conflict: boolean
+    }
+  },
+  pushField: async (studentId: string, field: string, force = false) => {
+    const res = await apiClient.post(`/notion/students/${studentId}/push-field`, { field, force })
+    return res.data as { ok: boolean; field: string; written: string }
   },
 }

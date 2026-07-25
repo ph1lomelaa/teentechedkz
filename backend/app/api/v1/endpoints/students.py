@@ -17,12 +17,15 @@ from app.core.audit import log_change
 from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
 from app.models.contract import Contract
+from app.models.payment import PaymentType, PaymentStatus
 from app.models.mentor_assignment import MentorAssignment
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.application import Application
 from app.models.service import Service, ServiceStatus, ServiceType
 from app.services.default_services import ensure_default_services
+from app.services import contract_finance
+from app.core.config import settings
 from app.services.people_facets import build_people_index
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
@@ -1118,7 +1121,8 @@ async def get_student_timeline(
             at=entry.changed_at,
             kind="Изменение CRM",
             title=entry.field_changed,
-            text=f"{entry.old_value or '—'} → {entry.new_value or '—'}",
+            text=f"{entry.old_value or '—'} → {entry.new_value or '—'}"
+            + (f" · {entry.source}" if entry.source else ""),
             href="#history",
             source=entry.source,
             meta={"history_id": str(entry.id), "changed_by": entry.changed_by},
@@ -1129,6 +1133,62 @@ async def get_student_timeline(
     events = [event for event in events if event["at"]]
     events.sort(key=lambda event: event["at"], reverse=True)
     return {"items": events[offset:offset + limit], "total": len(events), "limit": limit, "offset": offset}
+
+
+def _compute_student_alerts(contracts: list[Contract], today: date) -> list[dict]:
+    """Активные финансовые предупреждения по студенту для баннера в профиле.
+    Считаем по последнему договору из фактических платежей (contract_finance):
+    - оплата клиента близко/просрочена (по client_remaining_date + остаток > 0);
+    - ментору осталось выплатить (mentor_total_owed − выплачено).
+    Уведомления в колокольчик шлёт payment_notifier — здесь только inline-баннер."""
+    if not contracts:
+        return []
+    contract = max(contracts, key=lambda c: c.created_at)
+
+    def _paid(ptype) -> "Decimal | None":
+        vals = [p.amount for p in contract.payments
+                if p.type == ptype and p.status == PaymentStatus.paid and p.amount is not None]
+        return sum(vals) if vals else None
+
+    alerts: list[dict] = []
+    look_ahead = settings.PAYMENT_DUE_LOOK_AHEAD_DAYS
+    currency = contract.currency or "KZT"
+
+    remaining = contract_finance.client_remaining(
+        contract.amount, _paid(PaymentType.client_payment),
+        manual_remaining=contract.client_remaining_amount,
+    )
+    due = contract.client_remaining_date
+    if remaining is not None and remaining > 0 and due is not None:
+        days = (due - today).days
+        if days < 0:
+            alerts.append({
+                "level": "danger", "kind": "payment_overdue",
+                "title": f"Просрочена оплата клиента на {-days} дн.",
+                "amount": float(remaining), "currency": currency,
+                "due_date": due.isoformat(), "days": days,
+            })
+        elif days <= look_ahead:
+            alerts.append({
+                "level": "warning" if days > 3 else "danger", "kind": "payment_due",
+                "title": f"Оплата клиента через {days} дн.",
+                "amount": float(remaining), "currency": currency,
+                "due_date": due.isoformat(), "days": days,
+            })
+
+    mentor_tbp = contract_finance.mentor_tbp(contract.mentor_total_owed, _paid(PaymentType.mentor_payout))
+    if mentor_tbp is not None and mentor_tbp > 0:
+        alerts.append({
+            "level": "info", "kind": "mentor_unpaid",
+            "title": "Ментору осталось выплатить",
+            "amount": float(mentor_tbp), "currency": currency,
+            "due_date": None, "days": None,
+        })
+
+    # danger → warning → info, ближайший срок выше
+    order = {"danger": 0, "warning": 1, "info": 2}
+    alerts.sort(key=lambda a: (order.get(a["level"], 9), a["days"] if a["days"] is not None else 9999))
+    return alerts
 
 
 @router.get("/{student_id}")
@@ -1242,6 +1302,12 @@ async def get_student(
         data["contracts"] = []
         data["guardians"] = []
         data["confidential_notes"] = []
+
+    # Финансовые предупреждения для баннера в профиле. Выплаты менторам — только для команды.
+    alerts = _compute_student_alerts(student.contracts, date.today())
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        alerts = [a for a in alerts if a["kind"] != "mentor_unpaid"]
+    data["alerts"] = alerts
 
     return data
 

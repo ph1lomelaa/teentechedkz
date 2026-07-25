@@ -69,40 +69,140 @@ async def _load_students_index(db: AsyncSession) -> list[dict]:
     ]
 
 
-async def _sync_remaining_to_contract(db: AsyncSession, student_id, row: dict) -> None:
-    """Единственные два поля, которые авто-переносим из Notion в CRM без ручного
-    подтверждения: «Остаток клиента» и дата остатка. Они нужны всегда актуальными
-    для уведомлений о платежах и календаря на странице «Финансы». Остальные поля
-    Notion остаются read-only — перенос только вручную кнопкой «Принять из Notion»
-    (см. /notion/students/{id}/apply-field).
-    """
-    raw_amount = row.get("client_remaining")
-    raw_date = row.get("client_remaining_date")
-    if raw_amount is None and raw_date is None:
-        return
+# --- Двусторонняя синхронизация «кто последний правил» ---------------------------
+# Синк НИЧЕГО не пишет в CRM автоматически. Он лишь ведёт «эталон» (synced_baseline)
+# — последнее значение, на котором Notion и CRM сошлись, — чтобы карточка могла
+# показать, какая сторона изменилась последней. Перенос значений всегда вручную:
+# «Принять из Notion» (apply_field) или «→ Записать в Notion» (push_field).
 
-    result = await db.execute(
-        select(Contract).where(Contract.student_id == student_id).order_by(Contract.created_at.desc()).limit(1)
+# Поля, которые можно править и синхронизировать в обе стороны. Ключ — внутреннее имя
+# поля (как в сверке и в whitelist apply/push), значения канонизируются одинаково для
+# обеих сторон, чтобы сравнение было честным.
+EDITABLE_FIELDS = (
+    "full_name", "phone", "degree_level", "intake_year", "pipeline_status",
+    "signed_date", "client_fee", "english_sum", "english_paid",
+    "client_remaining", "client_remaining_date",
+)
+
+
+def _name_canon(v) -> str | None:
+    return " ".join(str(v).lower().split()) or None if v else None
+
+
+def _money_canon(v) -> str | None:
+    if v in (None, ""):
+        return None
+    try:
+        return f"{Decimal(str(v).replace(' ', '').replace(',', '.')):.2f}"
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _date_canon(v) -> str | None:
+    if not v:
+        return None
+    try:
+        return date_cls.fromisoformat(str(v)[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+def _intake_canon(v) -> str | None:
+    year = next(
+        (t for t in str(v or "").replace(".", " ").split() if t.isdigit() and 2020 <= int(t) <= 2035),
+        None,
     )
-    contract = result.scalars().first()
-    if not contract:
+    return year
+
+
+def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, str | None]]:
+    """{field: (канон Notion, канон CRM)} для всех редактируемых полей. Обе стороны
+    приводятся к одному виду, поэтому равенство канонов == «значения совпадают».
+    d — normalized_data снапшота; student/contract — из CRM (contract может быть None."""
+    from migration.transformers.normalize import (
+        normalize_phone, parse_degree_or_none, parse_pipeline_status,
+    )
+
+    def crm(attr, obj):
+        return getattr(obj, attr, None) if obj is not None else None
+
+    n_degree = parse_degree_or_none(d.get("degree_raw") or "")
+    c_degree = student.degree_level.value if student and student.degree_level else None
+    n_status = parse_pipeline_status(d.get("payment_status_raw") or "") if d.get("payment_status_raw") else None
+    c_status = contract.pipeline_status.value if contract and contract.pipeline_status else None
+
+    return {
+        "full_name": (_name_canon(d.get("full_name")), _name_canon(crm("full_name", student))),
+        "phone": (normalize_phone(d.get("phone") or "") or None, normalize_phone(crm("phone", student) or "") or None),
+        "degree_level": (n_degree, c_degree),
+        "intake_year": (_intake_canon(d.get("intake_raw")), str(student.intake_year) if student and student.intake_year else None),
+        "pipeline_status": (n_status, c_status),
+        "signed_date": (_date_canon(d.get("date_of_agreement")), _date_canon(crm("signed_date", contract))),
+        "client_fee": (_money_canon(d.get("client_fee")), _money_canon(crm("amount", contract))),
+        "english_sum": (_money_canon(d.get("english_sum")), _money_canon(crm("english_sum", contract))),
+        "english_paid": (_money_canon(d.get("english_paid")), _money_canon(crm("english_paid", contract))),
+        "client_remaining": (_money_canon(d.get("client_remaining")), _money_canon(crm("client_remaining_amount", contract))),
+        "client_remaining_date": (_date_canon(d.get("client_remaining_date")), _date_canon(crm("client_remaining_date", contract))),
+    }
+
+
+def field_direction(base: str | None, canon_notion: str | None, canon_crm: str | None) -> str:
+    """Куда синхронизировать поле относительно эталона base:
+    resolved — стороны совпадают; unknown — эталона ещё нет; notion_newer/crm_newer —
+    изменилась одна сторона; conflict — обе стороны разошлись с эталоном по-разному."""
+    if canon_notion == canon_crm:
+        return "resolved"
+    if base is None:
+        return "unknown"
+    notion_changed = canon_notion != base
+    crm_changed = canon_crm != base
+    if notion_changed and not crm_changed:
+        return "notion_newer"
+    if crm_changed and not notion_changed:
+        return "crm_newer"
+    return "conflict"
+
+
+def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
+    """Обновить эталон снапшота: где Notion и CRM совпали — зафиксировать как
+    согласованное значение. Расхождения не трогаем (по ним карточка покажет
+    направление). CRM при этом не пишется — только snapshot.synced_baseline."""
+    canon = editable_canon(snapshot.normalized_data or {}, student, contract)
+    baseline = dict(snapshot.synced_baseline or {})
+    changed = False
+    for field, (cn, cc) in canon.items():
+        if cn == cc and cn is not None and baseline.get(field) != cn:
+            baseline[field] = cn
+            changed = True
+    if changed:
+        snapshot.synced_baseline = baseline
+
+
+async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]) -> None:
+    """Массовая фиксация эталона по привязанным снапшотам: грузим студентов и их
+    последние договоры одним заходом, затем сверяем каждый снапшот с CRM."""
+    student_ids = {s.student_id for s in snapshots if s.student_id}
+    if not student_ids:
         return
 
-    if raw_amount is not None:
-        try:
-            new_amount = Decimal(str(raw_amount))
-        except (InvalidOperation, ValueError):
-            new_amount = None
-        if new_amount is not None and contract.client_remaining_amount != new_amount:
-            contract.client_remaining_amount = new_amount
+    students = {
+        s.id: s
+        for s in (await db.execute(select(Student).where(Student.id.in_(student_ids)))).scalars().all()
+    }
+    # Последний договор по каждому студенту (первый по created_at DESC).
+    contracts: dict = {}
+    for c in (await db.execute(
+        select(Contract)
+        .where(Contract.student_id.in_(student_ids))
+        .order_by(Contract.student_id, Contract.created_at.desc())
+    )).scalars().all():
+        contracts.setdefault(c.student_id, c)
 
-    if raw_date:
-        try:
-            new_date = date_cls.fromisoformat(str(raw_date)[:10])
-        except ValueError:
-            new_date = None
-        if new_date is not None and contract.client_remaining_date != new_date:
-            contract.client_remaining_date = new_date
+    for snapshot in snapshots:
+        student = students.get(snapshot.student_id)
+        if student is None:
+            continue
+        reconcile_baseline(snapshot, student, contracts.get(snapshot.student_id))
 
 
 async def run_sync(db: AsyncSession) -> dict:
@@ -131,6 +231,8 @@ async def run_sync(db: AsyncSession) -> dict:
 
             now = datetime.now(timezone.utc)
             created = updated = unchanged = auto_linked = 0
+            # Привязанные снапшоты — для прохода по эталону после основного цикла.
+            linked_for_baseline: list[NotionSnapshot] = []
 
             def apply_match(snapshot: NotionSnapshot, row: dict) -> bool:
                 """Матчинг непривязанного снапшота. True, если автопривязали."""
@@ -164,7 +266,7 @@ async def run_sync(db: AsyncSession) -> dict:
                     if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
                         auto_linked += 1
                     if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
-                        await _sync_remaining_to_contract(db, snapshot.student_id, row)
+                        linked_for_baseline.append(snapshot)
                     continue
 
                 if snapshot is None:
@@ -191,7 +293,9 @@ async def run_sync(db: AsyncSession) -> dict:
                 if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
                     auto_linked += 1
                 if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
-                    await _sync_remaining_to_contract(db, snapshot.student_id, row)
+                    linked_for_baseline.append(snapshot)
+
+            await _reconcile_baselines(db, linked_for_baseline)
 
             await db.commit()
 

@@ -31,6 +31,9 @@ class NotionSnapshot(Base):
 
     raw_properties: Mapped[dict] = mapped_column(JSONB)    # {колонка Notion: значение}
     normalized_data: Mapped[dict] = mapped_column(JSONB)   # маппинг во внутренние ключи
+    # Эталон двусторонней синхронизации: {поле: последнее согласованное значение}.
+    # Нужен, чтобы понять, какая сторона (Notion/CRM) изменилась последней.
+    synced_baseline: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
     notion_last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

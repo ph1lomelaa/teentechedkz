@@ -70,9 +70,10 @@ docs/
 
 .claude/skills
 
-# Local prod-hardening checklist + плейбук (личные заметки, не в репо)
+# Local prod-hardening checklist + плейбук + конспекты (личные заметки, не в репо)
 TODO_PROD.md
 PROD_PLAYBOOK.md
+NOTES_MONITORING_ACCESS.md
 
 # Скачанные сторонние дашборды Grafana (тянутся monitoring/fetch-dashboards.sh)
 monitoring/dashboards/

@@ -18,6 +18,9 @@ from app.models.mentor_assignment import MentorAssignment
 from app.core.config import settings
 from datetime import timedelta
 from app.models.document import Document
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -78,6 +81,18 @@ async def create_payment(
         note=body.get("note"),
     )
     db.add(p)
+    await db.flush()
+
+    # Событийное уведомление менторам+МЗК при записи фактической выплаты ментору.
+    if ptype == PaymentType.mentor_payout and pstatus == PaymentStatus.paid:
+        try:
+            from app.services.payment_notifier import notify_mentor_payout_event
+            contract = await db.get(Contract, p.contract_id)
+            if contract:
+                await notify_mentor_payout_event(db, contract, "payout_recorded", current_user.id)
+        except Exception:  # noqa: BLE001 — уведомление не должно ронять запись платежа
+            logger.exception("Не удалось создать уведомление о выплате ментору")
+
     await db.commit()
     await db.refresh(p)
     return _payment_to_dict(p)

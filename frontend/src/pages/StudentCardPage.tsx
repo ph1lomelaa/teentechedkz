@@ -31,7 +31,7 @@ import {
   contractsApi,
 } from '@/api/index'
 import { syncApi } from '@/api/sync'
-import { notionApi } from '@/api/notion'
+import { notionApi, type NotionComparisonRow } from '@/api/notion'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection'
 import { StudentMeetingsSection } from '@/components/shared/StudentMeetingsSection'
@@ -328,6 +328,7 @@ function ServiceEditModal({
   const queryClient = useQueryClient()
   const { id: studentId } = useParams()
   const [form, setForm] = useState({
+    included: service.included,
     status: service.status,
     result: service.result ?? '',
     notes: service.notes ?? '',
@@ -367,8 +368,22 @@ function ServiceEditModal({
         </DialogHeader>
         <div className="space-y-3">
           <div>
+            <Label>Включена в пакет</Label>
+            <Select value={form.included ? 'true' : 'false'} onValueChange={(v) => setForm({ ...form, included: v === 'true' })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Включена</SelectItem>
+                <SelectItem value="false">Не включена</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className={form.included ? undefined : 'opacity-50'}>
             <Label>Статус</Label>
-            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Service['status'] })}>
+            <Select
+              value={form.status}
+              onValueChange={(v) => setForm({ ...form, status: v as Service['status'] })}
+              disabled={!form.included}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {Object.entries(SERVICE_STATUS_LABELS).map(([val, label]) => (
@@ -376,6 +391,9 @@ function ServiceEditModal({
                 ))}
               </SelectContent>
             </Select>
+            {!form.included && (
+              <p className="mt-1 text-2xs text-p-muted">Статус работает только для включённых услуг</p>
+            )}
           </div>
           <div>
             <Label>Ментор</Label>
@@ -420,6 +438,26 @@ function serviceTone(status: Service['status']): string {
   return 'border-p-line bg-p-bg text-p-muted'
 }
 
+// Значение preview для диалога записи в Notion: число форматируем с разделителями,
+// пусто → «—». (Даты/строки приходят уже в готовом виде из Notion/CRM.)
+function formatPushValue(v: string | number | null): string {
+  if (v === null || v === '') return '—'
+  if (typeof v === 'number') return new Intl.NumberFormat('ru-RU').format(v)
+  return String(v)
+}
+
+// Поля формы договора (patch-ключ) → поле push в Notion (PUSH_FIELDS на бэке) + подпись.
+// Только колонки, которые Notion разрешает писать; формульные (TBP и т.п.) сюда не входят.
+const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
+  signed_date: { field: 'signed_date', label: 'Дата договора' },
+  amount: { field: 'client_fee', label: 'Client fee' },
+  pipeline_status: { field: 'pipeline_status', label: 'Статус выплат' },
+  english_sum: { field: 'english_sum', label: 'Сумма (англ)' },
+  english_paid: { field: 'english_paid', label: 'Оплачено (англ)' },
+  client_remaining_amount: { field: 'client_remaining', label: 'Остаток клиента' },
+  client_remaining_date: { field: 'client_remaining_date', label: 'Остаток (дата)' },
+}
+
 export const StudentCardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
@@ -439,6 +477,9 @@ export const StudentCardPage: React.FC = () => {
   const [documentDeleteTarget, setDocumentDeleteTarget] = useState<Document | null>(null)
   const [documentDeletePending, setDocumentDeletePending] = useState(false)
   const [unlinkNotionConfirm, setUnlinkNotionConfirm] = useState<string | null>(null)
+  const [pushNotionConfirm, setPushNotionConfirm] = useState<NotionComparisonRow | null>(null)
+  // Предложение записать в Notion после правки поля договора (см. CONTRACT_PUSH_FIELDS).
+  const [pendingNotionPush, setPendingNotionPush] = useState<{ field: string; label: string } | null>(null)
   const [mentorToAssign, setMentorToAssign] = useState('')
 
   const { data: student, isLoading, error } = useQuery<StudentFull>({
@@ -479,14 +520,26 @@ export const StudentCardPage: React.FC = () => {
   const updateContractFieldMutation = useMutation({
     mutationFn: (patch: Record<string, unknown>) =>
       contractsApi.update(student!.contracts![0].id, patch),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['student', id] })
+      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
       toast({ title: 'Сохранено' })
+      // Если поле пишется в Notion и запись привязана — предлагаем записать туда же.
+      const key = Object.keys(variables)[0]
+      const mapped = CONTRACT_PUSH_FIELDS[key]
+      if (mapped && notion?.snapshot) setPendingNotionPush(mapped)
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
       toast({ title: 'Не удалось сохранить', description: detail ?? 'Ошибка', variant: 'destructive' })
     },
+  })
+
+  // Preview записи в Notion для диалога-подтверждения (что было в Notion → что станет).
+  const notionPushPreview = useQuery({
+    queryKey: ['notion-push-preview', id, pendingNotionPush?.field],
+    queryFn: () => notionApi.pushFieldPreview(id!, pendingNotionPush!.field),
+    enabled: !!id && !!pendingNotionPush,
   })
 
   const unlinkNotionMutation = useMutation({
@@ -512,6 +565,27 @@ export const StudentCardPage: React.FC = () => {
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
       toast({ title: 'Не удалось применить', description: detail ?? 'Ошибка', variant: 'destructive' })
+    },
+  })
+
+  const pushNotionFieldMutation = useMutation({
+    mutationFn: ({ field, force }: { field: string; force?: boolean }) => notionApi.pushField(id!, field, force),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
+      queryClient.invalidateQueries({ queryKey: ['history', 'student', id] })
+      setPushNotionConfirm(null)
+      toast({ title: 'Записано в Notion' })
+    },
+    onError: (err: unknown, variables) => {
+      const resp = (err as { response?: { status?: number; data?: { detail?: string } } }).response
+      // 409 — значение в Notion изменили после синка. Предлагаем осознанную перезапись.
+      if (resp?.status === 409 && !variables.force) {
+        if (window.confirm(`${resp.data?.detail ?? 'Конфликт с Notion.'}\n\nПерезаписать значением из CRM всё равно?`)) {
+          pushNotionFieldMutation.mutate({ field: variables.field, force: true })
+        }
+        return
+      }
+      toast({ title: 'Не удалось записать в Notion', description: resp?.data?.detail ?? 'Ошибка', variant: 'destructive' })
     },
   })
 
@@ -696,8 +770,6 @@ export const StudentCardPage: React.FC = () => {
     (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
   )).length ?? 0
   const notionMismatchCount = notion?.comparison?.filter((row) => row.matches === false).length ?? 0
-  const latestTelegramMessage = telegramMessages[telegramMessages.length - 1]
-  const latestHistoryEntry = history[0]
   const fallbackTimeline: StudentTimelineItem[] = [
     ...(student.documents || []).map((doc) => ({
       id: `doc-${doc.id}`,
@@ -817,6 +889,28 @@ export const StudentCardPage: React.FC = () => {
       </div>
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
+        {(student.alerts ?? []).map((a, i) => {
+          const tone = a.level === 'danger'
+            ? 'border-red-300 text-red-700 dark:border-red-900/60 dark:text-red-300'
+            : a.level === 'warning'
+              ? 'border-amber-300 text-amber-700 dark:border-amber-900/60 dark:text-amber-300'
+              : 'border-sky-300 text-sky-700 dark:border-sky-900/60 dark:text-sky-300'
+          const label = a.kind === 'mentor_unpaid' ? 'Выплата ментору' : 'Оплата клиента'
+          const sub = a.kind === 'payment_overdue'
+            ? `просрочка ${Math.abs(a.days ?? 0)} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
+            : a.kind === 'payment_due'
+              ? `через ${a.days ?? 0} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
+              : 'осталось выплатить'
+          return (
+            <div key={`${a.kind}-${i}`} className={`rounded-panel border bg-p-bg px-3 py-2 ${tone}`}>
+              <p className="text-2xs uppercase tracking-[0.18em] opacity-80">{label}</p>
+              <p className="mt-1 text-sm font-bold">
+                {a.amount != null ? `${new Intl.NumberFormat('ru-RU').format(Math.round(a.amount))} ${a.currency}` : '—'}
+              </p>
+              <p className="text-2xs opacity-70">{sub}</p>
+            </div>
+          )
+        })}
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
           <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
           <p className="mt-1 text-sm font-semibold text-p-text">
@@ -825,23 +919,23 @@ export const StudentCardPage: React.FC = () => {
         </div>
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
           <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
-          <p className={`mt-1 text-sm font-semibold ${intakeMismatchCount + notionMismatchCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-            {intakeMismatchCount + notionMismatchCount > 0
-              ? `${intakeMismatchCount + notionMismatchCount} расхожд.`
-              : 'Расхождений нет'}
-          </p>
-        </div>
-        <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Последний контакт</p>
-          <p className="mt-1 truncate text-sm font-semibold text-p-text">
-            {latestTelegramMessage?.raw_text || latestTelegramMessage?.message_type || 'Нет сообщений'}
-          </p>
-        </div>
-        <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Последнее изменение</p>
-          <p className="mt-1 truncate text-sm font-semibold text-p-text">
-            {latestHistoryEntry ? `${latestHistoryEntry.field_changed}: ${formatDate(latestHistoryEntry.changed_at)}` : 'История пуста'}
-          </p>
+          {intakeMismatchCount + notionMismatchCount > 0 ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-amber-700">
+              <span>{intakeMismatchCount + notionMismatchCount} расхожд.</span>
+              {notionMismatchCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('notion-sync')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="inline-flex items-center gap-1 rounded-pill border border-amber-200 bg-amber-50 px-2 py-0.5 text-2xs font-medium text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
+                  title="Перейти к сверке с Notion"
+                >
+                  ⇆ {notionMismatchCount} с Notion
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="mt-1 text-sm font-semibold text-emerald-700">Расхождений нет</p>
+          )}
         </div>
       </div>
 
@@ -1032,7 +1126,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 0.5 Notion: сверка «Notion | CRM» + финансы из Notion */}
         {notion?.snapshot && (
-          <AccordionItem value="notion" className="border border-p-line rounded-card px-4">
+          <AccordionItem value="notion" id="notion-sync" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
               <span className="flex items-center gap-2.5">
                 Notion
@@ -1100,7 +1194,12 @@ export const StudentCardPage: React.FC = () => {
                         <td className="px-3 py-2 text-p-muted align-top whitespace-nowrap">
                           {row.label}
                           {row.matches === false && (
-                            <span className="block text-xs text-amber-600 mt-0.5">расхождение</span>
+                            <span className="block text-xs text-amber-600 mt-0.5">
+                              {row.direction === 'notion_newer' ? 'изменено в Notion'
+                                : row.direction === 'crm_newer' ? 'изменено в CRM'
+                                : row.direction === 'conflict' ? 'конфликт — выбери сторону'
+                                : 'расхождение'}
+                            </span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-p-text align-top">
@@ -1114,16 +1213,31 @@ export const StudentCardPage: React.FC = () => {
                           )}
                         </td>
                         <td className="px-3 py-2 align-top text-right">
-                          {row.matches === false && row.can_apply && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-xs"
-                              disabled={applyNotionFieldMutation.isPending}
-                              onClick={() => applyNotionFieldMutation.mutate(row.field)}
-                            >
-                              Принять из Notion
-                            </Button>
+                          {row.matches === false && (row.can_apply || row.can_push) && (
+                            <div className="flex flex-col items-end gap-1">
+                              {row.can_apply && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className={`h-6 text-xs ${row.direction === 'notion_newer' ? 'order-first border-amber-400 text-amber-700' : ''}`}
+                                  disabled={applyNotionFieldMutation.isPending}
+                                  onClick={() => applyNotionFieldMutation.mutate(row.field)}
+                                >
+                                  Принять из Notion
+                                </Button>
+                              )}
+                              {row.can_push && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className={`h-6 text-xs ${row.direction === 'crm_newer' ? 'order-first border-amber-400 text-amber-700' : ''}`}
+                                  disabled={pushNotionFieldMutation.isPending}
+                                  onClick={() => setPushNotionConfirm(row)}
+                                >
+                                  → Записать в Notion
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -1145,8 +1259,8 @@ export const StudentCardPage: React.FC = () => {
                 </div>
               )}
               <p className="text-xs text-p-muted2 mt-2.5">
-                Notion — источник по финансам, CRM назад в Notion не пишет. Кнопка «Принять из Notion»
-                переносит значение в карточку вручную, каждое изменение попадает в историю.
+                «Принять из Notion» переносит значение в карточку, «→ Записать в Notion» —
+                наоборот, из CRM в Notion (с подтверждением). Каждое изменение попадает в историю.
               </p>
             </AccordionContent>
           </AccordionItem>
@@ -1871,37 +1985,6 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
-        {/* 13. History */}
-        {hasRole('admin', 'mzk_manager', 'mentor') && (
-          <AccordionItem value="history" className="border border-p-line rounded-card px-4">
-            <AccordionTrigger className="text-base font-semibold">
-              История изменений
-            </AccordionTrigger>
-            <AccordionContent>
-              {history.length > 0 ? (
-                <div className="space-y-2">
-                  {history.map((entry) => (
-                    <div key={entry.id} className="border-l-2 border-p-line pl-3 py-1">
-                      <p className="text-sm text-p-muted">
-                        <span className="font-medium">{entry.field_changed}</span>
-                        <span className="text-p-muted">
-                          {' '}
-                          {entry.old_value ?? '—'} → {entry.new_value ?? '—'}
-                        </span>
-                        {entry.source && (
-                          <span className="text-p-muted"> · {entry.source}</span>
-                        )}
-                      </p>
-                      <p className="text-xs text-p-muted">{formatDate(entry.changed_at)}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-p-muted py-2">История пуста</p>
-              )}
-            </AccordionContent>
-          </AccordionItem>
-        )}
       </Accordion>
 
       {/* Edit student modal */}
@@ -1990,6 +2073,91 @@ export const StudentCardPage: React.FC = () => {
               disabled={unlinkNotionMutation.isPending}
             >
               Отвязать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pushNotionConfirm} onOpenChange={() => setPushNotionConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Записать в Notion?</DialogTitle>
+            <DialogDescription>
+              Значение в Notion будет перезаписано данными из CRM. Отменить в Notion можно вручную.
+            </DialogDescription>
+          </DialogHeader>
+          {pushNotionConfirm && (
+            <div className="rounded-panel border border-p-line bg-p-panel2 px-3 py-2 text-sm">
+              <p className="text-p-muted mb-1">{pushNotionConfirm.label}</p>
+              <p className="text-p-text">
+                <span className="text-p-muted2 line-through">{pushNotionConfirm.notion ?? '—'}</span>
+                {'  →  '}
+                <span className="font-medium text-emerald-700">{pushNotionConfirm.crm ?? '—'}</span>
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPushNotionConfirm(null)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => {
+                if (pushNotionConfirm) pushNotionFieldMutation.mutate({ field: pushNotionConfirm.field })
+              }}
+              disabled={pushNotionFieldMutation.isPending}
+            >
+              Записать в Notion
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Предложение записать поле договора в Notion после правки в CRM */}
+      <Dialog open={!!pendingNotionPush} onOpenChange={() => setPendingNotionPush(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Записать также в Notion?</DialogTitle>
+            <DialogDescription>
+              Вы изменили поле в CRM. Записать это значение в привязанную запись Notion?
+            </DialogDescription>
+          </DialogHeader>
+          {pendingNotionPush && (
+            <div className="rounded-panel border border-p-line bg-p-panel2 px-3 py-2 text-sm">
+              <p className="text-p-muted mb-1">{pendingNotionPush.label}</p>
+              {notionPushPreview.isLoading ? (
+                <p className="text-p-muted2">Загрузка значения из Notion…</p>
+              ) : notionPushPreview.data ? (
+                <>
+                  <p className="text-p-text">
+                    <span className="text-p-muted2 line-through">{formatPushValue(notionPushPreview.data.notion_current)}</span>
+                    {'  →  '}
+                    <span className="font-medium text-emerald-700">{formatPushValue(notionPushPreview.data.will_write)}</span>
+                  </p>
+                  {notionPushPreview.data.conflict && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      ⚠️ В Notion это поле меняли после последней синхронизации — запись затрёт ту правку.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-red-500 text-xs">Не удалось получить значение из Notion.</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingNotionPush(null)}>
+              Только в CRM
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingNotionPush) {
+                  pushNotionFieldMutation.mutate({ field: pendingNotionPush.field })
+                  setPendingNotionPush(null)
+                }
+              }}
+              disabled={pushNotionFieldMutation.isPending || notionPushPreview.isLoading}
+            >
+              Записать в Notion
             </Button>
           </DialogFooter>
         </DialogContent>
