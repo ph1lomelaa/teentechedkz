@@ -87,8 +87,10 @@ teentechedkz/
 │       │   └── *.tsx            # классический CRM (/students, /finances, /statistics...)
 │       └── App.tsx
 ├── migration/                    # скрипты миграции данных из Notion/Google Sheets
+├── scripts/                      # backup.sh / restore.sh (бэкапы БД), туннель для dev
+├── monitoring/                   # стек наблюдаемости: Grafana + Prometheus + Loki + экспортеры
 ├── docker-compose.yml            # dev-конфигурация
-├── docker-compose.prod.yml       # prod-конфигурация (multi-worker uvicorn, отдельные .env-параметры)
+├── docker-compose.prod.yml       # prod-конфигурация (multi-worker uvicorn, логи/лимиты/healthcheck)
 ├── .env.example
 ├── README.md                     # этот файл
 └── ARCHITECTURE.md               # как всё устроено внутри
@@ -144,9 +146,17 @@ POSTGRES_DB=tte_db
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 
-# Auth — смени в проде на случайную строку 32+ символов
+# Auth — смени в проде на случайную строку 32+ символов.
+# В проде бэкенд НЕ СТАРТУЕТ с дефолтными значениями (fail-fast) — так и задумано.
 JWT_SECRET_KEY=change-me-in-production-min-32-chars-long-random
 PGCRYPTO_KEY=change-me-in-production-min-32-chars-long-random
+
+# Rate-limit по IP доверяет X-Forwarded-For только за прокси (Caddy). За Caddy — true.
+TRUST_PROXY_HEADERS=true
+
+# Наблюдаемость (опционально): ошибки в Sentry. Пусто => выключено.
+SENTRY_DSN=
+VITE_SENTRY_DSN=
 
 # Масштабирование веб-тира (используется только в docker-compose.prod.yml)
 UVICORN_WORKERS=2
@@ -260,7 +270,32 @@ docker compose restart backend worker
 
 ## Продакшн
 
-Отдельная конфигурация — `docker-compose.prod.yml`. Ключевые отличия от dev: без `--reload`, несколько uvicorn-воркеров (`UVICORN_WORKERS`), явные лимиты пула соединений к БД. Подробности — в разделе «Масштабирование» [ARCHITECTURE.md](ARCHITECTURE.md).
+Отдельная конфигурация — `docker-compose.prod.yml`. Ключевые отличия от dev: без `--reload`, несколько uvicorn-воркеров (`UVICORN_WORKERS`), явные лимиты пула соединений к БД, ротация логов, лимиты памяти и healthcheck'и на всех сервисах. Подробности — в разделах «Масштабирование» и «Эксплуатация» [ARCHITECTURE.md](ARCHITECTURE.md).
+
+Деплой автоматический: пуш в `main` запускает GitHub Actions (`.github/workflows/deploy.yml`) — сначала проверки (lint, тесты фронта/бэка, применение миграций на чистой БД, валидация compose), затем деплой по SSH. Красный CI = деплой не пойдёт.
+
+### Бэкапы БД
+
+```bash
+./scripts/backup.sh                       # pg_dump + gzip + ротация + off-site в MinIO
+./scripts/restore.sh backups/<дамп>.sql.gz  # восстановление
+```
+
+На проде поставь в cron (ежедневно в 03:00):
+
+```bash
+0 3 * * * /path/to/teentechedkz/scripts/backup.sh >> /var/log/tte-backup.log 2>&1
+```
+
+Деплой сам делает бэкап перед накатом миграций. Хотя бы раз проверь восстановление на тестовой БД — бэкап без проверенного restore не считается.
+
+### Мониторинг и наблюдаемость
+
+Ошибки (Sentry), метрики/нагрузка (Grafana + Prometheus), логи с поиском (Loki), алерты о падениях — отдельный стек в `monitoring/`. Запуск и настройка — в [monitoring/README.md](monitoring/README.md).
+
+```bash
+docker compose -f monitoring/docker-compose.monitoring.yml up -d
+```
 
 ---
 
