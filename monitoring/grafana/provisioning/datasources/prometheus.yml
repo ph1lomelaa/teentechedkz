@@ -1,0 +1,12 @@
+# Автоматически подключает Prometheus как источник данных при старте Grafana —
+# руками в UI ничего добавлять не надо.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus            # фиксированный uid, на него ссылаются готовые дашборды
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

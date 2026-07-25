@@ -1,0 +1,11 @@
+# Подключает Loki как источник логов — в Grafana появляется раздел «Logs»
+# (Explore → Loki) с поиском по логам контейнеров.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

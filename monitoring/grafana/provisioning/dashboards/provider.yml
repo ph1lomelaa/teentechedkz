@@ -1,0 +1,16 @@
+# Говорит Grafana: подхватывай любые дашборды-JSON из /var/lib/grafana/dashboards
+# (в него смонтирована папка monitoring/dashboards). Файлы туда кладёт
+# monitoring/fetch-dashboards.sh.
+apiVersion: 1
+
+providers:
+  - name: TeenTechEd dashboards
+    orgId: 1
+    folder: TeenTechEd
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

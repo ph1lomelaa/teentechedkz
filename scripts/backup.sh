@@ -102,4 +102,22 @@ fi
 log "Удаляю локальные дампы старше ${RETENTION_DAYS} дней"
 find "${BACKUP_DIR}" -name 'tte_*.sql.gz' -type f -mtime "+${RETENTION_DAYS}" -print -delete || true
 
+# --- метрика для мониторинга ---
+# Пишем метку времени успешного бэкапа в textfile-коллектор node_exporter.
+# Prometheus увидит tte_backup_last_success_timestamp_seconds; алерт срабатывает,
+# если бэкап не обновлялся дольше суток (см. monitoring/prometheus/alerts.yml).
+TEXTFILE_DIR="${TEXTFILE_DIR:-${REPO_ROOT}/monitoring/textfile}"
+if mkdir -p "${TEXTFILE_DIR}" 2>/dev/null; then
+  PROM_FILE="${TEXTFILE_DIR}/backup.prom"
+  {
+    echo "# HELP tte_backup_last_success_timestamp_seconds Unix-время последнего успешного бэкапа БД."
+    echo "# TYPE tte_backup_last_success_timestamp_seconds gauge"
+    echo "tte_backup_last_success_timestamp_seconds $(date +%s)"
+    echo "# HELP tte_backup_last_size_bytes Размер последнего дампа в байтах."
+    echo "# TYPE tte_backup_last_size_bytes gauge"
+    echo "tte_backup_last_size_bytes ${ACTUAL_BYTES}"
+  } > "${PROM_FILE}.tmp" && mv "${PROM_FILE}.tmp" "${PROM_FILE}"
+  log "Метрика бэкапа записана: ${PROM_FILE}"
+fi
+
 log "Готово."
