@@ -453,7 +453,10 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
       {/* horizontal flow */}
       <div className="relative py-2 mb-2">
         <div className="absolute left-[26px] right-[26px] top-[31px] h-[3px] bg-p-line rounded">
-          <div className="absolute inset-y-0 left-0 bg-brand rounded" style={{ width: `${fillPct}%` }} />
+          <div
+            className="absolute inset-y-0 left-0 bg-brand rounded transition-[width] duration-700 ease-out motion-reduce:transition-none"
+            style={{ width: `${fillPct}%` }}
+          />
         </div>
         <div className="flex justify-between gap-1.5 relative">
           {roadmap.stages.map((s, i) => (
