@@ -9,16 +9,21 @@ import { cn } from '@/lib/utils'
 // root carries the `.portal` class).
 function counts(rm: Roadmap) {
   let total = 0
-  let done = 0
+  let done = 0 // истина ментора: status='done' = подтверждено
+  let pending = 0 // заявки студента на проверке
   for (const s of rm.stages) for (const t of s.tasks) {
     total += 1
     if (t.status === 'done') done += 1
+    else if (t.review_status === 'pending') pending += 1
   }
-  return { total, done, pct: total ? Math.round((done / total) * 100) : 0, stages: rm.stages.length }
+  // Одна правда с дорожкой этапов: «заполнено» = done + pending,
+  // метрика «выполнено» продолжает считать только подтверждённое ментором.
+  const pct = total ? Math.round(((done + pending) / total) * 100) : 0
+  return { total, done, pending, pct, stages: rm.stages.length }
 }
 
 export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string }> = ({ roadmap, className }) => {
-  const { total, done, pct, stages } = counts(roadmap)
+  const { total, done, pending, pct, stages } = counts(roadmap)
   return (
     <div
       className={cn(
@@ -62,6 +67,7 @@ export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string 
         <Metric value={String(stages)} label="этапов" />
         <Metric value={String(total)} label="задач" />
         <Metric value={String(done)} label="выполнено" />
+        {pending > 0 && <Metric value={String(pending)} label="на проверке" />}
         <Metric value={`${pct}%`} label="прогресс" />
       </div>
 

@@ -9,11 +9,25 @@ import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { PageShell } from '@/components/shared/PageShell'
 import { StatCard, EmptyState } from '@/components/ui'
+import {
+  ClaimCheckbox,
+  MentorComment,
+  useReviewLiveUpdates,
+  useTaskClaim,
+} from '@/components/portal/PortalRoadmap'
 
+// Одна правда с дорожкой и hero-карточкой roadmap: «заполнено» =
+// done (подтверждено ментором) + pending (заявка студента на проверке).
 function roadmapProgress(roadmaps: Roadmap[] | undefined) {
   const tasks = (roadmaps ?? []).flatMap((r) => r.stages.flatMap((s) => s.tasks))
   const done = tasks.filter((t) => t.status === 'done').length
-  return { done, total: tasks.length, pct: tasks.length ? Math.round((done / tasks.length) * 100) : 0 }
+  const pending = tasks.filter((t) => t.status !== 'done' && t.review_status === 'pending').length
+  return {
+    done,
+    pending,
+    total: tasks.length,
+    pct: tasks.length ? Math.round(((done + pending) / tasks.length) * 100) : 0,
+  }
 }
 
 function dueLabel(date: string | null) {
@@ -40,10 +54,17 @@ export const PortalHomePage: React.FC = () => {
   const { data: meetings = [] } = useQuery({ queryKey: ['portal', 'meetings'], queryFn: meetingsApi.myMeetings })
   const { data: profile } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
 
+  // Заявки о выполнении прямо с главной + live-вердикты ментора
+  const { claim, unclaim } = useTaskClaim()
+  useReviewLiveUpdates()
+
   const progress = roadmapProgress(roadmaps)
-  const openTasks = tasks.filter((t) => t.status !== 'done')
+  const notDone = tasks.filter((t) => t.status !== 'done')
+  // «Открыто» = задачи, требующие действия студента; заявленные ждут ментора
+  const openTasks = notDone.filter((t) => t.review_status !== 'pending')
+  const pendingCount = notDone.length - openTasks.length
   const overdue = openTasks.filter((t) => t.due_date && new Date(t.due_date) < new Date(new Date().toDateString())).length
-  const nextTasks = [...openTasks]
+  const nextTasks = [...notDone]
     .sort((a, b) => (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31'))
     .slice(0, 4)
   const upcoming = meetings
@@ -73,8 +94,24 @@ export const PortalHomePage: React.FC = () => {
 
       {/* Статистика */}
       <div className="mb-6 grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard colorPrefix="p" label="Roadmap" value={`${progress.pct}%`} sub={`${progress.done}/${progress.total} задач`} icon={<Map className="h-4 w-4" />} />
-        <StatCard colorPrefix="p" label="Открыто" value={String(openTasks.length)} sub="активных задач" icon={<CheckCircle2 className="h-4 w-4" />} />
+        <StatCard
+          colorPrefix="p"
+          label="Roadmap"
+          value={`${progress.pct}%`}
+          sub={
+            progress.pending > 0
+              ? `${progress.done} готово · ${progress.pending} на проверке`
+              : `${progress.done}/${progress.total} задач`
+          }
+          icon={<Map className="h-4 w-4" />}
+        />
+        <StatCard
+          colorPrefix="p"
+          label="Открыто"
+          value={String(openTasks.length)}
+          sub={pendingCount > 0 ? `ещё ${pendingCount} на проверке` : 'активных задач'}
+          icon={<CheckCircle2 className="h-4 w-4" />}
+        />
         <StatCard colorPrefix="p" label="Дедлайны" value={String(overdue)} sub={overdue > 0 ? 'требуют внимания' : 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={overdue > 0} />
         <StatCard colorPrefix="p" label="Программа" value={String(profile?.student?.intake_year ?? '—')} sub={profile?.student?.degree_level || 'профиль'} icon={<Trophy className="h-4 w-4" />} />
       </div>
@@ -105,20 +142,21 @@ export const PortalHomePage: React.FC = () => {
                     i < nextTasks.length - 1 ? 'mb-2.5' : ''
                   )}
                 >
-                  <span
-                    className="grid h-[22px] w-[22px] flex-none place-items-center rounded-ctl border-2"
-                    style={{
-                      borderColor: t.status === 'done' ? 'var(--p-accent)' : 'var(--p-muted2)',
-                      backgroundColor: t.status === 'done' ? 'var(--p-accent)' : 'transparent'
-                    }}
-                  >
-                    {t.status === 'done' && <CheckCircle2 className="h-3 w-3 text-black" />}
-                  </span>
+                  <ClaimCheckbox
+                    task={t}
+                    size="md"
+                    onClaim={() => claim.mutate(t.id)}
+                    onUnclaim={() => unclaim.mutate(t.id)}
+                  />
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-[13.5px] font-bold text-p-text">{t.title}</b>
                     <small className={cn('block text-[11.5px]', isOverdue(t) ? 'text-p-danger' : 'text-p-muted')}>
                       Этап: {t.stage_name} · дедлайн {dueLabel(t.due_date)}
+                      {t.review_status === 'pending' && ' · на проверке у ментора'}
                     </small>
+                    {t.review_status === 'returned' && t.review_comment && (
+                      <MentorComment comment={t.review_comment} />
+                    )}
                   </span>
                 </div>
               ))}
