@@ -42,6 +42,7 @@ const WorkspaceDashboardPage = React.lazy(() => import('@/pages/workspace/Worksp
 const WorkspaceStudentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceStudentsPage').then((m) => ({ default: m.WorkspaceStudentsPage })))
 const WorkspaceStudentDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceStudentDetailPage').then((m) => ({ default: m.WorkspaceStudentDetailPage })))
 const WorkspaceTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceTasksPage').then((m) => ({ default: m.WorkspaceTasksPage })))
+const WorkspaceReviewPage = React.lazy(() => import('@/pages/workspace/WorkspaceReviewPage').then((m) => ({ default: m.WorkspaceReviewPage })))
 const WorkspaceMeetingsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMeetingsPage').then((m) => ({ default: m.WorkspaceMeetingsPage })))
 const WorkspaceDocumentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceDocumentsPage').then((m) => ({ default: m.WorkspaceDocumentsPage })))
 const WorkspaceChatPage = React.lazy(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
@@ -487,6 +488,7 @@ function AppRoutes() {
       <Route path="/workspace/students/:studentId" element={<WorkspaceRoute><WorkspaceStudentDetailPage /></WorkspaceRoute>} />
       <Route path="/workspace/roadmap" element={<WorkspaceRoute><WorkspaceRoadmapPage /></WorkspaceRoute>} />
       <Route path="/workspace/tasks" element={<WorkspaceRoute><WorkspaceTasksPage /></WorkspaceRoute>} />
+      <Route path="/workspace/review" element={<WorkspaceRoute><WorkspaceReviewPage /></WorkspaceRoute>} />
       <Route path="/workspace/questionnaires" element={<WorkspaceRoute><WorkspaceQuestionnairesPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings" element={<WorkspaceRoute><WorkspaceMeetingsPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings/session/:id" element={<WorkspaceRoute><NoteSessionPage /></WorkspaceRoute>} />

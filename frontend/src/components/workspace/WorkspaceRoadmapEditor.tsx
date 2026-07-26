@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight, ClipboardList, Clock, FileUp, Plus, Video, X } from 'lucide-react'
 import {
   roadmapApi,
@@ -8,7 +9,17 @@ import {
   ItemStatus,
 } from '@/api/roadmap'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import { PriorityPill, StatusPill } from '@/components/ui'
+import { AppButton, Pill, PriorityPill, StatusPill } from '@/components/ui'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/primitives/dialog'
+import { Textarea } from '@/components/ui/primitives/textarea'
+import { toast } from '@/hooks/use-toast'
 import { cn, formatDate } from '@/lib/utils'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
@@ -39,8 +50,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
   onChanged: (updated: Roadmap) => void
 }> = ({ roadmap, canManage = true, onChanged }) => {
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
+  const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [qTask, setQTask] = useState<{ id: string; title: string } | null>(null)
+  const [returnTask, setReturnTask] = useState<RoadmapTask | null>(null)
+  const [returnComment, setReturnComment] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     const current =
@@ -62,6 +76,37 @@ export const WorkspaceRoadmapEditor: React.FC<{
 
   const toggleTask = (t: RoadmapTask) =>
     run(() => roadmapApi.updateTask(t.id, { status: t.status === 'done' ? 'planned' : 'done' }))
+
+  // Ревью заявки студента (T3/T4). API возвращает полный обновлённый Roadmap —
+  // тот же контракт, что у остальных мутаций редактора. 409 (гонка со снятием
+  // заявки или чужим ревью) — нейтральный toast + перечитываем правду.
+  const reviewTask = async (t: RoadmapTask, action: 'approve' | 'return', comment?: string) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const updated = await roadmapApi.reviewTask(t.id, comment ? { action, comment } : { action })
+      setReturnTask(null)
+      onChanged(updated)
+      toast({ title: action === 'approve' ? 'Задача подтверждена' : 'Задача возвращена студенту' })
+    } catch (err) {
+      setReturnTask(null)
+      const status = (err as { response?: { status?: number } })?.response?.status
+      toast({
+        title: status === 409 ? 'Задача уже разобрана' : 'Не удалось выполнить ревью',
+        variant: 'destructive',
+      })
+      try {
+        onChanged(await roadmapApi.getRoadmap(roadmap.id))
+      } catch {
+        /* следующий рефетч восстановит состояние */
+      }
+    } finally {
+      setBusy(false)
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'review-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'review-count'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] })
+    }
+  }
   const toggleSubtask = (subId: string, isDone: boolean) =>
     run(() => roadmapApi.updateSubtask(subId, { is_done: !isDone }))
   const cycleStage = (s: RoadmapStage) =>
@@ -164,6 +209,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
                       onRemove={() => removeTask(t)}
                       onRemoveSub={removeSubtask}
                       onOpenQuestionnaire={() => setQTask({ id: t.id, title: t.title })}
+                      onApproveReview={() => reviewTask(t, 'approve')}
+                      onReturnReview={() => {
+                        setReturnComment('')
+                        setReturnTask(t)
+                      }}
                     />
                   ))}
                   {s.tasks.length === 0 && (
@@ -194,6 +244,35 @@ export const WorkspaceRoadmapEditor: React.FC<{
         onClose={() => setQTask(null)}
       />
     )}
+    <Dialog open={Boolean(returnTask)} onOpenChange={(o) => !o && setReturnTask(null)}>
+      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Вернуть задачу студенту</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            «{returnTask?.title}». Комментарий обязателен — студент увидит его прямо на карточке задачи.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={returnComment}
+          onChange={(e) => setReturnComment(e.target.value)}
+          placeholder="Что доработать и почему"
+          className="min-h-[110px] border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+        />
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setReturnTask(null)}>
+            Отмена
+          </AppButton>
+          <AppButton
+            colorPrefix="w"
+            size="sm"
+            disabled={!returnComment.trim() || busy}
+            onClick={() => returnTask && reviewTask(returnTask, 'return', returnComment.trim())}
+          >
+            Вернуть с комментарием
+          </AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   )
 }
@@ -231,7 +310,9 @@ const TaskCard: React.FC<{
   onRemove: () => void
   onRemoveSub: (id: string) => void
   onOpenQuestionnaire?: () => void
-}> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire }) => {
+  onApproveReview?: () => void
+  onReturnReview?: () => void
+}> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
   const isDone = task.status === 'done'
   return (
     <div className="rounded-[13px] border border-w-line bg-w-panel2 transition hover:translate-x-[3px] hover:border-w-accentDim">
@@ -259,7 +340,36 @@ const TaskCard: React.FC<{
               <span className="font-bold text-w-ink">Результат:</span> {task.expected_result}
             </div>
           )}
+          {task.review_status === 'returned' && task.review_comment && (
+            <div className="mt-1 text-xs text-w-muted">
+              <span className="font-bold text-w-ink">Комментарий ментора:</span> {task.review_comment}
+            </div>
+          )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
+            {task.review_status === 'pending' && (
+              <Pill colorPrefix="w" tone="accent">ждёт проверки</Pill>
+            )}
+            {task.review_status === 'returned' && (
+              <Pill colorPrefix="w" tone="neutral" className="bg-w-danger/15 text-w-danger">возвращена</Pill>
+            )}
+            {task.review_status === 'pending' && canManage && (
+              <>
+                <button
+                  type="button"
+                  onClick={onApproveReview}
+                  className="inline-flex items-center gap-1 rounded-full border border-w-good/50 px-2 py-0.5 text-2xs font-bold text-w-good transition hover:bg-w-good/10"
+                >
+                  <Check className="h-3 w-3" strokeWidth={3} /> Подтвердить
+                </button>
+                <button
+                  type="button"
+                  onClick={onReturnReview}
+                  className="inline-flex items-center gap-1 rounded-full border border-w-line px-2 py-0.5 text-2xs font-bold text-w-muted transition hover:border-w-danger/50 hover:text-w-danger"
+                >
+                  Вернуть
+                </button>
+              </>
+            )}
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
             {task.audience === 'coordinator' && <span className="text-w-muted2">координатор</span>}
             {task.needs_document && (
