@@ -153,6 +153,10 @@ class RoadmapTaskOut(BaseModel):
     priority: str
     audience: str
     status: str
+    review_status: str = "none"
+    completed_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    review_comment: str | None = None
     due_date: date | None = None
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
@@ -204,9 +208,32 @@ class TaskFlatOut(BaseModel):
     priority: str
     audience: str
     status: str
+    review_status: str = "none"
+    completed_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    review_comment: str | None = None
     due_date: date | None = None
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
+
+
+# ---------- Student claim / mentor review ----------
+class TaskReviewIn(BaseModel):
+    action: str  # approve | return
+    comment: str | None = None
+
+
+class ClaimProgressOut(BaseModel):
+    """Прогресс roadmap после заявки — чтобы портал отреагировал в кадре клика."""
+    done: int
+    pending: int
+    total: int
+
+
+class TaskClaimOut(BaseModel):
+    task: TaskFlatOut
+    progress: ClaimProgressOut
+    stage_claimed: bool  # все задачи этапа done или pending — повод для нажима/анимации
 
 
 # ---------- Task / subtask / stage mutations ----------

@@ -855,11 +855,14 @@ async def workspace_roadmap_tasks(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
     status: str | None = Query(default=None, pattern="^(open|done)$"),
+    review_status: str | None = Query(default=None, pattern="^(none|pending|approved|returned)(,(none|pending|approved|returned))*$"),
 ):
     """Flattened live roadmap tasks across the caller's workspace scope.
 
     Powers the unified "Задачи" feed so the mentor sees the actual student-facing
     roadmap work in one place — not only the internal StudentTask list.
+    review_status (можно списком через запятую) питает очередь проверки:
+    ?review_status=pending — заявки студентов, ждущие ревью.
     """
     _require_staff(current_user)
     students = await _students_for_workspace(
@@ -893,6 +896,8 @@ async def workspace_roadmap_tasks(
                     continue
                 if status == "done" and not is_done:
                     continue
+                if review_status and task.review_status.value not in review_status.split(","):
+                    continue
                 items.append(
                     {
                         "id": str(task.id),
@@ -913,6 +918,10 @@ async def workspace_roadmap_tasks(
                         "subtasks_total": len(task.subtasks),
                         "subtasks_done": len([st for st in task.subtasks if st.is_done]),
                         "position": task.position,
+                        "review_status": task.review_status.value,
+                        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                        "reviewed_at": task.reviewed_at.isoformat() if task.reviewed_at else None,
+                        "review_comment": task.review_comment,
                     }
                 )
     items.sort(key=lambda it: (it["status"] == "done", it["due_date"] or "9999-12-31", it["student_name"]))
