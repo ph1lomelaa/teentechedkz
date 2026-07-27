@@ -79,4 +79,4 @@ UI_REDESIGN_SPEC.md
 monitoring/dashboards/
 # Метрики, которые пишут скрипты для node_exporter (textfile collector)
 monitoring/textfile/
-
+NEW_SERVER_SETUP.md
