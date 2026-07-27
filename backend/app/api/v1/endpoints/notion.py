@@ -213,7 +213,7 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in _MANAGE_ROLES:
+    if current_user.role != UserRole.admin:
         raise HTTPException(status_code=403, detail="Недостаточно прав для запуска синхронизации")
     try:
         counters = await notion_sync.run_sync(db)

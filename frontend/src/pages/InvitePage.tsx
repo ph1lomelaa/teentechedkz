@@ -2,15 +2,18 @@ import React, { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { inviteApi, type InviteInfo } from '@/api/invite'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { useAuth } from '@/contexts/AuthContext'
+import { getDefaultPath } from '@/lib/authRouting'
 
 /**
  * Публичная страница приёма приглашения: /invite/:token
  * Ученик переходит по одноразовой ссылке, подтверждает и задаёт постоянный
- * пароль. После успеха ссылка сгорает — дальше вход по обычной форме.
+ * пароль. Приём сразу логинит его — дальше вход вручную не нужен.
  */
 export const InvitePage: React.FC = () => {
   const { token = '' } = useParams()
   const navigate = useNavigate()
+  const { setSession } = useAuth()
 
   const [checking, setChecking] = useState(true)
   const [info, setInfo] = useState<InviteInfo | null>(null)
@@ -51,8 +54,10 @@ export const InvitePage: React.FC = () => {
     }
     setSubmitting(true)
     try {
-      await inviteApi.accept(token, next)
+      const result = await inviteApi.accept(token, next)
+      setSession(result.user, result.access_token)
       setDone(true)
+      navigate(getDefaultPath(result.user.role), { replace: true })
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } }).response?.status
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
@@ -80,7 +85,7 @@ export const InvitePage: React.FC = () => {
   const description = checking
     ? 'Это займёт всего несколько секунд.'
     : done
-      ? 'Пароль установлен. Теперь можно войти в личный кабинет.'
+      ? 'Пароль установлен. Открываем ваш кабинет…'
       : info?.valid
         ? `${info.name ? `${info.name}, ` : ''}придумайте постоянный пароль для входа${info.email ? ` — ${info.email}` : ''}.`
         : 'Ссылка устарела или уже использована. Попросите менеджера прислать новую.'
@@ -88,15 +93,7 @@ export const InvitePage: React.FC = () => {
   return (
     <AuthShell eyebrow="Активация аккаунта" title={title} description={description}>
         {checking ? null : done ? (
-          <div>
-            <button
-              type="button"
-              onClick={() => navigate('/login', { replace: true })}
-              className="auth-primary-button h-12 w-full text-[13px] uppercase tracking-[0.14em]"
-            >
-              Войти в кабинет
-            </button>
-          </div>
+          <div className="text-center text-sm text-white/45">Открываем кабинет…</div>
         ) : info?.valid ? (
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (

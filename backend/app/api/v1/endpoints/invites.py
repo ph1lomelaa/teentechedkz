@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,7 @@ from app.models.user import User
 from app.services import rate_limit
 from app.services.audit import record_audit
 from app.services.invites import accept_invite, resolve_valid_invite
+from app.services.sessions import issue_session
 
 router = APIRouter(prefix="/public/invite", tags=["public"])
 
@@ -53,6 +54,7 @@ async def accept(
     token: str,
     body: AcceptInviteRequest,
     request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await rate_limit.enforce(request, bucket="invite", limit=30, window_seconds=300)
@@ -69,6 +71,9 @@ async def accept(
         )
 
     user = await accept_invite(db, invite, body.password)
+    # Sets the password and immediately logs the user in — no second manual
+    # login screen right after they just typed a password (п.4).
+    session = await issue_session(db, response, user)
     record_audit(
         db,
         action=AuditAction.invite_accepted,
@@ -79,7 +84,7 @@ async def accept(
         request=request,
     )
     await db.commit()
-    return {"message": "Пароль установлен. Теперь можно войти.", "email": user.email}
+    return {"message": "Пароль установлен.", **session}
 
 
 @router.post("/{code}/accept-code")
@@ -87,6 +92,7 @@ async def accept_by_code(
     code: str,
     body: AcceptInviteRequest,
     request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Accept an invite using a short activation code instead of a URL token.
@@ -105,6 +111,7 @@ async def accept_by_code(
         )
 
     user = await accept_invite(db, invite, body.password)
+    session = await issue_session(db, response, user)
     record_audit(
         db,
         action=AuditAction.invite_accepted,
@@ -116,4 +123,4 @@ async def accept_by_code(
         meta={"method": "code"},
     )
     await db.commit()
-    return {"message": "Пароль установлен. Теперь можно войти.", "email": user.email}
+    return {"message": "Пароль установлен.", **session}

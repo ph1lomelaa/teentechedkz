@@ -48,6 +48,16 @@ export const setAccessToken = (token: string | null) => {
 
 export const getAccessToken = () => accessToken
 
+// A role change made elsewhere (admin editing this user's role) leaves the
+// session technically alive but the client's cached role stale — the next
+// request that now fails with a role-check 403 is our only signal to go
+// re-fetch who this user actually is. AuthProvider registers the handler.
+type ForbiddenHandler = () => void
+let onForbidden: ForbiddenHandler | null = null
+export const setForbiddenHandler = (fn: ForbiddenHandler | null) => {
+  onForbidden = fn
+}
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (accessToken) {
@@ -109,6 +119,13 @@ apiClient.interceptors.response.use(
       } finally {
         isRefreshing = false
       }
+    }
+
+    if (
+      error.response?.status === 403 &&
+      error.response.headers?.['x-error-code'] === 'FORBIDDEN'
+    ) {
+      onForbidden?.()
     }
 
     return Promise.reject(error)

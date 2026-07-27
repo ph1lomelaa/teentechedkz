@@ -76,7 +76,7 @@ _SYNC_JOB_KIND = "knowledge_sync"
 
 @router.post("/sync/notion", status_code=202)
 async def start_notion_knowledge_sync(current_user: CurrentUser):
-    if current_user.role not in _MANAGE_ROLES:
+    if current_user.role != UserRole.admin:
         raise _FORBIDDEN
     running = await background_jobs.get_running_job(_SYNC_JOB_KIND)
     if running:
@@ -100,7 +100,7 @@ async def start_notion_knowledge_sync(current_user: CurrentUser):
 
 @router.get("/sync/notion/{job_id}")
 async def get_notion_knowledge_sync_job(job_id: str, current_user: CurrentUser):
-    if current_user.role not in _MANAGE_ROLES:
+    if current_user.role != UserRole.admin:
         raise _FORBIDDEN
     job = await background_jobs.get_job(_SYNC_JOB_KIND, job_id)
     if not job:

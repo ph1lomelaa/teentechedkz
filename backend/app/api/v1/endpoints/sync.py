@@ -32,6 +32,11 @@ def _require_manager(user) -> None:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
 
+def _require_admin(user) -> None:
+    if user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+
 def _submission_to_dict(s: IntakeSubmission) -> dict:
     return {
         "id": str(s.id),
@@ -55,7 +60,7 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    _require_admin(current_user)
     try:
         counters = await sheets_sync.run_sync(db)
     except RuntimeError as e:

@@ -13,7 +13,7 @@ export const KnowledgeBasePage: React.FC = () => {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const canSync = user?.role === 'admin' || user?.role === 'mzk_manager'
+  const canSync = user?.role === 'admin'
   const [openId, setOpenId] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [search, setSearch] = useState('')

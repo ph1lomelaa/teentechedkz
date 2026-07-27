@@ -8,9 +8,10 @@ import uuid
 
 from app.core.database import get_db
 from app.core.security import hash_password
-from app.core.deps import CurrentUser, AdminOnly, AdminOrMZK
+from app.core.deps import CurrentUser, AdminOnly
 from app.models.user import User, UserRole
 from app.services.invites import issue_invite, invite_url
+from app.services.sessions import revoke_all_sessions
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -39,7 +40,7 @@ async def list_users(
     return [_user_to_dict(u) for u in users]
 
 
-@router.post("", dependencies=[AdminOrMZK])
+@router.post("", dependencies=[AdminOnly])
 async def create_user(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -74,7 +75,7 @@ async def create_user(
     return _user_to_dict(user)
 
 
-@router.post("/invite", dependencies=[AdminOrMZK])
+@router.post("/invite", dependencies=[AdminOnly])
 async def create_user_invite(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -143,7 +144,7 @@ async def get_user(
     return _user_to_dict(user)
 
 
-@router.patch("/{user_id}", dependencies=[AdminOrMZK])
+@router.patch("/{user_id}", dependencies=[AdminOnly])
 async def update_user(
     user_id: uuid.UUID,
     body: dict,
@@ -168,7 +169,11 @@ async def update_user(
             new_role = UserRole(body["role"])
         except ValueError:
             raise HTTPException(status_code=422, detail="Неверная роль")
-        user.role = new_role
+        if new_role != user.role:
+            user.role = new_role
+            # A role change invalidates whatever the client believes it can do —
+            # force a fresh login so the session picks up the new permissions.
+            await revoke_all_sessions(db, user.id)
     if "phone" in body:
         user.phone = body["phone"]
     if "telegram_username" in body:
@@ -189,7 +194,7 @@ async def update_user(
     return _user_to_dict(user)
 
 
-@router.delete("/{user_id}", dependencies=[AdminOrMZK])
+@router.delete("/{user_id}", dependencies=[AdminOnly])
 async def deactivate_user(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],

@@ -16,34 +16,23 @@ from app.models.user import User
 from app.models.user import RefreshToken
 from app.models.audit_log import AuditAction
 from app.services.audit import record_audit
-from app.services.sessions import revoke_all_sessions
+from app.services.sessions import (
+    revoke_all_sessions,
+    issue_session,
+    COOKIE_NAME,
+    hash_token as _hash_token,
+    set_refresh_cookie as _set_refresh_cookie,
+)
 from app.services import rate_limit
 from app.services.user_emails import resolve_user_by_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-COOKIE_NAME = "refresh_token"
 # Two tabs/requests racing to refresh around the same time both hold the same
 # (about-to-rotate) cookie; the loser must not be logged out just because it
 # lost the race. Within this window after rotation, a reused token is treated
 # as a benign replay and answered with the token that superseded it.
 REFRESH_REUSE_GRACE_SECONDS = 20
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def _set_refresh_cookie(response: Response, token: str) -> None:
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        httponly=True,
-        secure=settings.ENVIRONMENT != "development",
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
-        path="/api/v1/auth",
-    )
 
 
 @router.post("/login")
@@ -99,15 +88,7 @@ async def login(
 
     user.last_login_at = datetime.now(timezone.utc)
 
-    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    refresh_token_raw = create_refresh_token()
-
-    rt = RefreshToken(
-        user_id=user.id,
-        token_hash=_hash_token(refresh_token_raw),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    )
-    db.add(rt)
+    session = await issue_session(db, response, user)
     record_audit(
         db,
         action=AuditAction.login_success,
@@ -121,20 +102,7 @@ async def login(
     # fingered a few times isn't held back on the next login.
     await rate_limit.reset(bucket="login_email", subject=email)
 
-    _set_refresh_cookie(response, refresh_token_raw)
-
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        "user": {
-            "id": str(user.id),
-            "name": user.name,
-            "email": user.email,
-            "role": user.role.value,
-            "must_change_password": user.must_change_password,
-        },
-    }
+    return session
 
 
 @router.post("/refresh")

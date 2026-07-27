@@ -1,22 +1,8 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { UserRole } from '@/types'
 import { AuthShell } from '@/components/auth/AuthShell'
-
-function getDefaultPath(role: UserRole): string {
-  switch (role) {
-    case 'admin':
-    case 'mzk_manager':
-      return '/dashboard'
-    case 'mentor':
-      return '/my-students'
-    case 'student':
-      return '/portal'
-    default:
-      return '/dashboard'
-  }
-}
+import { getDefaultPath } from '@/lib/authRouting'
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth()
@@ -39,10 +25,14 @@ export const LoginPage: React.FC = () => {
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
-      if (axiosErr.response?.status === 401) {
-        setError('Неверный email или пароль')
-      } else if (axiosErr.response?.data?.detail) {
+      // Backend already distinguishes "wrong password" from "account pending
+      // approval" with a specific detail message — don't paper over it with a
+      // generic 401 message, or a mentor waiting on approval reads it as
+      // their password being wrong.
+      if (axiosErr.response?.data?.detail) {
         setError(axiosErr.response.data.detail)
+      } else if (axiosErr.response?.status === 401) {
+        setError('Неверный email или пароль')
       } else {
         setError('Ошибка подключения. Попробуйте позже.')
       }

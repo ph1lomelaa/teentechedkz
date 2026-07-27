@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ImportJobsProvider } from '@/contexts/ImportJobsContext'
 import { AppLayout } from '@/components/shared/Layout'
 import { Toaster } from '@/components/ui/primitives/toaster'
+import { getDefaultPath } from '@/lib/authRouting'
 
 import { LandingPage } from '@/pages/LandingPage'
 import { StudentLandingPage } from '@/pages/StudentLandingPage'
@@ -146,14 +147,23 @@ class AppErrorBoundary extends React.Component<
   }
 }
 
-function RootRedirect() {
+// Shared by every gated route below: loading state, no session, and the
+// forced first-run password change all redirect the same way regardless of
+// which route triggered the check. Returns null once the caller is clear to
+// apply its own (route-specific) role check.
+function useBaseAuthGuard(): React.ReactElement | null {
   const { user, isLoading } = useAuth()
   if (isLoading) return <AppLoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   if (user.must_change_password) return <Navigate to="/change-password" replace />
-  if (user.role === 'student') return <Navigate to="/portal" replace />
-  if (user.role === 'admin' || user.role === 'mzk_manager') return <Navigate to="/dashboard" replace />
-  return <Navigate to="/my-students" replace />
+  return null
+}
+
+function RootRedirect() {
+  const guard = useBaseAuthGuard()
+  const { user } = useAuth()
+  if (guard) return guard
+  return <Navigate to={getDefaultPath(user!.role)} replace />
 }
 
 function HomeRoute() {
@@ -170,32 +180,29 @@ function ProtectedRoute({
   children: React.ReactNode
   roles?: string[]
 }) {
-  const { user, isLoading } = useAuth()
-  if (isLoading) return <AppLoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  if (user.must_change_password) return <Navigate to="/change-password" replace />
+  const guard = useBaseAuthGuard()
+  const { user } = useAuth()
+  if (guard) return guard
   // Students live in the portal, never the CRM back-office.
-  if (user.role === 'student') return <Navigate to="/portal" replace />
-  if (roles && !roles.includes(user.role)) return <Navigate to="/app" replace />
+  if (user!.role === 'student') return <Navigate to="/portal" replace />
+  if (roles && !roles.includes(user!.role)) return <Navigate to="/app" replace />
   return <>{children}</>
 }
 
 // Portal routes: student-only, wrapped in the yellow-accented cabinet layout.
 function StudentRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth()
-  if (isLoading) return <AppLoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  if (user.must_change_password) return <Navigate to="/change-password" replace />
-  if (user.role !== 'student') return <Navigate to="/app" replace />
+  const guard = useBaseAuthGuard()
+  const { user } = useAuth()
+  if (guard) return guard
+  if (user!.role !== 'student') return <Navigate to="/app" replace />
   return <StudentPortalLayout>{children}</StudentPortalLayout>
 }
 
 function WorkspaceRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth()
-  if (isLoading) return <AppLoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  if (user.must_change_password) return <Navigate to="/change-password" replace />
-  if (!['admin', 'mzk_manager', 'mentor'].includes(user.role)) return <Navigate to="/app" replace />
+  const guard = useBaseAuthGuard()
+  const { user } = useAuth()
+  if (guard) return guard
+  if (!['admin', 'mzk_manager', 'mentor'].includes(user!.role)) return <Navigate to="/app" replace />
   return <WorkspaceLayout>{children}</WorkspaceLayout>
 }
 
@@ -346,7 +353,7 @@ function AppRoutes() {
       <Route
         path="/statistics"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute roles={['admin']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <StatisticsPage />
@@ -359,7 +366,7 @@ function AppRoutes() {
       <Route
         path="/settings/users"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute roles={['admin']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <SettingsUsersPage />
@@ -415,7 +422,7 @@ function AppRoutes() {
       <Route
         path="/status-inbox"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <StatusInboxPage />
@@ -428,7 +435,7 @@ function AppRoutes() {
       <Route
         path="/roadmap-templates"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TemplatesPage />
@@ -454,7 +461,7 @@ function AppRoutes() {
       <Route
         path="/universities"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <UniversitiesPage />

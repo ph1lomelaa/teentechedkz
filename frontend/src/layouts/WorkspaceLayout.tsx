@@ -40,7 +40,7 @@ interface NavGroup {
   items: NavItem[]
 }
 
-function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavGroup[] {
+function getNavGroups(studentsNavLabel: string, canReturnToCrm: boolean): NavGroup[] {
   const baseGroups: NavGroup[] = [
     {
       group: 'МОИ ДАННЫЕ',
@@ -77,7 +77,7 @@ function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavG
     },
   ]
 
-  if (canPreviewMentor) {
+  if (canReturnToCrm) {
     baseGroups.push({
       group: 'СИСТЕМА',
       items: [
@@ -96,11 +96,17 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const { theme } = useTheme()
   const mentorId = searchParams.get('mentor_id') || ''
+  // Browsing a specific mentor's workspace (mentor_id filter + preview banner)
+  // is an admin/mzk-only capability — only they can look at *someone else's* cabinet.
   const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager'
+  // Getting back to the CRM shell, on the other hand, is available to everyone
+  // who has CRM access at all (admin, mzk_manager, and now mentor) — otherwise
+  // a mentor who opens their own workspace cabinet has no way back.
+  const canReturnToCrm = canPreviewMentor || user?.role === 'mentor'
   const isPreview = Boolean(mentorId)
   const studentsNavLabel = isPreview ? 'Студенты ментора' : 'Мои студенты'
 
-  const navGroups = getNavGroups(studentsNavLabel, canPreviewMentor)
+  const navGroups = getNavGroups(studentsNavLabel, canReturnToCrm)
 
   const findActiveNavItem = () => {
     for (const group of navGroups) {
@@ -141,7 +147,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   )
 
   const workspaceTo = (path: string) => `${path}${location.search}`
-  const brandDestination = canPreviewMentor ? '/dashboard' : '/workspace'
+  const brandDestination = canReturnToCrm ? '/dashboard' : '/workspace'
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -163,7 +169,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         <Link
           to={brandDestination}
           className="flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent"
-          title={canPreviewMentor ? 'Вернуться в CRM' : 'На главную кабинета'}
+          title={canReturnToCrm ? 'Вернуться в CRM' : 'На главную кабинета'}
         >
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-w-accent">
             <GraduationCap className="h-[22px] w-[22px] text-black" strokeWidth={2.2} />

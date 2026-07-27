@@ -777,8 +777,9 @@ export const StudentsListPage: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { canAccess, hasRole } = useAuth()
-  const isManager = hasRole('admin', 'mzk_manager')
-  const canRunSync = isManager
+  const isManager = hasRole('admin', 'mzk_manager', 'mentor')
+  // Sync/import stays admin-only even though the rest of the CRM is now shared.
+  const canRunSync = hasRole('admin')
   const [searchParams, setSearchParams] = useSearchParams()
   const initialScope = searchParams.get('scope')
   const [search, setSearch] = useState('')

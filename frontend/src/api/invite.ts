@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { User } from '../types'
 
 export interface InviteInfo {
   valid: boolean
@@ -8,7 +9,10 @@ export interface InviteInfo {
 
 export interface AcceptInviteResponse {
   message: string
-  email: string
+  access_token: string
+  token_type: string
+  expires_in: number
+  user: User
 }
 
 // Public (unauthenticated) invite flow — either URL token or short code.

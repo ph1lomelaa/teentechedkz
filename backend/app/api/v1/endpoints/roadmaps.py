@@ -95,6 +95,11 @@ def _assert_template_admin(user) -> None:
         raise _FORBIDDEN
 
 
+def _assert_import_admin(user) -> None:
+    if user.role != UserRole.admin:
+        raise _FORBIDDEN
+
+
 _ROADMAP_LOADER = (
     selectinload(Roadmap.stages)
     .selectinload(Stage.tasks)
@@ -160,7 +165,7 @@ async def create_template(body: TemplateCreate, current_user: CurrentUser, db: A
 
 @router.post("/roadmap-templates/import/notion", status_code=202)
 async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_user: CurrentUser):
-    _assert_template_admin(current_user)
+    _assert_import_admin(current_user)
     running = await background_jobs.get_running_job(_IMPORT_JOB_KIND)
     if running:
         raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": str(running.id)})
@@ -217,7 +222,7 @@ async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_
 
 @router.get("/roadmap-templates/import/notion/{job_id}")
 async def get_notion_roadmap_import_job(job_id: str, current_user: CurrentUser):
-    _assert_template_admin(current_user)
+    _assert_import_admin(current_user)
     job = await background_jobs.get_job(_IMPORT_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND
@@ -226,7 +231,7 @@ async def get_notion_roadmap_import_job(job_id: str, current_user: CurrentUser):
 
 @router.get("/roadmap-templates/import/notion")
 async def list_notion_roadmap_import_jobs(current_user: CurrentUser):
-    _assert_template_admin(current_user)
+    _assert_import_admin(current_user)
     jobs = await background_jobs.list_jobs(_IMPORT_JOB_KIND, limit=10)
     return [background_jobs.serialize(job) for job in jobs]
 

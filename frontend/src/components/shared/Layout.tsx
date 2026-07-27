@@ -36,7 +36,10 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const adminNavGroups: NavGroup[] = [
+// Admin, mzk_manager and mentor all see the same CRM surface — the only
+// exceptions (Статистика, Настройки, and the import/sync actions living
+// inside individual pages) stay admin-only, appended below for admin alone.
+const baseNavGroups: NavGroup[] = [
   {
     group: 'МОИ ДАННЫЕ',
     items: [
@@ -69,91 +72,25 @@ const adminNavGroups: NavGroup[] = [
   {
     group: 'АДМИНИСТРАЦИЯ',
     items: [
-      { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
       { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
       { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
-      { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
     ],
   },
 ]
 
-const mzkManagerNavGroups: NavGroup[] = [
-  {
-    group: 'МОИ ДАННЫЕ',
-    items: [
-      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'БАЗА ДАННЫХ',
-    items: [
-      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
-      { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'РАБОТА',
-    items: [
-      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'СПРАВОЧНИКИ',
-    items: [
-      { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
-      { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
-      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'АДМИНИСТРАЦИЯ',
-    items: [
-      { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
-      { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
-      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
-      { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
-    ],
-  },
-]
-
-const mentorNavGroups: NavGroup[] = [
-  {
-    group: 'МОИ ДАННЫЕ',
-    items: [
-      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'БАЗА ДАННЫХ',
-    items: [
-      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'РАБОТА',
-    items: [
-      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-    ],
-  },
-  {
-    group: 'СПРАВОЧНИКИ',
-    items: [
-      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
-    ],
-  },
+const ADMIN_ONLY_ITEMS: NavItem[] = [
+  { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
+  { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
 ]
 
 function getNavGroups(role: string): NavGroup[] {
-  switch (role) {
-    case 'admin': return adminNavGroups
-    case 'mzk_manager': return mzkManagerNavGroups
-    case 'mentor': return mentorNavGroups
-    default: return []
-  }
+  if (role !== 'admin' && role !== 'mzk_manager' && role !== 'mentor') return []
+  if (role !== 'admin') return baseNavGroups
+  return baseNavGroups.map((group) =>
+    group.group === 'АДМИНИСТРАЦИЯ'
+      ? { ...group, items: [...group.items, ...ADMIN_ONLY_ITEMS] }
+      : group
+  )
 }
 
 function getBreadcrumb(pathname: string): string {

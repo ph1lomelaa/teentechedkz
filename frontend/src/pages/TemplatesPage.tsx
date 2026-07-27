@@ -26,6 +26,7 @@ import {
 } from '@/api/roadmap'
 import { PageHeader } from '@/components/ui'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 const PRIORITIES: { value: Priority; label: string }[] = [
   { value: 'required', label: 'Обязательно' },
@@ -57,6 +58,8 @@ export const TemplatesPage: React.FC = () => {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
+  const { hasRole } = useAuth()
+  const canImport = hasRole('admin')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [only, setOnly] = useState('')
   const {
@@ -144,6 +147,7 @@ export const TemplatesPage: React.FC = () => {
         description="Создание, импорт и настройка шаблонов поступления."
       />
 
+      {canImport && (
       <div className="mb-6 rounded-card border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -241,6 +245,7 @@ export const TemplatesPage: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="mb-6 rounded-card border border-border bg-card p-4">
         <h2 className="text-sm font-semibold text-p-text mb-3">Новый шаблон</h2>
