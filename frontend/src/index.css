@@ -876,4 +876,31 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   .anim-check-pop { animation: tte-check-pop 0.25s ease-out both; }
   .anim-double-check { animation: tte-double-check 0.35s ease-out both; }
   .anim-pending-glow { animation: tte-pending-glow 2s ease-in-out infinite; }
+
+  /* Появление сменившегося блока состояния (панель этапа, контент вкладки) —
+     тот же язык, что page-level fade-in, но мягче и заметнее. */
+  @keyframes tte-view-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .anim-view-in { animation: tte-view-in 0.3s ease both; }
+
+  /* Длительность кроссфейда View Transitions (перегруппировки списков). */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.35s;
+  }
+}
+
+/* Плавное раскрытие/сворачивание (сабтаски, детали задачи): grid-rows 0fr→1fr.
+   Вне media-блока: при reduced-motion transition просто мгновенный. */
+.expandable {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+}
+.expandable[data-open='true'] { grid-template-rows: 1fr; }
+.expandable > * { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .expandable { transition: none; }
 }
