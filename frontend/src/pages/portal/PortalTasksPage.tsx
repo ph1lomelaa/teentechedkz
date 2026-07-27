@@ -87,10 +87,9 @@ export const PortalTasksPage: React.FC = () => {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />
           <input
             value={search}
-            onChange={(e) => {
-              const value = e.target.value
-              withViewTransition(() => setSearch(value))
-            }}
+            // Клавиатурный ввод — БЕЗ view transition: снапшот страницы на каждую
+            // букву тормозит набор; фильтрация и так мгновенная.
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Поиск по названию..."
             className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 transition focus:border-p-accent-dim focus:outline-none"
           />
