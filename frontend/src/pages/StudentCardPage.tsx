@@ -828,64 +828,68 @@ export const StudentCardPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-p-line pb-6">
-        <Link to="/students" className="flex items-center text-p-muted hover:text-black text-sm transition-colors">
+      <div className="mb-6 border-b border-p-line pb-6">
+        <Link to="/students" className="mb-3 inline-flex items-center text-p-muted hover:text-black text-sm transition-colors">
           <ChevronLeft className="w-4 h-4 mr-1" />
           Назад
         </Link>
-        <div className="flex-1 min-w-[240px]">
-          <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Карточка студента</div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text md:text-4xl">{student.full_name}</h1>
-            {student.is_archived && (
-              <span className="text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
-                Архивирован
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="min-w-0">
+            <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Карточка студента</div>
+            <h1 className="text-balance break-words font-display text-3xl font-black leading-tight tracking-[-0.01em] text-p-text md:text-4xl">{student.full_name}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {student.is_archived && (
+                <span className="text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
+                  Архивирован
+                </span>
+              )}
+              <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                {DEGREE_LEVEL_LABELS[student.degree_level]}
               </span>
+              {student.pipeline_status && (
+                <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                  {PIPELINE_STATUS_LABELS[student.pipeline_status]}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={student.is_mine ? 'outline' : 'default'}
+              size="sm"
+              className="h-10 px-4"
+              disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
+              onClick={() => {
+                if (student.is_mine) unassignSelfMutation.mutate()
+                else assignSelfMutation.mutate()
+              }}
+            >
+              {student.is_mine ? 'Мой студент' : 'Взять в работу'}
+            </Button>
+            <Button variant="outline" size="sm" className="h-10 px-4" onClick={handleExportStudent}>
+              <Download className="w-4 h-4 mr-2" />
+              Экспорт
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-10 px-4">
+              <Link to={`/notes?student_id=${student.id}&create=1`}>
+                <BookText className="w-4 h-4 mr-2" />
+                Конспекты
+              </Link>
+            </Button>
+            {canAccess('confidential') && (
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => document.getElementById('student-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+                <Shield className="w-4 h-4 mr-2" />
+                Заметки
+              </Button>
             )}
-            <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
-              {DEGREE_LEVEL_LABELS[student.degree_level]}
-            </span>
-            {student.pipeline_status && (
-              <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
-                {PIPELINE_STATUS_LABELS[student.pipeline_status]}
-              </span>
-            )}
+            <Button asChild variant="outline" size="sm" className="h-10 px-4">
+              <Link to={`/workspace/students/${student.id}`}>
+                <UserRoundCheck className="w-4 h-4 mr-2" />
+                Кабинет staff
+              </Link>
+            </Button>
           </div>
         </div>
-        <Button
-          variant={student.is_mine ? 'outline' : 'default'}
-          size="sm"
-          className="h-10 px-4"
-          disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
-          onClick={() => {
-            if (student.is_mine) unassignSelfMutation.mutate()
-            else assignSelfMutation.mutate()
-          }}
-        >
-          {student.is_mine ? 'Мой студент' : 'Взять в работу'}
-        </Button>
-        <Button variant="outline" size="sm" className="h-10 px-4" onClick={handleExportStudent}>
-          <Download className="w-4 h-4 mr-2" />
-          Экспорт
-        </Button>
-        <Button asChild variant="outline" size="sm" className="h-10 px-4">
-          <Link to={`/notes?student_id=${student.id}&create=1`}>
-            <BookText className="w-4 h-4 mr-2" />
-            Конспекты
-          </Link>
-        </Button>
-        {canAccess('confidential') && (
-          <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => document.getElementById('student-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-            <Shield className="w-4 h-4 mr-2" />
-            Заметки
-          </Button>
-        )}
-        <Button asChild variant="outline" size="sm" className="h-10 px-4">
-          <Link to={`/workspace/students/${student.id}`}>
-            <UserRoundCheck className="w-4 h-4 mr-2" />
-            Кабинет staff
-          </Link>
-        </Button>
       </div>
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">

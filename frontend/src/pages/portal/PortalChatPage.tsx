@@ -11,6 +11,21 @@ import { PageHeader, AppCard, EmptyState, SegmentedTabs } from '@/components/ui'
 
 type Channel = 'internal' | 'telegram'
 
+function dayLabel(iso: string): string {
+  try {
+    const date = new Date(iso)
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString()
+    if (sameDay(date, today)) return 'Сегодня'
+    if (sameDay(date, yesterday)) return 'Вчера'
+    return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
 export const PortalChatPage: React.FC = () => {
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -18,6 +33,7 @@ export const PortalChatPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messageText, setMessageText] = useState('')
   const [dialogSearch, setDialogSearch] = useState('')
+  const [telegramSearch, setTelegramSearch] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { data: conversations = [], isLoading } = useQuery({
@@ -69,6 +85,12 @@ export const PortalChatPage: React.FC = () => {
       return title.includes(q) || body.includes(q)
     })
   }, [conversations, dialogSearch])
+  const filteredTelegramMessages = useMemo(() => {
+    const q = telegramSearch.trim().toLowerCase()
+    const messages = telegram?.messages ?? []
+    if (!q) return messages
+    return messages.filter((m) => (m.raw_text || '').toLowerCase().includes(q))
+  }, [telegram?.messages, telegramSearch])
   const newContacts = useMemo(() => {
     const existing = new Set(conversations.map((item) => item.other?.id).filter(Boolean))
     return contacts.filter((contact) => !existing.has(contact.id))
@@ -120,39 +142,63 @@ export const PortalChatPage: React.FC = () => {
                   Отправляй сообщения прямо из кабинета
                 </div>
               </div>
+              <div className="mb-3 relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
+                <input
+                  value={telegramSearch}
+                  onChange={(e) => setTelegramSearch(e.target.value)}
+                  placeholder="Поиск по сообщениям…"
+                  className="h-9 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-sm text-p-text placeholder:text-p-muted2 outline-none"
+                />
+              </div>
               <div className="mb-4 flex flex-col gap-3">
                 <div className="h-[480px] space-y-2.5 overflow-y-auto rounded-panel border border-p-line bg-p-panel2 p-4">
                   {telegram.messages.length === 0 ? (
                     <p className="mt-8 text-center text-sm text-p-muted">Сообщений пока нет.</p>
+                  ) : filteredTelegramMessages.length === 0 ? (
+                    <p className="mt-8 text-center text-sm text-p-muted">Ничего не найдено.</p>
                   ) : (
                     <>
-                      {telegram.messages.map((message) => (
-                        <div key={message.id} className={cn('flex', message.is_me ? 'justify-end' : 'justify-start')}>
-                          <div
-                            className={cn(
-                              'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
-                              message.is_me ? 'border-p-accent bg-p-accent text-black' : 'border-p-line bg-p-panel text-p-text',
-                            )}
-                          >
-                            <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-p-accent')}>
-                              {message.sender_name || 'Участник'}
-                            </div>
-                            {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
-                            {message.attachments.map((attachment) => (
-                              <div
-                                key={attachment.id}
-                                className="mt-2 flex items-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-xs font-bold text-p-muted"
-                              >
-                                <Paperclip className="h-3.5 w-3.5" />
-                                <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
+                      {filteredTelegramMessages.map((message, index) => {
+                        const prev = filteredTelegramMessages[index - 1]
+                        const showDaySeparator = !prev || dayLabel(prev.created_at) !== dayLabel(message.created_at)
+                        return (
+                          <React.Fragment key={message.id}>
+                            {showDaySeparator && (
+                              <div className="flex items-center justify-center py-1">
+                                <span className="rounded-pill border border-p-line bg-p-panel px-3 py-1 text-[11px] font-bold text-p-muted">
+                                  {dayLabel(message.created_at)}
+                                </span>
                               </div>
-                            ))}
-                            <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/80' : 'text-p-muted2')}>
-                              {formatDate(message.created_at)}
+                            )}
+                            <div className={cn('flex', message.is_me ? 'justify-end' : 'justify-start')}>
+                              <div
+                                className={cn(
+                                  'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
+                                  message.is_me ? 'border-p-accent bg-p-accent text-black' : 'border-p-line bg-p-panel text-p-text',
+                                )}
+                              >
+                                <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-p-accent')}>
+                                  {message.sender_name || 'Участник'}
+                                </div>
+                                {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
+                                {message.attachments.map((attachment) => (
+                                  <div
+                                    key={attachment.id}
+                                    className="mt-2 flex items-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-xs font-bold text-p-muted"
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                    <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
+                                  </div>
+                                ))}
+                                <div className={cn('mt-1 text-[10px] tabular-nums', message.is_me ? 'text-black/80' : 'text-p-muted2')}>
+                                  {formatDate(message.created_at)}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      ))}
+                          </React.Fragment>
+                        )
+                      })}
                       <div ref={messagesEndRef} />
                     </>
                   )}

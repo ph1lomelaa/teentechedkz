@@ -24,7 +24,6 @@ import {
   TaskInput,
   Priority,
 } from '@/api/roadmap'
-import { questionnairesApi } from '@/api/questionnaires'
 import { PageHeader } from '@/components/ui'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 
@@ -63,8 +62,6 @@ export const TemplatesPage: React.FC = () => {
   const {
     setRoadmapJobId: setImportJobId,
     roadmapJob: importJob,
-    setQuestionnaireJobId: setSyncJobId,
-    questionnaireJob: syncJob,
   } = useImportJobs()
 
   const importPercent =
@@ -72,13 +69,6 @@ export const TemplatesPage: React.FC = () => {
       ? 100
       : importJob?.progress?.template_total
         ? renderProgressPercent(importJob.progress.template_index || 0, importJob.progress.template_total)
-        : null
-
-  const syncPercent =
-    syncJob?.status === 'done'
-      ? 100
-      : syncJob?.progress?.total
-        ? renderProgressPercent(syncJob.progress.index || 0, syncJob.progress.total)
         : null
 
   const { data: templates = [], isLoading } = useQuery({
@@ -91,20 +81,6 @@ export const TemplatesPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['roadmap-templates'] })
     }
   }, [importJob?.status, queryClient])
-
-  const notionSyncMutation = useMutation({
-    mutationFn: () => questionnairesApi.startNotionSync(),
-    onSuccess: (job) => {
-      setSyncJobId(job.job_id)
-      toast({ title: 'Синхронизация анкет запущена', description: 'Описания вопросов подтянутся из связанных форм Notion.' })
-    },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail
-      const message = typeof detail === 'string' ? detail : detail?.message
-      toast({ title: 'Не удалось запустить синхронизацию', description: message, variant: 'destructive' })
-      if (detail?.job_id) setSyncJobId(detail.job_id)
-    },
-  })
 
   // create form
   const [name, setName] = useState('')
@@ -173,7 +149,7 @@ export const TemplatesPage: React.FC = () => {
           <div>
             <h2 className="text-sm font-semibold text-p-text">Импорт из Notion</h2>
             <p className="mt-1 text-xs leading-relaxed text-p-muted">
-              Берёт корневые roadmap-шаблоны из Notion, обновляет существующие по source id и не назначает их студентам автоматически.
+              Берёт корневые roadmap-шаблоны из Notion, обновляет существующие по source id и не назначает их студентам автоматически. Анкеты из связанных форм Notion подтягиваются тем же импортом.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
@@ -262,56 +238,6 @@ export const TemplatesPage: React.FC = () => {
                 ))}
               </div>
             )}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-6 rounded-card border border-border bg-card p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-p-text">Описания вопросов в анкетах</h2>
-            <p className="mt-1 text-xs leading-relaxed text-p-muted">
-              Подтягивает подписи/описания вопросов из связанных Notion-форм (не перезаписывает то, что менеджер уже вписал вручную).
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs"
-            disabled={notionSyncMutation.isPending || syncJob?.status === 'running'}
-            onClick={() => notionSyncMutation.mutate()}
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-2" /> Обновить из Notion
-          </Button>
-        </div>
-
-        {syncJob && (
-          <div className="mt-4 rounded-panel border border-border bg-muted p-3">
-            <div className="mb-3 h-2 w-full overflow-hidden rounded-full border border-border bg-card">
-              <div
-                className={`h-full bg-amber-500 transition-all duration-300 ${syncJob.status === 'running' && syncPercent === null ? 'w-1/3 animate-pulse' : ''}`}
-                style={syncPercent !== null ? { width: `${syncPercent}%` } : undefined}
-              />
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-xs font-semibold text-p-text">
-                Job {syncJob.job_id.slice(0, 8)} · {syncJob.status === 'running' ? 'идёт' : syncJob.status === 'done' ? 'готово' : 'ошибка'}
-              </div>
-              {syncJob.progress?.total ? (
-                <div className="text-xs text-p-muted">
-                  {syncJob.progress.phase === 'attach' ? 'Анкета' : 'Блок'} {syncJob.progress.index}/{syncJob.progress.total}
-                </div>
-              ) : null}
-            </div>
-            {syncJob.result && (
-              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <ImportStat label="Форм связано" value={syncJob.result.resolve?.linked ?? 0} />
-                <ImportStat label="Шаблонов создано" value={syncJob.result.resolve?.imported ?? 0} />
-                <ImportStat label="Не удалось" value={syncJob.result.resolve?.failed ?? 0} />
-                <ImportStat label="Анкет создано" value={syncJob.result.attach?.created ?? 0} />
-              </div>
-            )}
-            {syncJob.error && <p className="mt-3 text-xs text-red-600">{syncJob.error}</p>}
           </div>
         )}
       </div>

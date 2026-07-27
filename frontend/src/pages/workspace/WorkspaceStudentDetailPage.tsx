@@ -22,7 +22,6 @@ import {
   Users,
 } from 'lucide-react'
 import { studentsApi } from '@/api/students'
-import { StudentAlertsBanner } from '@/components/shared/StudentAlertsBanner'
 import { roadmapApi, Roadmap, TemplateListItem } from '@/api/roadmap'
 import { meetingsApi } from '@/api/meetings'
 import { telegramApi } from '@/api/telegram'
@@ -271,11 +270,9 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
         Мои студенты
       </Link>
 
-      <StudentAlertsBanner alerts={student.alerts} />
-
       <header className="mb-6 border-b border-w-line pb-6">
         <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-w-accentText">Карточка студента</div>
-        <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-w-ink md:text-4xl">{student.full_name}</h1>
+        <h1 className="text-balance break-words font-display text-3xl font-black leading-tight tracking-[-0.01em] text-w-ink md:text-4xl">{student.full_name}</h1>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <Badge>{DEGREE_LEVEL_LABELS[student.degree_level]}</Badge>
           <Badge>{student.pipeline_status ? PIPELINE_STATUS_LABELS[student.pipeline_status] : 'Статус не указан'}</Badge>

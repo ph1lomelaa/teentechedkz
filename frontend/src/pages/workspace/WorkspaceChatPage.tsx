@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, ChevronDown, Clock3, Download, MessageCircle, Paperclip, Plus, Search, Send, Sparkles, X } from 'lucide-react'
+import { Bot, ChevronDown, Clock3, Download, Paperclip, Plus, Search, Send, Sparkles, X } from 'lucide-react'
 import { chatApi, ConversationListItem } from '@/api/chat'
 import { telegramApi } from '@/api/telegram'
 import { workspaceApi, WorkspaceScopeParams } from '@/api/workspace'
@@ -13,6 +13,37 @@ import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { AppButton, AppCard, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
+
+// Roles that render on the staff side of the dialog (right, accented). Everyone
+// else — student/client/unknown — renders on the client side (left). Keyed off
+// sender_role so the layout is consistent for every viewer, not just the person
+// whose own messages happen to be theirs (is_current_user).
+const STAFF_SIDE_ROLES = new Set(['mentor', 'admin', 'mzk_manager', 'staff'])
+function isStaffSide(senderRole?: string | null): boolean {
+  return senderRole ? STAFF_SIDE_ROLES.has(senderRole) : false
+}
+
+function initialsFrom(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '—'
+  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
+}
+
+// Deterministic avatar tint so the same student keeps the same colour across the
+// list — makes a long inbox scannable by colour, not just by reading names.
+const AVATAR_GRADIENTS = [
+  'from-amber-400 to-yellow-600',
+  'from-sky-400 to-blue-600',
+  'from-violet-400 to-purple-600',
+  'from-emerald-400 to-green-600',
+  'from-rose-400 to-red-600',
+  'from-cyan-400 to-teal-600',
+]
+function avatarGradient(seed: string): string {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]
+}
 
 type Channel = 'all' | 'telegram' | 'internal'
 type UnifiedConversation = {
@@ -57,6 +88,8 @@ export const WorkspaceChatPage: React.FC = () => {
     requestedChannel === 'internal' ? 'internal' : 'telegram',
   )
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [listSearch, setListSearch] = useState('')
+  const [unreadOnly, setUnreadOnly] = useState(false)
   const [connectGroupOpen, setConnectGroupOpen] = useState(false)
   const [connectStudentId, setConnectStudentId] = useState<string>(requestedStudentId || '')
   const [createInternalOpen, setCreateInternalOpen] = useState(false)
@@ -137,6 +170,16 @@ export const WorkspaceChatPage: React.FC = () => {
   const items = channel === 'all'
     ? studentItems
     : allItems.filter((item) => item.channel === channel)
+
+  // List-side search + "unread only" filter. Unread is our proxy for "требует
+  // ответа" — an unread thread means the student wrote and we haven't caught up.
+  const unreadTotal = items.reduce((sum, item) => sum + (item.unread > 0 ? 1 : 0), 0)
+  const listQuery = listSearch.trim().toLowerCase()
+  const visibleItems = items.filter((item) => {
+    if (unreadOnly && item.unread <= 0) return false
+    if (!listQuery) return true
+    return item.title.toLowerCase().includes(listQuery) || (item.preview ?? '').toLowerCase().includes(listQuery)
+  })
   const selected = items.find((item) => item.key === selectedKey)
     || items.find((item) => requestedStudentId && item.studentId === requestedStudentId)
     || items[0]
@@ -360,41 +403,87 @@ export const WorkspaceChatPage: React.FC = () => {
         />
       ) : (
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <AppCard colorPrefix="w" className="p-3">
+        <AppCard colorPrefix="w" className="flex max-h-[600px] flex-col p-3">
+          <div className="mb-2 space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-w-muted2" />
+              <input
+                value={listSearch}
+                onChange={(event) => setListSearch(event.target.value)}
+                placeholder="Поиск по студенту или сообщению"
+                className="h-9 w-full rounded-ctl border border-w-line bg-w-panel2 pl-8 pr-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+              />
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setUnreadOnly(false)}
+                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', !unreadOnly ? 'bg-w-accent text-black' : 'border border-w-line text-w-muted hover:text-w-ink')}
+              >
+                Все
+              </button>
+              <button
+                type="button"
+                onClick={() => setUnreadOnly(true)}
+                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', unreadOnly ? 'bg-w-accent text-black' : 'border border-w-line text-w-muted hover:text-w-ink')}
+              >
+                Требуют ответа{unreadTotal > 0 ? ` · ${unreadTotal}` : ''}
+              </button>
+            </div>
+          </div>
           {loading ? (
             <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
+          ) : visibleItems.length === 0 ? (
+            <p className="p-3 text-sm text-w-muted">
+              {unreadOnly ? 'Непрочитанных диалогов нет.' : 'Ничего не найдено.'}
+            </p>
           ) : (
-            <div className="space-y-1.5">
-              {items.map((item) => {
+            <div className="-mr-1 space-y-1.5 overflow-y-auto pr-1">
+              {visibleItems.map((item) => {
                 const active = selected?.key === item.key
                 const itemChannel = 'channel' in item ? item.channel : 'all'
+                const paused = item.telegram?.status === 'paused'
+                const hasUnread = item.unread > 0
                 return (
                   <button
                     key={item.key}
                     type="button"
                     onClick={() => setSelectedKey(item.key)}
                     className={cn(
-                      'w-full rounded-panel border border-w-line px-3 py-3 text-left transition',
+                      'flex w-full items-start gap-2.5 rounded-panel border border-w-line px-3 py-2.5 text-left transition',
                       active
                         ? 'border-l-[3px] border-l-w-accent bg-w-accent/10 text-w-ink'
                         : 'bg-w-panel2 text-w-ink hover:border-w-accentDim',
                     )}
                   >
-                    <div className="flex items-center gap-2">
-                      {itemChannel === 'telegram' ? <Send className="h-4 w-4 shrink-0" /> : <MessageCircle className="h-4 w-4 shrink-0" />}
-                      <div className={cn('min-w-0 flex-1 truncate text-sm font-black', active && 'text-w-accentText')}>{item.title}</div>
-                      {item.unread > 0 && (
-                        <span className="rounded-full bg-w-accent px-2 py-0.5 text-[10px] font-black text-black">
-                          {item.unread}
+                    <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-[11px] font-black text-black', avatarGradient(item.studentId || item.title))}>
+                      {initialsFrom(item.title)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn('min-w-0 flex-1 truncate text-sm font-black', active && 'text-w-accentText')}>{item.title}</span>
+                        <span className="shrink-0 text-[10px] text-w-muted2">{formatDate(item.updatedAt)}</span>
+                      </span>
+                      {item.preview && (
+                        <span className={cn('mt-0.5 block truncate text-xs', hasUnread ? 'font-semibold text-w-ink' : 'text-w-muted')}>
+                          {item.preview}
                         </span>
                       )}
-                    </div>
-                    {item.preview && <div className="mt-1 truncate text-xs text-w-muted">{item.preview}</div>}
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-w-muted2">
-                      <span>{itemChannel === 'all' ? 'Telegram + внутренний' : itemChannel === 'telegram' ? 'Telegram' : 'Внутренний'}</span>
-                      <span>·</span>
-                      <span>{formatDate(item.updatedAt)}</span>
-                    </div>
+                      <span className="mt-1 flex items-center gap-1.5">
+                        <span className={cn('rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+                          itemChannel === 'telegram' ? 'bg-sky-500/15 text-sky-300' : itemChannel === 'internal' ? 'bg-white/8 text-w-muted' : 'bg-white/8 text-w-muted')}>
+                          {itemChannel === 'all' ? 'TG + внутр.' : itemChannel === 'telegram' ? 'Telegram' : 'Внутренний'}
+                        </span>
+                        {hasUnread && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-w-accent text-black">Ответить</span>}
+                        {paused && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide border border-w-line text-w-muted2">Пауза</span>}
+                        <span className="ml-auto" />
+                        {hasUnread && (
+                          <span className="grid h-5 min-w-5 place-items-center rounded-full bg-w-accent px-1.5 text-[10px] font-black text-black">
+                            {item.unread}
+                          </span>
+                        )}
+                      </span>
+                    </span>
                   </button>
                 )
               })}
@@ -625,23 +714,25 @@ function UnifiedThread({
           <p className="text-center text-sm text-w-muted">Загрузка общей истории...</p>
         ) : messages.length === 0 ? (
           <p className="mt-8 text-center text-sm text-w-muted">Сообщений пока нет.</p>
-        ) : messages.map((message) => (
+        ) : messages.map((message) => {
+          const staffSide = isStaffSide(message.sender_role)
+          return (
           <div
             id={`workspace-message-${message.id}`}
             key={`${message.source}-${message.id}`}
             className={cn(
               'flex rounded-panel transition',
-              message.is_current_user ? 'justify-end' : 'justify-start',
+              staffSide ? 'justify-end' : 'justify-start',
               highlightedMessageId === message.id && 'ring-2 ring-w-accent ring-offset-2 ring-offset-w-panel2',
             )}
           >
             <div className={cn(
               'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
-              message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
+              staffSide ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
             )}>
               <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.08em]">
-                <span className={message.is_current_user ? 'text-black/90' : 'text-w-accentText'}>{message.sender_name || 'Участник'}</span>
-                <span className={cn('rounded-full px-1.5 py-0.5', message.is_current_user ? 'bg-black/15 text-black/85' : 'bg-w-panel2 text-w-muted')}>
+                <span className={staffSide ? 'text-black/90' : 'text-w-accentText'}>{message.sender_name || 'Участник'}</span>
+                <span className={cn('rounded-full px-1.5 py-0.5', staffSide ? 'bg-black/15 text-black/85' : 'bg-w-panel2 text-w-muted')}>
                   {message.source === 'telegram' ? 'Telegram' : 'Внутренний'}
                 </span>
               </div>
@@ -659,12 +750,13 @@ function UnifiedThread({
                   <Download className="h-3.5 w-3.5" />
                 </button>
               ))}
-              <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/80' : 'text-w-muted2')}>
+              <div className={cn('mt-1 text-[10px] tabular-nums', staffSide ? 'text-black/80' : 'text-w-muted2')}>
                 {formatDate(message.created_at)}
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {!readOnly && internal?.can_write !== false && internal && (
@@ -905,13 +997,15 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
         ) : messages.length === 0 ? (
           <p className="mt-8 text-center text-sm text-w-muted">Сообщений пока нет.</p>
         ) : (
-          messages.map((message) => (
-            <div key={message.id} className={cn('flex', message.is_current_user ? 'justify-end' : 'justify-start')}>
+          messages.map((message) => {
+            const staffSide = isStaffSide(message.sender_role)
+            return (
+            <div key={message.id} className={cn('flex', staffSide ? 'justify-end' : 'justify-start')}>
               <div className={cn(
                 'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
-                message.is_current_user ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
+                staffSide ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
               )}>
-                <div className={cn('mb-1 text-[11px] font-bold', message.is_current_user ? 'text-black/90' : 'text-w-accentText')}>
+                <div className={cn('mb-1 text-[11px] font-bold', staffSide ? 'text-black/90' : 'text-w-accentText')}>
                   {message.sender_display_name || message.sender_name || 'Telegram'}
                 </div>
                 {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
@@ -928,10 +1022,11 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                     <Download className="h-3.5 w-3.5" />
                   </button>
                 ))}
-                <div className={cn('mt-1 text-[10px] tabular-nums', message.is_current_user ? 'text-black/80' : 'text-w-muted2')}>{formatDate(message.created_at)}</div>
+                <div className={cn('mt-1 text-[10px] tabular-nums', staffSide ? 'text-black/80' : 'text-w-muted2')}>{formatDate(message.created_at)}</div>
               </div>
             </div>
-          ))
+            )
+          })
         )}
       </div>
       {!readOnly && chat.status === 'active' && (

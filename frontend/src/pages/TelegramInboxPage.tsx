@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, MessageSquareWarning, Search } from 'lucide-react'
+import { MessageSquareWarning, Search } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
-import { mentorAssignmentsApi } from '@/api/index'
 import {
   TelegramChat,
   TelegramChatStatus,
@@ -16,19 +15,10 @@ import {
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/primitives/dialog'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 import { toast } from '@/hooks/use-toast'
-import { ToastAction } from '@/components/ui/primitives/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/ui'
 
@@ -47,6 +37,28 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '—'
+  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
+}
+
+// Deterministic avatar tint per chat so the same student keeps one colour —
+// a long list becomes scannable by colour, not just by reading names.
+const AVATAR_GRADIENTS = [
+  'from-amber-400 to-yellow-600',
+  'from-sky-400 to-blue-600',
+  'from-violet-400 to-purple-600',
+  'from-emerald-400 to-green-600',
+  'from-rose-400 to-red-600',
+  'from-cyan-400 to-teal-600',
+]
+function avatarGradient(seed: string): string {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]
+}
+
 export default function TelegramInboxPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -55,8 +67,6 @@ export default function TelegramInboxPage() {
   const [tab, setTab] = useState<TelegramChatStatus | 'all'>('all')
   const [scope, setScope] = useState<'all' | 'mine' | 'assigned' | 'unassigned'>('all')
   const [attachTarget, setAttachTarget] = useState<TelegramChat | null>(null)
-  const [reassignTarget, setReassignTarget] = useState<TelegramChat | null>(null)
-  const [closeTarget, setCloseTarget] = useState<TelegramChat | null>(null)
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none')
   const [search, setSearch] = useState('')
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
@@ -127,32 +137,6 @@ export default function TelegramInboxPage() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['telegram-chats'] })
 
-  const assignStudentMutation = useMutation({
-    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
-    onSuccess: (_data, studentId) => {
-      invalidate()
-      qc.invalidateQueries({ queryKey: ['student', studentId] })
-      qc.invalidateQueries({ queryKey: ['my-students'] })
-      toast({
-        title: 'Вы стали ответственным',
-        description: 'Чат появится в фильтре «Мои».',
-        action: (
-          <ToastAction
-            altText="Отменить"
-            onClick={() => {
-              if (assignStudentMutation.variables) {
-                mentorAssignmentsApi.setSelfActive(assignStudentMutation.variables, false).then(invalidate).catch(() => undefined)
-              }
-            }}
-          >
-            Отменить
-          </ToastAction>
-        ),
-      })
-    },
-    onError: (err) => toast({ title: 'Не удалось стать ответственным', description: getErrorMessage(err), variant: 'destructive' }),
-  })
-
   const attachMutation = useMutation({
     mutationFn: (studentId: string) => telegramApi.attach(attachTarget!.id, studentId),
     onSuccess: () => {
@@ -161,60 +145,6 @@ export default function TelegramInboxPage() {
       toast({ title: 'Чат привязан' })
     },
     onError: (err) => toast({ title: 'Не удалось привязать чат', description: getErrorMessage(err), variant: 'destructive' }),
-  })
-
-  const reassignMutation = useMutation({
-    mutationFn: (studentId: string) => telegramApi.reassign(reassignTarget!.id, studentId),
-    onSuccess: () => {
-      invalidate()
-      setReassignTarget(null)
-      toast({ title: 'Студент изменён' })
-    },
-    onError: (err) => toast({ title: 'Не удалось сменить студента', description: getErrorMessage(err), variant: 'destructive' }),
-  })
-
-  const pauseMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.pause(chatId),
-    onSuccess: (chat) => {
-      invalidate()
-      toast({
-        title: 'AI-разбор поставлен на паузу',
-        description: chat.title || `Чат ${chat.chat_id}`,
-        action: (
-          <ToastAction altText="Возобновить" onClick={() => resumeMutation.mutate(chat.id)}>
-            Отменить
-          </ToastAction>
-        ),
-      })
-    },
-    onError: (err) => toast({ title: 'Не удалось поставить на паузу', description: getErrorMessage(err), variant: 'destructive' }),
-  })
-
-  const resumeMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.resume(chatId),
-    onSuccess: (chat) => {
-      invalidate()
-      toast({
-        title: 'AI-разбор возобновлён',
-        description: chat.title || `Чат ${chat.chat_id}`,
-        action: (
-          <ToastAction altText="Поставить на паузу" onClick={() => pauseMutation.mutate(chat.id)}>
-            Отменить
-          </ToastAction>
-        ),
-      })
-    },
-    onError: (err) => toast({ title: 'Не удалось возобновить чат', description: getErrorMessage(err), variant: 'destructive' }),
-  })
-
-  const closeMutation = useMutation({
-    mutationFn: (chatId: string) => telegramApi.close(chatId),
-    onSuccess: () => {
-      invalidate()
-      setCloseTarget(null)
-      toast({ title: 'Сессия завершена' })
-    },
-    onError: (err) => toast({ title: 'Не удалось завершить сессию', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   return (
@@ -378,88 +308,67 @@ export default function TelegramInboxPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((chat) => (
-            <div key={chat.id} className="rounded-panel border border-p-line bg-card px-3 py-2.5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-p-text">{chat.student_name || chat.title || `Чат ${chat.chat_id}`}</div>
-                  <div className="mt-0.5 truncate text-[11px] text-p-muted">{chat.last_message_preview || 'Без сообщений'}</div>
+          {filtered.map((chat) => {
+            const name = chat.student_name || chat.title || `Чат ${chat.chat_id}`
+            const open = () => navigate(`/telegram-inbox/${chat.id}`)
+            return (
+            <div
+              key={chat.id}
+              role="button"
+              tabIndex={0}
+              onClick={open}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
+              className="group flex cursor-pointer items-start gap-3 rounded-panel border border-p-line bg-card px-4 py-3 transition-colors hover:border-p-muted2 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/40"
+            >
+              <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-xs font-black text-black ${avatarGradient(chat.student_id || chat.id)}`}>
+                {initials(name)}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-semibold text-p-text">{name}</span>
+                  <span className={`shrink-0 rounded-pill px-1.5 py-0.5 text-[10px] ${TELEGRAM_STATUS_COLORS[chat.status]}`}>{TELEGRAM_STATUS_LABELS[chat.status]}</span>
+                  {!chat.student_id && chat.status === 'unbound' && (
+                    <span className="shrink-0 rounded-pill border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">новый · без студента</span>
+                  )}
                 </div>
-                <div className="text-[10px] text-p-muted2">{formatDate(chat.last_message_at)}</div>
+
+                <div className="mt-1 truncate text-[12px] text-p-muted">
+                  {chat.last_message_preview || 'Без сообщений'}
+                </div>
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+                  {hasReviewPending(chat) && (
+                    <span className="inline-flex items-center gap-1 rounded-pill bg-red-50 px-1.5 py-0.5 font-semibold text-red-700">
+                      <MessageSquareWarning className="h-3 w-3" /> инсайт на проверку · {chat.pending_insight_count}
+                    </span>
+                  )}
+                  {chat.has_context_signal && (
+                    <span className="rounded-pill bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">важный контекст</span>
+                  )}
+                  {chat.unresolved_attachment_count > 0 && (
+                    <span className="rounded-pill border border-p-line px-1.5 py-0.5 text-p-muted">вложения · {chat.unresolved_attachment_count}</span>
+                  )}
+                  {chat.is_mine && (
+                    <span className="rounded-pill border border-p-line px-1.5 py-0.5 text-p-muted">мой</span>
+                  )}
+                  <span className="text-p-muted2">{chat.chat_type} · {formatDate(chat.last_message_at)}</span>
+                </div>
               </div>
 
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span className={`rounded-pill px-1.5 py-0.5 ${TELEGRAM_STATUS_COLORS[chat.status]}`}>{TELEGRAM_STATUS_LABELS[chat.status]}</span>
-                {hasReviewPending(chat) && <span className="rounded-pill border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-700">на проверку</span>}
-                <span className="text-p-muted">{chat.chat_type}</span>
-              </div>
-
-              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => navigate(`/telegram-inbox/${chat.id}`)}>
-                  Открыть карточку
-                </Button>
-
-                {canManage && (
-                  <>
-                    {(chat.status === 'unbound' || chat.status === 'closed') && (
-                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setAttachTarget(chat)}>
-                        {chat.status === 'closed' ? 'Открыть заново' : 'Привязать студента'}
-                      </Button>
-                    )}
-                    {chat.student_id && (
-                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setReassignTarget(chat)}>
-                        Сменить привязку
-                      </Button>
-                    )}
-                    {chat.student_id && !chat.is_mine && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2 text-xs"
-                        disabled={assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id}
-                        onClick={() => assignStudentMutation.mutate(chat.student_id!)}
-                      >
-                        {assignStudentMutation.isPending && assignStudentMutation.variables === chat.student_id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : 'Стать ответственным'}
-                      </Button>
-                    )}
-                    {chat.status === 'active' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2 text-xs"
-                        disabled={pauseMutation.isPending && pauseMutation.variables === chat.id}
-                        onClick={() => pauseMutation.mutate(chat.id)}
-                      >
-                        {pauseMutation.isPending && pauseMutation.variables === chat.id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : 'Пауза AI'}
-                      </Button>
-                    )}
-                    {chat.status === 'paused' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2 text-xs"
-                        disabled={resumeMutation.isPending && resumeMutation.variables === chat.id}
-                        onClick={() => resumeMutation.mutate(chat.id)}
-                      >
-                        {resumeMutation.isPending && resumeMutation.variables === chat.id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : 'Возобновить AI'}
-                      </Button>
-                    )}
-                    {(chat.status === 'active' || chat.status === 'paused') && (
-                      <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setCloseTarget(chat)}>
-                        Закрыть чат
-                      </Button>
-                    )}
-                  </>
+              <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                {canManage && (chat.status === 'unbound' || chat.status === 'closed') && (
+                  <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setAttachTarget(chat)}>
+                    {chat.status === 'closed' ? 'Открыть заново' : 'Привязать студента'}
+                  </Button>
                 )}
+                <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={open}>
+                  Открыть
+                </Button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -470,41 +379,6 @@ export default function TelegramInboxPage() {
         onSelect={(studentId) => attachMutation.mutate(studentId)}
         isPending={attachMutation.isPending}
       />
-      <StudentPickerDialog
-        open={!!reassignTarget}
-        title="Сменить студента"
-        description="Проверьте текущую и новую привязку перед сохранением."
-        onClose={() => setReassignTarget(null)}
-        onSelect={(studentId) => reassignMutation.mutate(studentId)}
-        isPending={reassignMutation.isPending}
-        excludeStudentId={reassignTarget?.student_id}
-        currentStudentLabel={reassignTarget?.student_name}
-        confirmBeforeSelect
-      />
-
-      <Dialog open={!!closeTarget} onOpenChange={(open) => !open && setCloseTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Завершить сессию?</DialogTitle>
-            <DialogDescription>
-              Чат {closeTarget?.title || `${closeTarget?.chat_id}`} будет закрыт, привязка к студенту снята.
-              Историю переписки можно будет посмотреть, но чат перестанет принимать AI-разбор.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCloseTarget(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={closeMutation.isPending}
-              onClick={() => closeMutation.mutate(closeTarget!.id)}
-            >
-              Завершить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
