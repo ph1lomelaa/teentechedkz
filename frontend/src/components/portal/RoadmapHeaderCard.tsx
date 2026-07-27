@@ -2,6 +2,34 @@ import React from 'react'
 import { Roadmap } from '@/api/roadmap'
 import { cn } from '@/lib/utils'
 
+// Плавный count-up числа (для процента прогресса): анимирует от предыдущего
+// значения к новому через rAF; при prefers-reduced-motion показывает сразу.
+export function useCountUp(target: number, durationMs = 600): number {
+  const [shown, setShown] = React.useState(target)
+  const fromRef = React.useRef(target)
+  React.useEffect(() => {
+    const from = fromRef.current
+    if (from === target) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      fromRef.current = target
+      setShown(target)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - Math.pow(1 - t, 3) // ease-out cubic
+      setShown(Math.round(from + (target - from) * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else fromRef.current = target
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, durationMs])
+  return shown
+}
+
 // Donor-style roadmap header card (.rm-card): gradient panel, semi-transparent
 // country flag watermark, year/country/degree pills, 4 Archivo metrics and a
 // yellow progress bar. Uses p-* tokens, which are defined under `.portal` — so it
@@ -9,16 +37,22 @@ import { cn } from '@/lib/utils'
 // root carries the `.portal` class).
 function counts(rm: Roadmap) {
   let total = 0
-  let done = 0
+  let done = 0 // истина ментора: status='done' = подтверждено
+  let pending = 0 // заявки студента на проверке
   for (const s of rm.stages) for (const t of s.tasks) {
     total += 1
     if (t.status === 'done') done += 1
+    else if (t.review_status === 'pending') pending += 1
   }
-  return { total, done, pct: total ? Math.round((done / total) * 100) : 0, stages: rm.stages.length }
+  // Одна правда с дорожкой этапов: «заполнено» = done + pending,
+  // метрика «выполнено» продолжает считать только подтверждённое ментором.
+  const pct = total ? Math.round(((done + pending) / total) * 100) : 0
+  return { total, done, pending, pct, stages: rm.stages.length }
 }
 
 export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string }> = ({ roadmap, className }) => {
-  const { total, done, pct, stages } = counts(roadmap)
+  const { total, done, pending, pct, stages } = counts(roadmap)
+  const shownPct = useCountUp(pct)
   return (
     <div
       className={cn(
@@ -62,12 +96,13 @@ export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string 
         <Metric value={String(stages)} label="этапов" />
         <Metric value={String(total)} label="задач" />
         <Metric value={String(done)} label="выполнено" />
-        <Metric value={`${pct}%`} label="прогресс" />
+        {pending > 0 && <Metric value={String(pending)} label="на проверке" />}
+        <Metric value={`${shownPct}%`} label="прогресс" />
       </div>
 
       <div className="relative mt-[18px] h-2 overflow-hidden rounded-full bg-p-panel2">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-dim to-brand"
+          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-dim to-brand transition-[width] duration-700 ease-out motion-reduce:transition-none"
           style={{ width: `${pct}%` }}
         />
       </div>

@@ -11,6 +11,10 @@ export interface RoadmapSubtask {
   position: number
 }
 
+// Заявка студента о выполнении — ось, ортогональная status.
+// status='done' всегда означает «подтверждено ментором».
+export type ReviewStatus = 'none' | 'pending' | 'approved' | 'returned'
+
 export interface RoadmapTask {
   id: string
   stage_id: string
@@ -24,6 +28,10 @@ export interface RoadmapTask {
   priority: Priority
   audience: Audience
   status: ItemStatus
+  review_status: ReviewStatus
+  completed_at: string | null
+  reviewed_at: string | null
+  review_comment: string | null
   due_date: string | null
   position: number
   subtasks: RoadmapSubtask[]
@@ -206,9 +214,20 @@ export interface FlatTask {
   priority: Priority
   audience: Audience
   status: ItemStatus
+  review_status: ReviewStatus
+  completed_at: string | null
+  reviewed_at: string | null
+  review_comment: string | null
   due_date: string | null
   position: number
   subtasks: RoadmapSubtask[]
+}
+
+// Обогащённый ответ заявки — портал реагирует в кадре клика без рефетча
+export interface TaskClaim {
+  task: FlatTask
+  progress: { done: number; pending: number; total: number }
+  stage_claimed: boolean
 }
 
 const data = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data)
@@ -260,6 +279,15 @@ export const roadmapApi = {
   updateSubtask: (subtaskId: string, body: { is_done?: boolean; title?: string }) =>
     data<Roadmap>(apiClient.patch(`/roadmap-subtasks/${subtaskId}`, body)),
   deleteSubtask: (subtaskId: string) => apiClient.delete(`/roadmap-subtasks/${subtaskId}`),
+
+  // студенческая заявка о выполнении (T1/T2) — эндпоинт без записываемых полей
+  completeTask: (taskId: string) =>
+    data<TaskClaim>(apiClient.post(`/portal/tasks/${taskId}/complete`)),
+  uncompleteTask: (taskId: string) =>
+    data<TaskClaim>(apiClient.delete(`/portal/tasks/${taskId}/complete`)),
+  // ревью ментора (T3/T4): комментарий обязателен при action='return'
+  reviewTask: (taskId: string, body: { action: 'approve' | 'return'; comment?: string }) =>
+    data<Roadmap>(apiClient.post(`/roadmap-tasks/${taskId}/review`, body)),
 
   // templates
   listTemplates: () => data<TemplateListItem[]>(apiClient.get('/roadmap-templates')),

@@ -24,6 +24,8 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal' }> = ({ va
   const { data } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ limit: 50 }),
+    // Фолбэк без живого сокета: бейдж догоняет состояние в течение минуты.
+    refetchInterval: 60_000,
   })
   const items = [...(data?.data ?? [])].sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high'))
   const unread = data?.unread_count ?? 0

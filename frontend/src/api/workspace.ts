@@ -131,6 +131,10 @@ export interface WorkspaceRoadmapTask {
   subtasks_total: number
   subtasks_done: number
   position: number
+  review_status: 'none' | 'pending' | 'approved' | 'returned'
+  completed_at: string | null
+  reviewed_at: string | null
+  review_comment: string | null
 }
 
 export type WorkspaceMeeting = Meeting & {
@@ -214,7 +218,7 @@ export const workspaceApi = {
     return response.data
   },
   roadmapTasks: async (
-    params?: WorkspaceScopeParams & { status?: 'open' | 'done' },
+    params?: WorkspaceScopeParams & { status?: 'open' | 'done'; review_status?: string },
   ): Promise<{ items: WorkspaceRoadmapTask[]; total: number }> => {
     const response = await apiClient.get<{ items: WorkspaceRoadmapTask[]; total: number }>('/workspace/roadmap-tasks', { params })
     return response.data

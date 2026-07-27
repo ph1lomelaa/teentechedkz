@@ -6,6 +6,7 @@ import { roadmapApi } from '@/api/roadmap'
 import { workspaceApi, WorkspaceRoadmapTask } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
+import { withViewTransition } from '@/lib/motion'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
@@ -63,7 +64,7 @@ export const WorkspaceTasksPage: React.FC = () => {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <SegmentedTabs colorPrefix="w"
           value={status}
-          onChange={(value) => setStatus(value as typeof status)}
+          onChange={(value) => withViewTransition(() => setStatus(value as typeof status))}
           tabs={[
             { value: 'open', label: 'Открытые' },
             { value: 'done', label: 'Закрытые' },
@@ -71,7 +72,10 @@ export const WorkspaceTasksPage: React.FC = () => {
         />
         <AppSelect colorPrefix="w"
           value={studentFilter}
-          onChange={(event) => setStudentFilter(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value
+            withViewTransition(() => setStudentFilter(next))
+          }}
           className="bg-w-panel2 md:min-w-[240px]"
         >
           <option value="">Все студенты</option>
@@ -81,19 +85,30 @@ export const WorkspaceTasksPage: React.FC = () => {
         </AppSelect>
       </div>
 
-      <AppCard colorPrefix="w" className="p-5">
+      {/* key={status}: контент вкладки перемонтируется и мягко въезжает. */}
+      <AppCard colorPrefix="w" key={status} className="anim-view-in p-5">
           {roadmapLoading ? (
             <p className="text-sm text-w-muted">Загрузка задач...</p>
           ) : filteredRoadmapTasks.length === 0 ? (
             <EmptyState colorPrefix="w"
+              className="anim-view-in"
               title={status === 'open' ? 'Открытых roadmap-задач нет' : 'Закрытых roadmap-задач нет'}
               description="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
             />
           ) : (
-            <div className="space-y-3">
+            <div className="anim-view-in space-y-3">
               {Object.entries(groupByStudent(filteredRoadmapTasks)).map(([groupStudentId, groupTasks]) => {
                 const groupKey = `roadmap-${groupStudentId}`
                 const expanded = !!expandedGroups[groupKey]
+                const rows = groupTasks.map((task) => (
+                  <RoadmapTaskRow
+                    key={task.id}
+                    task={task}
+                    disabled={toggleRoadmapMutation.variables?.id === task.id}
+                    onToggle={() => withViewTransition(() => toggleRoadmapMutation.mutate(task))}
+                    onOpenQuestionnaire={() => setQuestionnaireTask(task)}
+                  />
+                ))
                 return (
                   <StudentTaskGroup
                     key={groupKey}
@@ -101,16 +116,9 @@ export const WorkspaceTasksPage: React.FC = () => {
                     total={groupTasks.length}
                     expanded={expanded}
                     onToggle={() => setExpandedGroups((current) => ({ ...current, [groupKey]: !expanded }))}
+                    tail={rows.length > 5 ? rows.slice(5) : null}
                   >
-                    {groupTasks.slice(0, expanded ? undefined : 5).map((task) => (
-                      <RoadmapTaskRow
-                        key={task.id}
-                        task={task}
-                        disabled={toggleRoadmapMutation.variables?.id === task.id}
-                        onToggle={() => toggleRoadmapMutation.mutate(task)}
-                        onOpenQuestionnaire={() => setQuestionnaireTask(task)}
-                      />
-                    ))}
+                    {rows.slice(0, 5)}
                   </StudentTaskGroup>
                 )
               })}
@@ -143,12 +151,15 @@ function StudentTaskGroup({
   total,
   expanded,
   onToggle,
+  tail,
   children,
 }: {
   studentName: string
   total: number
   expanded: boolean
   onToggle: () => void
+  /** Хвост «Показать остальные»: всегда смонтирован, высота анимируется. */
+  tail?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -170,6 +181,13 @@ function StudentTaskGroup({
         )}
       </div>
       <div className="space-y-2">{children}</div>
+      {tail != null && (
+        <div className="expandable" data-open={expanded}>
+          <div>
+            <div className="space-y-2 pt-2">{tail}</div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -194,7 +212,7 @@ function RoadmapTaskRow({
         disabled={disabled}
         onClick={onToggle}
         className={cn(
-          'mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition',
+          'mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition active:scale-[0.98]',
           done ? 'border-w-good bg-w-good text-black' : 'border-w-line text-w-muted hover:border-w-accentDim hover:text-w-accentText',
           disabled && 'cursor-wait opacity-60'
         )}

@@ -4,6 +4,7 @@ import { Map } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { PortalRoadmap } from '@/components/portal/PortalRoadmap'
+import { withViewTransition } from '@/lib/motion'
 import { EmptyState, SegmentedTabs } from '@/components/ui'
 
 export const PortalRoadmapPage: React.FC = () => {
@@ -37,11 +38,15 @@ export const PortalRoadmapPage: React.FC = () => {
               className="mb-4"
               colorPrefix="p"
               value={selectedId ?? ''}
-              onChange={setSelectedId}
+              onChange={(id) => withViewTransition(() => setSelectedId(id))}
               tabs={roadmaps.map((r) => ({ value: r.id, label: r.name }))}
             />
           )}
-          {selected && <PortalRoadmap roadmap={selected} />}
+          {selected && (
+            <div key={selected.id} className="anim-view-in">
+              <PortalRoadmap roadmap={selected} />
+            </div>
+          )}
         </>
       )}
       </div>
