@@ -16,6 +16,7 @@ import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { questionnairesApi } from '@/api/questionnaires'
 import { cn, formatDate } from '@/lib/utils'
+import { withViewTransition } from '@/lib/motion'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { PriorityPill, StatusPill } from '@/components/ui'
@@ -265,7 +266,7 @@ export const ClaimCheckbox: React.FC<{
       <button
         type="button"
         onClick={onUnclaim}
-        className={cn(box, 'anim-pending-glow border-brand bg-transparent text-brand')}
+        className={cn(box, 'anim-pending-glow border-brand bg-transparent text-brand transition active:scale-[0.98]')}
         title="На проверке у ментора — нажмите, чтобы снять отметку"
         aria-label="Снять отметку о выполнении"
       >
@@ -280,7 +281,7 @@ export const ClaimCheckbox: React.FC<{
       onClick={onClaim}
       className={cn(
         box,
-        'bg-transparent text-transparent transition hover:border-brand',
+        'bg-transparent text-transparent transition hover:border-brand active:scale-[0.98]',
         returned ? 'border-brand/70 ring-[3px] ring-brand/25' : 'border-p-muted2/70'
       )}
       title={returned ? 'Возвращена ментором — можно отметить снова' : 'Отметить выполненной'}
@@ -295,7 +296,7 @@ export const ClaimCheckbox: React.FC<{
 export const MentorComment: React.FC<{ comment: string; className?: string }> = ({ comment, className }) => (
   <div
     className={cn(
-      'mt-2 flex items-start gap-2 rounded-panel border border-brand/40 bg-brand/10 px-3 py-2 text-sm text-p-text',
+      'anim-view-in mt-2 flex items-start gap-2 rounded-panel border border-brand/40 bg-brand/10 px-3 py-2 text-sm text-p-text',
       className
     )}
   >
@@ -440,8 +441,10 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
         ? 100
         : 0
 
-  const claimTask = (t: RoadmapTask) => claim.mutate(t.id)
-  const unclaimTask = (t: RoadmapTask) => unclaim.mutate(t.id)
+  // Заявка/снятие перегруппировывают карточки и двигают счётчики этапа —
+  // кроссфейдим всю перестройку, чтобы состояние не прыгало в один кадр.
+  const claimTask = (t: RoadmapTask) => withViewTransition(() => claim.mutate(t.id))
+  const unclaimTask = (t: RoadmapTask) => withViewTransition(() => unclaim.mutate(t.id))
   const toggleSubtask = (st: RoadmapSubtask) =>
     subtaskToggle.mutate({ subtaskId: st.id, is_done: !st.is_done })
 
@@ -460,7 +463,11 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
         </div>
         <div className="flex justify-between gap-1.5 relative">
           {roadmap.stages.map((s, i) => (
-            <button key={s.id} onClick={() => setSelected(i)} className="flex-1 text-center group">
+            <button
+              key={s.id}
+              onClick={() => withViewTransition(() => setSelected(i))}
+              className="flex-1 text-center group"
+            >
               <StageNode index={i} status={stageStatuses[i]} selected={i === selected} />
               <div
                 className={cn(
@@ -481,6 +488,7 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
       {/* stage detail */}
       {stage && (
         <StageDetail
+          key={stage.id}
           stage={stage}
           displayStatus={stageStatuses[selected]}
           expandedTask={expandedTask}
@@ -587,7 +595,7 @@ const StageDetail: React.FC<{
   const pendingCount = stage.tasks.filter((t) => t.status !== 'done' && t.review_status === 'pending').length
 
   return (
-    <div className="mt-5 border border-p-line rounded-panel bg-p-panel overflow-hidden">
+    <div className="anim-view-in mt-5 border border-p-line rounded-panel bg-p-panel overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-4 bg-p-panel2 border-b border-p-line">
         <div className="min-w-0">
           <b className="font-display text-[15px] font-extrabold text-p-text">Этап: {stage.name}</b>
@@ -643,8 +651,12 @@ const StageDetail: React.FC<{
                     Ментор проверит и подтвердит — обычно в течение 1–2 дней
                   </small>
                 )}
-                {expandedTask === t.id && (t.description || t.expected_result || t.needs_document || t.needs_zoom || t.questionnaire_url) && (
-                  <TaskMeta task={t} />
+                {(t.description || t.expected_result || t.needs_document || t.needs_zoom || t.questionnaire_url) && (
+                  <div className="expandable" data-open={expandedTask === t.id}>
+                    <div>
+                      <TaskMeta task={t} />
+                    </div>
+                  </div>
                 )}
                 {t.status !== 'done' && t.review_status === 'returned' && t.review_comment && (
                   <MentorComment comment={t.review_comment} />
@@ -657,8 +669,10 @@ const StageDetail: React.FC<{
               </div>
             </div>
 
-            {expandedTask === t.id && t.subtasks.length > 0 && (
-              <div className="pl-[36px] mt-2 grid gap-1.5">
+            {t.subtasks.length > 0 && (
+              <div className="expandable" data-open={expandedTask === t.id}>
+                <div>
+                  <div className="pl-[36px] mt-2 grid gap-1.5">
                 {t.subtasks.map((st) =>
                   claimable ? (
                     <button
@@ -670,7 +684,7 @@ const StageDetail: React.FC<{
                     >
                       <span
                         className={cn(
-                          'w-[18px] h-[18px] rounded border grid place-items-center shrink-0 transition',
+                          'w-[18px] h-[18px] rounded border grid place-items-center shrink-0 transition group-active/sub:scale-90',
                           st.is_done
                             ? 'bg-brand border-brand text-black'
                             : 'border-p-muted2 text-transparent group-hover/sub:border-brand'
@@ -678,7 +692,7 @@ const StageDetail: React.FC<{
                       >
                         <Check className={cn('w-3 h-3', st.is_done && 'anim-check-pop')} strokeWidth={3.4} />
                       </span>
-                      <span className={cn('text-xs', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
+                      <span className={cn('text-xs transition', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
                         {st.title}
                       </span>
                     </button>
@@ -703,12 +717,14 @@ const StageDetail: React.FC<{
                   <button
                     type="button"
                     onClick={() => onClaim(t)}
-                    className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-ctl border border-brand/50 bg-brand/10 px-3 py-1.5 text-xs font-bold text-brand transition hover:bg-brand hover:text-black"
+                    className="anim-view-in mt-1 inline-flex w-fit items-center gap-1.5 rounded-ctl border border-brand/50 bg-brand/10 px-3 py-1.5 text-xs font-bold text-brand transition hover:bg-brand hover:text-black active:scale-[0.98]"
                   >
                     <Check className="h-3.5 w-3.5" strokeWidth={3} />
                     Все подзадачи готовы — отметить задачу выполненной?
                   </button>
                 )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -791,7 +807,7 @@ const QuestionnaireButton: React.FC<{ task: RoadmapTask }> = ({ task }) => {
         type="button"
         onClick={openQuestionnaire}
         disabled={loading}
-        className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-2xs font-bold text-brand transition hover:border-brand hover:bg-brand/15 disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-2xs font-bold text-brand transition hover:border-brand hover:bg-brand/15 active:scale-[0.98] disabled:opacity-60"
       >
         <ClipboardList className="h-3 w-3" /> {loading ? 'Открываем…' : 'Анкета'}
       </button>

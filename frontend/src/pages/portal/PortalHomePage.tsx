@@ -7,6 +7,7 @@ import { meetingsApi, Meeting } from '@/api/meetings'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { StatCard, EmptyState } from '@/components/ui'
 import {
@@ -131,6 +132,7 @@ export const PortalHomePage: React.FC = () => {
               title="Задач пока нет"
               description="Новые задачи от ментора появятся здесь"
               colorPrefix="p"
+              className="anim-view-in"
             />
           ) : (
             <div>
@@ -145,8 +147,8 @@ export const PortalHomePage: React.FC = () => {
                   <ClaimCheckbox
                     task={t}
                     size="md"
-                    onClaim={() => claim.mutate(t.id)}
-                    onUnclaim={() => unclaim.mutate(t.id)}
+                    onClaim={() => withViewTransition(() => claim.mutate(t.id))}
+                    onUnclaim={() => withViewTransition(() => unclaim.mutate(t.id))}
                   />
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-[13.5px] font-bold text-p-text">{t.title}</b>
@@ -178,6 +180,7 @@ export const PortalHomePage: React.FC = () => {
               title="Пока встреч не запланировано"
               description="Ментор назначит созвон и он появится здесь"
               colorPrefix="p"
+              className="anim-view-in"
             />
           ) : (
             <div>
@@ -203,7 +206,7 @@ export const PortalHomePage: React.FC = () => {
                       href={m.meeting_link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-none whitespace-nowrap rounded-ctl bg-p-accent px-3.5 py-1.5 text-[11.5px] font-bold text-black transition hover:-translate-y-px"
+                      className="flex-none whitespace-nowrap rounded-ctl bg-p-accent px-3.5 py-1.5 text-[11.5px] font-bold text-black transition hover:-translate-y-px active:scale-[0.98]"
                     >
                       Подключиться
                     </a>

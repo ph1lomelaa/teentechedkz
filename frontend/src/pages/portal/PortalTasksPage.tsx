@@ -12,6 +12,7 @@ import {
   useTaskClaim,
 } from '@/components/portal/PortalRoadmap'
 import { cn } from '@/lib/utils'
+import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
 import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
@@ -86,15 +87,18 @@ export const PortalTasksPage: React.FC = () => {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value
+              withViewTransition(() => setSearch(value))
+            }}
             placeholder="Поиск по названию..."
-            className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 focus:border-p-accent-dim focus:outline-none"
+            className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 transition focus:border-p-accent-dim focus:outline-none"
           />
         </label>
       </div>
 
       {questionnaires.length > 0 && (
-        <div className="mb-6">
+        <div className="anim-view-in mb-6">
           <h2 className="mb-2 font-display text-xs font-black uppercase tracking-[0.18em] text-p-muted">Анкеты</h2>
           <div className="space-y-2">
             {questionnaires.map((qn) => (
@@ -103,7 +107,7 @@ export const PortalTasksPage: React.FC = () => {
                 type="button"
                 onClick={() => setOpenQ(qn.id)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-panel border bg-p-panel2 p-3 text-left transition hover:border-brand',
+                  'flex w-full items-center gap-3 rounded-panel border bg-p-panel2 p-3 text-left transition hover:border-brand active:scale-[0.98]',
                   qn.status === 'sent' ? 'border-brand/60' : 'border-p-line'
                 )}
               >
@@ -134,6 +138,7 @@ export const PortalTasksPage: React.FC = () => {
           title="Задач пока нет"
           description="Задачи появятся, когда ментор назначит вам дорожную карту."
           colorPrefix="p"
+          className="anim-view-in"
         />
       ) : (
         <>
@@ -145,15 +150,18 @@ export const PortalTasksPage: React.FC = () => {
               { value: 'done', label: `Выполненные · ${done.length}` }
             ]}
             value={tab}
-            onChange={(value) => setTab(value as TaskTab)}
+            onChange={(value) => withViewTransition(() => setTab(value as TaskTab))}
           />
 
           {list.length === 0 ? (
-            <div className="rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
+            <div
+              key={tab}
+              className="anim-view-in rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted"
+            >
               {search.trim() ? 'По вашему запросу задачи не найдены.' : EMPTY_TAB_TEXT[tab]}
             </div>
           ) : (
-            <div className="space-y-5">
+            <div key={tab} className="anim-view-in space-y-5">
               {orderedGroups.map(([stageName, stageTasks]) => (
                 <section key={stageName}>
                   <div className="mb-2.5 flex items-center gap-2.5">
@@ -168,8 +176,8 @@ export const PortalTasksPage: React.FC = () => {
                       <TaskCard
                         key={task.id}
                         task={task}
-                        onClaim={() => claim.mutate(task.id)}
-                        onUnclaim={() => unclaim.mutate(task.id)}
+                        onClaim={() => withViewTransition(() => claim.mutate(task.id))}
+                        onUnclaim={() => withViewTransition(() => unclaim.mutate(task.id))}
                       />
                     ))}
                   </div>

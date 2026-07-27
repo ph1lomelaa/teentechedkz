@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/primitives/dialog'
 import { Textarea } from '@/components/ui/primitives/textarea'
 import { toast } from '@/hooks/use-toast'
+import { withViewTransition } from '@/lib/motion'
 import { cn, formatDate } from '@/lib/utils'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
@@ -68,7 +69,10 @@ export const WorkspaceRoadmapEditor: React.FC<{
     if (busy) return
     setBusy(true)
     try {
-      onChanged(await fn())
+      const updated = await fn()
+      // Кроссфейд перестройки: галочки, счётчики done/total и статус-пиллы
+      // меняются плавно, а не одним кадром.
+      withViewTransition(() => onChanged(updated))
     } finally {
       setBusy(false)
     }
@@ -86,7 +90,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
     try {
       const updated = await roadmapApi.reviewTask(t.id, comment ? { action, comment } : { action })
       setReturnTask(null)
-      onChanged(updated)
+      // Чип «ждёт проверки» и инлайн-кнопки растворяются, а не исчезают рывком.
+      withViewTransition(() => onChanged(updated))
       toast({ title: action === 'approve' ? 'Задача подтверждена' : 'Задача возвращена студенту' })
     } catch (err) {
       setReturnTask(null)
@@ -96,7 +101,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
         variant: 'destructive',
       })
       try {
-        onChanged(await roadmapApi.getRoadmap(roadmap.id))
+        const fresh = await roadmapApi.getRoadmap(roadmap.id)
+        withViewTransition(() => onChanged(fresh))
       } catch {
         /* следующий рефетч восстановит состояние */
       }
@@ -126,7 +132,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     try {
       await roadmapApi.deleteTask(t.id)
       const rm = await roadmapApi.getRoadmap(roadmap.id)
-      if (rm) onChanged(rm)
+      if (rm) withViewTransition(() => onChanged(rm))
     } finally {
       setBusy(false)
     }
@@ -137,7 +143,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     try {
       await roadmapApi.deleteSubtask(subId)
       const rm = await roadmapApi.getRoadmap(roadmap.id)
-      if (rm) onChanged(rm)
+      if (rm) withViewTransition(() => onChanged(rm))
     } finally {
       setBusy(false)
     }
@@ -145,14 +151,17 @@ export const WorkspaceRoadmapEditor: React.FC<{
 
   return (
     <>
-    <div className={cn(busy && 'pointer-events-none opacity-60')}>
+    <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-xs font-bold text-w-muted">
           Прогресс · {done}/{total} задач
         </div>
         <div className="flex items-center gap-3">
           <div className="h-1.5 w-40 overflow-hidden rounded-full bg-w-panel2">
-            <div className="h-full rounded-full bg-w-accent transition-all" style={{ width: `${pct}%` }} />
+            <div
+              className="h-full rounded-full bg-w-accent transition-all motion-reduce:transition-none"
+              style={{ width: `${pct}%` }}
+            />
           </div>
           <div className="font-display text-sm font-black tabular-nums text-w-ink">{pct}%</div>
         </div>
@@ -196,40 +205,43 @@ export const WorkspaceRoadmapEditor: React.FC<{
                 />
               </div>
 
-              {isOpen && (
-                <div className="mt-2 space-y-2">
-                  {s.tasks.map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      task={t}
-                      canManage={canManage}
-                      onToggle={() => toggleTask(t)}
-                      onToggleSub={toggleSubtask}
-                      onAddSub={() => addSubtask(t)}
-                      onRemove={() => removeTask(t)}
-                      onRemoveSub={removeSubtask}
-                      onOpenQuestionnaire={() => setQTask({ id: t.id, title: t.title })}
-                      onApproveReview={() => reviewTask(t, 'approve')}
-                      onReturnReview={() => {
-                        setReturnComment('')
-                        setReturnTask(t)
-                      }}
-                    />
-                  ))}
-                  {s.tasks.length === 0 && (
-                    <p className="py-1 text-sm text-w-muted2">Задач пока нет</p>
-                  )}
-                  {canManage && (
-                    <button
-                      type="button"
-                      onClick={() => addTask(s)}
-                      className="inline-flex items-center gap-1.5 rounded-ctl px-2 py-1.5 text-xs font-bold text-w-muted transition hover:text-w-accentText"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Добавить задачу
-                    </button>
-                  )}
+              {/* Контент этапа всегда смонтирован: высота анимируется 0fr→1fr. */}
+              <div className="expandable" data-open={isOpen}>
+                <div>
+                  <div className="space-y-2 pt-2">
+                    {s.tasks.map((t) => (
+                      <TaskCard
+                        key={t.id}
+                        task={t}
+                        canManage={canManage}
+                        onToggle={() => toggleTask(t)}
+                        onToggleSub={toggleSubtask}
+                        onAddSub={() => addSubtask(t)}
+                        onRemove={() => removeTask(t)}
+                        onRemoveSub={removeSubtask}
+                        onOpenQuestionnaire={() => setQTask({ id: t.id, title: t.title })}
+                        onApproveReview={() => reviewTask(t, 'approve')}
+                        onReturnReview={() => {
+                          setReturnComment('')
+                          setReturnTask(t)
+                        }}
+                      />
+                    ))}
+                    {s.tasks.length === 0 && (
+                      <p className="py-1 text-sm text-w-muted2">Задач пока нет</p>
+                    )}
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => addTask(s)}
+                        className="inline-flex items-center gap-1.5 rounded-ctl px-2 py-1.5 text-xs font-bold text-w-muted transition hover:text-w-accentText"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Добавить задачу
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           )
         })}
@@ -265,6 +277,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
           <AppButton
             colorPrefix="w"
             size="sm"
+            className="active:scale-[0.98]"
             disabled={!returnComment.trim() || busy}
             onClick={() => returnTask && reviewTask(returnTask, 'return', returnComment.trim())}
           >
@@ -284,7 +297,7 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
     disabled={disabled}
     title="Сменить статус этапа"
     className={cn(
-      'absolute left-0 top-1.5 grid h-[21px] w-[21px] place-items-center rounded-full border-2 transition',
+      'absolute left-0 top-1.5 grid h-[21px] w-[21px] place-items-center rounded-full border-2 transition active:scale-[0.98]',
       status === 'done' && 'border-w-good bg-w-good text-black',
       status === 'in_progress' && 'border-w-accent bg-w-accent text-black ring-4 ring-w-accent/20',
       status === 'planned' && 'border-w-line bg-w-panel text-transparent',
@@ -321,7 +334,7 @@ const TaskCard: React.FC<{
           type="button"
           onClick={onToggle}
           className={cn(
-            'mt-0.5 grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 transition',
+            'mt-0.5 grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 transition active:scale-[0.98]',
             isDone ? 'border-w-good bg-w-good text-black' : 'border-w-line text-transparent hover:border-w-accentDim'
           )}
           aria-label={isDone ? 'Снять отметку' : 'Отметить готовым'}
@@ -357,14 +370,14 @@ const TaskCard: React.FC<{
                 <button
                   type="button"
                   onClick={onApproveReview}
-                  className="inline-flex items-center gap-1 rounded-full border border-w-good/50 px-2 py-0.5 text-2xs font-bold text-w-good transition hover:bg-w-good/10"
+                  className="inline-flex items-center gap-1 rounded-full border border-w-good/50 px-2 py-0.5 text-2xs font-bold text-w-good transition hover:bg-w-good/10 active:scale-[0.98]"
                 >
                   <Check className="h-3 w-3" strokeWidth={3} /> Подтвердить
                 </button>
                 <button
                   type="button"
                   onClick={onReturnReview}
-                  className="inline-flex items-center gap-1 rounded-full border border-w-line px-2 py-0.5 text-2xs font-bold text-w-muted transition hover:border-w-danger/50 hover:text-w-danger"
+                  className="inline-flex items-center gap-1 rounded-full border border-w-line px-2 py-0.5 text-2xs font-bold text-w-muted transition hover:border-w-danger/50 hover:text-w-danger active:scale-[0.98]"
                 >
                   Вернуть
                 </button>
@@ -419,7 +432,7 @@ const TaskCard: React.FC<{
                 type="button"
                 onClick={() => onToggleSub(st.id, st.is_done)}
                 className={cn(
-                  'grid h-[18px] w-[18px] shrink-0 place-items-center rounded border transition',
+                  'grid h-[18px] w-[18px] shrink-0 place-items-center rounded border transition active:scale-[0.98]',
                   st.is_done ? 'border-w-good bg-w-good text-black' : 'border-w-line text-transparent hover:border-w-accentDim'
                 )}
                 aria-label={st.is_done ? 'Снять отметку' : 'Отметить'}

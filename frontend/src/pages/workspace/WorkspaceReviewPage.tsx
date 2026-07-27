@@ -5,6 +5,7 @@ import { ClipboardCheck } from 'lucide-react'
 import { workspaceApi, WorkspaceRoadmapTask } from '@/api/workspace'
 import { roadmapApi } from '@/api/roadmap'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
+import { withViewTransition } from '@/lib/motion'
 import { useWsEvent } from '@/lib/ws'
 import { toast } from '@/hooks/use-toast'
 import { cn, formatDate } from '@/lib/utils'
@@ -44,7 +45,7 @@ const isOverdue = (dueDate: string | null) =>
 export const WorkspaceReviewPage: React.FC = () => {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const { params, isPreview } = useWorkspaceScope()
+  const { params, isPreview, mentorId } = useWorkspaceScope()
   const [returnTarget, setReturnTarget] = useState<WorkspaceRoadmapTask | null>(null)
   const [comment, setComment] = useState('')
 
@@ -136,12 +137,13 @@ export const WorkspaceReviewPage: React.FC = () => {
       {isLoading ? (
         <p className="text-sm text-w-muted">Загрузка…</p>
       ) : (
-        <div className="space-y-6">
+        <div key={mentorId ?? 'mine'} className="anim-view-in space-y-6">
           <section className="space-y-3">
             <h2 className="text-sm font-bold text-w-ink">Ждут проверки ({queueData?.total ?? 0})</h2>
             {queue.length === 0 ? (
               <EmptyState
                 colorPrefix="w"
+                className="anim-view-in"
                 icon={<ClipboardCheck className="h-6 w-6" />}
                 title="Всё проверено"
                 description="Новые заявки студентов появятся здесь."
@@ -195,8 +197,11 @@ export const WorkspaceReviewPage: React.FC = () => {
                         <AppButton
                           colorPrefix="w"
                           size="sm"
+                          className="active:scale-[0.98]"
                           disabled={reviewMutation.isPending}
-                          onClick={() => reviewMutation.mutate({ taskId: task.id, action: 'approve' })}
+                          onClick={() =>
+                            withViewTransition(() => reviewMutation.mutate({ taskId: task.id, action: 'approve' }))
+                          }
                         >
                           Подтвердить
                         </AppButton>
@@ -226,7 +231,7 @@ export const WorkspaceReviewPage: React.FC = () => {
           </section>
 
           {resolvedRecent.length > 0 && (
-            <section className="space-y-3">
+            <section className="anim-view-in space-y-3">
               <h2 className="text-sm font-bold text-w-ink">Разобранные за 7 дней ({resolvedRecent.length})</h2>
               <div className="space-y-2">
                 {resolvedRecent.map((task) => (
@@ -289,10 +294,13 @@ export const WorkspaceReviewPage: React.FC = () => {
             <AppButton
               colorPrefix="w"
               size="sm"
+              className="active:scale-[0.98]"
               disabled={!comment.trim() || reviewMutation.isPending}
               onClick={() =>
                 returnTarget &&
-                reviewMutation.mutate({ taskId: returnTarget.id, action: 'return', comment: comment.trim() })
+                withViewTransition(() =>
+                  reviewMutation.mutate({ taskId: returnTarget.id, action: 'return', comment: comment.trim() }),
+                )
               }
             >
               Вернуть с комментарием
