@@ -70,6 +70,11 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
     volumes:
       - ./google_service_account.json:/data/google_service_account.json:ro
+    # Забинжено на 127.0.0.1: только системный Caddy на этом же хосте видит порт,
+    # наружу (0.0.0.0) не торчит. Нужно только когда Caddy не в одной docker-сети
+    # с этим сервисом (единственный проект на сервере, см. NEW_SERVER_SETUP.md, вариант Б).
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,6 +143,9 @@ services:
         VITE_API_URL: ${VITE_API_URL:-https://teenteched.duckdns.org}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     container_name: tte_frontend_prod
+    # Забинжено на 127.0.0.1 — см. комментарий у backend.ports выше.
+    ports:
+      - "127.0.0.1:8080:80"
     depends_on:
       backend:
         condition: service_started
