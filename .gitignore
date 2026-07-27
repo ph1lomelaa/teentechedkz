@@ -69,12 +69,12 @@ docs/
 *.png
 
 .claude/skills
-
+STUDENT_MENTOR_FLOW_PLAN.md
 # Local prod-hardening checklist + плейбук + конспекты (личные заметки, не в репо)
 TODO_PROD.md
 PROD_PLAYBOOK.md
 NOTES_MONITORING_ACCESS.md
-
+UI_REDESIGN_SPEC.md
 # Скачанные сторонние дашборды Grafana (тянутся monitoring/fetch-dashboards.sh)
 monitoring/dashboards/
 # Метрики, которые пишут скрипты для node_exporter (textfile collector)

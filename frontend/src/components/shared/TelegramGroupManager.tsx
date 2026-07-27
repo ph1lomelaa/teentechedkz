@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  Clock3,
   Copy,
   ExternalLink,
   Link2Off,
@@ -38,6 +40,7 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
   const [studentInvite, setStudentInvite] = useState<TelegramGroupInviteLink | null>(null)
   const [selectedUnboundChatId, setSelectedUnboundChatId] = useState('')
   const [title, setTitle] = useState(chat?.title || '')
+  const [historyOpen, setHistoryOpen] = useState(false)
   const workspace = variant === 'workspace'
 
   useEffect(() => {
@@ -68,6 +71,12 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
     refetchInterval: chat?.id ? 10_000 : false,
   })
 
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['telegram-chat', chat?.id, 'sessions'],
+    queryFn: () => telegramApi.listSessions(chat!.id),
+    enabled: Boolean(chat?.id),
+  })
+
   const setRoleMutation = useMutation({
     mutationFn: ({ telegramUserId, role }: { telegramUserId: number; role: 'mentor' | 'student' }) =>
       telegramApi.setParticipantRole(chat!.id, telegramUserId, role),
@@ -77,6 +86,17 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
       toast({ title: 'Роль участника сохранена' })
     },
     onError: (error) => toast({ title: 'Не удалось изменить роль', description: errorDetail(error), variant: 'destructive' }),
+  })
+
+  const identifyMutation = useMutation({
+    mutationFn: (telegramUserId: number) => telegramApi.identifySelf(chat!.id, telegramUserId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['telegram-chat', chat?.id, 'participants'] })
+      await queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-participants', chat?.id] })
+      await queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-messages', chat?.id] })
+      toast({ title: 'Telegram-аккаунт сотрудника подтверждён' })
+    },
+    onError: (error) => toast({ title: 'Не удалось подтвердить аккаунт', description: errorDetail(error), variant: 'destructive' }),
   })
 
   const refresh = async () => {
@@ -337,6 +357,30 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
         )}
       </div>
 
+      {participants.length > 0 && (
+        <div className={card}>
+          <div className="text-sm font-semibold">Какой Telegram-аккаунт ваш?</div>
+          <p className="mt-1 text-xs opacity-60">Нужно для сотрудника, который пишет в этой группе — так его сообщения отображаются с правильной стороны в общем чате.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {participants.map((participant) => (
+              <button
+                key={participant.telegram_user_id}
+                type="button"
+                disabled={participant.is_current_user || identifyMutation.isPending}
+                className={cn(
+                  secondaryButton,
+                  participant.is_current_user && (workspace ? 'border-w-good/40 bg-w-good/10 text-w-good' : 'border-emerald-500 text-emerald-700'),
+                )}
+                onClick={() => identifyMutation.mutate(participant.telegram_user_id)}
+              >
+                {participant.sender_name || participant.display_name || participant.telegram_user_id}
+                {participant.is_current_user ? ' · Это мой аккаунт' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className={card}>
         <div className="text-sm font-semibold">Название группы</div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -385,6 +429,48 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
           </div>
         )}
       </div>
+
+      {sessions.length > 0 && (
+        <div className={cn(card, 'overflow-hidden p-0')}>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((value) => !value)}
+            className={cn(
+              'flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black uppercase tracking-[0.12em] hover:opacity-80',
+              workspace ? 'text-w-muted' : 'text-gray-500',
+            )}
+            aria-expanded={historyOpen}
+          >
+            <Clock3 className="h-4 w-4" />
+            <span className="flex-1">История привязок · {sessions.length}</span>
+            <ChevronDown className={cn('h-4 w-4 transition', historyOpen && 'rotate-180')} />
+          </button>
+          {historyOpen && (
+            <div className={cn('border-t px-4 py-3', workspace ? 'border-w-line' : 'border-gray-200')}>
+              <div className="space-y-2">
+                {sessions.map((session) => (
+                  <div key={session.id} className={cn('rounded-ctl border px-3 py-2 text-xs', workspace ? 'border-w-line bg-w-panel' : 'border-gray-200 bg-white')}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className={cn('font-bold', workspace ? 'text-w-ink' : 'text-gray-900')}>{session.student_name || 'Студент не указан'}</span>
+                      <span className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                        session.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600',
+                      )}>
+                        {session.status === 'active' ? 'Активна' : 'Закрыта'}
+                      </span>
+                    </div>
+                    <div className="mt-1 opacity-60">
+                      {formatDate(session.opened_at)}
+                      {session.closed_at ? ` — ${formatDate(session.closed_at)}` : ''}
+                      {session.opened_by_name ? ` · подключил ${session.opened_by_name}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {chat.status === 'paused' ? (

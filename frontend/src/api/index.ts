@@ -234,6 +234,19 @@ export const confidentialNotesApi = {
     )
     return response.data
   },
+  update: async (
+    noteId: string,
+    data: Partial<Pick<ConfidentialNoteCreatePayload, 'note_text' | 'visible_to_role'>>
+  ): Promise<ConfidentialNote> => {
+    const response = await apiClient.patch<ConfidentialNote>(
+      `/confidential-notes/${noteId}`,
+      data
+    )
+    return response.data
+  },
+  delete: async (noteId: string): Promise<void> => {
+    await apiClient.delete(`/confidential-notes/${noteId}`)
+  },
 }
 
 export const portfolioApi = {

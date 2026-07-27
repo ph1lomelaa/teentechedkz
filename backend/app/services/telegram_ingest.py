@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 
-from aiogram.types import Message
+from aiogram.types import Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.telegram_attachment import TelegramAttachment
@@ -11,6 +12,17 @@ from app.models.telegram_chat_session import TelegramChatSession
 from app.models.telegram_message import TelegramMessage, TelegramMessageType
 
 logger = logging.getLogger(__name__)
+
+
+def dump_telegram_object(obj: TelegramObject) -> dict:
+    """model_dump(mode="json") blows up on aiogram's `Default` sentinel values,
+    which can surface on nested objects (e.g. LinkPreviewOptions, ReplyParameters)
+    even with exclude_unset — aiogram doesn't always mark them unset. mode="python"
+    leaves such objects as-is instead of erroring, so we json-roundtrip with a
+    str fallback to land on a JSONB-safe dict."""
+    return json.loads(
+        json.dumps(obj.model_dump(mode="python", exclude_none=True, exclude_unset=True), default=str)
+    )
 
 
 def _message_type(message: Message) -> TelegramMessageType:
@@ -67,7 +79,7 @@ async def ingest_message(
         sender_name=message.from_user.full_name if message.from_user else None,
         message_type=message_type,
         raw_text=raw_text,
-        raw_payload=message.model_dump(mode="json", exclude_none=True),
+        raw_payload=dump_telegram_object(message),
     )
     db.add(row)
     await db.flush()

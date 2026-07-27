@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_change
 from app.core.deps import CurrentUser
 from app.core.database import get_db
-from app.core.encryption import encrypt
+from app.core.encryption import decrypt, encrypt
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
-from app.models.confidential_note import ConfidentialNote, NoteVisibility
+from app.models.confidential_note import ConfidentialNote, default_note_visibility_for, is_near_duplicate_note
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.user import UserRole
@@ -25,6 +25,7 @@ from app.schemas.student_note import (
     StudentNoteReviewRequest,
 )
 from app.services.note_blocks import block_headings
+from app.services.note_sessions import reformulate_for_student
 from app.services.student_notes import (
     apply_student_updates,
     build_profile_diff,
@@ -77,6 +78,7 @@ def _note_to_response(note: StudentNote, student_name: str | None = None) -> Stu
         title=note.title,
         source_text=note.source_text,
         summary_markdown=note.summary_markdown,
+        student_summary_markdown=note.student_summary_markdown,
         profile_snapshot=note.profile_snapshot or {},
         suggested_changes=note.suggested_changes or {},
         applied_changes=note.applied_changes or {},
@@ -89,7 +91,8 @@ def _note_to_response(note: StudentNote, student_name: str | None = None) -> Stu
         published_at=note.published_at,
         student_title=note.student_title,
         hidden_blocks=note.hidden_blocks or [],
-        blocks=block_headings(note.summary_markdown),
+        # Toggleable blocks reflect whichever text the student actually reads.
+        blocks=block_headings(note.student_summary_markdown or note.summary_markdown),
         is_important=note.is_important,
         source_kind=note.source_kind,
     )
@@ -192,6 +195,7 @@ async def create_note(
         title=body.title.strip(),
         source_text=body.source_text.strip(),
         summary_markdown=summary_markdown,
+        student_summary_markdown=body.student_summary_markdown,
         profile_snapshot=snapshot,
         suggested_changes=suggested_changes,
         applied_changes={},
@@ -287,6 +291,10 @@ async def review_note(
             summary_markdown = body.summary_markdown.strip()
             if summary_markdown:
                 note.summary_markdown = summary_markdown
+        if body.student_summary_markdown is not None:
+            student_summary_markdown = body.student_summary_markdown.strip()
+            if student_summary_markdown:
+                note.student_summary_markdown = student_summary_markdown
         if body.suggested_changes is not None:
             note.suggested_changes = dict(body.suggested_changes)
 
@@ -321,17 +329,36 @@ async def review_note(
         # Важные факты, не ложащиеся в поля профиля, — в заметки студента
         # (видимость admin+mzk, как у ручных заметок на карточке)
         profile_notes = (note.suggested_changes or {}).get("profile_notes") or []
+        if profile_notes:
+            existing_result = await db.execute(
+                select(ConfidentialNote.note_text_encrypted)
+                .where(ConfidentialNote.student_id == student.id)
+                .order_by(ConfidentialNote.created_at.desc())
+                .limit(50)
+            )
+            existing_notes = []
+            for (encrypted,) in existing_result.all():
+                if not encrypted:
+                    continue
+                try:
+                    existing_notes.append(decrypt(encrypted))
+                except Exception:
+                    continue
         for text in profile_notes:
             if not isinstance(text, str) or not text.strip():
+                continue
+            text = text.strip()
+            if is_near_duplicate_note(text, existing_notes):
                 continue
             db.add(
                 ConfidentialNote(
                     student_id=student.id,
-                    note_text_encrypted=encrypt(f"Из конспекта «{note.title}»: {text.strip()}"[:4000]),
-                    visible_to_role=NoteVisibility.admin_and_mzk,
+                    note_text_encrypted=encrypt(f"Из конспекта «{note.title}»: {text}"[:4000]),
+                    visible_to_role=default_note_visibility_for(current_user.role),
                     created_by=current_user.id,
                 )
             )
+            existing_notes.append(text)
             saved_profile_notes += 1
         if saved_profile_notes:
             await log_change(
@@ -355,13 +382,10 @@ async def review_note(
     note.status = StudentNoteStatus.approved
     note.applied_changes = {"changes": applied_changes, "profile_notes_saved": saved_profile_notes}
 
-    # Bug #5 fix: auto-publish notes when they are approved (no separate publish step)
-    if note.student_id:
-        note.published_to_student = True
-        note.published_at = datetime.now(timezone.utc)
-        note.published_by = current_user.id
-        await _notify_student_note_published(db, note)
-
+    # Approving no longer auto-publishes — sending to the student is now a
+    # separate, explicit action (POST /notes/{id}/publish), since every note
+    # now carries its own student-facing reformulation the mentor may want to
+    # review before it reaches the portal.
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student_name)
@@ -448,6 +472,22 @@ async def unpublish_note(
     """Retract a конспект from the student's portal."""
     note, student_name = await _load_note_in_scope(db, current_user, note_id)
     note.published_to_student = False
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_response(note, student_name)
+
+
+@router.post("/{note_id}/regenerate-student-summary", response_model=StudentNoteResponse)
+async def regenerate_student_summary(
+    note_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Re-reword the student-facing text from the current (possibly hand-
+    edited) mentor summary — available regardless of status so a mentor can
+    touch it before or after approval/publish."""
+    note, student_name = await _load_note_in_scope(db, current_user, note_id)
+    note.student_summary_markdown = await reformulate_for_student(note.summary_markdown, student_name)
     await db.commit()
     await db.refresh(note)
     return _note_to_response(note, student_name)

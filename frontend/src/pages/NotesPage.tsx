@@ -409,12 +409,13 @@ export const NotesPage: React.FC = () => {
                                 </p>
                               </div>
                               <div className="flex shrink-0 gap-2">
-                                <Button size="sm" asChild>
-                                  <Link to={`/notes/session/${session.id}`}>{session.note_id ? 'Просмотреть' : 'Открыть'}</Link>
-                                </Button>
-                                {session.note_id && (
-                                  <Button variant="outline" size="sm" asChild>
+                                {session.note_id ? (
+                                  <Button size="sm" asChild>
                                     <Link to={`/notes/${session.note_id}`}>Конспект</Link>
+                                  </Button>
+                                ) : (
+                                  <Button size="sm" asChild>
+                                    <Link to={`/notes/session/${session.id}`}>Открыть</Link>
                                   </Button>
                                 )}
                               </div>

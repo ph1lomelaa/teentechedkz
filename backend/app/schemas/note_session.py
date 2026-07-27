@@ -64,6 +64,7 @@ class NoteSessionNoteSummary(BaseModel):
     title: str
     source_text: str
     summary_markdown: str
+    student_summary_markdown: str | None = None
     profile_snapshot: dict[str, Any]
     suggested_changes: dict[str, Any]
     applied_changes: dict[str, Any]
@@ -83,6 +84,7 @@ class NoteSessionDraftResponse(BaseModel):
     title: str
     source_text: str
     summary_markdown: str
+    student_summary_markdown: str
     profile_snapshot: dict[str, Any]
     suggested_changes: dict[str, Any]
     change_preview: list[dict[str, Any]]

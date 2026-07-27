@@ -1,5 +1,7 @@
+import re
 import uuid
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from sqlalchemy import String, DateTime, ForeignKey, Boolean, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -23,6 +25,38 @@ def note_visible_to_role(visibility: "NoteVisibility", role) -> bool:
         return True
     if role == UserRole.mentor:
         return visibility == NoteVisibility.all_mentors
+    return False
+
+
+def default_note_visibility_for(role) -> "NoteVisibility":
+    """Visibility tier a system-generated note should get so its creator can
+    still see/manage it afterwards. A mentor can only ever see all_mentors
+    notes (see note_visible_to_role), so anything hardcoded to admin_and_mzk
+    would be invisible to the mentor who triggered its creation."""
+    from app.models.user import UserRole
+
+    if role == UserRole.mentor:
+        return NoteVisibility.all_mentors
+    return NoteVisibility.admin_and_mzk
+
+
+def _normalize_for_similarity(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"^из (telegram-чата|конспекта)[^:]*:\s*", "", text.lower())).strip()
+
+
+def is_near_duplicate_note(candidate: str, existing_texts: list[str], *, threshold: float = 0.78) -> bool:
+    """Fuzzy check so the same fact re-extracted in slightly different wording
+    (e.g. re-running an AI draft over overlapping chat history) doesn't create
+    another near-identical ConfidentialNote row every time."""
+    norm_candidate = _normalize_for_similarity(candidate)
+    if not norm_candidate:
+        return False
+    for existing in existing_texts:
+        norm_existing = _normalize_for_similarity(existing)
+        if not norm_existing:
+            continue
+        if SequenceMatcher(None, norm_candidate, norm_existing).ratio() >= threshold:
+            return True
     return False
 
 

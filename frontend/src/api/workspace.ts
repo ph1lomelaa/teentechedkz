@@ -1,5 +1,5 @@
 import apiClient from './client'
-import { DegreeLevel, Document, NoteSession, StudentNote, TelegramContextDraft } from '../types'
+import { DegreeLevel, Document, NoteSession, StudentNote, TelegramContextDraft, WorkspaceContextApplyResult } from '../types'
 import { Meeting } from './meetings'
 import type { Roadmap } from './roadmap'
 
@@ -261,7 +261,7 @@ export const workspaceApi = {
     const response = await apiClient.post(`/workspace/students/${studentId}/context-draft`, body)
     return response.data
   },
-  applyContextDraft: async (studentId: string, body: TelegramContextDraft): Promise<{ note_id: string; applied_changes: unknown[]; tasks_created: number }> => {
+  applyContextDraft: async (studentId: string, body: TelegramContextDraft): Promise<WorkspaceContextApplyResult> => {
     const response = await apiClient.post(`/workspace/students/${studentId}/context-draft/apply`, body)
     return response.data
   },

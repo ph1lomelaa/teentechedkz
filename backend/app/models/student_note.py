@@ -55,6 +55,10 @@ class StudentNote(Base):
     published_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     student_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     hidden_blocks: Mapped[list] = mapped_column(JSON, default=list)
+    # Separate reformulation of summary_markdown written for the student's own
+    # voice/tone (no CRM jargon) — NULL for notes created before this field
+    # existed, in which case the portal falls back to the mentor text.
+    student_summary_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_important: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source_kind: Mapped[str] = mapped_column(String(30), default="manual", nullable=False)
 

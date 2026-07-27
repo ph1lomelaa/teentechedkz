@@ -14,6 +14,7 @@ class StudentNoteCreate(BaseModel):
     title: str
     source_text: str
     summary_markdown: str | None = None
+    student_summary_markdown: str | None = None
     suggested_changes: dict[str, Any] | None = None
     is_important: bool = False
     source_kind: Literal["manual", "meeting", "telegram"] = "manual"
@@ -22,6 +23,7 @@ class StudentNoteCreate(BaseModel):
 class StudentNoteReviewRequest(BaseModel):
     action: Literal["approve", "reject"]
     summary_markdown: str | None = None
+    student_summary_markdown: str | None = None
     suggested_changes: dict[str, Any] | None = None
 
 
@@ -39,6 +41,7 @@ class StudentNoteResponse(BaseModel):
     title: str
     source_text: str
     summary_markdown: str
+    student_summary_markdown: str | None = None
     profile_snapshot: dict[str, Any]
     suggested_changes: dict[str, Any]
     applied_changes: dict[str, Any]

@@ -29,6 +29,8 @@ import {
 } from '@/components/ui/primitives/dialog'
 import { useDeepgramTranscription, type CaptureSource } from '@/hooks/useDeepgramTranscription'
 import { useAudioBackupRecorder } from '@/hooks/useAudioBackupRecorder'
+import { Markdown } from '@/components/shared/Markdown'
+import { splitNoteMarkdown } from '@/lib/noteBlocks'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import type { NoteSessionDraft, NoteSessionReconcileResult, NoteTranscript } from '@/types'
@@ -128,6 +130,15 @@ export const NoteSessionPage: React.FC = () => {
     queryFn: () => notesApi.getSession(sessionId),
     enabled: Boolean(sessionId),
   })
+
+  // A finished session with a конспект already generated has nothing left to
+  // show here — every entry point (meeting/student-card buttons, bookmarks)
+  // should land on the конспект itself, not this recording/transcript view.
+  useEffect(() => {
+    if (session?.note_id) {
+      navigate(notePath(session.note_id), { replace: true })
+    }
+  }, [session?.note_id, notePath, navigate])
 
   useEffect(() => {
     transcriptsRef.current = transcripts
@@ -747,50 +758,81 @@ export const NoteSessionPage: React.FC = () => {
         </Card>
 
         <Card className={cardClass}>
-          <CardHeader className="pb-4">
-            <CardTitle className={cardTitleClass}>Транскрипт</CardTitle>
-            <CardDescription className={cardDescriptionClass}>Фрагменты сессии и промежуточная речь</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className={cn('h-[34rem] space-y-3 overflow-y-auto p-4', inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-white')}>
-              {transcripts.length === 0 && !interimText ? (
-                <div className={cn('flex h-full items-center justify-center text-center', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>
-                  Запустите запись, чтобы увидеть фрагменты транскрипции.
-                </div>
-              ) : (
-                <>
-                  {transcripts.map((entry) => (
-                    <div key={entry.client_segment_id || entry.id} className="flex gap-3 items-start">
-                      <span className={cn('w-16 shrink-0 text-xs tabular-nums', eyebrowClass)}>
-                        {new Date(entry.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        {entry.speaker && (
-                          <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-p-line bg-p-bg text-p-muted')}>
-                            {entry.speaker}
+          {isReadOnly ? (
+            <>
+              <CardHeader className="pb-4">
+                <CardTitle className={cardTitleClass}>Конспект</CardTitle>
+                <CardDescription className={cardDescriptionClass}>Итог разговора</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(() => {
+                  const { hero } = splitNoteMarkdown(session.note?.summary_markdown)
+                  return hero ? (
+                    <div className={cn('border-l-4 py-1 pl-4', inWorkspace ? 'border-yellow-400' : 'border-p-accent')}>
+                      <Markdown className={cn('text-lg font-medium leading-snug', titleClass)}>{hero}</Markdown>
+                    </div>
+                  ) : (
+                    <p className={cn('text-sm', mutedClass)}>Конспект собран, полный текст — по кнопке ниже.</p>
+                  )
+                })()}
+                {session.note_id && (
+                  <Button asChild className={cn('w-full justify-start', primaryButtonClass)}>
+                    <Link to={notePath(session.note_id)}>
+                      <Bot className="w-4 h-4 mr-2" />
+                      Открыть конспект целиком
+                    </Link>
+                  </Button>
+                )}
+              </CardContent>
+            </>
+          ) : (
+            <>
+              <CardHeader className="pb-4">
+                <CardTitle className={cardTitleClass}>Транскрипт</CardTitle>
+                <CardDescription className={cardDescriptionClass}>Фрагменты сессии и промежуточная речь</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className={cn('h-[34rem] space-y-3 overflow-y-auto p-4', inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-white')}>
+                  {transcripts.length === 0 && !interimText ? (
+                    <div className={cn('flex h-full items-center justify-center text-center', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>
+                      Запустите запись, чтобы увидеть фрагменты транскрипции.
+                    </div>
+                  ) : (
+                    <>
+                      {transcripts.map((entry) => (
+                        <div key={entry.client_segment_id || entry.id} className="flex gap-3 items-start">
+                          <span className={cn('w-16 shrink-0 text-xs tabular-nums', eyebrowClass)}>
+                            {new Date(entry.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                        )}
-                        <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', inWorkspace ? 'text-w-ink' : 'text-p-text')}>{entry.text}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {interimText && (
-                    <div className="flex gap-3 items-start">
-                      <span className={cn('w-16 shrink-0 text-xs tabular-nums', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>···</span>
-                      <p className={cn('whitespace-pre-wrap text-sm italic leading-relaxed', mutedClass)}>{interimText}</p>
-                    </div>
+                          <div className="min-w-0 flex-1">
+                            {entry.speaker && (
+                              <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-p-line bg-p-bg text-p-muted')}>
+                                {entry.speaker}
+                              </span>
+                            )}
+                            <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', inWorkspace ? 'text-w-ink' : 'text-p-text')}>{entry.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {interimText && (
+                        <div className="flex gap-3 items-start">
+                          <span className={cn('w-16 shrink-0 text-xs tabular-nums', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>···</span>
+                          <p className={cn('whitespace-pre-wrap text-sm italic leading-relaxed', mutedClass)}>{interimText}</p>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
-            {syncStatus ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>{syncStatus}</p> : null}
-            {pendingCount > 0 && (
-              <div className={cn('mt-2 px-3 py-2 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-accentText' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-800')}>
-                Текст временно хранится на этом устройстве. Не закрывайте вкладку, пока очередь отправки не станет 0.
-              </div>
-            )}
-            {error ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-danger' : 'text-red-600')}>{error}</p> : null}
-          </CardContent>
+                </div>
+                {syncStatus ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>{syncStatus}</p> : null}
+                {pendingCount > 0 && (
+                  <div className={cn('mt-2 px-3 py-2 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-accentText' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-800')}>
+                    Текст временно хранится на этом устройстве. Не закрывайте вкладку, пока очередь отправки не станет 0.
+                  </div>
+                )}
+                {error ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-danger' : 'text-red-600')}>{error}</p> : null}
+              </CardContent>
+            </>
+          )}
         </Card>
 
         {!focusRecording && !isReadOnly && (

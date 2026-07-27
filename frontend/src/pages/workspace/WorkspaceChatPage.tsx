@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, ChevronDown, Clock3, Download, Paperclip, Plus, Search, Send, Sparkles, X } from 'lucide-react'
+import { Download, Paperclip, Plus, Search, Send, Sparkles, X } from 'lucide-react'
 import { chatApi, ConversationListItem } from '@/api/chat'
 import { telegramApi } from '@/api/telegram'
 import { workspaceApi, WorkspaceScopeParams } from '@/api/workspace'
 import type { TelegramChat, TelegramContextDraft } from '@/types'
 import { ChatThread } from '@/components/shared/ChatThread'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
+import { ContextDraftReviewDialog } from '@/components/shared/ContextDraftReviewDialog'
 import { useAuth } from '@/contexts/AuthContext'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
+import { compactContextDraft } from '@/lib/contextDraft'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { AppButton, AppCard, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
@@ -636,7 +638,7 @@ function UnifiedThread({
     onError: () => toast({ title: 'Не удалось подготовить общий AI-разбор', variant: 'destructive' }),
   })
   const applyDraftMutation = useMutation({
-    mutationFn: () => workspaceApi.applyContextDraft(studentId, draft!),
+    mutationFn: () => workspaceApi.applyContextDraft(studentId, compactContextDraft(draft!)),
     onSuccess: (result) => {
       setDraft(null)
       queryClient.invalidateQueries({ queryKey: ['workspace'] })
@@ -676,21 +678,18 @@ function UnifiedThread({
         </div>
       </div>
 
-      {draft && (
-        <div className="mb-4 rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
-          <div className="mb-2 flex items-center gap-2 font-display text-sm font-black text-w-accentText"><Bot className="h-4 w-4" />Предпросмотр общей истории</div>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-w-ink">{draft.summary}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Pill colorPrefix="w">Профиль: {draft.profile_updates.length}</Pill>
-            <Pill colorPrefix="w">Задачи: {draft.follow_ups.length}</Pill>
-            <Pill colorPrefix="w">Документы: {draft.document_flags.length}</Pill>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <AppButton colorPrefix="w" size="sm" onClick={() => applyDraftMutation.mutate()} disabled={applyDraftMutation.isPending}>Подтвердить и применить</AppButton>
-            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</AppButton>
-          </div>
-        </div>
-      )}
+      <ContextDraftReviewDialog
+        variant="workspace"
+        open={!!draft}
+        draft={draft}
+        onDraftChange={setDraft}
+        onCancel={() => setDraft(null)}
+        onConfirm={() => applyDraftMutation.mutate()}
+        isApplying={applyDraftMutation.isPending}
+        title="Общий AI-разбор"
+        description="Заметки/документы/противоречия попадут в один общий конспект, follow-up станут задачами. Проверьте список перед сохранением."
+        confirmLabel="Подтвердить и применить"
+      />
 
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
@@ -825,20 +824,11 @@ function ConversationHeader({ title, channel }: { title: string; channel: string
 function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOnly?: boolean }) {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<TelegramContextDraft | null>(null)
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [outgoingText, setOutgoingText] = useState('')
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['workspace', 'chat', 'telegram-messages', chat.id],
     queryFn: () => telegramApi.listMessages(chat.id, { limit: 200 }),
     refetchInterval: 15_000,
-  })
-  const { data: participants = [] } = useQuery({
-    queryKey: ['workspace', 'chat', 'telegram-participants', chat.id],
-    queryFn: () => telegramApi.listParticipants(chat.id),
-  })
-  const { data: sessions = [] } = useQuery({
-    queryKey: ['workspace', 'chat', 'telegram-sessions', chat.id],
-    queryFn: () => telegramApi.listSessions(chat.id),
   })
   const latestTelegramMessageId = messages[messages.length - 1]?.id
   useEffect(() => {
@@ -847,24 +837,15 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
       queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'unread'] })
     }).catch(() => {})
   }, [chat.student_id, latestTelegramMessageId, queryClient, readOnly])
-  const identifyMutation = useMutation({
-    mutationFn: (telegramUserId: number) => telegramApi.identifySelf(chat.id, telegramUserId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-participants', chat.id] })
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-messages', chat.id] })
-      toast({ title: 'Telegram-аккаунт сотрудника подтверждён' })
-    },
-    onError: () => toast({ title: 'Не удалось подтвердить аккаунт', variant: 'destructive' }),
-  })
   const draftMutation = useMutation({
     mutationFn: () => telegramApi.createContextDraft(chat.id, { limit: 200 }),
     onSuccess: setDraft,
     onError: () => toast({ title: 'Не удалось подготовить AI-разбор', variant: 'destructive' }),
   })
   const applyMutation = useMutation({
-    mutationFn: () => telegramApi.applyContextDraft(chat.id, draft!),
-    onSuccess: () => {
-      toast({ title: 'AI-разбор применён после подтверждения' })
+    mutationFn: () => telegramApi.applyContextDraft(chat.id, compactContextDraft(draft!)),
+    onSuccess: (result) => {
+      toast({ title: 'AI-разбор применён', description: `Сохранено заметок: ${result.profile_notes_saved}` })
       setDraft(null)
       queryClient.invalidateQueries({ queryKey: ['workspace'] })
     },
@@ -910,86 +891,17 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
         )}
       </div>
 
-      {draft && (
-        <div className="mb-4 rounded-panel border border-w-accentDim/40 bg-w-accent/10 p-4">
-          <div className="mb-2 flex items-center gap-2 font-display text-sm font-black text-w-accentText">
-            <Bot className="h-4 w-4" /> Предпросмотр AI-разбора
-          </div>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-w-ink">{draft.summary}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-w-muted">
-            <Pill colorPrefix="w">Изменения профиля: {draft.profile_updates.length}</Pill>
-            <Pill colorPrefix="w">Задачи: {draft.follow_ups.length}</Pill>
-            <Pill colorPrefix="w">Документы: {draft.document_flags.length}</Pill>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <AppButton colorPrefix="w" size="sm" onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending}>
-              Подтвердить и применить
-            </AppButton>
-            <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => setDraft(null)}>Отмена</AppButton>
-          </div>
-        </div>
-      )}
-
-      {participants.length > 0 && (
-        <div className="mb-4 rounded-panel border border-w-line bg-w-panel2 p-4">
-          <div className="text-xs font-black uppercase tracking-[0.14em] text-w-muted">Какой Telegram-аккаунт ваш?</div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {participants.map((participant) => (
-              <button
-                key={participant.telegram_user_id}
-                type="button"
-                disabled={participant.is_current_user || identifyMutation.isPending}
-                onClick={() => identifyMutation.mutate(participant.telegram_user_id)}
-                className={cn(
-                  'rounded-ctl border px-3 py-2 text-xs font-bold transition',
-                  participant.is_current_user
-                    ? 'border-w-good/40 bg-w-good/10 text-w-good'
-                    : 'border-w-line bg-w-panel text-w-muted hover:border-w-accentDim hover:text-w-accentText',
-                )}
-              >
-                {participant.sender_name || participant.display_name || participant.telegram_user_id}
-                {participant.is_current_user ? ' · Это мой аккаунт' : ''}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {sessions.length > 0 && (
-        <div className="mb-4 overflow-hidden rounded-panel border border-w-line bg-w-panel2">
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((value) => !value)}
-            className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-black uppercase tracking-[0.12em] text-w-muted hover:text-w-accentText"
-            aria-expanded={historyOpen}
-          >
-            <Clock3 className="h-4 w-4" />
-            <span className="flex-1">История привязок · {sessions.length}</span>
-            <ChevronDown className={cn('h-4 w-4 transition', historyOpen && 'rotate-180')} />
-          </button>
-          {historyOpen && (
-            <div className="border-t border-w-line px-4 py-3">
-              <div className="space-y-2">
-                {sessions.map((session) => (
-                  <div key={session.id} className="rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-w-ink">{session.student_name || 'Студент не указан'}</span>
-                      <Pill colorPrefix="w" tone={session.status === 'active' ? 'good' : 'neutral'}>
-                        {session.status === 'active' ? 'Активна' : 'Закрыта'}
-                      </Pill>
-                    </div>
-                    <div className="mt-1 text-w-muted">
-                      {formatDate(session.opened_at)}
-                      {session.closed_at ? ` — ${formatDate(session.closed_at)}` : ''}
-                      {session.opened_by_name ? ` · подключил ${session.opened_by_name}` : ''}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      <ContextDraftReviewDialog
+        variant="workspace"
+        open={!!draft}
+        draft={draft}
+        onDraftChange={setDraft}
+        onCancel={() => setDraft(null)}
+        onConfirm={() => applyMutation.mutate()}
+        isApplying={applyMutation.isPending}
+        title="Предпросмотр AI-разбора"
+        confirmLabel="Подтвердить и применить"
+      />
 
       <div className="h-[560px] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-4">
         {isLoading ? (

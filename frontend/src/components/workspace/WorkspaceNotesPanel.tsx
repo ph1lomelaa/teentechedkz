@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Shield } from 'lucide-react'
+import { Pencil, Plus, Shield } from 'lucide-react'
 import { confidentialNotesApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
@@ -32,6 +32,9 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
   const [adding, setAdding] = useState(false)
   const [text, setText] = useState('')
   const [role, setRole] = useState<NoteVisibility>('admin_and_mzk')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['student', studentId] })
 
@@ -61,6 +64,25 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
     onError: () => toast({ title: 'Не удалось изменить видимость', variant: 'destructive' }),
   })
 
+  const editMutation = useMutation({
+    mutationFn: ({ noteId, noteText }: { noteId: string; noteText: string }) =>
+      confidentialNotesApi.update(noteId, { note_text: noteText }),
+    onSuccess: () => {
+      invalidate()
+      setEditingId(null)
+    },
+    onError: () => toast({ title: 'Не удалось сохранить заметку', variant: 'destructive' }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (noteId: string) => confidentialNotesApi.delete(noteId),
+    onSuccess: () => {
+      invalidate()
+      toast({ title: 'Заметка удалена' })
+    },
+    onError: () => toast({ title: 'Не удалось удалить заметку', variant: 'destructive' }),
+  })
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 font-display text-base font-black text-w-ink">
@@ -75,22 +97,78 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
         <div className="space-y-2.5">
           {notes.map((note) => (
             <div key={note.id} className="rounded-panel border border-w-line bg-w-panel2 p-3.5">
-              <p className="text-sm text-w-ink">{note.note_text}</p>
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] text-w-muted">
-                  Видят: {VISIBILITY_LABEL[note.visible_to_role]} · {formatDate(note.created_at)}
-                </p>
-                <AppButton colorPrefix="w"
-                  size="sm"
-                  variant="ghost"
-                  disabled={visibilityMutation.isPending}
-                  onClick={() => visibilityMutation.mutate({ noteId: note.id, visible: !note.visible_to_student })}
-                >
-                  {note.visible_to_student ? 'Скрыть от ученика' : 'Показать ученику'}
-                </AppButton>
-              </div>
-              {note.visible_to_student && (
-                <p className="mt-1.5 text-[11px] font-bold text-w-good">Видно ученику в разделе «Заметки»</p>
+              {editingId === note.id ? (
+                <div className="space-y-2.5">
+                  <textarea
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2.5 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                  />
+                  <div className="flex items-center gap-2">
+                    <AppButton
+                      colorPrefix="w"
+                      size="sm"
+                      disabled={!editingText.trim() || editMutation.isPending}
+                      onClick={() => editMutation.mutate({ noteId: note.id, noteText: editingText })}
+                    >
+                      Сохранить
+                    </AppButton>
+                    <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+                      Отмена
+                    </AppButton>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-w-ink">{note.note_text}</p>
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] text-w-muted">
+                      Видят: {VISIBILITY_LABEL[note.visible_to_role]} · {formatDate(note.created_at)}
+                    </p>
+                    <div className="relative">
+                      <AppButton
+                        colorPrefix="w"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        aria-label="Действия с заметкой"
+                        onClick={() => setMenuOpenId(menuOpenId === note.id ? null : note.id)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </AppButton>
+                      {menuOpenId === note.id && (
+                        <div className="absolute right-0 top-full z-10 mt-1 flex min-w-[180px] flex-col overflow-hidden rounded-ctl border border-w-line bg-w-panel shadow-lg">
+                          <button
+                            type="button"
+                            disabled={visibilityMutation.isPending}
+                            className="px-3 py-2 text-left text-xs text-w-ink hover:bg-w-panel2 disabled:opacity-50"
+                            onClick={() => { setMenuOpenId(null); visibilityMutation.mutate({ noteId: note.id, visible: !note.visible_to_student }) }}
+                          >
+                            {note.visible_to_student ? 'Скрыть от ученика' : 'Показать ученику'}
+                          </button>
+                          <button
+                            type="button"
+                            className="px-3 py-2 text-left text-xs text-w-ink hover:bg-w-panel2"
+                            onClick={() => { setMenuOpenId(null); setEditingId(note.id); setEditingText(note.note_text || '') }}
+                          >
+                            Изменить
+                          </button>
+                          <button
+                            type="button"
+                            className="px-3 py-2 text-left text-xs text-w-danger hover:bg-w-panel2"
+                            onClick={() => { setMenuOpenId(null); if (confirm('Удалить заметку?')) deleteMutation.mutate(note.id) }}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {note.visible_to_student && (
+                    <p className="mt-1.5 text-[11px] font-bold text-w-good">Видно ученику в разделе «Заметки»</p>
+                  )}
+                </>
               )}
             </div>
           ))}

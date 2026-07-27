@@ -301,6 +301,7 @@ export interface StudentNote {
   title: string
   source_text: string
   summary_markdown: string
+  student_summary_markdown?: string | null
   profile_snapshot: Record<string, unknown>
   suggested_changes: Record<string, unknown>
   applied_changes: Record<string, unknown>
@@ -375,6 +376,7 @@ export interface NoteSessionDraft {
   title: string
   source_text: string
   summary_markdown: string
+  student_summary_markdown: string
   profile_snapshot: Record<string, unknown>
   suggested_changes: Record<string, unknown>
   change_preview: Array<{
@@ -555,6 +557,16 @@ export interface TelegramContextApplyResult {
   note_id: string
   applied_changes: Array<{ field: string; old_value: unknown; new_value: unknown }>
   profile_notes_saved: number
+}
+
+// Unlike TelegramContextApplyResult, the combined workspace flow doesn't create
+// one ConfidentialNote per item — profile_notes/document_flags/contradictions/
+// quality_warnings are folded into a single StudentNote, and follow_ups become
+// StudentTask rows instead (counted here, not saved as notes).
+export interface WorkspaceContextApplyResult {
+  note_id: string
+  applied_changes: Array<{ field: string; old_value: unknown; new_value: unknown }>
+  tasks_created: number
 }
 
 export interface TelegramImportResult {

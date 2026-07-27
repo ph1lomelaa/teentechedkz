@@ -26,6 +26,7 @@ from app.models.telegram_message import TelegramMessage, TelegramMessageType
 from app.models.meeting import Meeting, MeetingStatus
 from app.services.note_blocks import filter_visible
 from app.services.telegram_bot import get_bot
+from app.services.telegram_ingest import dump_telegram_object
 from pydantic import BaseModel
 
 router = APIRouter(tags=["portal"])
@@ -46,7 +47,12 @@ def _portal_note_dict(note: StudentNote, *, full: bool = False) -> dict:
         "created_at": note.created_at.isoformat(),
     }
     if full:
-        data["summary_markdown"] = filter_visible(note.summary_markdown, note.hidden_blocks)
+        # student_summary_markdown is the reworded-for-the-student text; NULL
+        # for notes created before that field existed, so fall back to the
+        # mentor text (filtered) exactly as before.
+        data["summary_markdown"] = filter_visible(
+            note.student_summary_markdown or note.summary_markdown, note.hidden_blocks
+        )
     return data
 
 
@@ -221,7 +227,7 @@ async def portal_telegram_send(
             sender_name=student.full_name,
             message_type=TelegramMessageType.text,
             raw_text=payload.text.strip(),
-            raw_payload=sent.model_dump(mode="json", exclude_none=True),
+            raw_payload=dump_telegram_object(sent),
         )
         db.add(message)
         await db.commit()
@@ -322,7 +328,7 @@ async def export_notes_markdown(
         md_lines.append(f"## {note.student_title or note.title}")
         if note.published_at:
             md_lines.append(f"_Опубликовано: {note.published_at.strftime('%d.%m.%Y %H:%M')}_\n")
-        md_lines.append(filter_visible(note.summary_markdown or "", note.hidden_blocks) or "")
+        md_lines.append(filter_visible(note.student_summary_markdown or note.summary_markdown or "", note.hidden_blocks) or "")
         md_lines.append("\n---\n")
 
     content = "\n".join(md_lines).encode("utf-8")

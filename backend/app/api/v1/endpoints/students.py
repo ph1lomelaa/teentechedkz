@@ -1226,6 +1226,9 @@ async def get_student(
     responsibles, is_mine = await _student_responsibles(db, student.id, current_user.id)
     data["responsibles"] = responsibles
     data["is_mine"] = is_mine
+    data["days_in_work"] = None
+    if student.contracts and student.contracts[0].signed_date:
+        data["days_in_work"] = (date.today() - student.contracts[0].signed_date).days
 
     # Product mode: role is not an access boundary; "mine" is a work filter.
     if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):

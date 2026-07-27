@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FolderInput, History, Paperclip, Search, Sparkles, Upload, X } from 'lucide-react'
+import { ArrowLeft, FolderInput, History, Paperclip, Search, Sparkles, Upload } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
@@ -29,46 +29,20 @@ import {
   SelectValue,
 } from '@/components/ui/primitives/select'
 import { Input } from '@/components/ui/primitives/input'
-import { Textarea } from '@/components/ui/primitives/textarea'
 import { StudentPickerDialog } from '@/components/shared/StudentPickerDialog'
 import { InsightCard } from '@/components/shared/InsightCard'
 import { StudentChatSection } from '@/components/shared/StudentChatSection'
 import { Accordion } from '@/components/ui/primitives/accordion'
+import { ContextDraftReviewDialog } from '@/components/shared/ContextDraftReviewDialog'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/primitives/toast'
 import { downloadBlob } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { compactContextDraft } from '@/lib/contextDraft'
 import type { TelegramAttachment, TelegramContextDraft } from '@/types'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function compactContextDraft(draft: TelegramContextDraft): TelegramContextDraft {
-  const cleanList = (items: string[]) => items.map((item) => item.trim()).filter(Boolean)
-  return {
-    ...draft,
-    summary: draft.summary.trim(),
-    profile_updates: draft.profile_updates.filter((item) => item.field.trim() && String(item.value ?? '').trim()),
-    profile_notes: cleanList(draft.profile_notes),
-    follow_ups: cleanList(draft.follow_ups),
-    document_flags: cleanList(draft.document_flags),
-    contradictions: cleanList(draft.contradictions),
-    quality_warnings: cleanList(draft.quality_warnings),
-    ignored_as_noise: cleanList(draft.ignored_as_noise),
-  }
-}
-
-function replaceDraftList(
-  draft: TelegramContextDraft,
-  key: keyof Pick<TelegramContextDraft, 'profile_notes' | 'follow_ups' | 'document_flags' | 'contradictions' | 'quality_warnings'>,
-  index: number,
-  value: string,
-): TelegramContextDraft {
-  return {
-    ...draft,
-    [key]: draft[key].map((item, i) => (i === index ? value : item)),
-  }
 }
 
 export default function TelegramChatDetailPage() {
@@ -252,54 +226,6 @@ export default function TelegramChatDetailPage() {
     } catch (err) {
       toast({ title: 'Не удалось скачать файл', description: getErrorMessage(err), variant: 'destructive' })
     }
-  }
-
-  const renderDraftTextList = (
-    title: string,
-    key: keyof Pick<TelegramContextDraft, 'profile_notes' | 'follow_ups' | 'document_flags' | 'contradictions' | 'quality_warnings'>,
-  ) => {
-    if (!contextDraft) return null
-    const items = contextDraft[key]
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">{title}</p>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            onClick={() => setContextDraft({ ...contextDraft, [key]: [...items, ''] })}
-          >
-            Добавить
-          </Button>
-        </div>
-        {items.length === 0 ? (
-          <p className="text-xs text-p-muted2">Нет пунктов</p>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item, index) => (
-              <div key={`${key}-${index}`} className="flex items-start gap-2">
-                <Textarea
-                  value={item}
-                  className="min-h-[64px] text-sm"
-                  onChange={(event) => setContextDraft(replaceDraftList(contextDraft, key, index, event.target.value))}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-9 w-9 p-0"
-                  onClick={() => setContextDraft({ ...contextDraft, [key]: items.filter((_, i) => i !== index) })}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
   }
 
   if (!chat) {
@@ -513,133 +439,15 @@ export default function TelegramChatDetailPage() {
         </div>
       </div>
 
-      <Dialog open={contextDraftOpen} onOpenChange={setContextDraftOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Заметки из Telegram</DialogTitle>
-            <DialogDescription>
-              Проверьте черновик перед сохранением. В профиль попадут только оставленные пункты.
-            </DialogDescription>
-          </DialogHeader>
-          {contextDraft && (
-            <div className="space-y-5">
-              {contextDraft.source_filter?.q && (
-                <div className="rounded-panel border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-                  AI-разбор создан только по сообщениям, найденным по запросу: “{contextDraft.source_filter.q}”.
-                </div>
-              )}
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Кратко</p>
-                <Textarea
-                  value={contextDraft.summary}
-                  className="min-h-[84px]"
-                  onChange={(event) => setContextDraft({ ...contextDraft, summary: event.target.value })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Изменения полей</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => setContextDraft({
-                      ...contextDraft,
-                      profile_updates: [...contextDraft.profile_updates, { field: '', value: '', reason: '' }],
-                    })}
-                  >
-                    Добавить
-                  </Button>
-                </div>
-                {contextDraft.profile_updates.length === 0 ? (
-                  <p className="text-xs text-p-muted2">Подтверждённых изменений полей нет</p>
-                ) : (
-                  <div className="space-y-2">
-                    {contextDraft.profile_updates.map((item, index) => (
-                      <div key={index} className="grid gap-2 rounded-panel border border-p-line p-3 md:grid-cols-[1fr_1fr_auto]">
-                        <Input
-                          value={item.field}
-                          placeholder="field"
-                          onChange={(event) => setContextDraft({
-                            ...contextDraft,
-                            profile_updates: contextDraft.profile_updates.map((next, i) =>
-                              i === index ? { ...next, field: event.target.value } : next
-                            ),
-                          })}
-                        />
-                        <Input
-                          value={String(item.value ?? '')}
-                          placeholder="Новое значение"
-                          onChange={(event) => setContextDraft({
-                            ...contextDraft,
-                            profile_updates: contextDraft.profile_updates.map((next, i) =>
-                              i === index ? { ...next, value: event.target.value } : next
-                            ),
-                          })}
-                        />
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-10 w-10 p-0"
-                          onClick={() => setContextDraft({
-                            ...contextDraft,
-                            profile_updates: contextDraft.profile_updates.filter((_, i) => i !== index),
-                          })}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                        <Textarea
-                          value={item.reason || ''}
-                          placeholder="Почему это подтверждено"
-                          className="min-h-[56px] md:col-span-3"
-                          onChange={(event) => setContextDraft({
-                            ...contextDraft,
-                            profile_updates: contextDraft.profile_updates.map((next, i) =>
-                              i === index ? { ...next, reason: event.target.value } : next
-                            ),
-                          })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {renderDraftTextList('Заметки профиля', 'profile_notes')}
-              {renderDraftTextList('Follow-up', 'follow_ups')}
-              {renderDraftTextList('Документы', 'document_flags')}
-              <p className="text-xs text-p-muted2">
-                Вложения пока не распознаются автоматически: AI видит факт файла, но не читает содержимое сертификата.
-              </p>
-              {renderDraftTextList('Противоречия / неясности', 'contradictions')}
-              {renderDraftTextList('Предупреждения качества', 'quality_warnings')}
-
-              {contextDraft.ignored_as_noise.length > 0 && (
-                <div className="rounded-panel border border-p-line bg-p-bg p-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-p-muted">Не сохранять</p>
-                  <ul className="mt-2 list-disc pl-5 text-sm text-p-muted">
-                    {contextDraft.ignored_as_noise.map((item, index) => <li key={index}>{item}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setContextDraftOpen(false)}>
-              Отмена
-            </Button>
-            <Button
-              disabled={!contextDraft || applyContextDraftMutation.isPending}
-              onClick={() => applyContextDraftMutation.mutate()}
-            >
-              Сохранить выбранное
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ContextDraftReviewDialog
+        open={contextDraftOpen}
+        draft={contextDraft}
+        onDraftChange={setContextDraft}
+        onCancel={() => setContextDraftOpen(false)}
+        onConfirm={() => applyContextDraftMutation.mutate()}
+        isApplying={applyContextDraftMutation.isPending}
+        footnote="Вложения пока не распознаются автоматически: AI видит факт файла, но не читает содержимое сертификата."
+      />
 
       <StudentPickerDialog
         open={reassignOpen}

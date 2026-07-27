@@ -24,6 +24,7 @@ export interface StudentNoteCreatePayload {
 export interface StudentNoteReviewPayload {
   action: 'approve' | 'reject'
   summary_markdown?: string
+  student_summary_markdown?: string
   suggested_changes?: Record<string, unknown>
 }
 
@@ -144,6 +145,10 @@ export const notesApi = {
   },
   unpublish: async (id: string): Promise<StudentNote> => {
     const response = await apiClient.post<StudentNote>(`/notes/${id}/unpublish`)
+    return response.data
+  },
+  regenerateStudentSummary: async (id: string): Promise<StudentNote> => {
+    const response = await apiClient.post<StudentNote>(`/notes/${id}/regenerate-student-summary`)
     return response.data
   },
   setImportance: async (id: string, isImportant: boolean): Promise<StudentNote> => {

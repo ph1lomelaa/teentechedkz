@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { Textarea } from '@/components/ui/primitives/textarea'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/primitives/accordion'
 import { Markdown } from '@/components/shared/Markdown'
+import { splitNoteMarkdown, countListItems } from '@/lib/noteBlocks'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
@@ -94,6 +96,7 @@ export const NoteDetailPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { hasRole } = useAuth()
   const [editedSummary, setEditedSummary] = React.useState('')
+  const [editedStudentSummary, setEditedStudentSummary] = React.useState('')
   const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
   const [rejectConfirmOpen, setRejectConfirmOpen] = React.useState(false)
   const [pubTitle, setPubTitle] = React.useState('')
@@ -115,6 +118,7 @@ export const NoteDetailPage: React.FC = () => {
     if (!note) return
     const rawProfileNotes = (note.suggested_changes as { profile_notes?: unknown })?.profile_notes
     setEditedSummary(note.summary_markdown ?? '')
+    setEditedStudentSummary(note.student_summary_markdown ?? '')
     setPubTitle(note.student_title ?? '')
     setHiddenBlocks(new Set(note.hidden_blocks ?? []))
     setEditedProfileNotes(
@@ -125,7 +129,7 @@ export const NoteDetailPage: React.FC = () => {
   }, [note])
 
   const reviewMutation = useMutation({
-    mutationFn: (payload: { action: 'approve' | 'reject'; summary_markdown?: string; suggested_changes?: Record<string, unknown> }) =>
+    mutationFn: (payload: { action: 'approve' | 'reject'; summary_markdown?: string; student_summary_markdown?: string; suggested_changes?: Record<string, unknown> }) =>
       notesApi.review(id!, payload),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['notes'] })
@@ -137,6 +141,17 @@ export const NoteDetailPage: React.FC = () => {
     },
     onError: () => {
       toast({ title: 'Ошибка', description: 'Не удалось обновить конспект', variant: 'destructive' })
+    },
+  })
+
+  const regenerateStudentSummaryMutation = useMutation({
+    mutationFn: () => notesApi.regenerateStudentSummary(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['note', id] })
+      toast({ title: 'Перегенерировано для ученика' })
+    },
+    onError: () => {
+      toast({ title: 'Ошибка', description: 'Не удалось перегенерировать текст', variant: 'destructive' })
     },
   })
 
@@ -220,6 +235,48 @@ export const NoteDetailPage: React.FC = () => {
   const panelClass = inWorkspace ? 'border-slate-200 bg-slate-50' : 'border-p-line bg-p-bg'
   const panelMutedClass = inWorkspace ? 'text-slate-500' : 'text-p-muted'
 
+  const renderSummaryPreview = (markdown: string) => {
+    const { hero, sections } = splitNoteMarkdown(markdown)
+    return (
+      <div className="space-y-4">
+        {hero && (
+          <div className={cn('border-l-4 py-1 pl-4', inWorkspace ? 'border-yellow-400' : 'border-p-accent')}>
+            <Markdown className={cn('text-lg font-medium leading-snug', titleClass)}>{hero}</Markdown>
+          </div>
+        )}
+        {sections.length > 0 && (
+          <Accordion type="multiple" defaultValue={[sections[0].heading]} className={cn('rounded-panel border', panelClass)}>
+            {sections.map((section) => {
+              const count = countListItems(section.content)
+              return (
+                <AccordionItem key={section.heading} value={section.heading} className={cn('border-b px-4 last:border-b-0', borderClass)}>
+                  <AccordionTrigger className={cn('text-sm font-semibold', titleClass)}>
+                    <span className="flex items-center gap-2">
+                      {section.heading}
+                      {count !== undefined && (
+                        <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-normal', borderClass, panelMutedClass)}>
+                          {count}
+                        </span>
+                      )}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Markdown>{section.content}</Markdown>
+                  </AccordionContent>
+                </AccordionItem>
+              )
+            })}
+          </Accordion>
+        )}
+        {!hero && sections.length === 0 && (
+          <div className={cn('border-l-4 py-1 pl-4', inWorkspace ? 'border-yellow-400' : 'border-p-accent')}>
+            <Markdown className={cn('text-lg font-medium leading-snug', titleClass)}>{markdown}</Markdown>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={cn('space-y-5 max-w-6xl', inWorkspace && 'rounded-card border border-w-line bg-white p-6 text-slate-900')}>
       <div className={cn('flex flex-wrap items-start justify-between gap-4 border-b pb-5', borderClass)}>
@@ -258,6 +315,7 @@ export const NoteDetailPage: React.FC = () => {
               onClick={() => reviewMutation.mutate({
                 action: 'approve',
                 summary_markdown: editedSummary,
+                student_summary_markdown: editedStudentSummary,
                 suggested_changes: editedSuggestedChanges,
               })}
               disabled={reviewMutation.isPending}
@@ -296,10 +354,11 @@ export const NoteDetailPage: React.FC = () => {
       </Dialog>
 
       <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="space-y-4">
         <Card className={cardClass}>
           <CardHeader>
             <CardTitle className={cardTitleClass}>Конспект</CardTitle>
-            <CardDescription>Итоговый текст и исходный транскрипт</CardDescription>
+            <CardDescription>Итог разговора</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div>
@@ -310,20 +369,121 @@ export const NoteDetailPage: React.FC = () => {
                   onChange={(event) => setEditedSummary(event.target.value)}
                   className={cn('min-h-[260px]', inWorkspace ? 'bg-slate-50' : 'bg-p-bg')}
                 />
-              ) : (
-                <div className={cn('rounded-panel border p-4', panelClass)}>
-                  <Markdown>{note.summary_markdown ?? ''}</Markdown>
-                </div>
-              )}
-            </div>
-            <div>
-              <h3 className={cn('text-sm font-semibold mb-2', mutedClass)}>Исходный текст</h3>
-              <div className={cn('rounded-panel border p-4 whitespace-pre-wrap text-sm', panelClass, panelMutedClass)}>
-                {note.source_text}
-              </div>
+              ) : renderSummaryPreview(note.summary_markdown)}
             </div>
           </CardContent>
         </Card>
+
+        <Card className={cardClass}>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle className={cardTitleClass}>Для ученика</CardTitle>
+                <CardDescription>Отдельная формулировка — без менторского языка</CardDescription>
+              </div>
+              {canControl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => regenerateStudentSummaryMutation.mutate()}
+                  disabled={regenerateStudentSummaryMutation.isPending}
+                >
+                  {regenerateStudentSummaryMutation.isPending ? 'Перегенерирую…' : 'Перегенерировать для ученика'}
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {note.status === 'draft' && canControl ? (
+              <Textarea
+                value={editedStudentSummary}
+                onChange={(event) => setEditedStudentSummary(event.target.value)}
+                className={cn('min-h-[180px]', inWorkspace ? 'bg-slate-50' : 'bg-p-bg')}
+              />
+            ) : (
+              renderSummaryPreview(note.student_summary_markdown || note.summary_markdown)
+            )}
+
+            {note.student_id && (
+              <div className={cn('pt-4 border-t space-y-3', inWorkspace ? 'border-slate-100' : 'border-p-line')}>
+                <div className="flex items-center justify-between gap-4 text-sm">
+                  <span className={mutedClass}>В кабинете ученика</span>
+                  <span className={note.published_to_student ? 'text-emerald-600 font-medium' : titleClass}>
+                    {note.published_to_student ? 'отправлен' : 'не отправлен'}
+                  </span>
+                </div>
+                {!canControl ? null : note.status === 'approved' ? (
+                  <>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Заголовок для ученика</label>
+                      <input
+                        type="text"
+                        value={pubTitle}
+                        onChange={(e) => setPubTitle(e.target.value)}
+                        placeholder="напр. «Наша встреча»"
+                        className="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded-ctl focus:outline-none focus:border-slate-500"
+                      />
+                    </div>
+                    {note.blocks && note.blocks.length > 0 && (
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1.5">Показывать ученику блоки</p>
+                        <div className="space-y-1">
+                          {note.blocks.map((b) => (
+                            <label key={b.key} className="flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={!hiddenBlocks.has(b.key)}
+                                onChange={() =>
+                                  setHiddenBlocks((prev) => {
+                                    const next = new Set(prev)
+                                    if (next.has(b.key)) next.delete(b.key)
+                                    else next.add(b.key)
+                                    return next
+                                  })
+                                }
+                              />
+                              <span className="truncate">{b.heading}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={() =>
+                          publishMutation.mutate({
+                            student_title: pubTitle.trim() || null,
+                            hidden_blocks: Array.from(hiddenBlocks),
+                          })
+                        }
+                        disabled={publishMutation.isPending}
+                      >
+                        {note.published_to_student ? 'Обновить отправку' : 'Отправить ученику'}
+                      </Button>
+                      {note.published_to_student && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => unpublishMutation.mutate()}
+                          disabled={unpublishMutation.isPending}
+                        >
+                          Убрать
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    Отправить можно после проверки конспекта.
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </div>
 
         <div className="space-y-4">
           <Card className={cardClass}>
@@ -350,83 +510,6 @@ export const NoteDetailPage: React.FC = () => {
                   <Button variant="outline" size="sm" className="w-full mt-2" asChild>
                     <Link to={inWorkspace ? `/workspace/students/${note.student_id}#meetings` : `/students/${note.student_id}`}>Открыть студента</Link>
                   </Button>
-                )}
-                {note.student_id && (
-                  <div className={cn('mt-3 pt-3 border-t space-y-3', inWorkspace ? 'border-slate-100' : 'border-p-line')}>
-                    <div className="flex items-center justify-between gap-4">
-                      <span className={mutedClass}>В кабинете ученика</span>
-                      <span className={note.published_to_student ? 'text-emerald-600 font-medium' : titleClass}>
-                        {note.published_to_student ? 'опубликован' : 'не опубликован'}
-                      </span>
-                    </div>
-                    {!canControl ? null : note.status === 'approved' ? (
-                      <>
-                        <div>
-                          <label className="text-xs text-slate-500 block mb-1">Заголовок для ученика</label>
-                          <input
-                            type="text"
-                            value={pubTitle}
-                            onChange={(e) => setPubTitle(e.target.value)}
-                            placeholder="напр. «Наша встреча»"
-                            className="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded-ctl focus:outline-none focus:border-slate-500"
-                          />
-                        </div>
-                        {note.blocks && note.blocks.length > 0 && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1.5">Показывать ученику блоки</p>
-                            <div className="space-y-1">
-                              {note.blocks.map((b) => (
-                                <label key={b.key} className="flex items-center gap-2 text-sm text-slate-700">
-                                  <input
-                                    type="checkbox"
-                                    checked={!hiddenBlocks.has(b.key)}
-                                    onChange={() =>
-                                      setHiddenBlocks((prev) => {
-                                        const next = new Set(prev)
-                                        if (next.has(b.key)) next.delete(b.key)
-                                        else next.add(b.key)
-                                        return next
-                                      })
-                                    }
-                                  />
-                                  <span className="truncate">{b.heading}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1"
-                            onClick={() =>
-                              publishMutation.mutate({
-                                student_title: pubTitle.trim() || null,
-                                hidden_blocks: Array.from(hiddenBlocks),
-                              })
-                            }
-                            disabled={publishMutation.isPending}
-                          >
-                            {note.published_to_student ? 'Обновить публикацию' : 'Опубликовать ученику'}
-                          </Button>
-                          {note.published_to_student && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => unpublishMutation.mutate()}
-                              disabled={unpublishMutation.isPending}
-                            >
-                              Убрать
-                            </Button>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-slate-400">
-                        Опубликовать можно после проверки конспекта.
-                      </p>
-                    )}
-                  </div>
                 )}
               </div>
             </CardContent>

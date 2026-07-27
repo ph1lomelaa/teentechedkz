@@ -8,6 +8,7 @@ from typing import Any
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import (
     append_quality_warnings,
+    build_student_summary_fallback,
     build_summary_markdown,
     detect_quality_warnings,
     parse_suggested_changes,
@@ -29,6 +30,7 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
 {
   "title": "Короткое название конспекта",
   "summary_markdown": "Структурированный конспект на русском языке",
+  "student_summary_markdown": "Тот же разговор, пересказанный студенту",
   "suggested_changes": {
     "field_name": "new_value"
   },
@@ -55,6 +57,13 @@ profile_notes — важное, что НЕ ложится в поля карт�
 - 2–4 предложения о сути разговора, затем короткие блоки «Подтверждённые факты», «Планы/намерения», «Следующие шаги» (только если они реально проговаривались).
 - НИКОГДА не вставляй в конспект дамп профиля («Профиль студента…», списки полей со значениями) — профиль и так открыт рядом. Упоминай поле профиля только когда разговор его ИЗМЕНИЛ.
 - Никаких технических имён полей (full_name, budget_per_year...) и значений енумов (undergraduate) — только человеческий русский текст («ФИО», «Бакалавриат»).
+- Без заголовка первого уровня «#» — начинай сразу с текста или «##».
+
+Требования к student_summary_markdown — это ДРУГОЙ текст, не сокращение summary_markdown:
+- Обращайся к студенту на «ты», тепло и просто, как будто пишешь ему лично после звонка.
+- Те же факты из транскрипта, что и в summary_markdown, но БЕЗ языка менеджера: никаких «Подтверждённые факты», «Следующие шаги для менеджера», «сравнение с карточкой», названий полей CRM или внутренних пометок.
+- 2–3 предложения о разговоре, при необходимости 1–2 коротких блока «##» с простыми заголовками («Что обсудили», «Что дальше») — без канцелярита.
+- Если реальных договорённостей не было — напиши это по-дружески, а не «конкретных договорённостей не прозвучало» канцелярским тоном.
 - Без заголовка первого уровня «#» — начинай сразу с текста или «##».
 """
 PROMPT_VERSION = "note_sessions.v1"
@@ -139,6 +148,7 @@ def _heuristic_note_draft(
     return {
         "title": source_title,
         "summary_markdown": summary,
+        "student_summary_markdown": build_student_summary_fallback(source_title),
         "suggested_changes": {},
         "__ai_meta": {
             "prompt_version": PROMPT_VERSION,
@@ -218,6 +228,16 @@ async def generate_note_draft(
     )
     summary = append_quality_warnings(summary, deduped_quality_warnings)
 
+    student_summary = parsed.get("student_summary_markdown")
+    if not isinstance(student_summary, str) or not student_summary.strip():
+        student_summary = build_student_summary_fallback(source_title)
+    else:
+        student_summary = strip_profile_dump(student_summary)
+    # Strip the same risky lines a student shouldn't see either, but skip
+    # append_quality_warnings — the "Требует проверки качества" banner is a
+    # manager-only QA flag, not something to surface to the student.
+    student_summary, _ = remove_quality_risky_summary_lines(student_summary)
+
     next_title = parsed.get("title")
     if not isinstance(next_title, str) or not next_title.strip():
         next_title = source_title
@@ -225,6 +245,7 @@ async def generate_note_draft(
     return {
         "title": next_title.strip(),
         "summary_markdown": summary.strip(),
+        "student_summary_markdown": student_summary.strip(),
         "suggested_changes": suggested_changes,
         "__ai_meta": {
             "prompt_version": PROMPT_VERSION,
@@ -236,3 +257,46 @@ async def generate_note_draft(
             },
         },
     }
+
+
+REFORMULATE_PROMPT_SYSTEM = """Ты помогаешь образовательному консультанту.
+На входе — конспект разговора, написанный для менеджера. Перепиши его для
+студента, который будет читать этот текст в своём личном кабинете.
+Верни ТОЛЬКО JSON без пояснений: {"student_summary_markdown": "..."}
+
+Требования:
+- Обращайся к студенту на «ты», тепло и просто, как будто пишешь ему лично.
+- Сохрани те же факты, но убери язык менеджера: никаких «Подтверждённые
+  факты», «Следующие шаги для менеджера», сравнений с карточкой профиля,
+  названий полей CRM или служебных пометок вроде «Требует проверки качества».
+- 2–3 предложения о разговоре, при необходимости 1–2 коротких блока «##» с
+  простыми заголовками («Что обсудили», «Что дальше»).
+- Без заголовка первого уровня «#» — начинай сразу с текста или «##».
+"""
+
+
+async def reformulate_for_student(summary_markdown: str, student_name: str | None = None) -> str:
+    """Reword an already-approved/edited mentor summary for the student's own
+    voice, without re-touching suggested_changes or re-reading the transcript
+    (cheaper than a full generate_note_draft re-run, and lets a mentor
+    regenerate after hand-editing the mentor text)."""
+    title = student_name or "студента"
+    user_message = f"Конспект для менеджера (студент: {title}):\n\n{summary_markdown}"
+
+    if not provider_chain():
+        return build_student_summary_fallback(title)
+
+    try:
+        raw = await complete_with_fallback(REFORMULATE_PROMPT_SYSTEM, user_message)
+        parsed = json_block(raw)
+    except Exception:
+        logger.exception("Student summary reformulation failed; using fallback text")
+        return build_student_summary_fallback(title)
+
+    student_summary = parsed.get("student_summary_markdown")
+    if not isinstance(student_summary, str) or not student_summary.strip():
+        return build_student_summary_fallback(title)
+
+    student_summary = strip_profile_dump(student_summary)
+    student_summary, _ = remove_quality_risky_summary_lines(student_summary)
+    return student_summary.strip()

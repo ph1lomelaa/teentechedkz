@@ -20,11 +20,11 @@ from app.core.audit import log_change
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import AllStaff, CurrentUser
-from app.core.encryption import encrypt
+from app.core.encryption import decrypt, encrypt
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.application import Application
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
-from app.models.confidential_note import ConfidentialNote, NoteVisibility
+from app.models.confidential_note import ConfidentialNote, default_note_visibility_for, is_near_duplicate_note
 from app.models.contract import Contract
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.roadmap import Roadmap, RoadmapStatus
@@ -44,9 +44,11 @@ from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User, UserRole
 from app.services.mentor_scope import mentor_assigned_student_ids, require_student_access
 from app.services.minio_service import close_minio_object, get_minio
+from app.services.note_sessions import reformulate_for_student
 from app.services.student_context_ai import generate_context_review_draft
 from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
 from app.services.telegram_bot import get_bot
+from app.services.telegram_ingest import dump_telegram_object
 
 router = APIRouter(prefix="/telegram-chats", tags=["telegram-chats"])
 
@@ -538,7 +540,7 @@ async def send_telegram_message(
         sender_name=current_user.name,
         message_type=TelegramMessageType.text,
         raw_text=text,
-        raw_payload=sent.model_dump(mode="json", exclude_none=True),
+        raw_payload=dump_telegram_object(sent),
     )
     chat.updated_at = datetime.now(timezone.utc)
     db.add(message)
@@ -800,11 +802,13 @@ async def create_note_from_telegram_message(
     source_text = (message.raw_text or f"Telegram: {message.message_type.value}").strip()
     title = str(body.get("title") or "Заметка из Telegram").strip()
     student = await db.get(Student, student_id)
+    summary_markdown = f"## {title}\n\n{source_text}"
     note = StudentNote(
         student_id=student_id,
         title=title,
         source_text=source_text,
-        summary_markdown=f"## {title}\n\n{source_text}",
+        summary_markdown=summary_markdown,
+        student_summary_markdown=await reformulate_for_student(summary_markdown, student.full_name if student else None),
         profile_snapshot=snapshot_student(student) if student else {},
         suggested_changes={},
         applied_changes={},
@@ -982,6 +986,24 @@ async def import_chat_json(
     }
 
 
+async def _existing_confidential_note_texts(db: AsyncSession, student_id: uuid.UUID) -> list[str]:
+    result = await db.execute(
+        select(ConfidentialNote.note_text_encrypted)
+        .where(ConfidentialNote.student_id == student_id)
+        .order_by(ConfidentialNote.created_at.desc())
+        .limit(50)
+    )
+    texts = []
+    for (encrypted,) in result.all():
+        if not encrypted:
+            continue
+        try:
+            texts.append(decrypt(encrypted))
+        except Exception:
+            continue
+    return texts
+
+
 @router.post("/{chat_id}/context-draft")
 async def create_context_draft(
     chat_id: uuid.UUID,
@@ -1027,10 +1049,12 @@ async def create_context_draft(
     source_text = _messages_context_text(messages)
     attachments = _messages_attachment_context(messages)
     snapshot = snapshot_student(student)
+    existing_notes = await _existing_confidential_note_texts(db, student.id)
     draft = await generate_context_review_draft(
         source_text=source_text,
         snapshot=snapshot,
         attachments=attachments,
+        existing_notes=existing_notes,
     )
     ai_meta = draft.pop("__ai_meta", {})
     last_message = messages[-1]
@@ -1116,32 +1140,43 @@ async def apply_context_draft(
     if applied_changes:
         student.updated_at = datetime.now(timezone.utc)
 
+    existing_notes = await _existing_confidential_note_texts(db, student.id)
     saved_notes = 0
     for text in [*profile_notes, *follow_ups, *document_flags, *contradictions, *quality_warnings]:
+        # Staff can re-run/apply a draft over overlapping chat history; skip a fact
+        # that's already saved (even reworded) rather than piling up near-duplicates.
+        if is_near_duplicate_note(text, existing_notes):
+            continue
         db.add(
             ConfidentialNote(
                 student_id=student.id,
                 note_text_encrypted=encrypt(f"Из Telegram-чата: {text}"[:4000]),
-                visible_to_role=NoteVisibility.admin_and_mzk,
+                visible_to_role=default_note_visibility_for(current_user.role),
                 created_by=current_user.id,
             )
         )
+        existing_notes.append(text)
         saved_notes += 1
 
+    context_note_markdown = _context_note_markdown(
+        summary=summary,
+        profile_updates=profile_updates,
+        profile_notes=profile_notes,
+        follow_ups=follow_ups,
+        document_flags=document_flags,
+        contradictions=contradictions,
+        quality_warnings=quality_warnings,
+        ignored_as_noise=ignored_as_noise,
+    )
     note = StudentNote(
         student_id=student.id,
         title="Заметки из Telegram-чата",
         source_text=source_text,
-        summary_markdown=_context_note_markdown(
-            summary=summary,
-            profile_updates=profile_updates,
-            profile_notes=profile_notes,
-            follow_ups=follow_ups,
-            document_flags=document_flags,
-            contradictions=contradictions,
-            quality_warnings=quality_warnings,
-            ignored_as_noise=ignored_as_noise,
-        ),
+        summary_markdown=context_note_markdown,
+        # Separate student-facing reformulation — context_note_markdown is a
+        # manager-oriented field-diff dump ("Изменения профиля" и т.п.), same
+        # reasoning as regular конспекты: student must not read CRM jargon.
+        student_summary_markdown=await reformulate_for_student(context_note_markdown, student.full_name),
         profile_snapshot=snapshot,
         suggested_changes={**proposed_changes, "profile_notes": profile_notes},
         applied_changes={"changes": applied_changes, "profile_notes_saved": saved_notes},
@@ -1150,10 +1185,9 @@ async def apply_context_draft(
         reviewed_by=current_user.id,
         created_at=datetime.now(timezone.utc),
         reviewed_at=datetime.now(timezone.utc),
-        # Bug #5 fix: auto-publish context-draft notes
-        published_to_student=True,
-        published_at=datetime.now(timezone.utc),
-        published_by=current_user.id,
+        # Publishing to the student portal is now always an explicit,
+        # separate "Отправить ученику" action on the note page — no longer
+        # automatic here, matching review_note's approve behavior.
     )
     db.add(note)
     last_message_id = body.get("source_last_message_id")

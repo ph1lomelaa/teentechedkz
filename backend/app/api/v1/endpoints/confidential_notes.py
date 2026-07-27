@@ -67,6 +67,46 @@ async def create_note(
     return _note_to_dict(note)
 
 
+@router.patch("/{note_id}")
+async def update_note(
+    note_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Отредактировать текст/уровень видимости заметки (в т.ч. AI-извлечённой)."""
+    _require_staff(current_user)
+    result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
+    note = result.scalar_one_or_none()
+    if not note or not note_visible_to_role(note.visible_to_role, current_user.role):
+        raise HTTPException(status_code=404, detail="Заметка не найдена")
+
+    if "note_text" in body:
+        note_text = str(body.get("note_text") or "").strip()
+        if not note_text:
+            raise HTTPException(status_code=422, detail="note_text обязателен")
+        note.note_text_encrypted = encrypt(note_text)
+
+    if "visible_to_role" in body:
+        try:
+            new_visibility = NoteVisibility(body["visible_to_role"])
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Некорректный visible_to_role")
+        # Не даём сузить видимость до уровня, на котором сам редактор потеряет
+        # доступ к заметке — иначе она "потеряется" для менеджера/ментора, который
+        # только что её отредактировал.
+        if not note_visible_to_role(new_visibility, current_user.role):
+            raise HTTPException(
+                status_code=422,
+                detail="Нельзя выставить видимость, при которой заметка станет недоступна вам самим",
+            )
+        note.visible_to_role = new_visibility
+
+    await db.commit()
+    await db.refresh(note)
+    return _note_to_dict(note)
+
+
 @router.patch("/{note_id}/student-visibility")
 async def set_student_visibility(
     note_id: uuid.UUID,

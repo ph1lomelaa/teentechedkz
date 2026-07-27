@@ -90,6 +90,10 @@ async def ensure_incremental_columns():
             ADD COLUMN IF NOT EXISTS source_kind varchar(30) NOT NULL DEFAULT 'manual';
         """))
         await conn.execute(text("""
+        ALTER TABLE student_notes
+            ADD COLUMN IF NOT EXISTS student_summary_markdown text NULL;
+        """))
+        await conn.execute(text("""
         ALTER TABLE confidential_notes
             ADD COLUMN IF NOT EXISTS visible_to_student boolean NOT NULL DEFAULT false;
         """))

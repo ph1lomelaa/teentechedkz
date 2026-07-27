@@ -83,6 +83,7 @@ PUSH_FIELDS: dict[str, str | None] = {
     "english_paid": "PAID Англ",
     "client_remaining": "Остаток клиента",
     "client_remaining_date": "Остаток клиента (дата)",
+    "mentor_total": "TOTAL (Mentors)",
 }
 
 # Поля-select: запись только по существующей опции Notion — подбираем ту, что
@@ -114,11 +115,12 @@ _SNAPSHOT_KEY = {
     "english_paid": "english_paid",
     "client_remaining": "client_remaining",
     "client_remaining_date": "client_remaining_date",
+    "mentor_total": "mentor_total",
 }
 
 _PUSH_CONTRACT_FIELDS = {
     "pipeline_status", "signed_date", "client_fee", "english_sum",
-    "english_paid", "client_remaining", "client_remaining_date",
+    "english_paid", "client_remaining", "client_remaining_date", "mentor_total",
 }
 
 
@@ -149,6 +151,8 @@ def _crm_push_value(field: str, student: Student, contract: "Contract | None"):
         return contract.client_remaining_amount
     if field == "client_remaining_date":
         return contract.client_remaining_date
+    if field == "mentor_total":
+        return contract.mentor_total_owed
     return None
 
 
@@ -743,6 +747,18 @@ def _norm_str(v) -> str:
     return " ".join(str(v or "").lower().split())
 
 
+def _conflict_norm(field: str, v) -> str:
+    """Сравнение «снапшот vs текущее значение Notion» для проверки конфликта при
+    push. Для телефона снапшот хранит очищенные цифры (clean_phone при синке), а
+    живое значение из Notion — как оно отформатировано там («+7 708 220 7440») —
+    обычная строковая нормализация их никогда не уравняет, вызывая ложный конфликт
+    на каждой попытке записи. Сравниваем по цифрам вместо текста."""
+    if field == "phone":
+        from migration.transformers.normalize import normalize_phone
+        return normalize_phone(str(v or "")) or ""
+    return _norm_str(v)
+
+
 def _people_match(notion_name, crm_names: list[str]) -> bool | None:
     """Notion хранит короткие имена ('Beibarys'), CRM — полные. Матч по вхождению."""
     if not notion_name or not crm_names:
@@ -1109,7 +1125,7 @@ def _resolve_push_target(schema: dict, field: str, wanted: str | None, crm_val) 
         real_name, ptype = notion_write.find_title_property(schema)
     else:
         real_name, ptype = notion_write.resolve_property(schema, wanted)
-    if not real_name:
+    if real_name is None:
         raise ValueError(f"Колонка не найдена в Notion: {wanted or 'ФИО (title)'}")
     if ptype not in notion_write.WRITABLE_TYPES:
         raise ValueError(f"Колонку Notion «{real_name}» (тип {ptype}) нельзя изменить через API")
@@ -1181,7 +1197,7 @@ async def push_field_preview(
             "will_write": value,
             "notion_current": notion_current,
             # Notion отличается и от снапшота (значит, кто-то поменял его после синка).
-            "conflict": _norm_str(notion_current) != _norm_str(snap_current),
+            "conflict": _conflict_norm(field, notion_current) != _conflict_norm(field, snap_current),
         }
 
     try:
@@ -1218,7 +1234,7 @@ async def push_field(
         # Optimistic concurrency: если в Notion значение отличается от снапшота, кто-то
         # изменил его после синка — не затираем вслепую, требуем force (осознанно).
         notion_current = notion_write.read_value(page_id, real_name)
-        if not force and _norm_str(notion_current) != _norm_str(snap_current):
+        if not force and _conflict_norm(field, notion_current) != _conflict_norm(field, snap_current):
             raise _Conflict(real_name, notion_current)
         # update_page сам перечитает и сверит, что запись принялась (verify=True).
         notion_write.update_page(page_id, {real_name: notion_write.build_property(ptype, value)})

@@ -234,6 +234,18 @@ def build_summary_markdown(title: str, source_text: str, snapshot: dict[str, Any
     return "\n".join(chunks)
 
 
+def build_student_summary_fallback(title: str) -> str:
+    """Generic student-facing placeholder used only when the AI provider is
+    down entirely (`_heuristic_note_draft`). Deliberately NOT built from
+    `build_summary_markdown` — that template's "Контекст для менеджера" /
+    "Сравнение с текущей карточкой" sections are internal CRM language that
+    must never reach the student, even as a fallback."""
+    return (
+        f"Мы обсудили с тобой основные темы созвона «{title.strip() or 'Конспект'}». "
+        "Скоро здесь появится более подробный конспект — заходи чуть позже."
+    )
+
+
 def build_insight_note_markdown(
     *,
     source_text: str,

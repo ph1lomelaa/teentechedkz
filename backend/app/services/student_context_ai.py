@@ -5,6 +5,7 @@ import logging
 import re
 from typing import Any
 
+from app.models.confidential_note import is_near_duplicate_note
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import build_profile_diff, detect_quality_warnings, sanitize_suggested_changes
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 PROMPT_SYSTEM = """Ты ассистент образовательного консультанта.
-На входе текущий профиль студента и фрагмент диалога из одного или нескольких каналов.
+На входе текущий профиль студента, уже сохранённые заметки по нему и фрагмент диалога из одного или нескольких каналов.
 Твоя задача — подготовить редактируемый черновик действий для менеджера, а не применять изменения.
 
 Верни ТОЛЬКО JSON:
@@ -36,6 +37,10 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
 - Если есть фраза про сертификат/файл, но результата из файла не видно, создай document_flags, не выдумывай баллы.
 - IELTS/SAT/TOEFL: не выдумывай результат. Фразы вида "IELTS до нуля", "поднял до 0" помечай как quality_warnings.
 - Если важного нет, верни пустые массивы.
+- В «уже сохранённые заметки» — то, что менеджер уже знает и зафиксировал. Если диалог просто
+  повторяет уже известный факт без новых деталей, НЕ создавай для него новую заметку — положи
+  формулировку в ignored_as_noise. Создавай новый пункт только если появилось развитие факта
+  (например, известно было "планирует IELTS", а теперь появилась дата или результат).
 """
 
 NOTE_LIMIT = 8
@@ -146,18 +151,47 @@ def _heuristic_context_draft(
     return draft
 
 
+_NOTE_LIST_KEYS = ("profile_notes", "follow_ups", "document_flags", "contradictions", "quality_warnings")
+
+
+def _drop_known_notes(draft: dict[str, Any], existing_notes: list[str]) -> dict[str, Any]:
+    """Belt-and-suspenders backstop for the prompt-level dedup instruction: if
+    the model (or the heuristic fallback) still repeats an already-saved fact,
+    move it into ignored_as_noise instead of letting apply create a duplicate."""
+    if not existing_notes:
+        return draft
+    ignored = list(draft.get("ignored_as_noise") or [])
+    for key in _NOTE_LIST_KEYS:
+        kept, dropped = [], []
+        for text in draft.get(key) or []:
+            (dropped if is_near_duplicate_note(text, existing_notes) else kept).append(text)
+        draft[key] = kept
+        ignored.extend(dropped)
+    draft["ignored_as_noise"] = ignored[:NOTE_LIMIT]
+    return draft
+
+
 async def generate_context_review_draft(
     *,
     source_text: str,
     snapshot: dict[str, Any],
     attachments: list[dict[str, Any]] | None = None,
+    existing_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     attachments = attachments or []
+    existing_notes = existing_notes or []
     if not provider_chain():
-        return _heuristic_context_draft(source_text, attachments, snapshot, reason="not_configured")
+        draft = _heuristic_context_draft(source_text, attachments, snapshot, reason="not_configured")
+        return _drop_known_notes(draft, existing_notes)
 
+    existing_notes_block = (
+        "\n".join(f"- {n}" for n in existing_notes) if existing_notes else "(пока ничего не сохранено)"
+    )
     user_message = f"""Текущий профиль студента:
 {json.dumps(snapshot, ensure_ascii=False, indent=2)}
+
+Уже сохранённые заметки по студенту (не повторяй их, если факт не изменился):
+{existing_notes_block}
 
 Вложения в диалоге:
 {json.dumps(attachments, ensure_ascii=False, indent=2)}
@@ -172,10 +206,14 @@ async def generate_context_review_draft(
     except Exception:
         # Degrade gracefully on a provider hiccup instead of 500-ing the caller.
         logger.exception("Context review AI provider failed; using heuristic fallback")
-        return _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error")
+        return _drop_known_notes(
+            _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
+        )
     parsed = json_block(raw)
     if not parsed:
-        return _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error")
+        return _drop_known_notes(
+            _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
+        )
 
     draft = {
         "summary": _compact(parsed.get("summary"), 1000),
@@ -187,6 +225,7 @@ async def generate_context_review_draft(
         "quality_warnings": _list_of_strings(parsed.get("quality_warnings")),
         "ignored_as_noise": _list_of_strings(parsed.get("ignored_as_noise")),
     }
+    draft = _drop_known_notes(draft, existing_notes)
     if not any(draft[key] for key in ("profile_updates", "profile_notes", "follow_ups", "document_flags", "contradictions", "quality_warnings")):
         return _heuristic_context_draft(source_text, attachments, snapshot, reason="no_signal")
     draft["__ai_meta"] = {
