@@ -100,13 +100,19 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
       onClick={selectionMode && !alreadyAssigned ? () => onToggleSelected?.(student.id) : undefined}
     >
       <div className="flex items-start gap-2">
-        <Link
-          to={`/students/${student.id}`}
-          className="min-w-0 flex-1 font-medium text-sm text-p-text hover:text-black transition-colors line-clamp-2 leading-snug"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {student.full_name}
-        </Link>
+        {selectionMode ? (
+          <span className="min-w-0 flex-1 font-medium text-sm text-p-text line-clamp-2 leading-snug">
+            {student.full_name}
+          </span>
+        ) : (
+          <Link
+            to={`/students/${student.id}`}
+            className="min-w-0 flex-1 font-medium text-sm text-p-text hover:text-black transition-colors line-clamp-2 leading-snug"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {student.full_name}
+          </Link>
+        )}
         {selectionMode && (
           alreadyAssigned ? (
             <span className="shrink-0 rounded-pill border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
@@ -491,7 +497,6 @@ export const DashboardPage: React.FC = () => {
                 value={targetUserId || 'none'}
                 onValueChange={(value) => {
                   setTargetUserId(value === 'none' ? '' : value)
-                  setSelectedIds(new Set())
                 }}
               >
                 <SelectTrigger className="h-9 w-full text-xs sm:w-56">
