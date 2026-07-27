@@ -674,6 +674,25 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
     # T5: staff-правка поверх pending-заявки = неявное ревью; студент узнаёт о судьбе заявки.
     implicit_note = None
     student_user_id = None
+    if (
+        not was_pending
+        and "status" in data
+        and task.review_status == TaskReviewStatus.approved
+        and task.status != RoadmapItemStatus.done
+    ):
+        # Разжалование подтверждённой задачи (done → planned/in_progress):
+        # ось ревью очищается, иначе на не-done задаче остаётся протухший
+        # approved со штампами, видимый в портале.
+        task.review_status = TaskReviewStatus.none
+        task.completed_by = None
+        task.completed_at = None
+        task.reviewed_by = None
+        task.reviewed_at = None
+        task.review_comment = None
+        await log_change(
+            db, "roadmap_task", task.id, "review_status", "approved", "none",
+            str(current_user.id), source="workspace",
+        )
     if was_pending and "status" in data:
         task.reviewed_by = current_user.id
         task.reviewed_at = datetime.now(timezone.utc)
