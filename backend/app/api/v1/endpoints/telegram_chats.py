@@ -661,6 +661,81 @@ async def identify_telegram_participant_as_self(
     }
 
 
+# Roles a manager can assign to a chat participant from the portal. `mentor`
+# marks the staff side of the dialog; `student` the client side; `unknown`
+# clears a mistaken tag.
+_ASSIGNABLE_PARTICIPANT_ROLES = frozenset({"mentor", "student", "unknown"})
+
+
+@router.post("/{chat_id}/participants/{telegram_user_id}/set-role")
+async def set_telegram_participant_role(
+    chat_id: uuid.UUID,
+    telegram_user_id: int,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """Tag which participant of a group is the mentor (vs the student), so the
+    dialog renders on the correct side for everyone — not only for whoever is
+    logged in (that's what identify-self does). Works off message senders since
+    the Bot API can't enumerate group members."""
+    await _require_chat_access(db, chat_id, current_user)
+
+    role = str(body.get("role", "")).strip()
+    if role not in _ASSIGNABLE_PARTICIPANT_ROLES:
+        raise HTTPException(status_code=422, detail="Недопустимая роль участника")
+
+    sender = await db.execute(
+        select(TelegramMessage.sender_name).where(
+            TelegramMessage.chat_id == chat_id,
+            TelegramMessage.sender_tg_id == telegram_user_id,
+        ).limit(1)
+    )
+    sender_row = sender.first()
+    if sender_row is None:
+        raise HTTPException(status_code=404, detail="Участник не найден в истории чата")
+    sender_name = sender_row[0]
+
+    identity_result = await db.execute(
+        select(TelegramParticipantIdentity).where(
+            TelegramParticipantIdentity.chat_id == chat_id,
+            TelegramParticipantIdentity.telegram_user_id == telegram_user_id,
+        )
+    )
+    identity = identity_result.scalar_one_or_none()
+    if not identity:
+        identity = TelegramParticipantIdentity(chat_id=chat_id, telegram_user_id=telegram_user_id)
+        db.add(identity)
+    previous_role = identity.role
+
+    identity.role = role
+    identity.display_name = sender_name
+    identity.confirmed_by = current_user.id
+    identity.confirmed_at = datetime.now(timezone.utc)
+    if role == "mentor":
+        # Best-effort link to the staff account if this Telegram id is a known user.
+        matched = await db.execute(select(User).where(User.telegram_id == str(telegram_user_id)))
+        matched_user = matched.scalar_one_or_none()
+        identity.user_id = matched_user.id if matched_user else None
+    else:
+        identity.user_id = None
+
+    await db.flush()
+    await log_change(
+        db, "telegram_participant_identity", identity.id, "role",
+        previous_role, role, str(current_user.id),
+        source="workspace_telegram_identity",
+    )
+    await db.commit()
+    return {
+        "telegram_user_id": telegram_user_id,
+        "sender_name": sender_name,
+        "display_name": identity.display_name,
+        "role": identity.role,
+        "is_current_user": bool(identity.user_id and identity.user_id == current_user.id),
+    }
+
+
 async def _telegram_message_for_action(
     db: AsyncSession,
     chat_id: uuid.UUID,

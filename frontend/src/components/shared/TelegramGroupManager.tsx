@@ -59,6 +59,26 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
     retry: false,
   })
 
+  // Participants surface only from message senders (Bot API can't list members),
+  // so poll: new people appear as they write their first message.
+  const { data: participants = [] } = useQuery({
+    queryKey: ['telegram-chat', chat?.id, 'participants'],
+    queryFn: () => telegramApi.listParticipants(chat!.id),
+    enabled: Boolean(chat?.id),
+    refetchInterval: chat?.id ? 10_000 : false,
+  })
+
+  const setRoleMutation = useMutation({
+    mutationFn: ({ telegramUserId, role }: { telegramUserId: number; role: 'mentor' | 'student' }) =>
+      telegramApi.setParticipantRole(chat!.id, telegramUserId, role),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['telegram-chat', chat?.id, 'participants'] })
+      await queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-participants', chat?.id] })
+      toast({ title: 'Роль участника сохранена' })
+    },
+    onError: (error) => toast({ title: 'Не удалось изменить роль', description: errorDetail(error), variant: 'destructive' }),
+  })
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['telegram-chat', 'student', studentId] }),
@@ -275,6 +295,46 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
           </div>
         )}
         <p className="mt-3 text-xs opacity-60">Бот работает в фоне и пишет в группу только подтверждение успешного подключения.</p>
+      </div>
+
+      <div className={card}>
+        <div className="flex items-center gap-2 text-sm font-semibold"><UserRoundCheck className="h-4 w-4" /> Кто ментор в группе</div>
+        <p className="mt-1 text-xs opacity-60">
+          Отметьте, кто ментор, а кто ученик — тогда сообщения в чате отображаются с правильной стороны.
+          Участник появляется в списке после своего первого сообщения в группе.
+        </p>
+        {participants.length === 0 ? (
+          <div className="mt-3 text-xs opacity-60">Пока никто не писал в группе. Как только ментор и ученик отправят сообщение — они появятся здесь.</div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {participants.map((participant) => (
+              <div key={participant.telegram_user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-ctl border border-gray-200 bg-white px-3 py-2 dark:border-w-line dark:bg-w-panel">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{participant.sender_name || participant.display_name || participant.telegram_user_id}</div>
+                  <div className="text-[11px] opacity-50">
+                    {participant.role === 'mentor' ? 'Ментор' : participant.role === 'student' ? 'Ученик' : 'Роль не задана'}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className={cn(secondaryButton, participant.role === 'mentor' && 'border-emerald-500 text-emerald-700')}
+                    disabled={setRoleMutation.isPending || participant.role === 'mentor'}
+                    onClick={() => setRoleMutation.mutate({ telegramUserId: participant.telegram_user_id, role: 'mentor' })}
+                  >
+                    Ментор
+                  </button>
+                  <button
+                    className={cn(secondaryButton, participant.role === 'student' && 'border-sky-500 text-sky-700')}
+                    disabled={setRoleMutation.isPending || participant.role === 'student'}
+                    onClick={() => setRoleMutation.mutate({ telegramUserId: participant.telegram_user_id, role: 'student' })}
+                  >
+                    Ученик
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className={card}>

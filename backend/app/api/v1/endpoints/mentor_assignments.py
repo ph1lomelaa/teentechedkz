@@ -93,8 +93,14 @@ async def update_self_assignment(
     if "is_active" in body:
         ma.is_active = bool(body["is_active"])
     await db.commit()
-    await db.refresh(ma)
-    return _ma_to_dict(ma)
+    # mentor нужен для _ma_to_dict — грузим его явно (refresh не подтягивает
+    # связь, а ленивая загрузка в async-контексте падает с MissingGreenlet).
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.id == ma.id)
+    )
+    return _ma_to_dict(result.scalar_one())
 
 
 @router.post("")
@@ -118,8 +124,14 @@ async def create_assignment(
     )
     db.add(ma)
     await db.commit()
-    await db.refresh(ma)
-    return _ma_to_dict(ma)
+    # mentor нужен для _ma_to_dict — грузим его явно (иначе ленивая загрузка в
+    # async-контексте падает с MissingGreenlet).
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.id == ma.id)
+    )
+    return _ma_to_dict(result.scalar_one())
 
 
 @router.patch("/{assignment_id}")
@@ -146,8 +158,14 @@ async def update_assignment(
             pass
 
     await db.commit()
-    await db.refresh(ma)
-    return _ma_to_dict(ma)
+    # mentor нужен для _ma_to_dict — грузим его явно (refresh не подтягивает
+    # связь, а ленивая загрузка в async-контексте падает с MissingGreenlet).
+    result = await db.execute(
+        select(MentorAssignment)
+        .options(selectinload(MentorAssignment.mentor))
+        .where(MentorAssignment.id == ma.id)
+    )
+    return _ma_to_dict(result.scalar_one())
 
 
 @router.delete("/{assignment_id}")

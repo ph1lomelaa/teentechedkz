@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Pencil, Plus, Send, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Check, Eye, Pencil, Plus, Send, ShieldCheck, SquarePen, Trash2, X } from 'lucide-react'
 import {
   questionnairesApi,
   Questionnaire,
@@ -53,6 +53,7 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
   const [description, setDescription] = useState('')
   const [questions, setQuestions] = useState<EditQuestion[]>([])
   const [editingQuestionKey, setEditingQuestionKey] = useState<string | null>(null)
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit')
 
   useEffect(() => {
     if (q) {
@@ -60,6 +61,9 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
       setDescription(q.description)
       setQuestions(toEdit(q))
       setEditingQuestionKey(null)
+      // Submitted/reviewed forms can't be edited — open straight into the
+      // student-eye preview instead of the (disabled) editor.
+      setMode(q.status === 'submitted' || q.status === 'reviewed' ? 'preview' : 'edit')
     } else if (q === null) {
       const key = newKey()
       setTitle(taskTitle)
@@ -135,6 +139,22 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
             <div className="truncate text-xs text-w-muted">{taskTitle}</div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-ctl border border-w-line p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode('edit')}
+                className={cn('inline-flex items-center gap-1 rounded-[7px] px-2.5 py-1 text-[11px] font-bold transition', mode === 'edit' ? 'bg-w-accent text-black' : 'text-w-muted hover:text-w-ink')}
+              >
+                <SquarePen className="h-3.5 w-3.5" /> Редактор
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('preview')}
+                className={cn('inline-flex items-center gap-1 rounded-[7px] px-2.5 py-1 text-[11px] font-bold transition', mode === 'preview' ? 'bg-w-accent text-black' : 'text-w-muted hover:text-w-ink')}
+              >
+                <Eye className="h-3.5 w-3.5" /> Предпросмотр
+              </button>
+            </div>
             {status && (
               <span className={cn(
                 'rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide',
@@ -155,6 +175,39 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {isLoading ? (
             <p className="text-sm text-w-muted">Загрузка…</p>
+          ) : mode === 'preview' ? (
+            <div className="mx-auto max-w-2xl space-y-4">
+              <div className="rounded-card border border-w-line bg-w-panel2 p-6">
+                <div className="whitespace-pre-wrap break-words font-display text-2xl font-black leading-8 text-w-ink">{title || taskTitle}</div>
+                {description && <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-w-muted">{description}</div>}
+              </div>
+              {questions.filter((x) => x.label.trim()).length === 0 ? (
+                <p className="text-sm text-w-muted2">Пока нет вопросов для предпросмотра.</p>
+              ) : (
+                questions.filter((x) => x.label.trim()).map((item) => {
+                  const answer = q?.answers?.[item.key]
+                  const opts = item.options.split(',').map((o) => o.trim()).filter(Boolean)
+                  return (
+                    <div key={item.key} className="rounded-card border border-w-line bg-w-panel2 p-6">
+                      <div className="whitespace-pre-wrap break-words text-lg font-black leading-7 text-w-ink">
+                        {item.label}
+                        {item.required && <span className="text-w-danger"> *</span>}
+                      </div>
+                      {item.helpText && <div className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-6 text-w-muted">{item.helpText}</div>}
+                      <div className="mt-4">
+                        <PreviewAnswerField kind={item.kind} options={opts} />
+                      </div>
+                      {answer !== undefined && answer !== '' && (
+                        <div className="mt-4 rounded-ctl border border-w-good/30 bg-w-good/10 px-3 py-2 text-sm text-w-ink">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-w-good">Ответ студента</span>
+                          <div className="mt-0.5 whitespace-pre-wrap break-words">{Array.isArray(answer) ? answer.join(', ') : String(answer)}</div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           ) : (
             <div className="space-y-4">
               <div>
@@ -190,66 +243,80 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
                 <div className="space-y-3">
                   {questions.map((item, idx) => {
                     const answer = q?.answers?.[item.key]
+                    const opts = item.options.split(',').map((o) => o.trim()).filter(Boolean)
+                    const isEditing = !readOnly && editingQuestionKey === item.key
                     return (
-                      <div key={item.key} className="rounded-panel border border-w-line bg-w-panel2 p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="mt-2 text-xs font-bold text-w-muted2">{idx + 1}.</span>
-                          <div className="min-w-0 flex-1 space-y-2">
-                            {readOnly || editingQuestionKey !== item.key ? (
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 whitespace-pre-wrap break-words text-base font-black leading-6 text-w-ink">{item.label || 'Новый вопрос'}</div>
-                                {!readOnly && <button type="button" onClick={() => setEditingQuestionKey(item.key)} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-w-muted transition hover:text-w-accentText"><Pencil className="h-3 w-3" />Изменить</button>}
-                              </div>
-                            ) : (
-                              <textarea
-                                rows={2}
-                                value={item.label}
-                                onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, label: e.target.value } : x))}
-                                placeholder="Текст вопроса"
-                                className="min-h-16 w-full resize-y whitespace-pre-wrap break-words rounded-ctl border border-w-line bg-w-panel px-3 py-2.5 text-base font-black leading-6 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
-                              />
-                            )}
-                            <textarea
-                              disabled={readOnly}
-                              value={item.helpText}
-                              onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, helpText: e.target.value } : x))}
-                              placeholder="Описание или подсказка под вопросом"
-                              className="min-h-20 w-full resize-y rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-sm leading-5 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim disabled:opacity-70"
-                            />
-                            <div className="flex flex-wrap items-center gap-2">
-                              <AppSelect colorPrefix="w"
-                                value={item.kind}
-                                disabled={readOnly}
-                                onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, kind: e.target.value as QuestionKind } : x))}
-                                className="h-9 py-0"
-                              >
-                                {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => (
-                                  <option key={k} value={k}>{QUESTION_KIND_LABEL[k]}</option>
-                                ))}
-                              </AppSelect>
-                              <label className="flex items-center gap-1.5 text-xs font-bold text-w-muted">
-                                <input
-                                  type="checkbox"
-                                  disabled={readOnly}
-                                  checked={item.required}
-                                  onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, required: e.target.checked } : x))}
-                                  className="accent-w-accent"
+                      <div key={item.key} className="rounded-card border border-w-line bg-w-panel2 p-4">
+                        <div className="flex items-start gap-3">
+                          <span className="mt-1 text-xs font-bold text-w-muted2">{idx + 1}.</span>
+                          <div className="min-w-0 flex-1 space-y-3">
+                            {isEditing ? (
+                              <>
+                                <textarea
+                                  rows={2}
+                                  value={item.label}
+                                  onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, label: e.target.value } : x))}
+                                  placeholder="Текст вопроса"
+                                  className="min-h-14 w-full resize-y whitespace-pre-wrap break-words rounded-ctl border border-w-line bg-w-panel px-3 py-2.5 text-lg font-black leading-6 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
                                 />
-                                Обязательный
-                              </label>
-                            </div>
-                            {['choice', 'multi'].includes(item.kind) && (
-                              <AppInput colorPrefix="w"
-                                disabled={readOnly}
-                                value={item.options}
-                                onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, options: e.target.value } : x))}
-                                placeholder="Варианты через запятую: A, B, C"
-                              />
+                                <textarea
+                                  value={item.helpText}
+                                  onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, helpText: e.target.value } : x))}
+                                  placeholder="Описание или подсказка под вопросом"
+                                  className="min-h-16 w-full resize-y rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-sm leading-5 text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+                                />
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <AppSelect colorPrefix="w"
+                                    value={item.kind}
+                                    onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, kind: e.target.value as QuestionKind } : x))}
+                                    className="h-9 py-0"
+                                  >
+                                    {(Object.keys(QUESTION_KIND_LABEL) as QuestionKind[]).map((k) => (
+                                      <option key={k} value={k}>{QUESTION_KIND_LABEL[k]}</option>
+                                    ))}
+                                  </AppSelect>
+                                  <label className="flex items-center gap-1.5 text-xs font-bold text-w-muted">
+                                    <input
+                                      type="checkbox"
+                                      checked={item.required}
+                                      onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, required: e.target.checked } : x))}
+                                      className="accent-w-accent"
+                                    />
+                                    Обязательный
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingQuestionKey(null)}
+                                    className="ml-auto inline-flex items-center gap-1 rounded-ctl bg-w-accent px-2.5 py-1 text-[11px] font-bold text-black transition hover:brightness-95"
+                                  >
+                                    <Check className="h-3.5 w-3.5" /> Готово
+                                  </button>
+                                </div>
+                                {['choice', 'multi'].includes(item.kind) && (
+                                  <AppInput colorPrefix="w"
+                                    value={item.options}
+                                    onChange={(e) => setQuestions((qs) => qs.map((x) => x.key === item.key ? { ...x, options: e.target.value } : x))}
+                                    placeholder="Варианты через запятую: A, B, C"
+                                  />
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0 whitespace-pre-wrap break-words text-lg font-black leading-7 text-w-ink">
+                                    {item.label || 'Новый вопрос'}
+                                    {item.required && item.label.trim() && <span className="text-w-danger"> *</span>}
+                                  </div>
+                                  {!readOnly && <button type="button" onClick={() => setEditingQuestionKey(item.key)} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-w-muted transition hover:text-w-accentText"><Pencil className="h-3 w-3" />Изменить</button>}
+                                </div>
+                                {item.helpText && <div className="whitespace-pre-wrap break-words text-sm leading-6 text-w-muted">{item.helpText}</div>}
+                                <PreviewAnswerField kind={item.kind} options={opts} />
+                              </>
                             )}
                             {answer !== undefined && answer !== '' && (
                               <div className="rounded-ctl border border-w-good/30 bg-w-good/10 px-3 py-2 text-sm text-w-ink">
                                 <span className="text-[10px] font-bold uppercase tracking-wide text-w-good">Ответ студента</span>
-                                <div className="mt-0.5">{Array.isArray(answer) ? answer.join(', ') : String(answer)}</div>
+                                <div className="mt-0.5 whitespace-pre-wrap break-words">{Array.isArray(answer) ? answer.join(', ') : String(answer)}</div>
                               </div>
                             )}
                           </div>
@@ -296,6 +363,40 @@ export const WorkspaceQuestionnaireDialog: React.FC<{
       </div>
     </div>
   )
+}
+
+// Non-interactive replica of the answer control the student will see — mirrors
+// the Google-Forms "Your answer" look so the mentor previews the real field.
+const PreviewAnswerField: React.FC<{ kind: QuestionKind; options: string[] }> = ({ kind, options }) => {
+  if (kind === 'long_text') {
+    return <div className="min-h-20 w-full rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-sm text-w-muted2">Ваш ответ</div>
+  }
+  if (kind === 'choice' || kind === 'multi') {
+    const opts = options.length ? options : ['Вариант 1', 'Вариант 2']
+    return (
+      <div className="space-y-2.5">
+        {opts.map((o, i) => (
+          <div key={i} className="flex items-center gap-2.5 text-sm text-w-ink">
+            <span className={cn('h-4 w-4 shrink-0 border border-w-muted2', kind === 'choice' ? 'rounded-full' : 'rounded')} />
+            <span className="whitespace-pre-wrap break-words">{o}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (kind === 'bool') {
+    return (
+      <div className="flex gap-5">
+        {['Да', 'Нет'].map((o) => (
+          <div key={o} className="flex items-center gap-2.5 text-sm text-w-ink">
+            <span className="h-4 w-4 shrink-0 rounded-full border border-w-muted2" />
+            <span>{o}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return <div className="flex h-10 w-full items-center rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-muted2">Ваш ответ</div>
 }
 
 function detail(e: unknown): string {

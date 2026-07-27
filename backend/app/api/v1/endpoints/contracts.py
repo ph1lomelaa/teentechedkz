@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import uuid
 from datetime import datetime, timezone, date
 from decimal import Decimal
@@ -15,6 +16,8 @@ from app.core.audit import log_change
 from app.models.contract import Contract, PipelineStatus, PaymentPlan
 from app.models.user import UserRole
 from app.schemas.contract import ContractCreate, ContractUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -67,6 +70,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Договор не найден")
 
     updates = body.model_dump(exclude_unset=True)
+    old_mentor_total = contract.mentor_total_owed
 
     if "pipeline_status" in updates:
         new_ps = updates["pipeline_status"]
@@ -84,6 +88,14 @@ async def update_contract(
                   "mzk_manager_id", "payment_plan", "signed_date", "currency"]:
         if field in updates:
             setattr(contract, field, updates[field])
+
+    # Событийное уведомление менторам+МЗК, если поменялась сумма к выплате менторам.
+    if "mentor_total_owed" in updates and contract.mentor_total_owed != old_mentor_total:
+        try:
+            from app.services.payment_notifier import notify_mentor_payout_event
+            await notify_mentor_payout_event(db, contract, "accrual_changed", current_user.id)
+        except Exception:  # noqa: BLE001 — уведомление не должно ронять сохранение договора
+            logger.exception("Не удалось создать уведомление о выплате ментору")
 
     await db.commit()
     contract = await _load_contract(db, contract.id)

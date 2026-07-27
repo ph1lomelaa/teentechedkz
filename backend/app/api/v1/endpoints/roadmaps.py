@@ -189,8 +189,24 @@ async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_
                 skip_subtasks=body.skip_subtasks,
                 on_event=on_event,
             )
+            payload = result.as_dict()
+            # On a real apply, immediately link questionnaires (анкеты) to the
+            # freshly imported tasks so it's one import instead of two separate
+            # manual steps. Skipped for discover/dry-run (nothing was written).
+            if result.ok and not body.dry_run and not body.discover_only:
+                try:
+                    on_event({"message": "Импорт анкет: связываю формы Notion с задачами…"})
+                    from app.core.link_notion_questionnaires import run as run_link
+
+                    payload["questionnaires"] = await run_link(on_event=on_event)
+                    on_event({"message": "Импорт анкет завершён"})
+                except Exception as exc:
+                    # Questionnaire linking is best-effort — a roadmap import that
+                    # succeeded shouldn't be reported as failed if only анкеты broke.
+                    payload["questionnaires_error"] = str(exc)
+                    on_event({"message": f"Импорт анкет не удался: {exc}"})
             await background_jobs.finish_job(
-                job.id, status="done" if result.ok else "failed", result=result.as_dict(), error=result.error,
+                job.id, status="done" if result.ok else "failed", result=payload, error=result.error,
             )
         except Exception as exc:
             await background_jobs.finish_job(job.id, status="failed", error=str(exc))

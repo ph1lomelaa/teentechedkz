@@ -3,7 +3,9 @@ import asyncio
 import logging
 from datetime import date, timedelta, datetime, timezone
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
+
+from app.models.payment import Payment, PaymentType, PaymentStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,6 +122,74 @@ async def _notify_due_payment(
     except Exception:
         # Don't fail the whole job if notification broadcast fails
         logger.exception("Failed to broadcast risk notifications")
+
+
+async def notify_mentor_payout_event(
+    db: AsyncSession, contract: Contract, event: str, actor_id=None
+) -> None:
+    """Событийное уведомление о выплате ментору (при изменении суммы начисления или
+    записи выплаты) — по решению: событийно, без ежедневных повторов. Получатели:
+    ассигнед-менторы студента (видят у себя в кабинете) + МЗК/админы (кто платит).
+
+    event: 'accrual_changed' | 'payout_recorded'. Не бросает — уведомления не должны
+    ронять основной запрос (оборачивается try у вызывающего)."""
+    from decimal import Decimal as _D
+
+    total = contract.mentor_total_owed
+    if total is None:
+        return
+
+    paid_row = await db.execute(
+        select(func.coalesce(func.sum(Payment.amount), 0)).where(
+            Payment.contract_id == contract.id,
+            Payment.type == PaymentType.mentor_payout,
+            Payment.status == PaymentStatus.paid,
+        )
+    )
+    paid = paid_row.scalar() or _D("0")
+    remaining = _D(str(total)) - _D(str(paid))
+
+    student = await db.get(Student, contract.student_id)
+    if not student:
+        return
+    currency = contract.currency or "KZT"
+
+    # Получатели: активные менторы студента + МЗК-менеджер договора + все админы/МЗК.
+    mentor_rows = await db.execute(
+        select(MentorAssignment.mentor_id).where(
+            MentorAssignment.student_id == contract.student_id,
+            MentorAssignment.is_active.is_(True),
+        )
+    )
+    recipient_ids = {r for (r,) in mentor_rows.all() if r}
+    if contract.mzk_manager_id:
+        recipient_ids.add(contract.mzk_manager_id)
+    admin_rows = await db.execute(select(User.id).where(User.role.in_(["admin", "mzk_manager"])))
+    recipient_ids.update(r for (r,) in admin_rows.all())
+    recipient_ids.discard(actor_id)  # не уведомляем того, кто сам сделал изменение
+
+    title, body = _mentor_payout_message(student.full_name, total, remaining, currency, event)
+    link = f"/workspace/students/{contract.student_id}"
+    for uid in recipient_ids:
+        db.add(Notification(
+            user_id=uid, kind="mentor_payout", title=title, body=body,
+            link=link, priority="normal",
+        ))
+
+
+def _mentor_payout_message(student_name, total, remaining, currency: str, event: str) -> tuple[str, str]:
+    """(заголовок, тело) уведомления о выплате ментору. Чистая функция — тестируется
+    без БД. remaining <= 0 → выплаты закрыты; иначе показываем остаток и начисление."""
+    if remaining > 0:
+        verb = "обновлена сумма к выплате" if event == "accrual_changed" else "записана выплата"
+        return (
+            f"{student_name}: {verb} менторам",
+            f"Осталось выплатить: {remaining} {currency} (начислено {total}).",
+        )
+    return (
+        f"{student_name}: выплаты менторам закрыты",
+        f"Выплачено полностью ({total} {currency}).",
+    )
 
 
 async def check_upcoming_payments(db: AsyncSession) -> None:

@@ -118,6 +118,17 @@ export const telegramApi = {
     )
     return response.data
   },
+  setParticipantRole: async (
+    chatId: string,
+    telegramUserId: number,
+    role: 'mentor' | 'student' | 'unknown',
+  ): Promise<TelegramParticipant> => {
+    const response = await apiClient.post<TelegramParticipant>(
+      `/telegram-chats/${chatId}/participants/${telegramUserId}/set-role`,
+      { role },
+    )
+    return response.data
+  },
   createTaskFromMessage: async (chatId: string, messageId: string, taskText?: string) => {
     const response = await apiClient.post(`/telegram-chats/${chatId}/messages/${messageId}/task`, {
       task_text: taskText,

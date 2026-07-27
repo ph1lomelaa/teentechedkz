@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { roadmapApi, NotionRoadmapImportJob } from '@/api/roadmap'
 import { knowledgeApi, NotionKnowledgeSyncJob } from '@/api/knowledge'
@@ -73,6 +73,26 @@ export const ImportJobsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     enabled: Boolean(questionnaireJobId),
     refetchInterval: (query) => (query.state.data?.status === 'running' ? 2000 : false),
   })
+
+  // Once a job reaches a terminal state, drop its id from localStorage (but keep
+  // it in memory so the outcome card still shows this session). This stops a
+  // finished/failed job from "resurrecting" and re-showing "завис" on every
+  // page refresh — only genuinely running jobs survive a reload.
+  useEffect(() => {
+    if (roadmapJobId && roadmapJob && roadmapJob.status !== 'running') {
+      try { localStorage.removeItem(STORAGE_PREFIX + 'roadmap') } catch { /* ignore */ }
+    }
+  }, [roadmapJobId, roadmapJob?.status])
+  useEffect(() => {
+    if (knowledgeJobId && knowledgeJob && knowledgeJob.status !== 'running') {
+      try { localStorage.removeItem(STORAGE_PREFIX + 'knowledge') } catch { /* ignore */ }
+    }
+  }, [knowledgeJobId, knowledgeJob?.status])
+  useEffect(() => {
+    if (questionnaireJobId && questionnaireJob && questionnaireJob.status !== 'running') {
+      try { localStorage.removeItem(STORAGE_PREFIX + 'questionnaires') } catch { /* ignore */ }
+    }
+  }, [questionnaireJobId, questionnaireJob?.status])
 
   return (
     <ImportJobsContext.Provider

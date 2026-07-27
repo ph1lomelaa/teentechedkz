@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleDot, Plus, Search } from 'lucide-react'
+import { ChevronDown, CircleDot, Plus, Search } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/primitives/button'
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import { Input } from '@/components/ui/primitives/input'
 import { stripMarkdown } from '@/components/shared/Markdown'
-import { formatDate } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import type { NoteSessionStatus, StudentListItem, StudentNoteStatus, DegreeLevel } from '@/types'
 import { DEGREE_LEVEL_LABELS } from '@/types'
@@ -31,6 +31,18 @@ const noteStatusOptions: Array<{ value: StudentNoteStatus | 'all'; label: string
   { value: 'approved', label: 'Одобренные' },
   { value: 'rejected', label: 'Отклонённые' },
 ]
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '—'
+  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
+}
+
+const NOTE_PILL: Record<StudentNoteStatus, { label: string; cls: string }> = {
+  draft: { label: 'Ждёт проверки', cls: 'bg-amber-100 text-amber-800' },
+  approved: { label: 'Применён', cls: 'bg-emerald-100 text-emerald-700' },
+  rejected: { label: 'Отклонён', cls: 'bg-red-100 text-red-700' },
+}
 
 export const NotesPage: React.FC = () => {
   const navigate = useNavigate()
@@ -107,6 +119,73 @@ export const NotesPage: React.FC = () => {
         .filter((n) => matchesDirectoryFilters(n.student_id ? directory.byId.get(n.student_id) : undefined, directoryFilters)),
     [notes, q, directoryFilters, directory.byId],
   )
+
+  // Merge sessions + their AI notes into one per-student group so a mentor sees
+  // "history by person" with a "N ждут проверки" badge, instead of two parallel
+  // columns of the same students (variant 2 of the redesign).
+  const noteById = useMemo(() => {
+    const m = new Map<string, (typeof notes)[number]>()
+    for (const n of notes) m.set(n.id, n)
+    return m
+  }, [notes])
+
+  const groups = useMemo(() => {
+    type Group = {
+      key: string
+      name: string
+      sessions: typeof filteredSessions
+      notes: typeof filteredNotes
+      pending: number
+      latest: number
+    }
+    const map = new Map<string, Group>()
+    const ensure = (id: string | null | undefined, name: string | null | undefined): Group => {
+      const key = id || '__none__'
+      let g = map.get(key)
+      if (!g) {
+        g = { key, name: name || 'Без привязки к студенту', sessions: [], notes: [], pending: 0, latest: 0 }
+        map.set(key, g)
+      }
+      return g
+    }
+    for (const s of filteredSessions) {
+      const g = ensure(s.student_id, s.student_name)
+      g.sessions.push(s)
+      const t = new Date(s.started_at).getTime()
+      if (t > g.latest) g.latest = t
+    }
+    for (const n of filteredNotes) {
+      const g = ensure(n.student_id, n.student_name)
+      g.notes.push(n)
+      if (n.status === 'draft') g.pending += 1
+      const t = new Date(n.created_at).getTime()
+      if (t > g.latest) g.latest = t
+    }
+    // Students who have drafts waiting for review float to the top.
+    return [...map.values()].sort(
+      (a, b) => b.pending - a.pending || b.latest - a.latest || a.name.localeCompare(b.name, 'ru'),
+    )
+  }, [filteredSessions, filteredNotes])
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const didInitExpand = useRef(false)
+  useEffect(() => {
+    // First time the list loads, open the students who have pending reviews so
+    // the work-to-do is visible without a click; leave the rest collapsed.
+    if (!didInitExpand.current && groups.length) {
+      didInitExpand.current = true
+      setExpanded(new Set(groups.filter((g) => g.pending > 0).map((g) => g.key)))
+    }
+  }, [groups])
+  const toggleGroup = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const listLoading = sessionsLoading || notesLoading
 
   const activeFiltersCount =
     (directoryFilters.year ? 1 : 0) +
@@ -239,144 +318,146 @@ export const NotesPage: React.FC = () => {
 
       <FilterChips chips={filterChips} onResetAll={resetDirectoryFilters} />
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card className="border-p-line bg-white">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-base text-p-text">Сессии</CardTitle>
-                <CardDescription>Живые и завершённые записи</CardDescription>
-              </div>
+      <Card className="border-p-line bg-white">
+        <CardHeader className="pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base text-p-text">По студентам</CardTitle>
+              <CardDescription>Сессии и их AI-конспекты, сгруппированы по ученику</CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Select value={sessionStatus} onValueChange={(v) => setSessionStatus(v as NoteSessionStatus | 'all')}>
-                <SelectTrigger className="w-40 h-9">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {sessionStatusOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {sessionsLoading ? (
-              <div className="py-12 text-center text-p-muted2">Загрузка...</div>
-            ) : sessions.length === 0 ? (
-              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
-                Сессий пока нет. Создайте первую и начните запись.
-              </div>
-            ) : filteredSessions.length === 0 ? (
-              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
-                Ничего не найдено по текущим фильтрам.
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {filteredSessions.map((session) => (
-                  <div key={session.id} className="rounded-panel border border-p-line bg-p-bg p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-xs text-p-muted2 uppercase tracking-[0.2em]">
-                          <CircleDot className={`w-3.5 h-3.5 ${session.status === 'active' ? 'text-emerald-500' : 'text-p-muted2'}`} />
-                          {session.status}
-                        </div>
-                        <Link to={`/notes/session/${session.id}`} className="mt-1 block font-semibold text-p-text hover:underline underline-offset-4">
-                          {session.title}
-                        </Link>
-                        <p className="mt-1 text-sm text-p-muted">
-                          {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)}
-                        </p>
-                        <p className="mt-2 text-sm text-p-muted line-clamp-2">
-                          {session.latest_transcript || 'Пока нет транскрипта'}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-xs text-p-muted2 uppercase tracking-[0.2em]">Фрагменты</p>
-                        <p className="mt-1 text-2xl font-black text-slate-950">{session.transcript_count}</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex items-center gap-2">
-                      <Button size="sm" asChild>
-                        <Link to={`/notes/session/${session.id}`}>
-                          {session.note_id ? 'Просмотреть' : 'Открыть'}
-                        </Link>
-                      </Button>
-                      {session.note_id && (
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={`/notes/${session.note_id}`}>Конспект</Link>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-p-line bg-white">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-base text-p-text">Конспекты</CardTitle>
-                <CardDescription>История AI-черновиков и проверок</CardDescription>
-              </div>
               <Select value={noteStatus} onValueChange={(v) => setNoteStatus(v as StudentNoteStatus | 'all')}>
-                <SelectTrigger className="w-40 h-9">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {noteStatusOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          </CardHeader>
-          <CardContent>
-            {notesLoading ? (
-              <div className="py-12 text-center text-p-muted2">Загрузка...</div>
-            ) : notes.length === 0 ? (
-              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
-                Конспектов пока нет.
-              </div>
-            ) : filteredNotes.length === 0 ? (
-              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
-                Ничего не найдено по текущим фильтрам.
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {filteredNotes.map((note) => (
-                  <div key={note.id} className="rounded-panel border border-p-line bg-p-bg p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <Link to={`/notes/${note.id}`} className="block font-semibold text-p-text hover:underline underline-offset-4">
-                          {note.title}
-                        </Link>
-                        <p className="mt-1 text-sm text-p-muted">
-                          {note.student_name ?? 'Без привязки'} · {formatDate(note.created_at)}
-                        </p>
-                        <p className="mt-2 text-sm text-p-muted line-clamp-2">
-                          {stripMarkdown(note.summary_markdown)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        <span className="rounded-full border border-p-line bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-p-muted">
-                          {note.status}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {listLoading ? (
+            <div className="py-12 text-center text-p-muted2">Загрузка...</div>
+          ) : groups.length === 0 ? (
+            <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+              {sessions.length === 0 && notes.length === 0
+                ? 'Сессий пока нет. Создайте первую и начните запись.'
+                : 'Ничего не найдено по текущим фильтрам.'}
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {groups.map((group) => {
+                const open = expanded.has(group.key)
+                const shownNoteIds = new Set(group.sessions.map((s) => s.note_id).filter(Boolean) as string[])
+                const orphanNotes = group.notes.filter((n) => !shownNoteIds.has(n.id))
+                return (
+                  <div key={group.key} className="overflow-hidden rounded-panel border border-p-line bg-p-bg">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.key)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-p-panel"
+                      aria-expanded={open}
+                    >
+                      <ChevronDown className={cn('h-4 w-4 shrink-0 text-p-muted2 transition-transform', open && 'rotate-180')} />
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-black text-[11px] font-bold text-white">
+                        {initials(group.name)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold text-p-text">{group.name}</span>
+                        <span className="block text-xs text-p-muted">
+                          {group.sessions.length} {group.sessions.length === 1 ? 'сессия' : 'сессий'}
+                          {group.latest ? ` · обновлено ${formatDate(new Date(group.latest).toISOString())}` : ''}
                         </span>
+                      </span>
+                      {group.pending > 0 && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+                          {group.pending} ждут проверки
+                        </span>
+                      )}
+                    </button>
+
+                    {open && (
+                      <div className="divide-y divide-p-line border-t border-p-line">
+                        {group.sessions.map((session) => {
+                          const note = session.note_id ? noteById.get(session.note_id) : undefined
+                          const pill = note ? NOTE_PILL[note.status as StudentNoteStatus] : undefined
+                          return (
+                            <div key={session.id} className="flex flex-wrap items-start gap-3 bg-white px-4 py-3">
+                              <CircleDot className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', session.status === 'active' ? 'text-emerald-500' : 'text-p-muted2')} />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Link to={`/notes/session/${session.id}`} className="truncate font-medium text-p-text underline-offset-4 hover:underline">
+                                    {session.title}
+                                  </Link>
+                                  {pill && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', pill.cls)}>{pill.label}</span>}
+                                </div>
+                                <p className="mt-0.5 text-xs text-p-muted2">
+                                  {formatDate(session.started_at)} · {session.transcript_count} фрагм.
+                                </p>
+                                <p className="mt-1 line-clamp-1 text-sm text-p-muted">
+                                  {session.latest_transcript || 'Пока нет транскрипта'}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 gap-2">
+                                <Button size="sm" asChild>
+                                  <Link to={`/notes/session/${session.id}`}>{session.note_id ? 'Просмотреть' : 'Открыть'}</Link>
+                                </Button>
+                                {session.note_id && (
+                                  <Button variant="outline" size="sm" asChild>
+                                    <Link to={`/notes/${session.note_id}`}>Конспект</Link>
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+
+                        {orphanNotes.map((note) => {
+                          const pill = NOTE_PILL[note.status as StudentNoteStatus]
+                          return (
+                            <div key={note.id} className="flex flex-wrap items-start gap-3 bg-white px-4 py-3">
+                              <CircleDot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-p-muted2" />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Link to={`/notes/${note.id}`} className="truncate font-medium text-p-text underline-offset-4 hover:underline">
+                                    {note.title}
+                                  </Link>
+                                  {pill && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', pill.cls)}>{pill.label}</span>}
+                                </div>
+                                <p className="mt-0.5 text-xs text-p-muted2">{formatDate(note.created_at)}</p>
+                                <p className="mt-1 line-clamp-1 text-sm text-p-muted">{stripMarkdown(note.summary_markdown)}</p>
+                              </div>
+                              <div className="flex shrink-0 gap-2">
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link to={`/notes/${note.id}`}>Конспект</Link>
+                                </Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+
+                        {group.sessions.length === 0 && orphanNotes.length === 0 && (
+                          <p className="px-4 py-3 text-sm text-p-muted">Нет записей по текущему фильтру.</p>
+                        )}
                       </div>
-                    </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-xl">

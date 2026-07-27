@@ -1219,6 +1219,7 @@ export const FinancesPage: React.FC = () => {
                 <TableHead>Ментор</TableHead>
                 <TableHead>Статус (Notion)</TableHead>
                 <TableHead>Остаток клиента</TableHead>
+                <TableHead>Осталось доплатить</TableHead>
                 <TableHead>Английский</TableHead>
                 <TableHead>УП</TableHead>
                 <TableHead>Менторы (TBP)</TableHead>
@@ -1229,7 +1230,7 @@ export const FinancesPage: React.FC = () => {
             <TableBody>
               {filteredPictureRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-p-muted">
+                  <TableCell colSpan={10} className="text-center py-8 text-p-muted">
                     {notionRows.length === 0 ? 'Нет данных Notion' : 'Ничего не найдено по фильтрам'}
                   </TableCell>
                 </TableRow>
@@ -1248,14 +1249,41 @@ export const FinancesPage: React.FC = () => {
                         {r.mzk && <div className="text-xs text-p-muted2">МЗК: {r.mzk}</div>}
                       </TableCell>
                       <TableCell className="text-p-muted text-xs whitespace-nowrap">{r.payment_status}</TableCell>
-                      <TableCell className={`font-medium whitespace-nowrap ${r.client_remaining > 0 ? 'text-red-600' : 'text-p-muted'}`}>
-                        {r.client_remaining_filled === false && r.client_remaining === 0 ? (
-                          <span title="В Notion ячейка «Остаток клиента» пустая — это не то же самое, что подтверждённый 0">
+                      <TableCell className={`font-medium whitespace-nowrap ${(r.crm_client_remaining ?? r.client_remaining) > 0 ? 'text-red-600' : 'text-p-muted'}`}>
+                        {r.crm_client_remaining != null ? (
+                          <>
+                            {formatMoney(r.crm_client_remaining)}
+                            {/* Notion-значение рядом для сверки, если заметно расходится с расчётом CRM */}
+                            {r.client_remaining_filled && Math.abs((r.client_remaining || 0) - r.crm_client_remaining) > 1 && (
+                              <div className="text-2xs text-amber-600" title="В Notion другое значение остатка">
+                                Notion: {formatMoney(r.client_remaining)}
+                              </div>
+                            )}
+                          </>
+                        ) : r.client_remaining_filled === false && r.client_remaining === 0 ? (
+                          <span title="Нет договора в CRM и пусто в Notion — остаток неизвестен">
                             нет данных
                           </span>
                         ) : (
                           formatMoney(r.client_remaining)
                         )}
+                        {/* Бейдж срока оплаты: считаем по client_remaining_date, если остаток > 0 */}
+                        {(() => {
+                          const remaining = r.crm_client_remaining ?? r.client_remaining
+                          if (!r.client_remaining_date || !remaining || remaining <= 0) return null
+                          const days = Math.floor((new Date(r.client_remaining_date).getTime() - new Date(todayIso).getTime()) / 86_400_000)
+                          if (days < 0) {
+                            return <div className="mt-0.5 text-2xs font-semibold text-red-600">⚠️ просрочено на {-days} дн.</div>
+                          }
+                          if (days <= 14) {
+                            return <div className={`mt-0.5 text-2xs font-semibold ${days <= 3 ? 'text-red-600' : 'text-amber-600'}`}>⏰ через {days} дн.</div>
+                          }
+                          return null
+                        })()}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-medium text-p-muted">
+                        {/* «Осталось доплатить» = english_tbp + mentor_tbp из CRM (источник правды) */}
+                        {r.crm_tbp_total != null ? formatMoney(r.crm_tbp_total) : '—'}
                       </TableCell>
                       <TableCell className="min-w-[150px]">
                         <MoneyProgress paid={r.english_paid} total={r.english_sum} tbp={r.english_tbp} />

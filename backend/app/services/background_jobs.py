@@ -13,11 +13,18 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.background_job import BackgroundJob
 
-# If a "running" job hasn't reported any activity for this long, the process
-# that owned it almost certainly died (crash/restart/deploy) without ever
-# reaching finish_job() — treat it as failed instead of blocking new syncs
-# forever.
+# A "running" job is only treated as stale (dead process) when BOTH: its id is
+# not among the jobs this process is actively running (_LIVE_JOBS), AND it hasn't
+# reported activity for this long. The liveness set is what distinguishes a slow-
+# but-alive job (long Notion rate-limit backoff, big import) from one whose owner
+# actually died — a restart/crash empties _LIVE_JOBS, so its still-"running" rows
+# fall through to the timeout and get cleaned up, while a live slow job never does.
 STALE_JOB_TIMEOUT = timedelta(minutes=10)
+
+# Job ids currently being run by *this* process (added in create_job, removed in
+# finish_job). In-memory on purpose: it resets to empty on restart, which is
+# exactly how we detect that a previously-"running" job was orphaned.
+_LIVE_JOBS: set[uuid.UUID] = set()
 
 
 def _now() -> datetime:
@@ -48,6 +55,23 @@ def serialize(job: BackgroundJob) -> dict:
     }
 
 
+def _is_stale(job: BackgroundJob) -> bool:
+    if job.status != "running" or job.id in _LIVE_JOBS:
+        return False
+    return _now() - _last_activity(job) > STALE_JOB_TIMEOUT
+
+
+async def _mark_stale_failed(job: BackgroundJob) -> None:
+    """Flip a job whose owning process died (crash/restart/deploy) from a
+    forever-'running' state to 'failed', so pollers stop and new syncs unblock."""
+    await finish_job(
+        job.id,
+        status="failed",
+        error="Джоб помечен как зависший: не было прогресса дольше "
+        f"{int(STALE_JOB_TIMEOUT.total_seconds() // 60)} минут (вероятно, процесс перезапустился).",
+    )
+
+
 async def get_running_job(kind: str) -> BackgroundJob | None:
     async with AsyncSessionLocal() as db:
         job = (
@@ -57,13 +81,8 @@ async def get_running_job(kind: str) -> BackgroundJob | None:
         ).scalars().first()
     if job is None:
         return None
-    if _now() - _last_activity(job) > STALE_JOB_TIMEOUT:
-        await finish_job(
-            job.id,
-            status="failed",
-            error="Джоб помечен как зависший: не было прогресса дольше "
-            f"{int(STALE_JOB_TIMEOUT.total_seconds() // 60)} минут (вероятно, процесс перезапустился).",
-        )
+    if _is_stale(job):
+        await _mark_stale_failed(job)
         return None
     return job
 
@@ -77,6 +96,7 @@ async def create_job(kind: str, request: dict | None = None, progress: dict | No
         db.add(job)
         await db.commit()
         await db.refresh(job)
+        _LIVE_JOBS.add(job.id)
         return job
 
 
@@ -87,7 +107,16 @@ async def get_job(kind: str, job_id: str) -> BackgroundJob | None:
         return None
     async with AsyncSessionLocal() as db:
         job = await db.get(BackgroundJob, job_uuid)
-        return job if job and job.kind == kind else None
+    if not job or job.kind != kind:
+        return None
+    # A job stuck in 'running' because its process died would otherwise keep
+    # frontend pollers looping forever — flip it to 'failed' on read too, not
+    # only when a new sync tries to start (get_running_job).
+    if _is_stale(job):
+        await _mark_stale_failed(job)
+        async with AsyncSessionLocal() as db:
+            job = await db.get(BackgroundJob, job_uuid)
+    return job
 
 
 async def list_jobs(kind: str, limit: int = 10) -> list[BackgroundJob]:
@@ -134,6 +163,7 @@ def make_on_event(job_id: uuid.UUID):
 
 
 async def finish_job(job_id: uuid.UUID, *, status: str, result: dict | None = None, error: str | None = None) -> None:
+    _LIVE_JOBS.discard(job_id)
     async with AsyncSessionLocal() as db:
         job = await db.get(BackgroundJob, job_id)
         if not job:

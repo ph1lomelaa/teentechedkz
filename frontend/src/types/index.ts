@@ -639,6 +639,17 @@ export interface StudentFull extends StudentListItem {
   confidential_notes?: ConfidentialNote[]
   responsibles?: ResponsibleUser[]
   is_mine?: boolean
+  alerts?: StudentAlert[]
+}
+
+export interface StudentAlert {
+  level: 'danger' | 'warning' | 'info'
+  kind: 'payment_due' | 'payment_overdue' | 'mentor_unpaid'
+  title: string
+  amount: number | null
+  currency: string
+  due_date: string | null
+  days: number | null
 }
 
 export interface Country {

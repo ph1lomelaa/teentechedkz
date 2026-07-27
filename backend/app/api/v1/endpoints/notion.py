@@ -1,11 +1,14 @@
 """Notion-зеркало: синк, привязка снапшотов к студентам, сверка и ручной перенос полей.
 
-Notion остаётся рабочим инструментом команды — CRM его не заменяет и назад не пишет.
-Автоматически в карточки ничего не переносится: только просмотр расхождений и
-кнопка «Принять из Notion» по конкретному полю (с записью в аудит).
+Notion остаётся рабочим инструментом команды. Автоматически ничего не переносится
+ни в одну сторону: только просмотр расхождений и ручные кнопки по конкретному полю
+(с записью в аудит):
+- «Принять из Notion» — значение Notion → CRM (apply_field);
+- «→ Notion» — значение CRM → Notion (push_field), по подтверждению менеджера.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone, date
 from decimal import Decimal
@@ -13,7 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -23,10 +26,11 @@ from app.core.audit import log_change
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract, MentorAssignment
 from app.models.contract import PipelineStatus
 from app.models.mentor_assignment import MentorRole
+from app.models.payment import Payment, PaymentType, PaymentStatus
 from app.models.portfolio_progress import PortfolioProgress
 from app.models.student import DegreeLevel
 from app.models.user import UserRole
-from app.services import notion_sync
+from app.services import notion_sync, notion_write, contract_finance
 from app.services.default_services import ensure_default_services
 
 router = APIRouter(prefix="/notion", tags=["notion"])
@@ -60,6 +64,92 @@ _PIPELINE_RU = {
     "suspended": "Подвешено",
     "no_status": "Без статуса",
 }
+
+# --- Запись CRM → Notion (push_field) ---
+# Какие поля сверки можно писать обратно в Notion и в какую колонку.
+# Только базовые редактируемые колонки — формульные/rollup (TBP, TOTAL Company,
+# Себес, d в работе) сюда НЕ входят, писать в них Notion не даёт. Реальный тип
+# колонки проверяется по схеме БД в момент записи (notion_write.WRITABLE_TYPES).
+# None у full_name — title-колонка называется произвольно, ищется по типу.
+PUSH_FIELDS: dict[str, str | None] = {
+    "full_name": None,
+    "phone": "Номер тел",
+    "degree_level": "Degree",
+    "intake_year": "Intake",
+    "pipeline_status": "Статус выплат",
+    "signed_date": "Date of Agreement",
+    "client_fee": "Client fee",
+    "english_sum": "Сумм Англ",
+    "english_paid": "PAID Англ",
+    "client_remaining": "Остаток клиента",
+    "client_remaining_date": "Остаток клиента (дата)",
+}
+
+# Поля-select: запись только по существующей опции Notion — подбираем ту, что
+# парсер приводит к тому же CRM-значению (не плодим дубли-опции). В живой базе
+# Degree/Статус выплат/Intake — все select; Intake-опции это просто годы («2025»).
+_PUSH_SELECT_PARSERS = {
+    "degree_level": "degree",
+    "pipeline_status": "pipeline",
+    "intake_year": "intake",
+}
+
+
+def _parse_intake_option(option: str) -> int | None:
+    """Опция select «Intake» — год строкой («2025»). Сопоставляем с intake_year (int)."""
+    s = str(option).strip()
+    return int(s) if s.isdigit() else None
+
+# field → ключ в snapshot.normalized_data (имена там свои: degree_raw и т.п.).
+# Нужен, чтобы взять «старое» значение Notion для аудита и обновить снапшот после записи.
+_SNAPSHOT_KEY = {
+    "full_name": "full_name",
+    "phone": "phone",
+    "degree_level": "degree_raw",
+    "intake_year": "intake_raw",
+    "pipeline_status": "payment_status_raw",
+    "signed_date": "date_of_agreement",
+    "client_fee": "client_fee",
+    "english_sum": "english_sum",
+    "english_paid": "english_paid",
+    "client_remaining": "client_remaining",
+    "client_remaining_date": "client_remaining_date",
+}
+
+_PUSH_CONTRACT_FIELDS = {
+    "pipeline_status", "signed_date", "client_fee", "english_sum",
+    "english_paid", "client_remaining", "client_remaining_date",
+}
+
+
+def _crm_push_value(field: str, student: Student, contract: "Contract | None"):
+    """CRM-значение поля в «сыром» виде для записи в Notion (Decimal/date/int/str
+    или строковое значение enum для select). None — если в CRM пусто."""
+    if field == "full_name":
+        return student.full_name
+    if field == "phone":
+        return student.phone
+    if field == "degree_level":
+        return student.degree_level.value if student.degree_level else None
+    if field == "intake_year":
+        return student.intake_year
+    if not contract:
+        return None
+    if field == "pipeline_status":
+        return contract.pipeline_status.value if contract.pipeline_status else None
+    if field == "signed_date":
+        return contract.signed_date
+    if field == "client_fee":
+        return contract.amount
+    if field == "english_sum":
+        return contract.english_sum
+    if field == "english_paid":
+        return contract.english_paid
+    if field == "client_remaining":
+        return contract.client_remaining_amount
+    if field == "client_remaining_date":
+        return contract.client_remaining_date
+    return None
 
 
 def _fmt_num(v) -> str | None:
@@ -165,6 +255,67 @@ def _as_float(v) -> float:
         return 0.0
 
 
+async def _crm_finance_map(db: AsyncSession, student_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
+    """CRM-финансы (источник правды) по студентам: остаток клиента и «осталось
+    доплатить» (TBP) из последнего договора и фактических платежей. Значения тех же
+    величин из Notion фронт показывает рядом для сверки — здесь их не трогаем.
+
+    Возвращает {student_id: {client_remaining, english_tbp, mentor_tbp, tbp_total,
+    amount, client_paid, mentor_paid}}. Decimal|None → сериализуем во float|None."""
+    if not student_ids:
+        return {}
+
+    # Последний договор по каждому студенту (по created_at).
+    contracts = (await db.execute(
+        select(Contract)
+        .where(Contract.student_id.in_(student_ids))
+        .order_by(Contract.student_id, Contract.created_at.desc())
+    )).scalars().all()
+    latest: dict[uuid.UUID, Contract] = {}
+    for c in contracts:
+        latest.setdefault(c.student_id, c)  # первый по DESC == самый свежий
+
+    contract_ids = [c.id for c in latest.values()]
+    if not contract_ids:
+        return {}
+
+    # Оплачено клиентом / выплачено менторам — суммы подтверждённых платежей по договору.
+    paid_rows = (await db.execute(
+        select(Payment.contract_id, Payment.type, func.sum(Payment.amount))
+        .where(
+            Payment.contract_id.in_(contract_ids),
+            Payment.status == PaymentStatus.paid,
+            Payment.type.in_((PaymentType.client_payment, PaymentType.mentor_payout)),
+        )
+        .group_by(Payment.contract_id, Payment.type)
+    )).all()
+    client_paid: dict[uuid.UUID, Decimal] = {}
+    mentor_paid: dict[uuid.UUID, Decimal] = {}
+    for contract_id, ptype, total in paid_rows:
+        (client_paid if ptype == PaymentType.client_payment else mentor_paid)[contract_id] = total or Decimal("0")
+
+    def f(v: Decimal | None) -> float | None:
+        return float(v) if v is not None else None
+
+    out: dict[uuid.UUID, dict] = {}
+    for sid, c in latest.items():
+        cp = client_paid.get(c.id)
+        mp = mentor_paid.get(c.id)
+        cr = contract_finance.client_remaining(c.amount, cp, manual_remaining=c.client_remaining_amount)
+        etbp = contract_finance.english_tbp(c.english_sum, c.english_paid)
+        mtbp = contract_finance.mentor_tbp(c.mentor_total_owed, mp)
+        out[sid] = {
+            "client_remaining": f(cr),
+            "english_tbp": f(etbp),
+            "mentor_tbp": f(mtbp),
+            "tbp_total": f(contract_finance.tbp_total(etbp, mtbp)),
+            "amount": f(c.amount),
+            "client_paid": f(cp),
+            "mentor_paid": f(mp),
+        }
+    return out
+
+
 @router.get("/finance-summary")
 async def finance_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -180,11 +331,13 @@ async def finance_summary(
 
     linked_student_ids = [s.student_id for s in snapshots if s.student_id]
     portfolio_map: dict[uuid.UUID, PortfolioProgress] = {}
+    crm_fin: dict[uuid.UUID, dict] = {}
     if linked_student_ids:
         pf_result = await db.execute(
             select(PortfolioProgress).where(PortfolioProgress.student_id.in_(linked_student_ids))
         )
         portfolio_map = {p.student_id: p for p in pf_result.scalars().all()}
+        crm_fin = await _crm_finance_map(db, linked_student_ids)
 
     totals: dict[str, float] = {f: 0.0 for f in _FINANCE_TOTAL_FIELDS}
     by_status: dict[str, int] = {}
@@ -196,6 +349,9 @@ async def finance_summary(
     # показывают, по какой доле записей эта сумма вообще посчитана, чтобы
     # фронт не выдавал частичную сумму за полную картину.
     client_remaining_known_count = 0
+    # CRM-итоги (источник правды): суммируем только по строкам с договором в CRM.
+    crm_totals = {"client_remaining": 0.0, "english_tbp": 0.0, "mentor_tbp": 0.0, "tbp_total": 0.0}
+    crm_known_count = 0
     for s in snapshots:
         d = s.normalized_data or {}
         for f in _FINANCE_TOTAL_FIELDS:
@@ -209,6 +365,13 @@ async def finance_summary(
         status = d.get("payment_status_raw") or "Без статуса"
         by_status[status] = by_status.get(status, 0) + 1
         pf = portfolio_map.get(s.student_id) if s.student_id else None
+        crm = crm_fin.get(s.student_id) if s.student_id else None
+        if crm:
+            crm_known_count += 1
+            for k in crm_totals:
+                v = crm.get(k)
+                if v is not None:
+                    crm_totals[k] += v
         raw_remaining = d.get("client_remaining")
         mentors_list = d.get("mentors") or []
         rows.append(
@@ -225,6 +388,15 @@ async def finance_summary(
                 # заполняют (Empty) — это НЕ то же самое, что подтверждённый 0 (полностью оплачено).
                 # Фронт должен показывать «нет данных», а не «0», когда client_remaining_filled=false.
                 "client_remaining_filled": raw_remaining not in (None, ""),
+                # CRM-расчёт (источник правды): остаток клиента = Client fee − оплачено, и
+                # «осталось доплатить» (TBP) из договора+платежей. None, если нет договора.
+                # Notion-значения (client_remaining/*_tbp выше) остаются рядом для сверки.
+                "crm_client_remaining": crm.get("client_remaining") if crm else None,
+                "crm_english_tbp": crm.get("english_tbp") if crm else None,
+                "crm_mentor_tbp": crm.get("mentor_tbp") if crm else None,
+                "crm_tbp_total": crm.get("tbp_total") if crm else None,
+                "crm_client_paid": crm.get("client_paid") if crm else None,
+                "crm_mentor_paid": crm.get("mentor_paid") if crm else None,
                 "lead_mentor": d.get("lead_mentor"),
                 "mentors": mentors_list,
                 "mzk": d.get("mzk"),
@@ -254,6 +426,10 @@ async def finance_summary(
         # last_run — время последнего прохода синка (строки без изменений не трогаются)
         "synced_at": last_run.get("at") or (synced_at.isoformat() if synced_at else None),
         "totals": totals,
+        # CRM-итоги считаются из договоров+платежей (источник правды); crm_known_count —
+        # по скольким записям есть договор в CRM (по остальным CRM-данных нет).
+        "crm_totals": crm_totals,
+        "crm_known_count": crm_known_count,
         "client_remaining_known_count": client_remaining_known_count,
         "client_remaining_total_count": len(snapshots),
         "rows": rows,
@@ -620,6 +796,8 @@ async def student_notion(
             "field": field, "label": label,
             "notion": notion_v, "crm": crm_v,
             "matches": matches, "can_apply": can_apply and notion_v is not None,
+            # Записать CRM → Notion можно для whitelisted-полей, если в CRM есть значение.
+            "can_push": field in PUSH_FIELDS and crm_v is not None,
         }
 
     comparison: list[dict] = []
@@ -735,6 +913,16 @@ async def student_notion(
 
     comparison = [r for r in comparison if r["notion"] is not None or r["crm"] is not None]
 
+    # --- Направление синхронизации по каждому редактируемому полю относительно эталона:
+    # notion_newer / crm_newer / conflict / unknown / resolved. Показывает менеджеру,
+    # какую сторону подтверждать, а не «расхождение» вслепую.
+    canon = notion_sync.editable_canon(d, student, contract)
+    baseline = snapshot.synced_baseline or {}
+    for r in comparison:
+        pair = canon.get(r["field"])
+        if pair is not None:
+            r["direction"] = notion_sync.field_direction(baseline.get(r["field"]), pair[0], pair[1])
+
     # --- Финансы Notion, которых нет в CRM-моделях: просто показываем
     finance = [
         {"label": label, "value": value}
@@ -766,6 +954,21 @@ async def student_notion(
 
 class ApplyFieldBody(BaseModel):
     field: str
+
+
+def _record_baseline(snapshot: NotionSnapshot, field: str, student: Student, contract: "Contract | None") -> None:
+    """После подтверждения (apply/push) стороны сравнялись — фиксируем это значение в
+    эталоне, чтобы поле сразу стало «согласованным» и не мигало расхождением до синка."""
+    canon = notion_sync.editable_canon(snapshot.normalized_data or {}, student, contract)
+    pair = canon.get(field)
+    if pair is None:
+        return
+    agreed = pair[0] if pair[0] is not None else pair[1]
+    if agreed is None:
+        return
+    baseline = dict(snapshot.synced_baseline or {})
+    baseline[field] = agreed
+    snapshot.synced_baseline = baseline
 
 
 @router.post("/students/{student_id}/apply-field")
@@ -873,10 +1076,192 @@ async def apply_field(
         contract.client_remaining_amount = dec(d.get("client_remaining"))
     elif field == "client_remaining_date":
         new_date = _parse_date(d.get("client_remaining_date"))
+        if not new_date:
+            raise HTTPException(status_code=400, detail="В Notion нет даты остатка")
         await audit("contract", contract.id, contract.client_remaining_date, new_date)
         contract.client_remaining_date = new_date
     else:
         raise HTTPException(status_code=400, detail=f"Поле не переносится из Notion: {field}")
 
+    _record_baseline(snapshot, field, student, contract)
     await db.commit()
     return {"ok": True, "field": field}
+
+
+# --- Ручная запись поля CRM → Notion --------------------------------------------
+
+class PushFieldBody(BaseModel):
+    field: str
+    # Перезаписать, даже если в Notion значение изменилось после последней синхронизации
+    # (менеджер осознанно затирает более свежую правку Notion). По умолчанию — защита.
+    force: bool = False
+
+
+def _resolve_push_target(schema: dict, field: str, wanted: str | None, crm_val) -> tuple[str, str, object]:
+    """(реальное имя колонки, тип, финальное значение для записи) по схеме Notion.
+    Отсекает неписываемые типы и подбирает существующую опцию select. ValueError —
+    если колонка не найдена/не пишется/нет подходящей опции. Sync (без сети, кроме
+    того, что schema уже загружена вызывающим)."""
+    from migration.transformers.normalize import parse_pipeline_status, parse_degree_or_none
+    parsers = {"degree": parse_degree_or_none, "pipeline": parse_pipeline_status, "intake": _parse_intake_option}
+
+    if wanted is None:
+        real_name, ptype = notion_write.find_title_property(schema)
+    else:
+        real_name, ptype = notion_write.resolve_property(schema, wanted)
+    if not real_name:
+        raise ValueError(f"Колонка не найдена в Notion: {wanted or 'ФИО (title)'}")
+    if ptype not in notion_write.WRITABLE_TYPES:
+        raise ValueError(f"Колонку Notion «{real_name}» (тип {ptype}) нельзя изменить через API")
+
+    value = crm_val
+    if ptype in ("select", "status"):
+        parser = parsers.get(_PUSH_SELECT_PARSERS.get(field, ""))
+        options = notion_write.select_options(schema, real_name)
+        match = next((o for o in options if parser and parser(o) == crm_val), None)
+        if match is None:
+            raise ValueError(f"В Notion нет подходящей опции для значения «{crm_val}» в «{real_name}»")
+        value = match
+    elif isinstance(value, date):
+        value = value.isoformat()
+    elif isinstance(value, Decimal):
+        value = float(value)
+    return real_name, ptype, value
+
+
+async def _load_push_context(db: AsyncSession, student_id: uuid.UUID, field: str):
+    """Общая проверка+загрузка для preview и записи: (student, snapshot, crm_val).
+    Бросает HTTPException при некорректном поле/отсутствии данных."""
+    if not notion_sync.is_configured():
+        raise HTTPException(status_code=400, detail="Notion не настроен — задай NOTION_API_KEY и NOTION_DATABASE_ID")
+    if field not in PUSH_FIELDS:
+        raise HTTPException(status_code=400, detail=f"Поле нельзя записать в Notion: {field}")
+
+    student = (await db.execute(select(Student).where(Student.id == student_id))).scalars().first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
+    snapshot = (await db.execute(
+        select(NotionSnapshot).where(
+            NotionSnapshot.student_id == student_id,
+            NotionSnapshot.status == NotionMatchStatus.linked,
+        ).order_by(NotionSnapshot.synced_at.desc())
+    )).scalars().first()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Notion-запись не привязана к студенту")
+
+    contract = await _latest_contract(db, student_id) if field in _PUSH_CONTRACT_FIELDS else None
+    crm_val = _crm_push_value(field, student, contract)
+    if crm_val in (None, ""):
+        raise HTTPException(status_code=400, detail="В CRM нет значения для записи")
+    return student, snapshot, crm_val
+
+
+@router.post("/students/{student_id}/push-field/preview")
+async def push_field_preview(
+    student_id: uuid.UUID,
+    body: PushFieldBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Что именно уйдёт в Notion, без записи: текущее значение в Notion, что станет,
+    и флаг conflict — если Notion изменили после последней синхронизации (перезапись
+    затрёт более свежую правку). Фронт показывает это в подтверждении."""
+    _require_manager(current_user)
+    _, snapshot, crm_val = await _load_push_context(db, student_id, body.field)
+    field, wanted, page_id = body.field, PUSH_FIELDS[body.field], snapshot.notion_page_id
+    snap_current = (snapshot.normalized_data or {}).get(_SNAPSHOT_KEY[field])
+
+    def _preview() -> dict:
+        schema = notion_write.get_schema()
+        real_name, ptype, value = _resolve_push_target(schema, field, wanted, crm_val)
+        notion_current = notion_write.read_value(page_id, real_name)
+        return {
+            "real_name": real_name, "ptype": ptype,
+            "will_write": value,
+            "notion_current": notion_current,
+            # Notion отличается и от снапшота (значит, кто-то поменял его после синка).
+            "conflict": _norm_str(notion_current) != _norm_str(snap_current),
+        }
+
+    try:
+        preview = await asyncio.get_event_loop().run_in_executor(None, _preview)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Ошибка чтения Notion: {exc}")
+    return {"ok": True, "field": field, **preview}
+
+
+@router.post("/students/{student_id}/push-field")
+async def push_field(
+    student_id: uuid.UUID,
+    body: PushFieldBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Записать значение поля из CRM в привязанную запись Notion (обратное к apply_field).
+    Только whitelisted-поля, только по действию менеджера, каждая запись — в аудит.
+    Формульные/rollup-колонки отсекаются по типу из схемы Notion. Перед записью —
+    проверка конфликта (Notion не меняли после синка), после — верификация записи."""
+    _require_manager(current_user)
+    student, snapshot, crm_val = await _load_push_context(db, student_id, body.field)
+
+    field, wanted, page_id, force = body.field, PUSH_FIELDS[body.field], snapshot.notion_page_id, body.force
+    snap_key = _SNAPSHOT_KEY[field]
+    snap_current = (snapshot.normalized_data or {}).get(snap_key)
+
+    def _write():
+        """Блокирующие обращения к Notion API — уводим в thread pool."""
+        schema = notion_write.get_schema()
+        real_name, ptype, value = _resolve_push_target(schema, field, wanted, crm_val)
+        # Optimistic concurrency: если в Notion значение отличается от снапшота, кто-то
+        # изменил его после синка — не затираем вслепую, требуем force (осознанно).
+        notion_current = notion_write.read_value(page_id, real_name)
+        if not force and _norm_str(notion_current) != _norm_str(snap_current):
+            raise _Conflict(real_name, notion_current)
+        # update_page сам перечитает и сверит, что запись принялась (verify=True).
+        notion_write.update_page(page_id, {real_name: notion_write.build_property(ptype, value)})
+        return value
+
+    loop = asyncio.get_event_loop()
+    try:
+        written = await loop.run_in_executor(None, _write)
+    except _Conflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"В Notion «{exc.real_name}» уже другое значение ({exc.current!r}) — его изменили "
+                   f"после последней синхронизации. Обнови сверку или подтверди перезапись.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — сетевые/API-ошибки Notion наружу как 502
+        raise HTTPException(status_code=502, detail=f"Ошибка записи в Notion: {exc}")
+
+    # Аудит: старое = значение в снапшоте Notion, новое = записанное из CRM.
+    data = dict(snapshot.normalized_data or {})
+    old_notion = data.get(snap_key)
+    await log_change(
+        db, "notion", student.id, f"notion_push:{field}",
+        str(old_notion) if old_notion is not None else None,
+        str(written) if written is not None else None,
+        str(current_user.id), "notion_push",
+    )
+
+    # Обновляем снапшот, чтобы сверка сразу показала совпадение (не ждать автосинка).
+    data[snap_key] = written
+    snapshot.normalized_data = data
+
+    # Стороны сравнялись (в Notion записано CRM-значение) — фиксируем эталон.
+    _record_baseline(snapshot, field, student, None)
+
+    await db.commit()
+    return {"ok": True, "field": field, "written": str(written)}
+
+
+class _Conflict(Exception):
+    """Notion изменили после синка — перезапись затрёт чужую правку (нужен force)."""
+    def __init__(self, real_name: str, current):
+        self.real_name = real_name
+        self.current = current
+        super().__init__(real_name)
