@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell,
   CalendarDays,
   CheckSquare,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   GraduationCap,
@@ -24,6 +25,8 @@ import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usersApi, notificationsApi } from '@/api/index'
+import { workspaceApi } from '@/api/workspace'
+import { useWsEvent } from '@/lib/ws'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -51,6 +54,7 @@ function getNavGroups(studentsNavLabel: string, canPreviewMentor: boolean): NavG
       items: [
         { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" /> },
         { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" /> },
+        { label: 'Проверка', path: '/workspace/review', icon: <ClipboardCheck className="h-4 w-4" /> },
         { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" /> },
         { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" /> },
         { label: 'Статус', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" /> },
@@ -124,6 +128,18 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   })
   const unreadCount = notifData?.unread_count ?? 0
 
+  // Лёгкий счётчик заявок студентов «на проверке» для бейджа в навигации:
+  // поллинг раз в минуту + live-инвалидация по WS-событию заявки.
+  const queryClient = useQueryClient()
+  const { data: reviewCount = 0 } = useQuery({
+    queryKey: ['workspace', 'review-count'],
+    queryFn: async () => (await workspaceApi.roadmapTasks({ review_status: 'pending' })).total,
+    refetchInterval: 60_000,
+  })
+  useWsEvent('task.review_requested', () =>
+    queryClient.invalidateQueries({ queryKey: ['workspace', 'review-count'] })
+  )
+
   const workspaceTo = (path: string) => `${path}${location.search}`
   const brandDestination = canPreviewMentor ? '/dashboard' : '/workspace'
 
@@ -168,7 +184,12 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             const active =
               location.pathname === item.path ||
               (item.path !== '/workspace' && location.pathname.startsWith(item.path))
-            const badge = item.path === '/workspace/notifications' ? unreadCount : 0
+            const badge =
+              item.path === '/workspace/notifications'
+                ? unreadCount
+                : item.path === '/workspace/review'
+                  ? reviewCount
+                  : 0
             return (
               <Link
                 key={item.path}
@@ -185,7 +206,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 {badge > 0 && (
                   <span
                     className={cn(
-                      'ml-auto min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-[10px] font-black',
+                      'ml-auto min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-2xs font-black',
                       active ? 'bg-black/20 text-black' : 'bg-w-accent text-black'
                     )}
                   >

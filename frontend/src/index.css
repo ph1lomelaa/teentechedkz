@@ -852,3 +852,55 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
   font-weight: 700;
   white-space: nowrap;
 }
+
+/* ---- празднования заявок/подтверждений задач (PR-3, портал студента) ----
+   Все анимации — только CSS и только при отсутствии prefers-reduced-motion:
+   при reduce классы .anim-* безвредно ничего не делают. */
+@media (prefers-reduced-motion: no-preference) {
+  /* прорисовка галочки при заявке студента («сделано» → на проверке) */
+  @keyframes tte-check-pop {
+    0% { transform: scale(0.6); opacity: 0.3; }
+    60% { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  /* вторая галочка въезжает при live-подтверждении ментора (✓ → ✓✓) */
+  @keyframes tte-double-check {
+    0% { transform: translateX(5px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  /* мягкое дыхание кольца вокруг чекбокса «на проверке» */
+  @keyframes tte-pending-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 212, 0, 0.35); }
+    50% { box-shadow: 0 0 0 4px rgba(255, 212, 0, 0.1); }
+  }
+  .anim-check-pop { animation: tte-check-pop 0.25s ease-out both; }
+  .anim-double-check { animation: tte-double-check 0.35s ease-out both; }
+  .anim-pending-glow { animation: tte-pending-glow 2s ease-in-out infinite; }
+
+  /* Появление сменившегося блока состояния (панель этапа, контент вкладки) —
+     тот же язык, что page-level fade-in, но мягче и заметнее. */
+  @keyframes tte-view-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .anim-view-in { animation: tte-view-in 0.3s ease both; }
+
+  /* Длительность кроссфейда View Transitions (перегруппировки списков). */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.35s;
+  }
+}
+
+/* Плавное раскрытие/сворачивание (сабтаски, детали задачи): grid-rows 0fr→1fr.
+   Вне media-блока: при reduced-motion transition просто мгновенный. */
+.expandable {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+}
+.expandable[data-open='true'] { grid-template-rows: 1fr; }
+.expandable > * { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .expandable { transition: none; }
+}

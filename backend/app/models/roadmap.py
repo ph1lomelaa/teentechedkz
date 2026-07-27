@@ -33,6 +33,20 @@ class RoadmapItemStatus(str, enum.Enum):
     done = "done"
 
 
+class TaskReviewStatus(str, enum.Enum):
+    """Заявка студента о выполнении — ось, ортогональная канонному status.
+
+    status='done' всегда означает «подтверждено ментором»; review_status несёт
+    жизненный цикл заявки: none (нет заявки / внесено ментором), pending (студент
+    отметил, ждёт ревью), approved (ментор подтвердил), returned (ментор вернул
+    с комментарием).
+    """
+    none = "none"
+    pending = "pending"
+    approved = "approved"
+    returned = "returned"
+
+
 class RoadmapStatus(str, enum.Enum):
     active = "active"
     archived = "archived"
@@ -189,6 +203,20 @@ class RoadmapTask(Base):
     status: Mapped[RoadmapItemStatus] = mapped_column(
         SAEnum(RoadmapItemStatus, name="roadmap_item_status"), default=RoadmapItemStatus.planned
     )
+    review_status: Mapped[TaskReviewStatus] = mapped_column(
+        SAEnum(TaskReviewStatus, name="task_review_status"),
+        default=TaskReviewStatus.none,
+        server_default="none",
+    )
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

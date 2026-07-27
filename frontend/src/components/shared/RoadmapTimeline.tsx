@@ -257,6 +257,12 @@ const TaskRow: React.FC<{
           <div className="flex items-center gap-3 mt-1 text-xs text-p-muted flex-wrap">
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
             {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
+            {/* Заявка студента: галочка здесь = подтверждение — пусть это будет видно */}
+            {task.review_status === 'pending' && (
+              <span className="rounded-full border border-brand/50 bg-brand/10 px-2 py-0.5 text-2xs font-bold text-brand">
+                ждёт проверки · галочка = подтвердить
+              </span>
+            )}
           </div>
         </div>
         <PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" />

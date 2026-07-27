@@ -1,15 +1,23 @@
 import React from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, CheckSquare, ClipboardList, Search } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { CheckSquare, ClipboardList, Search } from 'lucide-react'
 import { roadmapApi, FlatTask } from '@/api/roadmap'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
+import {
+  ClaimCheckbox,
+  MentorComment,
+  ReviewChip,
+  useReviewLiveUpdates,
+  useTaskClaim,
+} from '@/components/portal/PortalRoadmap'
 import { cn } from '@/lib/utils'
+import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
 import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
 
-type TaskTab = 'open' | 'done'
+type TaskTab = 'open' | 'pending' | 'done'
 
 function isOverdue(t: FlatTask): boolean {
   if (!t.due_date || t.status === 'done') return false
@@ -28,8 +36,13 @@ function plural(n: number, forms: [string, string, string]): string {
   return forms[2]
 }
 
+const EMPTY_TAB_TEXT: Record<TaskTab, string> = {
+  open: 'Открытых задач нет — всё сделано.',
+  pending: 'На проверке ничего нет — отмечайте готовые задачи, и они появятся здесь.',
+  done: 'Выполненных задач пока нет.',
+}
+
 export const PortalTasksPage: React.FC = () => {
-  const queryClient = useQueryClient()
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['portal', 'tasks'],
     queryFn: roadmapApi.myTasks,
@@ -42,18 +55,15 @@ export const PortalTasksPage: React.FC = () => {
     queryFn: questionnairesApi.mine,
   })
 
-  const toggle = useMutation({
-    mutationFn: (t: FlatTask) =>
-      roadmapApi.updateTask(t.id, { status: t.status === 'done' ? 'planned' : 'done' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['portal', 'tasks'] })
-      queryClient.invalidateQueries({ queryKey: ['portal', 'roadmap'] })
-    },
-  })
+  // Заявки о выполнении (одна/две галочки) + live-вердикты ментора
+  const { claim, unclaim } = useTaskClaim()
+  useReviewLiveUpdates()
 
-  const open = tasks.filter((t) => t.status !== 'done').sort(byDue)
+  // Три группы двухосевой модели: заявленные задачи покидают «открытые»
+  const open = tasks.filter((t) => t.status !== 'done' && t.review_status !== 'pending').sort(byDue)
+  const pending = tasks.filter((t) => t.status !== 'done' && t.review_status === 'pending').sort(byDue)
   const done = tasks.filter((t) => t.status === 'done').sort(byDue)
-  const list = (tab === 'open' ? open : done).filter((t) =>
+  const list = (tab === 'open' ? open : tab === 'pending' ? pending : done).filter((t) =>
     t.title.toLowerCase().includes(search.trim().toLowerCase())
   )
   const grouped = list.reduce<Record<string, FlatTask[]>>((acc, task) => {
@@ -77,15 +87,17 @@ export const PortalTasksPage: React.FC = () => {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />
           <input
             value={search}
+            // Клавиатурный ввод — БЕЗ view transition: снапшот страницы на каждую
+            // букву тормозит набор; фильтрация и так мгновенная.
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Поиск по названию..."
-            className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 focus:border-p-accent-dim focus:outline-none"
+            className="h-10 w-full rounded-ctl border border-p-line bg-p-panel2 pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-muted2 transition focus:border-p-accent-dim focus:outline-none"
           />
         </label>
       </div>
 
       {questionnaires.length > 0 && (
-        <div className="mb-6">
+        <div className="anim-view-in mb-6">
           <h2 className="mb-2 font-display text-xs font-black uppercase tracking-[0.18em] text-p-muted">Анкеты</h2>
           <div className="space-y-2">
             {questionnaires.map((qn) => (
@@ -94,7 +106,7 @@ export const PortalTasksPage: React.FC = () => {
                 type="button"
                 onClick={() => setOpenQ(qn.id)}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-panel border bg-p-panel2 p-3 text-left transition hover:border-brand',
+                  'flex w-full items-center gap-3 rounded-panel border bg-p-panel2 p-3 text-left transition hover:border-brand active:scale-[0.98]',
                   qn.status === 'sent' ? 'border-brand/60' : 'border-p-line'
                 )}
               >
@@ -125,6 +137,7 @@ export const PortalTasksPage: React.FC = () => {
           title="Задач пока нет"
           description="Задачи появятся, когда ментор назначит вам дорожную карту."
           colorPrefix="p"
+          className="anim-view-in"
         />
       ) : (
         <>
@@ -132,22 +145,22 @@ export const PortalTasksPage: React.FC = () => {
             className="mb-5"
             tabs={[
               { value: 'open', label: `Открытые · ${open.length}` },
+              { value: 'pending', label: `На проверке · ${pending.length}` },
               { value: 'done', label: `Выполненные · ${done.length}` }
             ]}
             value={tab}
-            onChange={(value) => setTab(value as TaskTab)}
+            onChange={(value) => withViewTransition(() => setTab(value as TaskTab))}
           />
 
           {list.length === 0 ? (
-            <div className="rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
-              {search.trim()
-                ? 'По вашему запросу задачи не найдены.'
-                : tab === 'open'
-                  ? 'Открытых задач нет — всё сделано.'
-                  : 'Выполненных задач пока нет.'}
+            <div
+              key={tab}
+              className="anim-view-in rounded-card border border-dashed border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted"
+            >
+              {search.trim() ? 'По вашему запросу задачи не найдены.' : EMPTY_TAB_TEXT[tab]}
             </div>
           ) : (
-            <div className="space-y-5">
+            <div key={tab} className="anim-view-in space-y-5">
               {orderedGroups.map(([stageName, stageTasks]) => (
                 <section key={stageName}>
                   <div className="mb-2.5 flex items-center gap-2.5">
@@ -159,7 +172,12 @@ export const PortalTasksPage: React.FC = () => {
                   </div>
                   <div className="space-y-2.5">
                     {stageTasks.map((task) => (
-                      <TaskCard key={task.id} task={task} onToggle={() => toggle.mutate(task)} />
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onClaim={() => withViewTransition(() => claim.mutate(task.id))}
+                        onUnclaim={() => withViewTransition(() => unclaim.mutate(task.id))}
+                      />
                     ))}
                   </div>
                 </section>
@@ -176,8 +194,14 @@ export const PortalTasksPage: React.FC = () => {
   )
 }
 
-const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, onToggle }) => {
+const TaskCard: React.FC<{ task: FlatTask; onClaim: () => void; onUnclaim: () => void }> = ({
+  task,
+  onClaim,
+  onUnclaim,
+}) => {
   const done = task.status === 'done'
+  const pending = !done && task.review_status === 'pending'
+  const returned = !done && !pending && task.review_status === 'returned'
   const overdue = isOverdue(task)
   const doneSubtasks = task.subtasks.filter((s) => s.is_done).length
   const meta = done
@@ -187,16 +211,7 @@ const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, on
       : `Этап: ${task.stage_name} · без дедлайна`
   return (
     <div className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
-      <button
-        onClick={onToggle}
-        className={cn(
-          'grid h-[19px] w-[19px] shrink-0 place-items-center rounded-ctl border-2',
-          done ? 'border-p-accent bg-p-accent text-black' : 'border-p-muted2/70 bg-transparent text-transparent'
-        )}
-        aria-label={done ? 'Снять отметку' : 'Отметить готовым'}
-      >
-        <Check className="h-3 w-3" strokeWidth={3.4} />
-      </button>
+      <ClaimCheckbox task={task} size="sm" onClaim={onClaim} onUnclaim={onUnclaim} />
       <div className="flex-1 min-w-0">
         <div className={cn('truncate text-[15px] font-bold', done ? 'text-p-muted2' : 'text-p-text')}>
           {task.title}
@@ -204,6 +219,12 @@ const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, on
         <small className={cn('mt-0.5 block truncate text-[11px]', overdue ? 'text-p-danger' : 'text-p-muted')}>
           {meta}
         </small>
+        {pending && (
+          <small className="mt-0.5 block text-[11px] text-brand/90">
+            Ментор проверит и подтвердит — обычно в течение 1–2 дней
+          </small>
+        )}
+        {returned && task.review_comment && <MentorComment comment={task.review_comment} />}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {task.subtasks.length > 0 && (
@@ -211,6 +232,7 @@ const TaskCard: React.FC<{ task: FlatTask; onToggle: () => void }> = ({ task, on
             {doneSubtasks}/{task.subtasks.length}
           </span>
         )}
+        <ReviewChip task={task} className="shrink-0" />
         <PriorityPill
           priority={task.priority as 'required' | 'recommended' | 'optional'}
           colorPrefix="p"

@@ -4,14 +4,16 @@ Access model:
 - Templates: admin / mzk_manager only.
 - Assign / create / edit structure of a live roadmap: staff (admin, mzk_manager,
   mentor-in-scope).
-- View roadmap + advance own progress (task/subtask/stage status): the owning
-  student too.
+- The owning student: views the roadmap; CLAIMS task completion via the dedicated
+  /portal/tasks/{id}/complete endpoints (review_status axis, никогда не пишет в
+  status напрямую) and toggles own subtasks (is_done only). status='done' всегда
+  означает «подтверждено ментором» (см. TaskReviewStatus в models/roadmap.py).
 """
 from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,22 +22,26 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.services import background_jobs
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
+from app.services.notify import dismiss_unread, has_unread, notify, push_notification, push_ws
 from app.services.questionnaire_seed import seed_questionnaire_for_task
 from app.models.student import Student
 from app.models.user import User, UserRole
 from app.models.roadmap import (
     RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
     Roadmap, Stage, RoadmapTask, RoadmapSubtask, RoadmapStatus,
+    RoadmapItemStatus, TaskAudience, TaskReviewStatus,
 )
 from app.schemas.roadmap import (
     TemplateCreate, TemplateMetaUpdate, StructureIn, AssignRequest,
     TemplateOut, TemplateListItem, RoadmapOut, TaskFlatOut, RoadmapSubtaskOut,
     TaskCreate, TaskUpdate, SubtaskIn, SubtaskUpdate, StageUpdate,
+    TaskReviewIn, TaskClaimOut, ClaimProgressOut,
 )
 
 router = APIRouter(tags=["roadmap"])
@@ -370,6 +376,239 @@ async def get_my_tasks(current_user: CurrentUser, db: Annotated[AsyncSession, De
     return _flatten_tasks(await _active_roadmaps(db, sid))
 
 
+# ==========================================================================
+# Заявки студента о выполнении + ревью ментора (см. STUDENT_MENTOR_FLOW_PLAN.md)
+# status остаётся истиной ментора; заявка живёт в review_status.
+# ==========================================================================
+_ALREADY_DONE = HTTPException(status_code=409, detail="Задача уже подтверждена ментором", headers={"X-Error-Code": "ALREADY_DONE"})
+_NOT_PENDING = HTTPException(status_code=409, detail="Заявка не найдена или уже разобрана", headers={"X-Error-Code": "NOT_PENDING"})
+_ALREADY_REVIEWED = HTTPException(status_code=409, detail="Задача уже разобрана", headers={"X-Error-Code": "ALREADY_REVIEWED"})
+_ROADMAP_ARCHIVED = HTTPException(status_code=409, detail="Roadmap в архиве", headers={"X-Error-Code": "ROADMAP_ARCHIVED"})
+
+
+async def _student_claim_context(
+    db: AsyncSession, task_id: uuid.UUID, current_user
+) -> tuple[uuid.UUID, RoadmapTask, uuid.UUID | None]:
+    """Общий guard T1/T2: свой активный roadmap, applicant-задача, строка залочена.
+
+    Чужая задача отвечает 404, а не 403 — существование чужих задач не раскрывается
+    (та же семантика, что у _assert_view).
+    """
+    if current_user.role != UserRole.student:
+        raise _FORBIDDEN
+    sid = await _my_student_id(db, current_user)
+    if not sid:
+        raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
+    res = await db.execute(
+        select(RoadmapTask).where(RoadmapTask.id == task_id).with_for_update()
+    )
+    task = res.scalar_one_or_none()
+    if not task:
+        raise _NOT_FOUND
+    rm = await db.execute(
+        select(Roadmap.student_id, Roadmap.status, Roadmap.mentor_id).where(Roadmap.id == task.roadmap_id)
+    )
+    row = rm.one_or_none()
+    if not row or row.student_id != sid:
+        raise _NOT_FOUND
+    if row.status != RoadmapStatus.active:
+        raise _ROADMAP_ARCHIVED
+    if task.audience != TaskAudience.applicant:
+        raise _FORBIDDEN
+    return sid, task, row.mentor_id
+
+
+async def _claim_payload(db: AsyncSession, roadmap_id: uuid.UUID, task_id: uuid.UUID) -> TaskClaimOut:
+    """Обогащённый ответ заявки: задача + прогресс roadmap — портал реагирует без рефетча."""
+    roadmap = await _load_roadmap(db, roadmap_id)
+    done = pending = total = 0
+    the_stage = the_task = None
+    for stage in roadmap.stages:
+        for t in stage.tasks:
+            total += 1
+            if t.status == RoadmapItemStatus.done:
+                done += 1
+            elif t.review_status == TaskReviewStatus.pending:
+                pending += 1
+            if t.id == task_id:
+                the_stage, the_task = stage, t
+    if the_task is None:
+        raise _NOT_FOUND
+    stage_claimed = all(
+        t.status == RoadmapItemStatus.done or t.review_status == TaskReviewStatus.pending
+        for t in the_stage.tasks
+    )
+    return TaskClaimOut(
+        task=_flat_task_out(the_stage, the_task),
+        progress=ClaimProgressOut(done=done, pending=pending, total=total),
+        stage_claimed=stage_claimed,
+    )
+
+
+_TASK_KEY = "[task:{}]"  # идентичность задачи в body нотификации — для дедупа и снятия
+
+
+@router.post("/portal/tasks/{task_id}/complete", response_model=TaskClaimOut)
+async def claim_task_complete(task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """T1: студент отмечает задачу выполненной — заявка на ревью ментора."""
+    sid, task, mentor_id = await _student_claim_context(db, task_id, current_user)
+    if task.status == RoadmapItemStatus.done:
+        raise _ALREADY_DONE
+    if task.review_status == TaskReviewStatus.pending:
+        return await _claim_payload(db, task.roadmap_id, task.id)  # идемпотентный повтор
+    old_review = task.review_status.value
+    task.review_status = TaskReviewStatus.pending
+    task.completed_by = current_user.id
+    task.completed_at = datetime.now(timezone.utc)
+    await log_change(
+        db, "roadmap_task", task.id, "review_status", old_review, "pending",
+        str(current_user.id), source="portal",
+    )
+    if mentor_id is None:
+        mentor_id = await primary_mentor_id(db, sid)
+    task_key = _TASK_KEY.format(task.id)
+    fresh_notes = []
+    if mentor_id:
+        if not await has_unread(db, mentor_id, kind="task_review_requested", body_contains=task_key):
+            fresh_notes.append(notify(
+                db, mentor_id, kind="task_review_requested",
+                title="Студент отметил задачу выполненной",
+                body=f"{task.title} {task_key}",
+                link="/workspace/review", priority="high",
+            ))
+    else:
+        # Без ментора — одна агрегированная строка в день на менеджера, не веерный шторм.
+        day_key = f"[unassigned:{date.today().isoformat()}]"
+        managers = await db.execute(
+            select(User.id).where(
+                User.role.in_((UserRole.admin, UserRole.mzk_manager)),
+                User.is_active == True,  # noqa: E712
+            )
+        )
+        for uid in managers.scalars().all():
+            if not await has_unread(db, uid, kind="task_review_requested", body_contains=day_key):
+                fresh_notes.append(notify(
+                    db, uid, kind="task_review_requested",
+                    title="Заявки студентов без ментора",
+                    body=f"Студенты без ментора отмечают задачи — загляните в очередь {day_key}",
+                    link="/workspace/review", priority="high",
+                ))
+    await db.commit()
+    for note in fresh_notes:
+        await db.refresh(note)
+        await push_notification(note)
+    if mentor_id:
+        await push_ws([mentor_id], "task.review_requested", {
+            "task_id": str(task.id), "student_id": str(sid), "roadmap_id": str(task.roadmap_id),
+            "title": task.title, "completed_at": task.completed_at.isoformat(),
+        })
+    await push_ws(
+        [current_user.id] + ([mentor_id] if mentor_id else []),
+        "roadmap.updated", {"student_id": str(sid), "roadmap_id": str(task.roadmap_id)},
+    )
+    return await _claim_payload(db, task.roadmap_id, task.id)
+
+
+@router.delete("/portal/tasks/{task_id}/complete", response_model=TaskClaimOut)
+async def unclaim_task_complete(task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """T2: студент снимает свою заявку, пока ментор её не разобрал."""
+    sid, task, mentor_id = await _student_claim_context(db, task_id, current_user)
+    if task.review_status != TaskReviewStatus.pending:
+        raise _NOT_PENDING
+    task.review_status = TaskReviewStatus.none
+    task.completed_by = None
+    task.completed_at = None
+    await log_change(
+        db, "roadmap_task", task.id, "review_status", "pending", "none",
+        str(current_user.id), source="portal",
+    )
+    if mentor_id is None:
+        mentor_id = await primary_mentor_id(db, sid)
+    if mentor_id:
+        # Снимаем непрочитанный колокольчик именно этой задачи (ключ — task_id в body).
+        await dismiss_unread(db, mentor_id, kind="task_review_requested", body_contains=_TASK_KEY.format(task.id))
+    await db.commit()
+    await push_ws(
+        [current_user.id] + ([mentor_id] if mentor_id else []),
+        "roadmap.updated", {"student_id": str(sid), "roadmap_id": str(task.roadmap_id)},
+    )
+    return await _claim_payload(db, task.roadmap_id, task.id)
+
+
+@router.post("/roadmap-tasks/{task_id}/review", response_model=RoadmapOut)
+async def review_task(task_id: uuid.UUID, body: TaskReviewIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """T3/T4: ментор подтверждает заявку или возвращает с комментарием."""
+    if body.action not in ("approve", "return"):
+        raise HTTPException(status_code=422, detail="action: approve | return")
+    res = await db.execute(
+        select(RoadmapTask).where(RoadmapTask.id == task_id).with_for_update()
+    )
+    task = res.scalar_one_or_none()
+    if not task:
+        raise _NOT_FOUND
+    student_id = await _student_of_roadmap(db, task.roadmap_id)
+    await _assert_staff(db, student_id, current_user)
+    if task.review_status != TaskReviewStatus.pending:
+        raise _ALREADY_REVIEWED
+    comment = (body.comment or "").strip()
+    if body.action == "return" and not comment:
+        raise HTTPException(
+            status_code=422, detail="Комментарий обязателен при возврате",
+            headers={"X-Error-Code": "COMMENT_REQUIRED"},
+        )
+    old_status = task.status.value
+    task.reviewed_by = current_user.id
+    task.reviewed_at = datetime.now(timezone.utc)
+    if body.action == "approve":
+        task.status = RoadmapItemStatus.done
+        task.review_status = TaskReviewStatus.approved
+        if comment:
+            task.review_comment = comment
+        note_kind, note_title, note_priority = "task_approved", "Ментор подтвердил задачу", "normal"
+    else:
+        task.status = RoadmapItemStatus.in_progress
+        task.review_status = TaskReviewStatus.returned
+        task.review_comment = comment
+        note_kind, note_title, note_priority = "task_returned", "Задача возвращена с комментарием", "high"
+    await log_change(
+        db, "roadmap_task", task.id, "status", old_status, task.status.value,
+        str(current_user.id), source="workspace_review",
+    )
+    await log_change(
+        db, "roadmap_task", task.id, "review_status", "pending", task.review_status.value,
+        str(current_user.id), source="workspace_review",
+    )
+    if comment:
+        await log_change(
+            db, "roadmap_task", task.id, "review_comment", None, comment,
+            str(current_user.id), source="workspace_review",
+        )
+    student_user_id = (
+        await db.execute(select(Student.user_id).where(Student.id == student_id))
+    ).scalar_one_or_none()
+    note = None
+    if student_user_id:
+        note_body = task.title if body.action == "approve" else f"{task.title} — {comment}"
+        note = notify(
+            db, student_user_id, kind=note_kind, title=note_title,
+            body=note_body, link="/portal/tasks", priority=note_priority,
+        )
+    await db.commit()
+    if note:
+        await db.refresh(note)
+        await push_notification(note)
+    if student_user_id:
+        await push_ws([student_user_id], "task.review_done", {
+            "task_id": str(task.id), "action": body.action, "status": task.status.value,
+            "review_status": task.review_status.value, "comment": comment or None, "title": task.title,
+        })
+    await push_ws(
+        [u for u in (student_user_id, current_user.id) if u],
+        "roadmap.updated", {"student_id": str(student_id), "roadmap_id": str(task.roadmap_id)},
+    )
+    return await _load_roadmap(db, task.roadmap_id)
+
+
 @router.patch("/roadmaps/{roadmap_id}/archive", response_model=RoadmapOut)
 async def archive_roadmap(roadmap_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """Retires one of a student's roadmaps without deleting it — used when a
@@ -428,17 +667,82 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
 
 @router.patch("/roadmap-tasks/{task_id}", response_model=RoadmapOut)
 async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    # Staff-only: студент заявляет выполнение через /portal/tasks/{id}/complete,
+    # это отдельный контракт без единого записываемого поля.
     task = await db.get(RoadmapTask, task_id)
     if not task:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
-    # Roadmap is mentor-managed end to end — students only fill questionnaires
-    # and view progress, they never edit task status directly anymore.
     await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
+    was_pending = task.review_status == TaskReviewStatus.pending
+    old_values = {field: getattr(task, field) for field in data}
     for field, value in data.items():
         setattr(task, field, value)
+    def _plain(v):
+        return v.value if hasattr(v, "value") else (v.isoformat() if hasattr(v, "isoformat") else v)
+    for field, value in data.items():
+        if _plain(old_values[field]) != _plain(value):
+            await log_change(
+                db, "roadmap_task", task.id, field, _plain(old_values[field]), _plain(value),
+                str(current_user.id), source="workspace",
+            )
+    # T5: staff-правка поверх pending-заявки = неявное ревью; студент узнаёт о судьбе заявки.
+    implicit_note = None
+    student_user_id = None
+    if (
+        not was_pending
+        and "status" in data
+        and task.review_status == TaskReviewStatus.approved
+        and task.status != RoadmapItemStatus.done
+    ):
+        # Разжалование подтверждённой задачи (done → planned/in_progress):
+        # ось ревью очищается, иначе на не-done задаче остаётся протухший
+        # approved со штампами, видимый в портале.
+        task.review_status = TaskReviewStatus.none
+        task.completed_by = None
+        task.completed_at = None
+        task.reviewed_by = None
+        task.reviewed_at = None
+        task.review_comment = None
+        await log_change(
+            db, "roadmap_task", task.id, "review_status", "approved", "none",
+            str(current_user.id), source="workspace",
+        )
+    if was_pending and "status" in data:
+        task.reviewed_by = current_user.id
+        task.reviewed_at = datetime.now(timezone.utc)
+        if task.status == RoadmapItemStatus.done:
+            task.review_status = TaskReviewStatus.approved
+            verdict, note_kind, note_title = "approved", "task_approved", "Ментор подтвердил задачу"
+        else:
+            task.review_status = TaskReviewStatus.none
+            task.completed_by = None
+            task.completed_at = None
+            verdict, note_kind, note_title = "none", "task_returned", "Ментор обновил задачу — заявка снята"
+        await log_change(
+            db, "roadmap_task", task.id, "review_status", "pending", verdict,
+            str(current_user.id), source="workspace",
+        )
+        student_user_id = (
+            await db.execute(select(Student.user_id).where(Student.id == student_id))
+        ).scalar_one_or_none()
+        if student_user_id:
+            implicit_note = notify(
+                db, student_user_id, kind=note_kind, title=note_title,
+                body=task.title, link="/portal/tasks",
+                priority="normal" if verdict == "approved" else "high",
+            )
     await db.commit()
+    if implicit_note:
+        await db.refresh(implicit_note)
+        await push_notification(implicit_note)
+    if student_user_id:
+        await push_ws([student_user_id], "task.review_done", {
+            "task_id": str(task.id), "action": "approve" if task.review_status == TaskReviewStatus.approved else "dismiss",
+            "status": task.status.value, "review_status": task.review_status.value,
+            "comment": None, "title": task.title,
+        })
     return await _load_roadmap(db, task.roadmap_id)
 
 
@@ -472,12 +776,36 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
         raise _NOT_FOUND
     task = await db.get(RoadmapTask, sub.task_id)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
-    # Roadmap is mentor-managed end to end — students only fill questionnaires
-    # and view progress, they never edit subtask status directly anymore.
-    await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
+    if current_user.role == UserRole.student:
+        # S1: сабтаски — свободный микропрогресс студента (без ревью, с аудитом).
+        sid = await _my_student_id(db, current_user)
+        if sid != student_id:
+            raise _NOT_FOUND  # существование чужих сабтасков не раскрывается
+        rm_status = (
+            await db.execute(select(Roadmap.status).where(Roadmap.id == task.roadmap_id))
+        ).scalar_one_or_none()
+        if rm_status != RoadmapStatus.active:
+            raise _ROADMAP_ARCHIVED
+        if task.audience != TaskAudience.applicant:
+            raise _FORBIDDEN
+        if set(data) - {"is_done"}:
+            raise HTTPException(
+                status_code=403, detail="Студенту доступна только отметка выполнения",
+                headers={"X-Error-Code": "FIELD_FORBIDDEN"},
+            )
+        source = "portal"
+    else:
+        await _assert_staff(db, student_id, current_user)
+        source = "workspace"
+    old_is_done = sub.is_done
     for field, value in data.items():
         setattr(sub, field, value)
+    if "is_done" in data and old_is_done != sub.is_done:
+        await log_change(
+            db, "roadmap_subtask", sub.id, "is_done", str(old_is_done), str(sub.is_done),
+            str(current_user.id), source=source,
+        )
     await db.commit()
     return await _load_roadmap(db, task.roadmap_id)
 
@@ -529,24 +857,31 @@ async def _get_template_or_404(db: AsyncSession, template_id: uuid.UUID) -> Road
     return tpl
 
 
+def _flat_task_out(stage: Stage, task: RoadmapTask) -> TaskFlatOut:
+    return TaskFlatOut(
+        id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
+        stage_name=stage.name, stage_position=stage.position,
+        title=task.title, description=task.description,
+        expected_result=task.expected_result,
+        needs_document=task.needs_document,
+        needs_zoom=task.needs_zoom,
+        questionnaire_url=task.questionnaire_url,
+        priority=task.priority, audience=task.audience, status=task.status,
+        review_status=task.review_status,
+        completed_at=task.completed_at, reviewed_at=task.reviewed_at,
+        review_comment=task.review_comment,
+        due_date=task.due_date, position=task.position,
+        subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks],
+    )
+
+
 def _flatten_tasks(roadmaps: list[Roadmap]) -> list[TaskFlatOut]:
-    out: list[TaskFlatOut] = []
-    for roadmap in roadmaps:
-        for stage in roadmap.stages:
-            for task in stage.tasks:
-                out.append(TaskFlatOut(
-                    id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
-                    stage_name=stage.name, stage_position=stage.position,
-                    title=task.title, description=task.description,
-                    expected_result=task.expected_result,
-                    needs_document=task.needs_document,
-                    needs_zoom=task.needs_zoom,
-                    questionnaire_url=task.questionnaire_url,
-                    priority=task.priority, audience=task.audience, status=task.status,
-                    due_date=task.due_date, position=task.position,
-                    subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks],
-                ))
-    return out
+    return [
+        _flat_task_out(stage, task)
+        for roadmap in roadmaps
+        for stage in roadmap.stages
+        for task in stage.tasks
+    ]
 
 
 async def _active_roadmaps(db: AsyncSession, student_id: uuid.UUID) -> list[Roadmap]:
