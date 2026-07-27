@@ -18,7 +18,7 @@ from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
 from app.models.contract import Contract
 from app.models.payment import PaymentType, PaymentStatus
-from app.models.mentor_assignment import MentorAssignment
+from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.application import Application
@@ -436,6 +436,7 @@ async def list_students(
     mzk_name: str | None = None,
     service_type: str | None = None,
     scope: str = Query("all", pattern="^(all|mine|assigned|unassigned)$"),
+    assignment_role: str | None = None,
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=2000),
 ):
@@ -465,6 +466,11 @@ async def list_students(
             MentorAssignment.mentor_id == current_user.id,
             MentorAssignment.is_active == True,  # noqa: E712
         )
+        if assignment_role:
+            try:
+                query = query.where(MentorAssignment.role == MentorRole(assignment_role))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Unknown assignment role: {assignment_role}")
     elif scope == "unassigned":
         assigned_subquery = select(MentorAssignment.student_id).where(
             MentorAssignment.is_active == True,  # noqa: E712

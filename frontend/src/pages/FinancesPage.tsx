@@ -5,6 +5,8 @@ import { ChevronRight } from 'lucide-react'
 import { paymentsApi } from '@/api/index'
 import { documentsApi } from '@/api/documents'
 import { notionApi } from '@/api/notion'
+import { studentsApi } from '@/api/students'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   PIPELINE_STATUS_LABELS,
   PIPELINE_STATUS_COLORS,
@@ -27,7 +29,7 @@ import {
 } from '@/components/ui/primitives/table'
 import { formatCurrency } from '@/lib/utils'
 import type { NotionFinanceSummary } from '@/api/notion'
-import { PageHeader, StatCard } from '@/components/ui'
+import { PageHeader, StatCard, SegmentedTabs } from '@/components/ui'
 import { FileText, Wallet, CheckCircle2, AlertCircle } from 'lucide-react'
 
 const moneyCurrency = 'KZT'
@@ -479,6 +481,25 @@ function CalendarGrid({
 }
 
 export const FinancesPage: React.FC = () => {
+  const { user } = useAuth()
+  const [scope, setScope] = React.useState<'all' | 'mine'>('all')
+
+  // "Мои" narrows to students where the current user has an active *lead*
+  // assignment — not any assignment role, and not Notion name-matching.
+  const { data: myLeadStudents } = useQuery({
+    queryKey: ['students', 'my-lead-ids'],
+    queryFn: () => studentsApi.list({ scope: 'mine', assignment_role: 'lead', size: 2000 }),
+    enabled: scope === 'mine',
+  })
+  const myLeadStudentIds = useMemo(
+    () => new Set((myLeadStudents?.items ?? []).map((s) => s.id)),
+    [myLeadStudents]
+  )
+  const isMine = React.useCallback(
+    (studentId?: string | null) => scope === 'all' || (!!studentId && myLeadStudentIds.has(studentId)),
+    [scope, myLeadStudentIds]
+  )
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['finance-summary'],
     queryFn: paymentsApi.financeSummary,
@@ -504,6 +525,10 @@ export const FinancesPage: React.FC = () => {
     queryKey: ['mentor-payouts'],
     queryFn: paymentsApi.mentorPayouts,
   })
+  const visibleMentorPayouts = useMemo(
+    () => (scope === 'all' ? mentorPayouts : mentorPayouts.filter((p) => p.mentor_id === user?.id)),
+    [mentorPayouts, scope, user?.id]
+  )
 
   const { data: paymentsList = [] } = useQuery({
     queryKey: ['payments', 'list'],
@@ -624,7 +649,7 @@ export const FinancesPage: React.FC = () => {
   // По одному студенту приоритет у CRM-записи — она точнее отражает актуальный статус.
   const calendarEvents = React.useMemo<CalendarEvent[]>(() => {
     const crmEvents: CalendarEvent[] = (upcoming || [])
-      .filter((u: any) => u.client_remaining_date)
+      .filter((u: any) => u.client_remaining_date && isMine(u.student_id))
       .map((u: any) => ({
         key: `crm-${u.contract_id}`,
         student_id: u.student_id,
@@ -636,7 +661,7 @@ export const FinancesPage: React.FC = () => {
         responsible_name: u.responsible_name,
       }))
     const notionEvents: CalendarEvent[] = notionRows
-      .filter((r) => r.client_remaining_date && r.client_remaining > 0)
+      .filter((r) => r.client_remaining_date && r.client_remaining > 0 && isMine(r.student_id))
       .map((r) => ({
         key: `notion-${r.id}`,
         student_id: r.student_id ?? null,
@@ -660,7 +685,7 @@ export const FinancesPage: React.FC = () => {
       else noStudent.push(e)
     }
     return [...byStudent.values(), ...noStudent].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-  }, [upcoming, notionRows])
+  }, [upcoming, notionRows, isMine])
 
   const todayIso = React.useMemo(() => new Date().toISOString().slice(0, 10), [])
   const futureEvents = React.useMemo(
@@ -749,6 +774,13 @@ export const FinancesPage: React.FC = () => {
     })
     return { months, dominantCurrency, excludedOtherCurrency }
   }, [paymentsList])
+
+  // Scoped view for the "История платежей" table only — monthlyRevenue and
+  // other aggregate stats above stay company-wide regardless of the toggle.
+  const scopedPaymentsList = useMemo(
+    () => paymentsList.filter((p: any) => isMine(p.student_id)),
+    [paymentsList, isMine]
+  )
 
   const agingBuckets = React.useMemo(() => {
     const buckets = {
@@ -839,12 +871,27 @@ export const FinancesPage: React.FC = () => {
 
   return (
     <div className="mx-auto w-full">
-      <PageHeader eyebrow="CRM" title="Финансы" description={(
-        <>
-          CRM — источник истины по договорам и платежам. Блок «Из Notion» — живое зеркало
-          Notion-таблицы для сверки, обновляется автоматически раз в час и кнопкой «Синк Notion».
-        </>
-      )} />
+      <PageHeader
+        eyebrow="CRM"
+        title="Финансы"
+        description={(
+          <>
+            CRM — источник истины по договорам и платежам. Блок «Из Notion» — живое зеркало
+            Notion-таблицы для сверки, обновляется автоматически раз в час и кнопкой «Синк Notion».
+          </>
+        )}
+        action={(
+          <SegmentedTabs
+            colorPrefix="p"
+            value={scope}
+            onChange={(v) => setScope(v as 'all' | 'mine')}
+            tabs={[
+              { value: 'all', label: 'Все' },
+              { value: 'mine', label: 'Мои' },
+            ]}
+          />
+        )}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
@@ -1314,8 +1361,8 @@ export const FinancesPage: React.FC = () => {
       <div className="mb-10">
         <p className="label-caps mb-3">История платежей (последние)</p>
         <div className="border border-p-line rounded-card p-4">
-          {(!paymentsList || paymentsList.length === 0) ? (
-            <p className="text-p-muted">Платежей пока нет</p>
+          {(!scopedPaymentsList || scopedPaymentsList.length === 0) ? (
+            <p className="text-p-muted">{scope === 'mine' ? 'Нет платежей по вашим студентам' : 'Платежей пока нет'}</p>
           ) : (
             <div className="overflow-auto">
               <Table>
@@ -1329,7 +1376,7 @@ export const FinancesPage: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paymentsList.slice(0, 50).map((p: any) => (
+                  {scopedPaymentsList.slice(0, 50).map((p: any) => (
                     <TableRow key={p.id}>
                       <TableCell>{p.paid_at ? new Date(p.paid_at).toLocaleString('ru-RU') : p.due_date ? new Date(p.due_date).toLocaleDateString('ru-RU') : '—'}</TableCell>
                       <TableCell><Link to={`/students/${p.student_id}`}>{p.student_name}</Link></TableCell>
@@ -1367,15 +1414,16 @@ export const FinancesPage: React.FC = () => {
                     Загрузка...
                   </TableCell>
                 </TableRow>
-              ) : mentorPayouts.length === 0 ? (
+              ) : visibleMentorPayouts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8 text-p-muted">
-                    В CRM платежи менторам не вносились — фактические выплаты смотри
-                    в блоке «Из Notion» выше (TOTAL / Выплачено / TBP)
+                    {scope === 'mine'
+                      ? 'Выплат по вашему аккаунту пока нет'
+                      : 'В CRM платежи менторам не вносились — фактические выплаты смотри в блоке «Из Notion» выше (TOTAL / Выплачено / TBP)'}
                   </TableCell>
                 </TableRow>
               ) : (
-                mentorPayouts.map((payout) => (
+                visibleMentorPayouts.map((payout) => (
                   <TableRow key={`${payout.mentor_id}-${payout.currency ?? moneyCurrency}`} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-p-text">{payout.mentor_name}</TableCell>
                     <TableCell className="text-p-muted">

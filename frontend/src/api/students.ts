@@ -22,6 +22,7 @@ export interface StudentsQueryParams {
   mentor_name?: string
   mzk_name?: string
   service_type?: string
+  assignment_role?: string
 }
 
 export interface FacetOption {
