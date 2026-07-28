@@ -19,13 +19,29 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Roadmap/questionnaire import still traverses legacy database objects and uses
+# this version through import_notion_root_roadmaps.NotionClient.
 NOTION_VERSION = "2022-06-28"
+
+# The main client pipeline is a Notion data source created after databases and
+# data sources were split in API version 2025-09-03. NOTION_DATABASE_ID keeps
+# its historical env name, but its value is the data_source_id returned by
+# GET /v1/databases/{container_id}.
+NOTION_DATA_SOURCE_VERSION = "2025-09-03"
 
 
 def _headers(api_key: str) -> dict:
     return {
         "Authorization": f"Bearer {api_key}",
         "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+    }
+
+
+def _data_source_headers(api_key: str) -> dict:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Notion-Version": NOTION_DATA_SOURCE_VERSION,
         "Content-Type": "application/json",
     }
 
@@ -73,18 +89,22 @@ def flatten_properties(props: dict) -> dict[str, Any]:
 
 
 def fetch_all_pages(api_key: str | None = None, database_id: str | None = None) -> list[dict]:
-    """Все страницы базы с пагинацией. Бросает RuntimeError при ошибке API."""
+    """Все страницы data source с пагинацией. Бросает RuntimeError при ошибке API.
+
+    ``database_id`` оставлен в сигнатуре для обратной совместимости с env и
+    вызывающим кодом; фактически это Notion ``data_source_id``.
+    """
     api_key = api_key or os.getenv("NOTION_API_KEY", "")
     database_id = database_id or os.getenv("NOTION_DATABASE_ID", "")
     if not api_key or not database_id:
         raise RuntimeError("NOTION_API_KEY / NOTION_DATABASE_ID не заданы в .env")
 
     records: list[dict] = []
-    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    url = f"https://api.notion.com/v1/data_sources/{database_id}/query"
     payload: dict = {"page_size": 100}
 
     while True:
-        resp = requests.post(url, headers=_headers(api_key), json=payload, timeout=30)
+        resp = requests.post(url, headers=_data_source_headers(api_key), json=payload, timeout=30)
         if resp.status_code != 200:
             try:
                 detail = resp.json().get("message", resp.text)

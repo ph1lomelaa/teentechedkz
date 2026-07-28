@@ -18,7 +18,7 @@ from typing import Any
 import requests
 
 from app.core.config import settings
-from migration.sources.notion import _headers, flatten_property
+from migration.sources.notion import _data_source_headers, flatten_property
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
     ответ (успех или постоянная ошибка) отдаём как есть — статус проверяет вызывающий
     через _raise_for_status. Сетевые сбои тоже ретраим, последний пробрасываем."""
     kwargs.setdefault("timeout", 30)
-    kwargs.setdefault("headers", _headers(settings.NOTION_API_KEY))
+    kwargs.setdefault("headers", _data_source_headers(settings.NOTION_API_KEY))
     last_exc: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
@@ -69,11 +69,11 @@ def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
 
 
 def get_schema(force: bool = False) -> dict[str, dict]:
-    """{имя_свойства: schema_свойства} из GET /v1/databases/{id}. Кэш на процесс."""
+    """Схема основной клиентской data source. Кэш на процесс."""
     now = time.time()
     if not force and _schema_cache["props"] is not None and now - _schema_cache["at"] < _SCHEMA_TTL:
         return _schema_cache["props"]
-    resp = _request("GET", f"{_API}/databases/{settings.NOTION_DATABASE_ID}")
+    resp = _request("GET", f"{_API}/data_sources/{settings.NOTION_DATABASE_ID}")
     _raise_for_status(resp)
     props = resp.json().get("properties", {})
     _schema_cache.update(at=now, props=props)
