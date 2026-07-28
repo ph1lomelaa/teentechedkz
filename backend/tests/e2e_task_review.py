@@ -113,9 +113,9 @@ def main():
     mentor_tok = login(f"e2e.mentor.{suffix}@test.kz", "Mentor1234!")
     # Созданный через POST /users ментор заперт до смены временного пароля (Этап 0.5).
     st, _ = _req("POST", "/auth/change-password", mentor_tok,
-                 {"old_password": "Mentor1234!", "new_password": "Mentor1234!"})
+                 {"old_password": "Mentor1234!", "new_password": "MentorFinal1234!"})
     check("ментор сменил временный пароль", st == 200, f"{st}")
-    mentor_tok = login(f"e2e.mentor.{suffix}@test.kz", "Mentor1234!")
+    mentor_tok = login(f"e2e.mentor.{suffix}@test.kz", "MentorFinal1234!")
 
     # --- T1: заявка
     st, claim = _req("POST", f"/portal/tasks/{t_a['id']}/complete", student_tok)

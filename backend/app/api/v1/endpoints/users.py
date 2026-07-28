@@ -157,6 +157,7 @@ async def update_user(
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     is_self = user_id == current_user.id
+    revoke_sessions = False
     if is_self and body.get("is_active") is False:
         raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
 
@@ -173,7 +174,7 @@ async def update_user(
             user.role = new_role
             # A role change invalidates whatever the client believes it can do —
             # force a fresh login so the session picks up the new permissions.
-            await revoke_all_sessions(db, user.id)
+            revoke_sessions = True
     if "phone" in body:
         user.phone = body["phone"]
     if "telegram_username" in body:
@@ -182,12 +183,18 @@ async def update_user(
         user.telegram_id = body["telegram_id"]
     if "is_active" in body:
         user.is_active = body["is_active"]
+        if not user.is_active:
+            revoke_sessions = True
     if "password" in body:
         p = body["password"]
         if len(p) < 8:
             raise HTTPException(status_code=422, detail="Пароль минимум 8 символов")
         user.hashed_password = hash_password(p)
         user.must_change_password = True
+        revoke_sessions = True
+
+    if revoke_sessions:
+        await revoke_all_sessions(db, user.id)
 
     await db.commit()
     await db.refresh(user)
@@ -207,6 +214,7 @@ async def deactivate_user(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     user.is_active = False
+    await revoke_all_sessions(db, user.id)
     await db.commit()
     return {"message": "Пользователь деактивирован"}
 

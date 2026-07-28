@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -17,6 +18,7 @@ from app.models.user import User, UserRole
 from app.services import rate_limit
 
 router = APIRouter(prefix="/public", tags=["public"])
+PUBLIC_APPLICATION_DEDUPE_SECONDS = 300
 
 
 async def _notify_admins(db: AsyncSession, *, kind: str, title: str, body: str, link: str) -> None:
@@ -47,8 +49,13 @@ class PublicApplicationCreate(BaseModel):
 @router.post("/applications", status_code=status.HTTP_201_CREATED)
 async def create_public_application(
     body: PublicApplicationCreate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    await rate_limit.enforce(
+        request, bucket="public_application", limit=8, window_seconds=300
+    )
+
     full_name = body.full_name.strip()
     phone = body.phone.strip()
     if len(full_name) < 2:
@@ -69,11 +76,32 @@ async def create_public_application(
         "message": body.message or "",
         "source": "landing_apply",
     }
-    fingerprint_src = f"landing_apply|{now.isoformat()}|{full_name}|{phone}|{body.email or ''}"
+    # A double click / browser retry within the same five-minute bucket should
+    # not create a second lead and a second admin notification.
+    bucket = int(now.timestamp()) // PUBLIC_APPLICATION_DEDUPE_SECONDS
+    fingerprint_src = (
+        f"landing_apply|{bucket}|{full_name.lower()}|{phone}|"
+        f"{str(body.email).lower() if body.email else ''}"
+    )
+    fingerprint = hashlib.sha256(fingerprint_src.encode("utf-8")).hexdigest()
+    existing = (
+        await db.execute(
+            select(IntakeSubmission).where(
+                IntakeSubmission.row_fingerprint == fingerprint
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return {
+            "id": str(existing.id),
+            "status": existing.status.value,
+            "message": "Заявка уже отправлена. Команда TeenTechEd свяжется с вами.",
+        }
+
     submission = IntakeSubmission(
         source=IntakeSource.cases,
         submitted_at=now,
-        row_fingerprint=hashlib.sha256(fingerprint_src.encode("utf-8")).hexdigest(),
+        row_fingerprint=fingerprint,
         raw_data=raw_data,
         full_name=full_name,
         phone_normalized=phone,
@@ -88,7 +116,27 @@ async def create_public_application(
         body=f"{full_name} · {phone}",
         link="/students?inbox=1",
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two identical requests can race between the SELECT above and INSERT.
+        # The unique fingerprint is the final arbiter; return the winner rather
+        # than leaking a 500 to the applicant.
+        await db.rollback()
+        existing = (
+            await db.execute(
+                select(IntakeSubmission).where(
+                    IntakeSubmission.row_fingerprint == fingerprint
+                )
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            raise
+        return {
+            "id": str(existing.id),
+            "status": existing.status.value,
+            "message": "Заявка уже отправлена. Команда TeenTechEd свяжется с вами.",
+        }
     await db.refresh(submission)
     return {
         "id": str(submission.id),

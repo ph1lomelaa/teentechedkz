@@ -256,6 +256,8 @@ async def change_password(
 
     if not verify_password(old_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Неверный текущий пароль")
+    if verify_password(new_password, current_user.hashed_password):
+        raise HTTPException(status_code=422, detail="Новый пароль должен отличаться от текущего")
 
     current_user.hashed_password = hash_password(new_password)
     current_user.must_change_password = False

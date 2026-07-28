@@ -79,6 +79,20 @@ CASES_FIELD_PATTERNS: dict[str, str] = {
     "страна поступления": "countries",
 }
 
+# The public landing form already posts canonical, machine-readable field
+# names. Keep accepting those names here as well as the human Google Sheet
+# headers above; otherwise a landing lead can be displayed in the inbox but
+# loses phone/city/degree/year/country when staff creates the Student record.
+CANONICAL_FIELD_KEYS: dict[str, str] = {
+    "full_name": "full_name",
+    "phone": "phone",
+    "city": "city",
+    "degree_level": "degree_level",
+    "intake_year": "intake_year",
+    "target_country": "countries",
+    "program_interest": "specialty",
+}
+
 
 def map_row(headers: list[str], row: list[str], source: IntakeSource) -> dict:
     """Строка листа → {internal_key: value} + все исходные колонки в raw."""
@@ -91,6 +105,10 @@ def map_row(headers: list[str], row: list[str], source: IntakeSource) -> dict:
         if not value or value.lower() in ("nan", "none"):
             continue
         h = str(header).strip().lower()
+        canonical_key = CANONICAL_FIELD_KEYS.get(h)
+        if canonical_key:
+            mapped.setdefault(canonical_key, value)
+            continue
         for pattern, key in patterns.items():
             if pattern in h:
                 mapped.setdefault(key, value)
