@@ -8,7 +8,7 @@
     email {$CADDY_EMAIL}
 }
 
-teenteched.duckdns.org {
+teenteched.kz, www.teenteched.kz {
     encode zstd gzip
 
     handle /health {
@@ -23,4 +23,3 @@ teenteched.duckdns.org {
         reverse_proxy frontend:80
     }
 }
-

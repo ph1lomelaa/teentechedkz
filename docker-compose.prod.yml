@@ -140,7 +140,7 @@ services:
       dockerfile: Dockerfile
       target: production
       args:
-        VITE_API_URL: ${VITE_API_URL:-https://teenteched.duckdns.org}
+        VITE_API_URL: ${VITE_API_URL:-https://teenteched.kz}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     container_name: tte_frontend_prod
     # Забинжено на 127.0.0.1 — см. комментарий у backend.ports выше.

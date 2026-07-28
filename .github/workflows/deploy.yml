@@ -25,6 +25,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -56,7 +65,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         env:
-          VITE_API_URL: https://teenteched.duckdns.org
+          VITE_API_URL: https://teenteched.kz
         run: npm run build
 
       # ---------- Backend ----------
@@ -95,6 +104,29 @@ jobs:
           heads=$(alembic heads | grep -c '(head)')
           test "$heads" -eq 1 || { echo "Ожидался ровно 1 alembic head, найдено: $heads"; alembic heads; exit 1; }
 
+      - name: Lead-to-account auth E2E
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://tte:tte@localhost:5432/tte_db
+          REDIS_URL: redis://localhost:6379/0
+          FRONTEND_URL: http://localhost:3000
+          ENVIRONMENT: development
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8001 >/tmp/tte-e2e-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8001/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat /tmp/tte-e2e-api.log
+              exit 1
+            fi
+            sleep 1
+          done
+          python tests/e2e_auth_intake.py
+
       # ---------- Compose ----------
       - name: Validate docker compose
         run: |
@@ -119,5 +151,16 @@ jobs:
             # старте, откатить их без дампа нельзя. Не валим деплой, если бэкап
             # не удался на самом первом запуске (контейнеров ещё нет) — но на
             # рабочем проде дамп обязан сняться.
-            if [ -x scripts/backup.sh ]; then bash scripts/backup.sh || echo "WARN: backup failed before deploy"; fi
-            docker compose -f docker-compose.prod.yml up -d --build
+            if docker inspect tte_postgres_prod >/dev/null 2>&1; then
+              bash scripts/backup.sh
+            else
+              echo "Первый запуск: рабочей БД ещё нет, pre-deploy backup пропущен."
+            fi
+            docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
+            # `up -d` означает лишь «процесс запущен». Проверяем и внутренние
+            # loopback-порты, и реальный публичный маршрут через Caddy.
+            curl --fail --silent --show-error http://127.0.0.1:8000/health
+            curl --fail --silent --show-error http://127.0.0.1:8080/ >/dev/null
+            curl --fail --silent --show-error \
+              --retry 12 --retry-delay 5 --retry-all-errors \
+              https://teenteched.kz/health
