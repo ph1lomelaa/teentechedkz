@@ -589,7 +589,10 @@ export const FinancesPage: React.FC = () => {
                   ? 'Notion: статусы'
                   : ''
 
-  const crmRows = financeBreakdown?.contracts ?? []
+  const crmRows = React.useMemo(
+    () => financeBreakdown?.contracts ?? [],
+    [financeBreakdown?.contracts],
+  )
   const notionRows = React.useMemo(() => notionSummary?.rows ?? [], [notionSummary?.rows])
 
   const filteredPictureRows = React.useMemo(() => {

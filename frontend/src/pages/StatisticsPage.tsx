@@ -243,7 +243,10 @@ export function StatisticsPage() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [students])
 
-  const workload = (dashboard?.workload ?? []) as WorkloadRow[]
+  const workload = useMemo(
+    () => (dashboard?.workload ?? []) as WorkloadRow[],
+    [dashboard?.workload],
+  )
   const healthSignals = dashboard?.health_signals ?? []
 
   const workloadAvgStudents = useMemo(() => {

@@ -169,9 +169,12 @@ export const WorkspaceChatPage: React.FC = () => {
     return [...grouped.values()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
   }, [allItems])
 
-  const items = channel === 'all'
-    ? studentItems
-    : allItems.filter((item) => item.channel === channel)
+  const items = useMemo(
+    () => channel === 'all'
+      ? studentItems
+      : allItems.filter((item) => item.channel === channel),
+    [channel, studentItems, allItems],
+  )
 
   // List-side search + "unread only" filter. Unread is our proxy for "требует
   // ответа" — an unread thread means the student wrote and we haven't caught up.
@@ -193,7 +196,7 @@ export const WorkspaceChatPage: React.FC = () => {
       return
     }
     setSelectedKey(items[0]?.key || null)
-  }, [mentorId, requestedStudentId])
+  }, [mentorId, requestedStudentId, items])
 
   useEffect(() => {
     if (!items.length) {

@@ -7,7 +7,7 @@ import { AppCard } from '@/components/ui/AppCard'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
@@ -52,11 +52,14 @@ export default function StatusInboxPage() {
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось обработать конспект', variant: 'destructive' }),
   })
 
-  const matchesDirectory = (studentId: string | null | undefined) =>
-    matchesDirectoryFilters(studentId ? directory.byId.get(studentId) : undefined, directoryFilters)
+  const matchesDirectory = useCallback(
+    (studentId: string | null | undefined) =>
+      matchesDirectoryFilters(studentId ? directory.byId.get(studentId) : undefined, directoryFilters),
+    [directory.byId, directoryFilters],
+  )
 
-  const filteredInsights = useMemo(() => insights.filter((i) => matchesDirectory(i.student_id)), [insights, directoryFilters, directory.byId])
-  const filteredDraftNotes = useMemo(() => draftNotes.filter((n) => matchesDirectory(n.student_id)), [draftNotes, directoryFilters, directory.byId])
+  const filteredInsights = useMemo(() => insights.filter((i) => matchesDirectory(i.student_id)), [insights, matchesDirectory])
+  const filteredDraftNotes = useMemo(() => draftNotes.filter((n) => matchesDirectory(n.student_id)), [draftNotes, matchesDirectory])
 
   const pending = filteredInsights.filter((i) => i.status === 'pending')
   const resolved = filteredInsights.filter((i) => i.status !== 'pending')
