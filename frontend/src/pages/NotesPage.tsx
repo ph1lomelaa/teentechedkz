@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, CircleDot, Plus, Search } from 'lucide-react'
@@ -98,26 +98,26 @@ export const NotesPage: React.FC = () => {
   )
 
   const q = search.trim().toLowerCase()
-  const matchesSearch = (title: string, studentName: string | null | undefined, studentId: string | null | undefined) => {
+  const matchesSearch = useCallback((title: string, studentName: string | null | undefined, studentId: string | null | undefined) => {
     if (!q) return true
     if (title.toLowerCase().includes(q)) return true
     if ((studentName ?? '').toLowerCase().includes(q)) return true
     const student = studentId ? directory.byId.get(studentId) : undefined
     return Boolean(student?.phone?.toLowerCase().includes(q))
-  }
+  }, [q, directory.byId])
   const filteredSessions = useMemo(
     () =>
       sessions
         .filter((s) => matchesSearch(s.title, s.student_name, s.student_id))
         .filter((s) => matchesDirectoryFilters(s.student_id ? directory.byId.get(s.student_id) : undefined, directoryFilters)),
-    [sessions, q, directoryFilters, directory.byId],
+    [sessions, matchesSearch, directoryFilters, directory.byId],
   )
   const filteredNotes = useMemo(
     () =>
       notes
         .filter((n) => matchesSearch(n.title, n.student_name, n.student_id))
         .filter((n) => matchesDirectoryFilters(n.student_id ? directory.byId.get(n.student_id) : undefined, directoryFilters)),
-    [notes, q, directoryFilters, directory.byId],
+    [notes, matchesSearch, directoryFilters, directory.byId],
   )
 
   // Merge sessions + their AI notes into one per-student group so a mentor sees
@@ -463,9 +463,9 @@ export const NotesPage: React.FC = () => {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Новая сессия конспекта</DialogTitle>
+            <DialogTitle>Подготовка · выберите ученика</DialogTitle>
             <DialogDescription>
-              Сессия создаётся в стиле ZoomScribe: сначала запись и транскрипция, затем AI-черновик и подтверждение изменений.
+              На следующем экране выберете источник звука и начнёте запись.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -479,8 +479,8 @@ export const NotesPage: React.FC = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
-            <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Создаю…' : 'Начать сессию'}
+            <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !studentSelect}>
+              {createMutation.isPending ? 'Создаю…' : 'Продолжить'}
             </Button>
           </DialogFooter>
         </DialogContent>

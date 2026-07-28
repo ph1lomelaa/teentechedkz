@@ -101,6 +101,7 @@ export const NoteDetailPage: React.FC = () => {
   const [rejectConfirmOpen, setRejectConfirmOpen] = React.useState(false)
   const [pubTitle, setPubTitle] = React.useState('')
   const [hiddenBlocks, setHiddenBlocks] = React.useState<Set<string>>(new Set())
+  const [enabledChangeKeys, setEnabledChangeKeys] = React.useState<Set<string>>(new Set())
 
   const { data: note, isLoading } = useQuery({
     queryKey: ['note', id],
@@ -121,6 +122,7 @@ export const NoteDetailPage: React.FC = () => {
     setEditedStudentSummary(note.student_summary_markdown ?? '')
     setPubTitle(note.student_title ?? '')
     setHiddenBlocks(new Set(note.hidden_blocks ?? []))
+    setEnabledChangeKeys(new Set(Object.keys(note.suggested_changes ?? {}).filter((key) => key !== 'profile_notes')))
     setEditedProfileNotes(
       Array.isArray(rawProfileNotes)
         ? rawProfileNotes.filter((n): n is string => typeof n === 'string' && n.trim() !== '')
@@ -206,15 +208,11 @@ export const NoteDetailPage: React.FC = () => {
     : []
   const savedNotesCount = (note.applied_changes as { profile_notes_saved?: number })?.profile_notes_saved
   const editedSuggestedChanges = {
-    ...fieldChanges,
+    ...Object.fromEntries(Object.entries(fieldChanges).filter(([key]) => enabledChangeKeys.has(key))),
     ...(editedProfileNotes.filter((item) => item.trim()).length
       ? { profile_notes: editedProfileNotes.filter((item) => item.trim()) }
       : {}),
   }
-
-  const preview = diff
-    ? renderDiffPreview(diff.preview, inWorkspace)
-    : renderEntries(fieldChanges, 'Нет предлагаемых изменений', inWorkspace)
 
   // Управление (approve/reject/publish/редактирование) живёт только в кабинете
   // ментора (/workspace/meetings/notes/:id). В общем CRM-доступе (/notes/:id,
@@ -301,7 +299,7 @@ export const NoteDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager') && canControl && (
+        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager', 'mentor') && canControl && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -321,11 +319,41 @@ export const NoteDetailPage: React.FC = () => {
               disabled={reviewMutation.isPending}
             >
               <Check className="w-4 h-4 mr-2" />
-              Подтвердить
+              Сохранить конспект
             </Button>
           </div>
         )}
       </div>
+
+      {note.status === 'draft' && canControl && (
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { number: 1, label: 'Подготовка' },
+            { number: 2, label: 'Запись' },
+            { number: 3, label: 'Проверка' },
+          ].map((step) => (
+            <div
+              key={step.number}
+              className={cn(
+                'flex min-w-0 items-center gap-2 rounded-panel border px-3 py-2.5 text-sm transition-colors',
+                step.number === 3
+                  ? 'border-[#FFD400]/70 bg-[#FFD400]/10 text-[#FFD400]'
+                  : 'border-emerald-500/40 bg-emerald-500/5 text-emerald-500',
+              )}
+            >
+              <span className={cn(
+                'grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold',
+                step.number === 3
+                  ? 'bg-[#FFD400] text-black'
+                  : 'bg-emerald-500 text-white',
+              )}>
+                {step.number < 3 ? <Check className="h-3.5 w-3.5" /> : step.number}
+              </span>
+              <span className="truncate font-medium">{step.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <Dialog open={rejectConfirmOpen} onOpenChange={setRejectConfirmOpen}>
         <DialogContent className="max-w-sm">
@@ -518,9 +546,76 @@ export const NoteDetailPage: React.FC = () => {
           <Card className={cardClass}>
           <CardHeader>
             <CardTitle className={cardTitleClass}>Предлагаемые изменения</CardTitle>
-            <CardDescription>Какие поля предлагается обновить в профиле</CardDescription>
+            <CardDescription>
+              {note.status === 'draft' && canControl
+                ? 'Оставьте включёнными только те изменения, которые нужно записать в профиль'
+                : 'Какие поля предлагается обновить в профиле'}
+            </CardDescription>
           </CardHeader>
-          <CardContent>{preview}</CardContent>
+          <CardContent>
+            {note.status === 'draft' && canControl ? (
+              (diff?.preview ?? Object.entries(fieldChanges).map(([field, newValue]) => ({
+                field,
+                old_value: undefined,
+                new_value: newValue,
+              }))).length ? (
+                <div className="grid gap-2">
+                  {(diff?.preview ?? Object.entries(fieldChanges).map(([field, newValue]) => ({
+                    field,
+                    old_value: undefined,
+                    new_value: newValue,
+                  }))).map((item) => {
+                    const enabled = enabledChangeKeys.has(item.field)
+                    return (
+                      <label
+                        key={item.field}
+                        className={cn(
+                          'flex cursor-pointer items-start gap-3 rounded-panel border p-3 transition',
+                          enabled
+                            ? inWorkspace ? 'border-yellow-300 bg-yellow-50' : 'border-p-text bg-p-bg'
+                            : inWorkspace ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-p-line bg-p-bg opacity-60',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={() => setEnabledChangeKeys((current) => {
+                            const next = new Set(current)
+                            if (next.has(item.field)) next.delete(item.field)
+                            else next.add(item.field)
+                            return next
+                          })}
+                          className="mt-1 h-4 w-4 shrink-0 accent-black"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className={cn('block text-xs font-semibold uppercase tracking-[0.16em]', mutedClass)}>
+                            {humanizeKey(item.field)}
+                          </span>
+                          <span className="mt-2 grid gap-1 text-sm">
+                            <span className="flex items-start justify-between gap-3">
+                              <span className={mutedClass}>Сейчас</span>
+                              <span className={cn('text-right', titleClass)}>{humanizeValue(item.old_value)}</span>
+                            </span>
+                            <span className="flex items-start justify-between gap-3">
+                              <span className={mutedClass}>После</span>
+                              <span className={cn('text-right font-medium', titleClass)}>{humanizeValue(item.new_value)}</span>
+                            </span>
+                          </span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                  <p className={cn('mt-1 text-xs', mutedClass)}>
+                    Выбрано изменений: {enabledChangeKeys.size}
+                  </p>
+                </div>
+              ) : (
+                <p className={cn('text-sm', mutedClass)}>Изменений профиля нет — можно сохранить только конспект.</p>
+              )
+            ) : diff
+              ? renderDiffPreview(diff.preview, inWorkspace)
+              : renderEntries(fieldChanges, 'Нет предлагаемых изменений', inWorkspace)}
+          </CardContent>
         </Card>
 
           {(profileNotes.length > 0 || note.status === 'draft') && (

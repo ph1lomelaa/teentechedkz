@@ -4,15 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
   AudioLines,
-  Bot,
   Building2,
   Check,
+  CheckCircle2,
+  ChevronDown,
+  AlertCircle,
+  Clock3,
   Loader2,
-  Mic,
   MonitorUp,
   RefreshCw,
-  Square,
-  Sparkles,
   AlertTriangle,
   Trash2,
 } from 'lucide-react'
@@ -29,11 +29,9 @@ import {
 } from '@/components/ui/primitives/dialog'
 import { useDeepgramTranscription, type CaptureSource } from '@/hooks/useDeepgramTranscription'
 import { useAudioBackupRecorder } from '@/hooks/useAudioBackupRecorder'
-import { Markdown } from '@/components/shared/Markdown'
-import { splitNoteMarkdown } from '@/lib/noteBlocks'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import type { NoteSessionDraft, NoteSessionReconcileResult, NoteTranscript } from '@/types'
+import type { NoteSessionReconcileResult, NoteTranscript } from '@/types'
 import {
   createClientSegmentId,
   clearTranscriptOutbox,
@@ -43,13 +41,11 @@ import {
   type PendingTranscript,
 } from '@/utils/transcriptOutbox'
 import { getErrorMessage } from '@/lib/errorMessage'
-
-function entryValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (Array.isArray(value)) return value.join(', ')
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
-}
+import {
+  formatRecordingDuration,
+  getRecordingHealth,
+  humanizeRecordingError,
+} from '@/lib/noteSessionUi'
 
 function playAlertBeep() {
   try {
@@ -65,21 +61,6 @@ function playAlertBeep() {
   } catch {
     // best-effort — silence is not worth failing the page over
   }
-}
-
-function renderPairs(data: Record<string, unknown>, workspace = false) {
-  const entries = Object.entries(data)
-  if (!entries.length) return <p className={cn('text-sm', workspace ? 'text-w-muted2' : 'text-p-muted2')}>Нет данных</p>
-  return (
-    <div className="space-y-2">
-      {entries.map(([key, value]) => (
-        <div key={key} className={cn('flex items-start justify-between gap-4 border-b pb-2 last:border-0 last:pb-0', workspace ? 'border-w-line' : 'border-p-line')}>
-          <span className={cn('text-sm', workspace ? 'text-w-muted' : 'text-p-muted')}>{key}</span>
-          <span className={cn('max-w-[60%] whitespace-pre-wrap text-right text-sm', workspace ? 'text-w-ink' : 'text-p-text')}>{entryValue(value)}</span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 export const NoteSessionPage: React.FC = () => {
@@ -103,8 +84,6 @@ export const NoteSessionPage: React.FC = () => {
   const [audioStatus, setAudioStatus] = useState('')
   const [pendingCount, setPendingCount] = useState(0)
   const [syncStatus, setSyncStatus] = useState('')
-  const [draft, setDraft] = useState<NoteSessionDraft | null>(null)
-  const [draftLoading, setDraftLoading] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [returnedFromBackground, setReturnedFromBackground] = useState(false)
@@ -113,6 +92,8 @@ export const NoteSessionPage: React.FC = () => {
   const [reconcileResult, setReconcileResult] = useState<NoteSessionReconcileResult | null>(null)
   const [reconciling, setReconciling] = useState(false)
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
+  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null)
+  const [clockNow, setClockNow] = useState(Date.now())
 
   const audioBackup = useAudioBackupRecorder(sessionId)
   const originalTitleRef = useRef(document.title)
@@ -124,6 +105,7 @@ export const NoteSessionPage: React.FC = () => {
   const savingInterimRef = useRef(false)
   const sequenceRef = useRef(0)
   const flushPromiseRef = useRef<Promise<void> | null>(null)
+  const lastAudibleAtRef = useRef(Date.now())
 
   const { data: session, isLoading, refetch } = useQuery({
     queryKey: ['note-session', sessionId],
@@ -227,6 +209,10 @@ export const NoteSessionPage: React.FC = () => {
   }, [])
 
   const handleError = useCallback((msg: string) => setError(msg), [])
+  const handleAudioLevel = useCallback((level: number) => {
+    setAudioLevel(level)
+    if (level > 0.008) lastAudibleAtRef.current = Date.now()
+  }, [])
 
   const savePendingInterim = useCallback(async () => {
     const text = interimRef.current.trim()
@@ -247,7 +233,7 @@ export const NoteSessionPage: React.FC = () => {
     onFinal: handleFinalResult,
     onInterim: handleInterim,
     onError: handleError,
-    onAudioLevel: setAudioLevel,
+    onAudioLevel: handleAudioLevel,
     onAudioStatus: setAudioStatus,
     onSourceStopped: () => {
       void savePendingInterim()
@@ -363,6 +349,12 @@ export const NoteSessionPage: React.FC = () => {
     return () => window.removeEventListener('beforeunload', warnBeforeClose)
   }, [isDeepgramCapturing])
 
+  useEffect(() => {
+    if (!isDeepgramCapturing) return
+    const interval = window.setInterval(() => setClockNow(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [isDeepgramCapturing])
+
   const handleReconcile = useCallback(async () => {
     if (!sessionId) return
     setReconciling(true)
@@ -400,38 +392,17 @@ export const NoteSessionPage: React.FC = () => {
     }
   }, [sessionId, refetch])
 
-  const requestDraft = useCallback(async () => {
-    if (!sessionId) return
-    setDraftLoading(true)
-    try {
-      const draftData = await notesApi.draftSession(sessionId)
-      setDraft(draftData)
-    } catch (err) {
-      toast({ title: 'Не удалось собрать черновик', description: getErrorMessage(err), variant: 'destructive' })
-    } finally {
-      setDraftLoading(false)
-    }
-  }, [sessionId])
-
-  useEffect(() => {
-    if (!isDeepgramCapturing || transcripts.length === 0) return
-    const interval = window.setInterval(() => {
-      if (!draftLoading && transcripts.length > 0) {
-        void requestDraft()
-      }
-    }, 45000)
-    return () => window.clearInterval(interval)
-  }, [draftLoading, isDeepgramCapturing, requestDraft, transcripts.length])
-
   const handleStart = async (source: CaptureSource) => {
     setError('')
     setAudioLevel(0)
     setAudioStatus('')
     setCaptureSource(source)
     setSourceStoppedAlert(false)
+    lastAudibleAtRef.current = Date.now()
+    setRecordingStartedAt((current) => current ?? Date.now())
+    setClockNow(Date.now())
     await stopDeepgram()
     await startDeepgram(source)
-    toast({ title: 'Сессия запущена', description: source === 'system' ? 'Захват системного звука активирован' : 'Микрофон активирован' })
   }
 
   const handleStop = useCallback(async () => {
@@ -442,6 +413,7 @@ export const NoteSessionPage: React.FC = () => {
     setAudioLevel(0)
     setAudioStatus('')
     setCaptureSource(null)
+    setRecordingStartedAt(null)
     setSourceStoppedAlert(false)
   }, [audioBackup, flushOutbox, isDeepgramCapturing, savePendingInterim, stopDeepgram])
 
@@ -483,31 +455,21 @@ export const NoteSessionPage: React.FC = () => {
     }
   }, [audioBackup, isDeepgramCapturing, navigate, notesHome, sessionId, stopDeepgram])
 
-  const statusLabel = isDeepgramConnected
-    ? captureSource === 'system'
-      ? 'Системный звук'
-      : 'Микрофон'
-    : isDeepgramCapturing
-      ? 'Подключение…'
-      : 'Ожидает запуска'
-
-  const latestTranscript = transcripts.length ? transcripts[transcripts.length - 1].text : interimText
-  const focusRecording = isDeepgramCapturing && !draft
   const captureStatusText = isDeepgramCapturing
     ? captureSource === 'system'
-      ? 'Экран и системный звук захватываются'
-      : 'Микрофон захватывается'
-    : 'Захват не запущен'
+      ? 'Звук встречи и микрофон подключены'
+      : 'Микрофон подключён'
+    : 'Источник звука не активен'
   const recognitionStatusText = isDeepgramConnected
-    ? 'Распознавание подключено'
+    ? 'Текст распознаётся'
     : isDeepgramCapturing
-      ? 'Подключаем распознавание'
-      : 'Распознавание не запущено'
+      ? 'Подключаем распознавание…'
+      : 'Распознавание ожидает запуска'
   const saveStatusText = pendingCount > 0
-    ? `${pendingCount} фрагм. ожидают отправки`
+    ? `${pendingCount} фрагм. сохранены на устройстве`
     : syncStatus
       ? syncStatus
-      : 'Все фрагменты сохранены'
+      : 'Всё сохранено'
 
   if (isLoading || !session) {
     return <div className="py-12 text-center text-p-muted">Загрузка...</div>
@@ -523,420 +485,303 @@ export const NoteSessionPage: React.FC = () => {
   const cardTitleClass = inWorkspace ? 'text-base text-w-ink' : 'text-base text-p-text'
   const cardDescriptionClass = inWorkspace ? 'text-w-muted' : undefined
   const panelClass = inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-p-bg'
-  const stickyClass = inWorkspace
-    ? 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-panel border border-w-line bg-w-panel/95 px-3 py-2 shadow-sm backdrop-blur'
-    : 'sticky top-0 z-[9] flex flex-wrap items-center justify-between gap-3 rounded-panel border border-p-line bg-white/95 px-3 py-2 shadow-sm backdrop-blur'
   const outlineButtonClass = inWorkspace ? 'rounded-ctl border-w-line bg-transparent text-w-muted hover:border-w-accentDim hover:bg-w-panel2 hover:text-w-accentText' : undefined
   const primaryButtonClass = inWorkspace ? 'rounded-ctl bg-w-accent font-black text-black hover:bg-w-accent/90' : undefined
-  const ghostButtonClass = inWorkspace ? 'rounded-ctl text-w-muted hover:bg-w-panel2 hover:text-w-accentText' : undefined
-  const statusDotClass = (ok: boolean) => ok ? (inWorkspace ? 'bg-w-good' : 'bg-emerald-500') : (inWorkspace ? 'bg-w-accent' : 'bg-amber-400')
+  const hasRecording = isDeepgramCapturing || transcripts.length > 0 || Boolean(interimText) || sourceStoppedAlert
+  const elapsedSeconds = recordingStartedAt ? Math.max(0, Math.floor((clockNow - recordingStartedAt) / 1000)) : 0
+  const elapsedLabel = formatRecordingDuration(elapsedSeconds)
+  const noRecentSound = isDeepgramCapturing
+    && isDeepgramConnected
+    && elapsedSeconds >= 12
+    && clockNow - lastAudibleAtRef.current > 12_000
+
+  const readableError = humanizeRecordingError(error)
+  const health = getRecordingHealth({
+    sourceStopped: sourceStoppedAlert,
+    error: readableError,
+    pendingCount,
+    syncStatus,
+    isCapturing: isDeepgramCapturing,
+    isConnected: isDeepgramConnected,
+    noRecentSound,
+  })
+
+  const healthClass = health.tone === 'good'
+    ? inWorkspace ? 'border-w-good/40 bg-w-good/10 text-w-good' : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : health.tone === 'danger'
+      ? inWorkspace ? 'border-w-danger/50 bg-w-danger/10 text-w-danger' : 'border-red-300 bg-red-50 text-red-800'
+      : health.tone === 'warning'
+        ? inWorkspace ? 'border-w-accentDim/60 bg-w-accent/10 text-w-accentText' : 'border-amber-300 bg-amber-50 text-amber-900'
+        : inWorkspace ? 'border-w-line bg-w-panel2 text-w-muted' : 'border-p-line bg-p-bg text-p-muted'
 
   return (
     <div className={pageClass}>
-      {sourceStoppedAlert && (
-        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-lg', inWorkspace ? 'rounded-panel border border-w-danger/50 bg-w-danger/10' : 'rounded-panel border-2 border-red-600 bg-red-50')}>
-          <div className="flex items-center gap-3">
-            <AlertTriangle className={cn('h-5 w-5 shrink-0', inWorkspace ? 'text-w-danger' : 'text-red-700')} />
-            <p className={cn('text-sm font-semibold', inWorkspace ? 'text-w-danger' : 'text-red-800')}>
-              Показ экрана остановлен — запись прервалась. Сохранённый текст не потерян, но новый звук не пишется.
-            </p>
-          </div>
-          <Button size="sm" className={cn('shrink-0', inWorkspace ? 'rounded-ctl bg-w-danger text-white hover:bg-w-danger/90' : 'bg-red-700 text-white hover:bg-red-800')} onClick={() => void handleStart('system')}>
-            Возобновить показ экрана
-          </Button>
-        </div>
-      )}
-      {pendingCount > 0 && (
-        <div className={cn('sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-md', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10' : 'rounded-panel border border-amber-300 bg-amber-50')}>
-          <p className={cn('text-sm font-medium', inWorkspace ? 'text-w-accentText' : 'text-amber-900')}>
-            Текст сохраняется локально: {pendingCount} фрагм. в очереди. Не закрывайте вкладку до отправки.
-          </p>
-          <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void flushOutbox()}>
-            Отправить сейчас
-          </Button>
-        </div>
-      )}
       <div className={cn('flex flex-wrap items-start justify-between gap-4 border-b pb-5', headerBorderClass)}>
         <div>
           <div className={cn('flex items-center gap-2 text-[11px] uppercase tracking-[0.22em]', eyebrowClass)}>
             <AudioLines className="w-4 h-4" />
-            Конспекты / сессия
+            Создание конспекта
           </div>
           <h1 className={cn('mt-2 font-display text-3xl font-black leading-[1.05] tracking-tight md:text-4xl', titleClass)}>
             {session.title}
           </h1>
           <p className={cn('mt-2 max-w-2xl text-sm', mutedClass)}>
-            {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)} · {isReadOnly ? 'Сессия завершена, конспект готов' : statusLabel}
+            {session.student_name ?? 'Без привязки к студенту'} · {formatDate(session.started_at)}
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" className={outlineButtonClass} onClick={() => navigate(notesHome)}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Назад
-          </Button>
-          {session.note_id ? (
-            <Button asChild className={primaryButtonClass}>
-              <Link to={notePath(session.note_id)}>
-                <Bot className="w-4 h-4 mr-2" />
-                Конспект
-              </Link>
-            </Button>
-          ) : (
-            <Button variant="outline" className={outlineButtonClass} onClick={requestDraft} disabled={isReadOnly || draftLoading || transcripts.length === 0}>
-              {draftLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
-              AI-черновик
-            </Button>
-          )}
-          {!isReadOnly && (
-            <Button className={primaryButtonClass} onClick={() => setFinalizeDialogOpen(true)} disabled={finishing}>
-              {finishing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
-              Завершить
-            </Button>
-          )}
-        </div>
+        <Button variant="outline" className={outlineButtonClass} onClick={() => navigate(notesHome)}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Назад
+        </Button>
       </div>
 
-      {isReadOnly ? (
-        <div className={cn(stickyClass, 'justify-start')}>
-          <span className={cn('h-2.5 w-2.5 rounded-full', inWorkspace ? 'bg-w-muted2' : 'bg-p-muted2')} />
-          <span className={cn('text-sm', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
-            Конспект уже готов · только просмотр, запись недоступна
-          </span>
-        </div>
-      ) : (
-        <div className={stickyClass}>
-          <div className={cn('flex min-w-0 items-center gap-2 text-sm', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
-            <span className={cn('h-2.5 w-2.5 rounded-full', isDeepgramCapturing ? statusDotClass(true) : inWorkspace ? 'bg-w-muted2' : 'bg-p-muted2')} />
-            <span className="truncate">{captureStatusText} · {recognitionStatusText}</span>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { number: 1, label: 'Подготовка', active: !hasRecording, done: hasRecording },
+          { number: 2, label: 'Запись', active: hasRecording, done: isReadOnly },
+          { number: 3, label: 'Проверка', active: isReadOnly, done: false },
+        ].map((step) => (
+          <div
+            key={step.number}
+            className={cn(
+              'flex min-w-0 items-center gap-2 rounded-panel border px-3 py-2.5 text-sm transition-colors',
+              step.active
+                ? 'border-[#FFD400]/70 bg-[#FFD400]/10 text-[#FFD400]'
+                : step.done
+                  ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-500'
+                  : inWorkspace ? 'border-w-line text-w-muted2' : 'border-p-line text-p-muted2',
+            )}
+          >
+            <span className={cn(
+              'grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold',
+              step.active
+                ? 'bg-[#FFD400] text-black'
+                : step.done
+                  ? 'bg-emerald-500 text-white'
+                  : inWorkspace ? 'bg-w-panel2 text-w-muted2' : 'bg-p-bg text-p-muted2',
+            )}>
+              {step.done ? <Check className="h-3.5 w-3.5" /> : step.number}
+            </span>
+            <span className="truncate font-medium">{step.label}</span>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void handleStart('mic')} disabled={isDeepgramCapturing} title="Начать запись с микрофона">
-              <Mic className="w-4 h-4 mr-1.5" />
-              Микрофон
-            </Button>
-            <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void handleStart('system')} disabled={isDeepgramCapturing} title="Начать запись системного звука">
-              <MonitorUp className="w-4 h-4 mr-1.5" />
-              Экран
-            </Button>
-            <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void handleStop()} disabled={!isDeepgramCapturing} title="Остановить запись, не завершая сессию">
-              <Square className="w-4 h-4 mr-1.5" />
-              Стоп
-            </Button>
-            <Button size="sm" className={primaryButtonClass} onClick={() => setFinalizeDialogOpen(true)} disabled={finishing} title="Остановить запись и собрать конспект">
-              <Check className="w-4 h-4 mr-1.5" />
-              Завершить
-            </Button>
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
 
-      <div className={`grid gap-4 ${focusRecording || isReadOnly ? 'xl:grid-cols-[0.9fr_1.1fr]' : 'xl:grid-cols-[0.95fr_1.15fr_0.9fr]'}`}>
-        <Card className={cardClass}>
-          <CardHeader className="pb-4">
-            <CardTitle className={cardTitleClass}>Запись</CardTitle>
-            <CardDescription className={cardDescriptionClass}>Состояние аудио и старт сессии</CardDescription>
+      {!hasRecording ? (
+        <Card className={cn(cardClass, 'w-full')}>
+          <CardHeader>
+            <CardTitle className={cn(cardTitleClass, 'text-xl')}>Подготовка к встрече</CardTitle>
+            <CardDescription className={cardDescriptionClass}>
+              Проверьте ученика и запустите запись разговора.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className={cn(panelClass, 'space-y-3 p-4')}>
-              <div className="space-y-2">
-                {[
-                  { label: 'Звук', value: captureStatusText, ok: isDeepgramCapturing },
-                  { label: 'Распознавание', value: recognitionStatusText, ok: isDeepgramConnected },
-                  { label: 'Сохранение', value: saveStatusText, ok: pendingCount === 0 && !syncStatus },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className={cn('text-xs uppercase tracking-[0.2em]', eyebrowClass)}>{item.label}</p>
-                      <p className={cn('mt-0.5 text-sm font-semibold', titleClass)}>{item.value}</p>
-                    </div>
-                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', statusDotClass(item.ok))} />
-                  </div>
-                ))}
+          <CardContent className="space-y-5">
+            <div className={cn(panelClass, 'flex flex-wrap items-center justify-between gap-3 p-4')}>
+              <div>
+                <p className={cn('text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Ученик</p>
+                <p className={cn('mt-1 font-semibold', titleClass)}>{session.student_name ?? 'Ученик не выбран'}</p>
               </div>
-
-              <div className={cn('h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
-                <div className={cn('h-full transition-all', inWorkspace ? 'bg-w-accent' : 'bg-p-text')} style={{ width: `${Math.min(100, Math.max(6, audioLevel * 220))}%` }} />
-              </div>
-
-              <p className={cn('text-xs', mutedClass)}>{audioStatus || 'Выберите источник и начните запись'}</p>
-              {returnedFromBackground && <p className={cn('text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>Вкладка возвращена из фона, проверьте звук.</p>}
+              {session.student_id && (
+                <Button variant="outline" size="sm" className={outlineButtonClass} asChild>
+                  <Link to={studentPath(session.student_id)}>
+                    <Building2 className="mr-2 h-4 w-4" />
+                    Открыть профиль
+                  </Link>
+                </Button>
+              )}
             </div>
 
-            {isReadOnly ? (
-              <div className={cn(panelClass, 'p-3 text-sm', mutedClass)}>
-                Конспект уже собран — запись для этой сессии больше не ведётся.
+            <div>
+              <p className={cn('mb-2 text-sm font-semibold', titleClass)}>Источник звука</p>
+              <div className={cn(
+                'flex items-start gap-4 rounded-panel border p-4',
+                inWorkspace ? 'border-w-accentDim bg-w-accent/10' : 'border-p-line bg-p-bg',
+              )}>
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#FFD400] text-black">
+                  <MonitorUp className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className={cn('font-semibold', titleClass)}>Звук встречи</p>
+                  <p className={cn('mt-1 text-sm leading-relaxed', mutedClass)}>
+                    Запишем исходный звук Zoom или Google Meet без изменения его громкости. После нажатия выберите вкладку или окно встречи и разрешите передачу аудио.
+                  </p>
+                </div>
               </div>
-            ) : (
-              <div className="grid gap-2">
-                <Button
-                  className={cn('justify-start', inWorkspace ? 'rounded-ctl bg-w-accent font-black text-black hover:bg-w-accent/90' : undefined)}
-                  onClick={() => void handleStart('mic')}
-                  disabled={isDeepgramCapturing}
-                >
-                  <Mic className="w-4 h-4 mr-2" />
-                  Микрофон
-                </Button>
-                <Button
-                  variant="outline"
-                  className={cn('justify-start', outlineButtonClass)}
-                  onClick={() => void handleStart('system')}
-                  disabled={isDeepgramCapturing}
-                >
-                  <MonitorUp className="w-4 h-4 mr-2" />
-                  Экран / системный звук
-                </Button>
-                <Button variant="ghost" className={cn('justify-start', ghostButtonClass)} onClick={() => void handleStop()} disabled={!isDeepgramCapturing}>
-                  <Square className="w-4 h-4 mr-2" />
-                  Остановить запись
-                </Button>
+            </div>
+
+            {readableError && (
+              <div className={cn('flex items-start gap-3 rounded-panel border p-3 text-sm', healthClass)}>
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{readableError}</span>
               </div>
             )}
 
-            <div className={cn('space-y-1 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-p-line text-p-muted')}>
-              <div className="flex items-center justify-between gap-3">
-                <span>Фрагментов</span>
-                <span className={cn('font-medium', titleClass)}>{transcripts.length}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Ожидают отправки</span>
-                <span className={cn('font-medium', titleClass)}>{pendingCount}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Последняя фраза</span>
-                <span className={cn('max-w-[12rem] truncate font-medium', titleClass)}>{latestTranscript || '—'}</span>
-              </div>
-            </div>
-
-            {!isReadOnly && (
-              <div className={cn('space-y-2 border-t pt-4 text-sm', inWorkspace ? 'border-w-line text-w-muted' : 'border-p-line text-p-muted')}>
-                <div className="flex items-center justify-between gap-3">
-                  <span>Резервных фрагментов</span>
-                  <span className={cn('font-medium', titleClass)}>
-                    {audioBackup.uploadedCount}/{audioBackup.segmentCount}
+            <Button
+              size="lg"
+              className={cn('w-full', primaryButtonClass)}
+              onClick={() => void handleStart('system')}
+            >
+              <MonitorUp className="mr-2 h-5 w-5" />
+              Записать встречу
+            </Button>
+            <p className={cn('text-center text-xs', eyebrowClass)}>
+              Браузер попросит выбрать окно встречи и разрешить звук. Конспект появится после завершения.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="mx-auto w-full max-w-5xl space-y-4">
+          <Card className={cardClass}>
+            <CardContent className="p-5">
+              <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4">
+                  <span className={cn(
+                    'grid h-14 w-14 shrink-0 place-items-center rounded-full',
+                    isDeepgramCapturing
+                      ? inWorkspace ? 'bg-w-danger/15 text-w-danger' : 'bg-red-100 text-red-600'
+                      : inWorkspace ? 'bg-w-panel2 text-w-muted' : 'bg-p-bg text-p-muted',
+                  )}>
+                    <span className={cn('h-4 w-4 rounded-full', isDeepgramCapturing ? 'animate-pulse bg-current' : 'bg-current')} />
                   </span>
+                  <div>
+                    <p className={cn('text-sm font-semibold', titleClass)}>
+                      {isDeepgramCapturing ? 'Запись идёт' : 'Запись приостановлена'}
+                    </p>
+                    <div className={cn('mt-1 flex items-center gap-2 font-mono text-3xl font-bold tabular-nums', titleClass)}>
+                      <Clock3 className={cn('h-5 w-5', eyebrowClass)} />
+                      {elapsedLabel}
+                    </div>
+                  </div>
                 </div>
+                <Button
+                  size="lg"
+                  className={cn('min-w-56', primaryButtonClass)}
+                  onClick={() => setFinalizeDialogOpen(true)}
+                  disabled={finishing}
+                >
+                  <Check className="mr-2 h-5 w-5" />
+                  Завершить встречу
+                </Button>
+              </div>
+
+              <div className={cn('mt-5 flex flex-wrap items-center justify-between gap-3 rounded-panel border p-3', healthClass)}>
+                <div className="flex min-w-0 items-start gap-3">
+                  {health.tone === 'good'
+                    ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+                    : health.tone === 'danger'
+                      ? <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                      : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
+                  <div>
+                    <p className="text-sm font-semibold">{health.title}</p>
+                    <p className="mt-0.5 text-xs opacity-80">{health.description}</p>
+                  </div>
+                </div>
+                {sourceStoppedAlert && (
+                  <Button size="sm" onClick={() => void handleStart(captureSource ?? 'system')}>
+                    Возобновить
+                  </Button>
+                )}
+                {pendingCount > 0 && !sourceStoppedAlert && (
+                  <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void flushOutbox()}>
+                    Отправить сейчас
+                  </Button>
+                )}
+              </div>
+
+              <div className={cn('mt-4 h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
+                <div
+                  className={cn('h-full rounded-full transition-all duration-150', inWorkspace ? 'bg-w-accent' : 'bg-p-text')}
+                  style={{ width: `${isDeepgramCapturing ? Math.min(100, Math.max(3, audioLevel * 300)) : 0}%` }}
+                />
+              </div>
+              <p className={cn('mt-1.5 text-xs', eyebrowClass)}>
+                {isDeepgramCapturing ? 'Полоса двигается, когда система слышит звук.' : 'Возобновите запись, чтобы продолжить.'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className={cardClass}>
+            <CardHeader className="pb-3">
+              <CardTitle className={cardTitleClass}>Текущий транскрипт</CardTitle>
+              <CardDescription className={cardDescriptionClass}>Текст появляется автоматически во время разговора</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className={cn('h-[28rem] space-y-3 overflow-y-auto p-4', panelClass)}>
+                {transcripts.length === 0 && !interimText ? (
+                  <div className={cn('flex h-full items-center justify-center text-center text-sm', eyebrowClass)}>
+                    Говорите как обычно — первые фразы появятся здесь.
+                  </div>
+                ) : (
+                  <>
+                    {transcripts.map((entry) => (
+                      <div key={entry.client_segment_id || entry.id} className="flex items-start gap-3">
+                        <span className={cn('w-14 shrink-0 text-xs tabular-nums', eyebrowClass)}>
+                          {new Date(entry.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          {entry.speaker && (
+                            <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-p-line bg-white text-p-muted')}>
+                              {entry.speaker}
+                            </span>
+                          )}
+                          <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', titleClass)}>{entry.text}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {interimText && (
+                      <div className="flex items-start gap-3">
+                        <span className={cn('w-14 shrink-0 text-xs', eyebrowClass)}>···</span>
+                        <p className={cn('whitespace-pre-wrap text-sm italic leading-relaxed', mutedClass)}>{interimText}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <details className={cn('group rounded-panel border', inWorkspace ? 'border-w-line bg-w-panel' : 'border-p-line bg-white')}>
+            <summary className={cn('flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium', titleClass)}>
+              Диагностика и восстановление
+              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className={cn('grid gap-4 border-t p-4 text-sm md:grid-cols-3', inWorkspace ? 'border-w-line' : 'border-p-line')}>
+              {[
+                ['Звук', captureStatusText],
+                ['Распознавание', recognitionStatusText],
+                ['Сохранение', saveStatusText],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <p className={cn('text-xs uppercase tracking-[0.18em]', eyebrowClass)}>{label}</p>
+                  <p className={cn('mt-1', titleClass)}>{value}</p>
+                </div>
+              ))}
+              <div className="md:col-span-3">
+                <p className={cn('mb-2 text-xs', eyebrowClass)}>
+                  Резервная запись: {audioBackup.uploadedCount}/{audioBackup.segmentCount} фрагментов
+                  {audioStatus ? ` · ${audioStatus}` : ''}
+                  {returnedFromBackground ? ' · Вкладка возвращена из фона, проверьте звук' : ''}
+                </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  className={cn('w-full justify-start', outlineButtonClass)}
+                  className={outlineButtonClass}
                   onClick={() => void handleReconcile()}
                   disabled={reconciling || audioBackup.uploadedCount === 0}
                 >
-                  {reconciling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                  Восстановить транскрипт из резервной записи
+                  {reconciling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  Восстановить текст из резервной записи
                 </Button>
-                <p className={cn('text-xs', eyebrowClass)}>
-                  Используйте, если live-распознавание пропало, но резервные аудио-фрагменты успели загрузиться.
-                </p>
                 {reconcileResult && (
-                  <div className={cn(panelClass, 'mt-2 max-h-40 overflow-y-auto p-3')}>
-                    <p className={cn('mb-1 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Резервный транскрипт</p>
-                    {reconcileResult.queued ? (
-                      <p className={cn('text-xs', eyebrowClass)}>
-                        Распознавание поставлено в очередь — обрабатываем в фоне, не закрывайте страницу…
-                      </p>
-                    ) : (
-                      <p className={cn('whitespace-pre-wrap text-xs', inWorkspace ? 'text-w-muted' : 'text-p-muted')}>
-                        {reconcileResult.backup_transcript_text || 'Пусто — распознавание не дало текста'}
-                      </p>
-                    )}
-                  </div>
+                  <p className={cn('mt-2 whitespace-pre-wrap text-xs', mutedClass)}>
+                    {reconcileResult.queued ? 'Восстанавливаем текст в фоне…' : reconcileResult.backup_transcript_text || 'Дополнительный текст не найден.'}
+                  </p>
                 )}
               </div>
-            )}
-
-            {session.student_id && (
-              <Button variant="outline" asChild className={cn('w-full justify-start', outlineButtonClass)}>
-                <Link to={studentPath(session.student_id)}>
-                  <Building2 className="w-4 h-4 mr-2" />
-                  Открыть профиль студента
-                </Link>
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className={cardClass}>
-          {isReadOnly ? (
-            <>
-              <CardHeader className="pb-4">
-                <CardTitle className={cardTitleClass}>Конспект</CardTitle>
-                <CardDescription className={cardDescriptionClass}>Итог разговора</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {(() => {
-                  const { hero } = splitNoteMarkdown(session.note?.summary_markdown)
-                  return hero ? (
-                    <div className={cn('border-l-4 py-1 pl-4', inWorkspace ? 'border-yellow-400' : 'border-p-accent')}>
-                      <Markdown className={cn('text-lg font-medium leading-snug', titleClass)}>{hero}</Markdown>
-                    </div>
-                  ) : (
-                    <p className={cn('text-sm', mutedClass)}>Конспект собран, полный текст — по кнопке ниже.</p>
-                  )
-                })()}
-                {session.note_id && (
-                  <Button asChild className={cn('w-full justify-start', primaryButtonClass)}>
-                    <Link to={notePath(session.note_id)}>
-                      <Bot className="w-4 h-4 mr-2" />
-                      Открыть конспект целиком
-                    </Link>
-                  </Button>
-                )}
-              </CardContent>
-            </>
-          ) : (
-            <>
-              <CardHeader className="pb-4">
-                <CardTitle className={cardTitleClass}>Транскрипт</CardTitle>
-                <CardDescription className={cardDescriptionClass}>Фрагменты сессии и промежуточная речь</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className={cn('h-[34rem] space-y-3 overflow-y-auto p-4', inWorkspace ? 'rounded-panel border border-w-line bg-w-panel2' : 'rounded-panel border border-p-line bg-white')}>
-                  {transcripts.length === 0 && !interimText ? (
-                    <div className={cn('flex h-full items-center justify-center text-center', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>
-                      Запустите запись, чтобы увидеть фрагменты транскрипции.
-                    </div>
-                  ) : (
-                    <>
-                      {transcripts.map((entry) => (
-                        <div key={entry.client_segment_id || entry.id} className="flex gap-3 items-start">
-                          <span className={cn('w-16 shrink-0 text-xs tabular-nums', eyebrowClass)}>
-                            {new Date(entry.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            {entry.speaker && (
-                              <span className={cn('mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px]', inWorkspace ? 'border-w-line bg-w-panel text-w-muted' : 'border-p-line bg-p-bg text-p-muted')}>
-                                {entry.speaker}
-                              </span>
-                            )}
-                            <p className={cn('whitespace-pre-wrap text-sm leading-relaxed', inWorkspace ? 'text-w-ink' : 'text-p-text')}>{entry.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                      {interimText && (
-                        <div className="flex gap-3 items-start">
-                          <span className={cn('w-16 shrink-0 text-xs tabular-nums', inWorkspace ? 'text-w-muted2' : 'text-p-muted2')}>···</span>
-                          <p className={cn('whitespace-pre-wrap text-sm italic leading-relaxed', mutedClass)}>{interimText}</p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-                {syncStatus ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>{syncStatus}</p> : null}
-                {pendingCount > 0 && (
-                  <div className={cn('mt-2 px-3 py-2 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-accentText' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-800')}>
-                    Текст временно хранится на этом устройстве. Не закрывайте вкладку, пока очередь отправки не станет 0.
-                  </div>
-                )}
-                {error ? <p className={cn('mt-2 text-xs', inWorkspace ? 'text-w-danger' : 'text-red-600')}>{error}</p> : null}
-              </CardContent>
-            </>
-          )}
-        </Card>
-
-        {!focusRecording && !isReadOnly && (
-        <Card className={cardClass}>
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle className={cardTitleClass}>AI-черновик</CardTitle>
-                <CardDescription className={cardDescriptionClass}>Сравнение с текущим профилем студента</CardDescription>
-              </div>
-              {draftLoading && <RefreshCw className={cn('h-4 w-4 animate-spin', eyebrowClass)} />}
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {draft ? (
-              <>
-                {draft.ai_model === 'heuristic' && (
-                  <div className={cn('p-2.5 text-xs', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-panel border border-amber-200 bg-amber-50 text-amber-900')}>
-                    Черновик собран по правилам — ИИ не отработал. Проверьте, что задан рабочий OPENAI_API_KEY и бэкенд перезапущен.
-                  </div>
-                )}
-                <div>
-                  <p className={cn('text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Название</p>
-                  <p className={cn('mt-1 text-sm font-semibold', titleClass)}>{draft.title}</p>
-                </div>
-                <div>
-                  <p className={cn('mb-2 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Конспект</p>
-                  <div className={cn('max-h-64 overflow-y-auto p-3 text-sm whitespace-pre-wrap', panelClass, inWorkspace ? 'text-w-ink' : 'text-p-text')}>
-                    {draft.summary_markdown}
-                  </div>
-                </div>
-                <div>
-                  <p className={cn('mb-2 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Предлагаемые изменения</p>
-                  {draft.change_preview.length > 0
-                    ? renderPairs(Object.fromEntries(draft.change_preview.map((item) => [item.field, `${entryValue(item.old_value)} → ${entryValue(item.new_value)}`])), inWorkspace)
-                    : renderPairs(
-                        Object.fromEntries(
-                          Object.entries(draft.suggested_changes).filter(([key]) => key !== 'profile_notes')
-                        ),
-                        inWorkspace,
-                      )}
-                </div>
-                {Array.isArray((draft.suggested_changes as { profile_notes?: unknown }).profile_notes) &&
-                  ((draft.suggested_changes as { profile_notes: unknown[] }).profile_notes.length > 0) && (
-                  <div>
-                    <p className={cn('mb-2 text-xs uppercase tracking-[0.2em]', eyebrowClass)}>В заметки профиля</p>
-                    <div className="grid gap-2">
-                      {((draft.suggested_changes as { profile_notes: unknown[] }).profile_notes)
-                        .filter((n): n is string => typeof n === 'string' && n.trim() !== '')
-                        .map((text, i) => (
-                          <div key={i} className={cn('p-2.5 text-sm', inWorkspace ? 'rounded-panel border border-w-accentDim/50 bg-w-accent/10 text-w-ink' : 'rounded-panel border border-amber-200 bg-amber-50 text-p-text')}>
-                            {text}
-                          </div>
-                        ))}
-                    </div>
-                    <p className={cn('mt-1.5 text-xs', eyebrowClass)}>Сохранятся в заметки студента при подтверждении конспекта</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex h-[30rem] items-center justify-center text-center">
-                <div className="space-y-2">
-                  <Sparkles className={cn('mx-auto h-5 w-5', eyebrowClass)} />
-                  <p className={cn('text-sm', mutedClass)}>Черновик появится после транскрипта</p>
-                  <Button variant="outline" className={outlineButtonClass} onClick={requestDraft} disabled={transcripts.length === 0}>
-                    Построить черновик
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        )}
-      </div>
-
-      <Card className={cardClass}>
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle className={cardTitleClass}>Привязка к студенту</CardTitle>
-              <CardDescription className={cardDescriptionClass}>Сессия создаётся уже с выбранным профилем</CardDescription>
-            </div>
-            <span className={cn('text-xs', eyebrowClass)}>{session.student_name ?? 'Без привязки'}</span>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3">
-          {session.student_id ? (
-            <Button variant="outline" className={outlineButtonClass} asChild>
-              <Link to={studentPath(session.student_id)}>
-                <Building2 className="w-4 h-4 mr-2" />
-                Открыть профиль
-              </Link>
-            </Button>
-          ) : (
-            <p className={cn('text-sm', mutedClass)}>Эта сессия не привязана к студенту.</p>
-          )}
-          {!isReadOnly && (
-            <Button variant="outline" className={outlineButtonClass} onClick={() => void requestDraft()} disabled={!transcripts.length}>
-              <Bot className="w-4 h-4 mr-2" />
-              Обновить AI
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+          </details>
+        </div>
+      )}
 
       {finishing && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">

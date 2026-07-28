@@ -67,11 +67,12 @@ export function useDeepgramTranscription(options: Options) {
   const manualStopRef = useRef(false)
   const wsRef = useRef<WebSocket | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const micStreamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const audioWatchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sourceMutedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttemptRef = useRef(0)
   const openingRef = useRef(false)
   const audioBufferRef = useRef<ArrayBuffer[]>([])
@@ -88,6 +89,10 @@ export function useDeepgramTranscription(options: Options) {
     activeRef.current = false
     openingRef.current = false
     clearSocketTimers()
+    if (audioWatchdogRef.current) clearInterval(audioWatchdogRef.current)
+    if (sourceMutedTimerRef.current) clearTimeout(sourceMutedTimerRef.current)
+    audioWatchdogRef.current = null
+    sourceMutedTimerRef.current = null
     wsRef.current?.close()
     wsRef.current = null
     workletRef.current?.disconnect()
@@ -95,15 +100,12 @@ export function useDeepgramTranscription(options: Options) {
     audioCtxRef.current?.close().catch(() => undefined)
     audioCtxRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
-    micStreamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
-    micStreamRef.current = null
     audioBufferRef.current = []
     bufferedBytesRef.current = 0
     setIsConnected(false)
     setIsCapturing(false)
     setCaptureSource(null)
-    callbacksRef.current.onInterim('')
     callbacksRef.current.onAudioLevel?.(0)
     callbacksRef.current.onAudioStatus?.('')
   }, [clearSocketTimers])
@@ -292,7 +294,9 @@ export function useDeepgramTranscription(options: Options) {
 
       const capturedSource = audioCtx.createMediaStreamSource(stream)
       const capturedGain = audioCtx.createGain()
-      capturedGain.gain.value = source === 'system' ? 2.2 : 1
+      // Keep the captured signal at its original level. Boosting meeting audio
+      // caused clipping before PCM conversion and made speech sound distorted.
+      capturedGain.gain.value = 1
       capturedSource.connect(capturedGain).connect(worklet)
 
       // Mixed-down destination for the local backup recording (safety net) —
@@ -303,31 +307,29 @@ export function useDeepgramTranscription(options: Options) {
       capturedGain.connect(backupDest)
       callbacksRef.current.onBackupStreamReady?.(backupDest.stream)
 
-      if (source === 'system') {
-        try {
-          const mic = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          })
-          if (activeRef.current) {
-            micStreamRef.current = mic
-            const micGain = audioCtx.createGain()
-            micGain.gain.value = 1.15
-            audioCtx.createMediaStreamSource(mic).connect(micGain).connect(worklet)
-            micGain.connect(backupDest)
-          } else {
-            mic.getTracks().forEach((track) => track.stop())
-          }
-        } catch {
-          callbacksRef.current.onAudioStatus?.('Системный звук включён · микрофон недоступен')
-        }
-      }
-
       const silent = audioCtx.createGain()
       silent.gain.value = 0
       worklet.connect(silent).connect(audioCtx.destination)
       await audioCtx.resume()
 
-      stream.getTracks().forEach((track) => track.addEventListener('ended', () => {
+      const audioTrack = stream.getAudioTracks()[0]
+      const resumeAudioProcessing = () => {
+        const currentContext = audioCtxRef.current
+        if (!activeRef.current || !currentContext || currentContext.state !== 'suspended') return
+        currentContext.resume().then(() => {
+          if (activeRef.current && currentContext.state === 'running') {
+            callbacksRef.current.onAudioStatus?.('Звук встречи подключён')
+          }
+        }).catch(() => {
+          callbacksRef.current.onAudioStatus?.('Браузер приостановил звук · пытаемся восстановить')
+        })
+      }
+
+      // A display stream also contains a video track because browsers require
+      // getDisplayMedia({ video: true }). That video track may end or be
+      // replaced when the shared tab/window changes. It is irrelevant to
+      // transcription, so only the audio track is allowed to stop recording.
+      audioTrack.addEventListener('ended', () => {
         if (!activeRef.current) return
         if (source === 'mic') {
           // Browsers don't re-prompt for mic permission within the same page,
@@ -337,9 +339,34 @@ export function useDeepgramTranscription(options: Options) {
           void startRef.current?.(source, deviceId)
           return
         }
-        fullCleanup()
         callbacksRef.current.onSourceStopped?.()
-      }))
+        fullCleanup()
+      })
+      audioTrack.addEventListener('mute', () => {
+        if (!activeRef.current) return
+        if (sourceMutedTimerRef.current) clearTimeout(sourceMutedTimerRef.current)
+        // Chrome can briefly mute a captured tab while focus/surfaces switch.
+        // Treat that as recoverable and avoid the destructive "stopped" state.
+        sourceMutedTimerRef.current = setTimeout(() => {
+          if (activeRef.current && audioTrack.muted && audioTrack.readyState === 'live') {
+            callbacksRef.current.onAudioStatus?.('Источник временно без звука · запись продолжится автоматически')
+          }
+        }, 1500)
+      })
+      audioTrack.addEventListener('unmute', () => {
+        if (sourceMutedTimerRef.current) clearTimeout(sourceMutedTimerRef.current)
+        sourceMutedTimerRef.current = null
+        callbacksRef.current.onAudioStatus?.('Звук встречи восстановлен')
+        resumeAudioProcessing()
+      })
+      audioCtx.onstatechange = () => {
+        if (!activeRef.current) return
+        if (audioCtx.state === 'suspended') {
+          callbacksRef.current.onAudioStatus?.('Браузер приостановил обработку звука · восстанавливаем')
+          resumeAudioProcessing()
+        }
+      }
+      audioWatchdogRef.current = setInterval(resumeAudioProcessing, 2000)
       void openSocketRef.current()
     } catch (error) {
       callbacksRef.current.onError(`Не удалось запустить аудиопроцессор: ${(error as Error).message}`)
@@ -361,14 +388,26 @@ export function useDeepgramTranscription(options: Options) {
   }, [fullCleanup])
 
   useEffect(() => {
+    const resumeAudioProcessing = () => {
+      if (!activeRef.current || audioCtxRef.current?.state !== 'suspended') return
+      audioCtxRef.current.resume().catch(() => undefined)
+    }
     const onVisibility = () => {
       callbacksRef.current.onVisibilityChange?.(document.visibilityState === 'hidden')
-      if (document.visibilityState !== 'hidden' && audioCtxRef.current?.state === 'suspended') {
-        audioCtxRef.current.resume().catch(() => undefined)
-      }
+      // Try on both transitions: Chromium sometimes suspends immediately after
+      // the tab becomes hidden; focus/pageshow cover OS window switches.
+      resumeAudioProcessing()
     }
+    const onFocus = () => resumeAudioProcessing()
+    const onPageShow = () => resumeAudioProcessing()
     document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
+    }
   }, [])
 
   useEffect(() => () => {
