@@ -79,17 +79,17 @@ export const ImportJobsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // finished/failed job from "resurrecting" and re-showing "завис" on every
   // page refresh — only genuinely running jobs survive a reload.
   useEffect(() => {
-    if (roadmapJobId && roadmapJob && roadmapJob.status !== 'running') {
+    if (roadmapJobId && roadmapJob?.status && roadmapJob.status !== 'running') {
       try { localStorage.removeItem(STORAGE_PREFIX + 'roadmap') } catch { /* ignore */ }
     }
   }, [roadmapJobId, roadmapJob?.status])
   useEffect(() => {
-    if (knowledgeJobId && knowledgeJob && knowledgeJob.status !== 'running') {
+    if (knowledgeJobId && knowledgeJob?.status && knowledgeJob.status !== 'running') {
       try { localStorage.removeItem(STORAGE_PREFIX + 'knowledge') } catch { /* ignore */ }
     }
   }, [knowledgeJobId, knowledgeJob?.status])
   useEffect(() => {
-    if (questionnaireJobId && questionnaireJob && questionnaireJob.status !== 'running') {
+    if (questionnaireJobId && questionnaireJob?.status && questionnaireJob.status !== 'running') {
       try { localStorage.removeItem(STORAGE_PREFIX + 'questionnaires') } catch { /* ignore */ }
     }
   }, [questionnaireJobId, questionnaireJob?.status])

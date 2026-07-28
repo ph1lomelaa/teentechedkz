@@ -24,6 +24,7 @@ import {
   TaskInput,
   Priority,
 } from '@/api/roadmap'
+import { questionnairesApi } from '@/api/questionnaires'
 import { PageHeader } from '@/components/ui'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -65,6 +66,8 @@ export const TemplatesPage: React.FC = () => {
   const {
     setRoadmapJobId: setImportJobId,
     roadmapJob: importJob,
+    setQuestionnaireJobId,
+    questionnaireJob,
   } = useImportJobs()
 
   const importPercent =
@@ -123,6 +126,27 @@ export const TemplatesPage: React.FC = () => {
       const message = typeof detail === 'string' ? detail : detail?.message
       toast({ title: 'Не удалось запустить импорт', description: message, variant: 'destructive' })
       if (detail?.job_id) setImportJobId(detail.job_id)
+    },
+  })
+
+  const questionnaireSyncMutation = useMutation({
+    mutationFn: questionnairesApi.startNotionSync,
+    onSuccess: (job) => {
+      setQuestionnaireJobId(job.job_id)
+      toast({
+        title: 'Синхронизация анкет запущена',
+        description: 'Формы Notion будут повторно связаны с задачами roadmap.',
+      })
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail
+      const message = typeof detail === 'string' ? detail : detail?.message
+      toast({
+        title: 'Не удалось запустить синхронизацию анкет',
+        description: message,
+        variant: 'destructive',
+      })
+      if (detail?.job_id) setQuestionnaireJobId(detail.job_id)
     },
   })
 
@@ -197,6 +221,16 @@ export const TemplatesPage: React.FC = () => {
             >
               <UploadCloud className="w-3.5 h-3.5 mr-2" /> Импорт
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3 text-xs"
+              disabled={questionnaireSyncMutation.isPending || questionnaireJob?.status === 'running'}
+              onClick={() => questionnaireSyncMutation.mutate()}
+              title="Повторно найти формы Notion и прикрепить анкеты к уже назначенным roadmap"
+            >
+              <FileText className="w-3.5 h-3.5 mr-2" /> Синхронизировать анкеты
+            </Button>
           </div>
         </div>
 
@@ -224,13 +258,29 @@ export const TemplatesPage: React.FC = () => {
             </div>
 
             {importJob.result && (
-              <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-                <ImportStat label="Найдено" value={importJob.result.found} />
-                <ImportStat label="Создано" value={importJob.result.created} />
-                <ImportStat label="Обновлено" value={importJob.result.updated} />
-                <ImportStat label="Задач" value={importJob.result.tasks} />
-                <ImportStat label="Подзадач" value={importJob.result.subtasks} />
-              </div>
+              <>
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                  <ImportStat label="Найдено" value={importJob.result.found} />
+                  <ImportStat label="Создано" value={importJob.result.created} />
+                  <ImportStat label="Обновлено" value={importJob.result.updated} />
+                  <ImportStat label="Задач" value={importJob.result.tasks} />
+                  <ImportStat label="Подзадач" value={importJob.result.subtasks} />
+                </div>
+                {importJob.result.questionnaires && (
+                  <div className="mt-3 rounded-panel border border-border bg-card p-3 text-xs text-p-muted">
+                    Анкеты: найдено ссылок{' '}
+                    {importJob.result.questionnaires.resolve?.blocks ?? 0}
+                    {' · '}связано {importJob.result.questionnaires.resolve?.linked ?? 0}
+                    {' · '}ошибок {importJob.result.questionnaires.resolve?.failed ?? 0}
+                    {' · '}создано для студентов {importJob.result.questionnaires.attach?.created ?? 0}
+                  </div>
+                )}
+                {importJob.result.questionnaires_error && (
+                  <div className="mt-3 rounded-panel border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                    Roadmap импортирован, но анкеты не синхронизировались: {importJob.result.questionnaires_error}
+                  </div>
+                )}
+              </>
             )}
 
             {importJob.error && <p className="mt-3 text-xs text-red-600">{importJob.error}</p>}
@@ -245,6 +295,19 @@ export const TemplatesPage: React.FC = () => {
           </div>
         )}
       </div>
+      )}
+
+      {canImport && questionnaireJob?.status !== 'running' && questionnaireJob?.result && (
+        <div className="mb-6 rounded-card border border-border bg-card p-4 text-xs text-p-muted">
+          <div className="font-semibold text-p-text">Последняя синхронизация анкет</div>
+          <div className="mt-2">
+            Ссылок: {questionnaireJob.result.resolve?.blocks ?? 0}
+            {' · '}связано: {questionnaireJob.result.resolve?.linked ?? 0}
+            {' · '}ошибок: {questionnaireJob.result.resolve?.failed ?? 0}
+            {' · '}задач студентов: {questionnaireJob.result.attach?.tasks ?? 0}
+            {' · '}новых анкет: {questionnaireJob.result.attach?.created ?? 0}
+          </div>
+        </div>
       )}
 
       <div className="mb-6 rounded-card border border-border bg-card p-4">

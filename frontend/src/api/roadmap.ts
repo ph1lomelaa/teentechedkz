@@ -195,6 +195,11 @@ export interface NotionRoadmapImportJob {
       subtasks: number
     }>
     error: string | null
+    questionnaires?: {
+      resolve?: { blocks: number; linked: number; imported: number; failed: number }
+      attach?: { tasks: number; created: number }
+    }
+    questionnaires_error?: string
   }
   error: string | null
 }
