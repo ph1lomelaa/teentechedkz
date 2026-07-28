@@ -205,53 +205,56 @@ async def run(only: str | None = None, limit: int | None = None, on_event: Calla
         raise RuntimeError("NOTION_API_KEY не настроен")
     client = NotionClient(settings.NOTION_API_KEY)
 
-    seen: dict[str, str] = {}
-    for d in client.search_databases("⇒"):
-        title = _db_title(d)
-        if "⇒" in title:
-            seen[d["id"]] = title
-    items = list(seen.items())
-    if only:
-        items = [(i, t) for i, t in items if only.lower() in t.lower()]
-    if limit:
-        items = items[:limit]
+    try:
+        seen: dict[str, str] = {}
+        for d in await client.search_databases("⇒"):
+            title = _db_title(d)
+            if "⇒" in title:
+                seen[d["id"]] = title
+        items = list(seen.items())
+        if only:
+            items = [(i, t) for i, t in items if only.lower() in t.lower()]
+        if limit:
+            items = items[:limit]
 
-    created = updated = skipped = 0
-    async with AsyncSessionLocal() as db:
-        for idx, (dbid, title) in enumerate(items):
-            try:
-                dbjson = client.request("GET", f"/databases/{dbid}")
-            except Exception as exc:
-                skipped += 1
-                if on_event:
-                    on_event({"message": f"skip {title}: {exc}"})
-                continue
-            questions = _questions_from_db(dbjson)
-            country, degree, step = _parse_title(title)
-            existing = (
-                await db.execute(
-                    select(QuestionnaireTemplate).where(QuestionnaireTemplate.source_notion_db_id == dbid)
-                )
-            ).scalar_one_or_none()
-            if existing:
-                existing.title = title
-                existing.country_name = country
-                existing.degree = degree
-                existing.step_name = step
-                existing.questions = questions
-                updated += 1
-            else:
-                db.add(QuestionnaireTemplate(
-                    source_notion_db_id=dbid, title=title, country_name=country,
-                    degree=degree, step_name=step, questions=questions,
-                ))
-                created += 1
-            if idx % 20 == 0:
-                await db.commit()
-                if on_event:
-                    on_event({"message": f"{idx + 1}/{len(items)}", "index": idx + 1, "total": len(items)})
-        await db.commit()
-    return {"found": len(items), "created": created, "updated": updated, "skipped": skipped}
+        created = updated = skipped = 0
+        async with AsyncSessionLocal() as db:
+            for idx, (dbid, title) in enumerate(items):
+                try:
+                    dbjson = await client.request("GET", f"/databases/{dbid}")
+                except Exception as exc:
+                    skipped += 1
+                    if on_event:
+                        on_event({"message": f"skip {title}: {exc}"})
+                    continue
+                questions = _questions_from_db(dbjson)
+                country, degree, step = _parse_title(title)
+                existing = (
+                    await db.execute(
+                        select(QuestionnaireTemplate).where(QuestionnaireTemplate.source_notion_db_id == dbid)
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    existing.title = title
+                    existing.country_name = country
+                    existing.degree = degree
+                    existing.step_name = step
+                    existing.questions = questions
+                    updated += 1
+                else:
+                    db.add(QuestionnaireTemplate(
+                        source_notion_db_id=dbid, title=title, country_name=country,
+                        degree=degree, step_name=step, questions=questions,
+                    ))
+                    created += 1
+                if idx % 20 == 0:
+                    await db.commit()
+                    if on_event:
+                        on_event({"message": f"{idx + 1}/{len(items)}", "index": idx + 1, "total": len(items)})
+            await db.commit()
+        return {"found": len(items), "created": created, "updated": updated, "skipped": skipped}
+    finally:
+        await client.aclose()
 
 
 if __name__ == "__main__":

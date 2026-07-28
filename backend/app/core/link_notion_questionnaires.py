@@ -48,70 +48,73 @@ async def resolve(on_event: Callable[[dict], None] | None = None, block_id: str 
         raise RuntimeError("NOTION_API_KEY не настроен")
     client = NotionClient(settings.NOTION_API_KEY)
 
-    async with AsyncSessionLocal() as db:
-        block_ids = [block_id] if block_id else await _distinct_block_ids(db)
-        linked = imported = failed = 0
-        for idx, bid in enumerate(block_ids):
-            try:
-                block = await client.request("GET", f"/blocks/{bid}")
-                parent = block.get("parent", {})
-                db_id = parent.get("database_id")
-                if not db_id:
-                    failed += 1
-                    continue
-                dbjson = await client.request("GET", f"/databases/{db_id}")
-                title = _db_title(dbjson)
-                country, degree, step = _parse_title(title)
-                questions = _questions_from_db(dbjson, form_block_id=bid)
-                tpl = (
-                    await db.execute(
-                        select(QuestionnaireTemplate).where(QuestionnaireTemplate.source_notion_db_id == db_id)
-                    )
-                ).scalar_one_or_none()
-                if tpl is None:
-                    tpl = QuestionnaireTemplate(
-                        source_notion_db_id=db_id, title=title, country_name=country,
-                        degree=degree, step_name=step, questions=questions,
-                    )
-                    db.add(tpl)
-                    imported += 1
-                else:
-                    tpl.title = title
-                    tpl.country_name = country
-                    tpl.degree = degree
-                    tpl.step_name = step
-                    tpl.questions = questions
-                tpl.source_form_block_id = bid
+    try:
+        async with AsyncSessionLocal() as db:
+            block_ids = [block_id] if block_id else await _distinct_block_ids(db)
+            linked = imported = failed = 0
+            for idx, bid in enumerate(block_ids):
+                try:
+                    block = await client.request("GET", f"/blocks/{bid}")
+                    parent = block.get("parent", {})
+                    db_id = parent.get("database_id")
+                    if not db_id:
+                        failed += 1
+                        continue
+                    dbjson = await client.request("GET", f"/databases/{db_id}")
+                    title = _db_title(dbjson)
+                    country, degree, step = _parse_title(title)
+                    questions = _questions_from_db(dbjson, form_block_id=bid)
+                    tpl = (
+                        await db.execute(
+                            select(QuestionnaireTemplate).where(QuestionnaireTemplate.source_notion_db_id == db_id)
+                        )
+                    ).scalar_one_or_none()
+                    if tpl is None:
+                        tpl = QuestionnaireTemplate(
+                            source_notion_db_id=db_id, title=title, country_name=country,
+                            degree=degree, step_name=step, questions=questions,
+                        )
+                        db.add(tpl)
+                        imported += 1
+                    else:
+                        tpl.title = title
+                        tpl.country_name = country
+                        tpl.degree = degree
+                        tpl.step_name = step
+                        tpl.questions = questions
+                    tpl.source_form_block_id = bid
 
-                # Fill missing descriptions in already materialized forms without
-                # overwriting any text a manager entered manually.
-                materialized = await db.execute(
-                    select(Questionnaire)
-                    .where(Questionnaire.source_notion_page_id == db_id)
-                    .options(selectinload(Questionnaire.questions))
-                )
-                imported_by_label = {str(item.get("label", "")).strip().casefold(): item for item in questions}
-                for questionnaire in materialized.scalars().all():
-                    for question in questionnaire.questions:
-                        item = imported_by_label.get(question.label.strip().casefold())
-                        if item and not question.help_text.strip():
-                            question.help_text = str(item.get("help_text") or "")
-                linked += 1
-            except Exception as exc:
-                failed += 1
-                if on_event:
-                    on_event({"message": f"skip {bid}: {exc}"})
-            if idx % 20 == 0:
-                await db.commit()
-                if on_event:
-                    on_event({
-                        "message": f"resolve {idx + 1}/{len(block_ids)}",
-                        "index": idx + 1,
-                        "total": len(block_ids),
-                        "phase": "resolve",
-                    })
-        await db.commit()
-    return {"blocks": len(block_ids), "linked": linked, "imported": imported, "failed": failed}
+                    # Fill missing descriptions in already materialized forms without
+                    # overwriting any text a manager entered manually.
+                    materialized = await db.execute(
+                        select(Questionnaire)
+                        .where(Questionnaire.source_notion_page_id == db_id)
+                        .options(selectinload(Questionnaire.questions))
+                    )
+                    imported_by_label = {str(item.get("label", "")).strip().casefold(): item for item in questions}
+                    for questionnaire in materialized.scalars().all():
+                        for question in questionnaire.questions:
+                            item = imported_by_label.get(question.label.strip().casefold())
+                            if item and not question.help_text.strip():
+                                question.help_text = str(item.get("help_text") or "")
+                    linked += 1
+                except Exception as exc:
+                    failed += 1
+                    if on_event:
+                        on_event({"message": f"skip {bid}: {exc}"})
+                if idx % 20 == 0:
+                    await db.commit()
+                    if on_event:
+                        on_event({
+                            "message": f"resolve {idx + 1}/{len(block_ids)}",
+                            "index": idx + 1,
+                            "total": len(block_ids),
+                            "phase": "resolve",
+                        })
+            await db.commit()
+        return {"blocks": len(block_ids), "linked": linked, "imported": imported, "failed": failed}
+    finally:
+        await client.aclose()
 
 
 async def attach(on_event: Callable[[dict], None] | None = None) -> dict:
