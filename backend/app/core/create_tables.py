@@ -98,6 +98,16 @@ async def ensure_incremental_columns():
             ADD COLUMN IF NOT EXISTS visible_to_student boolean NOT NULL DEFAULT false;
         """))
         await conn.execute(text("""
+        ALTER TABLE telegram_pairing_codes
+            ADD COLUMN IF NOT EXISTS candidate_chat_id uuid NULL,
+            ADD COLUMN IF NOT EXISTS candidate_detected_at timestamptz NULL,
+            ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;
+        """))
+        await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_telegram_pairing_codes_candidate_chat_id
+            ON telegram_pairing_codes (candidate_chat_id);
+        """))
+        await conn.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_questionnaire_templates_source_form_block_id
             ON questionnaire_templates (source_form_block_id);
         """))
@@ -144,6 +154,13 @@ async def ensure_incremental_columns():
                 ALTER TABLE meetings
                     ADD CONSTRAINT fk_meetings_service_id_services
                     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE SET NULL;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'fk_telegram_pairing_codes_candidate_chat'
+            ) THEN
+                ALTER TABLE telegram_pairing_codes
+                    ADD CONSTRAINT fk_telegram_pairing_codes_candidate_chat
+                    FOREIGN KEY (candidate_chat_id) REFERENCES telegram_chats(id) ON DELETE SET NULL;
             END IF;
         END $$;
         """))

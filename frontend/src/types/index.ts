@@ -502,6 +502,21 @@ export interface TelegramGroupSetupLink {
   expires_at: string
 }
 
+export interface TelegramPairingCandidate {
+  code: string
+  status: 'waiting' | 'detected' | 'confirmed' | 'cancelled' | 'expired'
+  student_id: string
+  student_name: string | null
+  expires_at: string
+  detected_at: string | null
+  candidate: {
+    id: string
+    telegram_chat_id: number
+    title: string | null
+    chat_type: 'private' | 'group' | 'supergroup'
+  } | null
+}
+
 export interface TelegramGroupReadiness {
   chat_id: string
   telegram_chat_id: number

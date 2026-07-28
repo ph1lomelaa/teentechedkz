@@ -24,5 +24,10 @@ class TelegramPairingCode(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    candidate_chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("telegram_chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    candidate_detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     student: Mapped["Student"] = relationship()

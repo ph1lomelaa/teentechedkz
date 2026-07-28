@@ -12,6 +12,7 @@ import {
   TelegramImportResult,
   TelegramMessage,
   TelegramPairingCode,
+  TelegramPairingCandidate,
   TelegramParticipant,
 } from '../types'
 
@@ -74,6 +75,18 @@ export const telegramApi = {
     const response = await apiClient.post<TelegramGroupSetupLink>('/telegram-chats/group-setup-link', {
       student_id: studentId,
     })
+    return response.data
+  },
+  getPairingCandidate: async (code: string): Promise<TelegramPairingCandidate> => {
+    const response = await apiClient.get<TelegramPairingCandidate>(`/telegram-chats/pairing-candidates/${code}`)
+    return response.data
+  },
+  confirmPairingCandidate: async (code: string): Promise<TelegramChat> => {
+    const response = await apiClient.post<TelegramChat>(`/telegram-chats/pairing-candidates/${code}/confirm`)
+    return response.data
+  },
+  cancelPairingCandidate: async (code: string): Promise<TelegramPairingCandidate> => {
+    const response = await apiClient.post<TelegramPairingCandidate>(`/telegram-chats/pairing-candidates/${code}/cancel`)
     return response.data
   },
   getReadiness: async (chatId: string): Promise<TelegramGroupReadiness> => {

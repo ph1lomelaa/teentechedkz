@@ -77,6 +77,16 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
     enabled: Boolean(chat?.id),
   })
 
+  const candidateQuery = useQuery({
+    queryKey: ['telegram-pairing-candidate', setup?.code],
+    queryFn: () => telegramApi.getPairingCandidate(setup!.code),
+    enabled: Boolean(setup?.code && !chat),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'waiting' || status === 'detected' || !status ? 3_000 : false
+    },
+  })
+
   const setRoleMutation = useMutation({
     mutationFn: ({ telegramUserId, role }: { telegramUserId: number; role: 'mentor' | 'student' }) =>
       telegramApi.setParticipantRole(chat!.id, telegramUserId, role),
@@ -126,6 +136,33 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
       setTitle(result.suggested_title)
     },
     onError: (error) => toast({ title: 'Не удалось подготовить Telegram-группу', description: errorDetail(error), variant: 'destructive' }),
+  })
+
+  const confirmCandidateMutation = useMutation({
+    mutationFn: () => telegramApi.confirmPairingCandidate(setup!.code),
+    onSuccess: async () => {
+      await refresh()
+      setSetup(null)
+      toast({ title: 'Telegram-группа подключена' })
+    },
+    onError: (error) => toast({
+      title: 'Не удалось подтвердить группу',
+      description: errorDetail(error),
+      variant: 'destructive',
+    }),
+  })
+
+  const cancelCandidateMutation = useMutation({
+    mutationFn: () => telegramApi.cancelPairingCandidate(setup!.code),
+    onSuccess: () => {
+      setSetup(null)
+      toast({ title: 'Подключение отменено', description: 'Можно подготовить новую ссылку для правильной группы.' })
+    },
+    onError: (error) => toast({
+      title: 'Не удалось отменить подключение',
+      description: errorDetail(error),
+      variant: 'destructive',
+    }),
   })
 
   const attachMutation = useMutation({
@@ -213,7 +250,7 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
             <div>
               <div className={cn('font-semibold', workspace ? 'text-w-ink' : 'text-gray-900')}>Шаг 1 (для вас): создать группу и добавить бота</div>
               <p className={cn('mt-1 text-sm', workspace ? 'text-w-muted' : 'text-gray-600')}>
-                Откройте Telegram, создайте (или выберите) группу для {studentName} и добавьте бота — группа подключится сама.
+                Откройте Telegram, создайте (или выберите) группу для {studentName} и добавьте бота. CRM покажет найденную группу — проверьте её название и подтвердите.
                 <b> Эту ссылку не отправляйте ученику</b> — она только для добавления бота. Простую ссылку «вступить» для ученика вы получите на шаге 2, после подключения группы.
               </p>
             </div>
@@ -246,10 +283,95 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
           </div>
         )}
 
-        {unboundChats.some((item) => item.chat_type !== 'private') && (
+        {setup && candidateQuery.data?.status === 'waiting' && (
+          <div className={card}>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Ждём группу из Telegram
+            </div>
+            <p className="mt-1 text-xs opacity-60">
+              После добавления бота группа появится здесь автоматически. До подтверждения сообщения не относятся к ученику.
+            </p>
+          </div>
+        )}
+
+        {setup && candidateQuery.isError && (
+          <div className={cn(card, workspace ? 'border-w-danger/40' : 'border-red-200')}>
+            <div className="flex items-start gap-2 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <div className="flex-1">
+                <div className="font-semibold">Не удалось проверить Telegram</div>
+                <p className="mt-1 text-xs opacity-60">
+                  Группа не будет привязана без подтверждения. Проверьте соединение и повторите проверку.
+                </p>
+                <div className="mt-3">
+                  <button className={secondaryButton} onClick={() => candidateQuery.refetch()}>
+                    <RefreshCw className="h-4 w-4" /> Проверить снова
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {setup && candidateQuery.data?.status === 'detected' && candidateQuery.data.candidate && (
+          <div className={cn(
+            card,
+            workspace ? 'border-w-accentDim bg-w-accent/10' : 'border-amber-300 bg-amber-50',
+          )}>
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className={cn('mt-0.5 h-5 w-5 shrink-0', workspace ? 'text-w-accentText' : 'text-amber-700')} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold">Telegram-группа найдена</div>
+                <div className="mt-2 rounded-ctl border border-current/15 p-3">
+                  <div className="font-semibold">
+                    {candidateQuery.data.candidate.title || `Группа ${candidateQuery.data.candidate.telegram_chat_id}`}
+                  </div>
+                  <div className="mt-1 text-xs opacity-60">
+                    Telegram ID: {candidateQuery.data.candidate.telegram_chat_id}
+                  </div>
+                  <div className="mt-2 text-sm">
+                    Привязать к ученику <b>{candidateQuery.data.student_name || studentName}</b>?
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className={button}
+                    disabled={confirmCandidateMutation.isPending}
+                    onClick={() => confirmCandidateMutation.mutate()}
+                  >
+                    {confirmCandidateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Да, привязать
+                  </button>
+                  <button
+                    className={secondaryButton}
+                    disabled={cancelCandidateMutation.isPending}
+                    onClick={() => cancelCandidateMutation.mutate()}
+                  >
+                    Это другая группа
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {setup && (candidateQuery.data?.status === 'expired' || candidateQuery.data?.status === 'cancelled') && (
+          <div className={cn(card, workspace ? 'border-w-danger/40' : 'border-red-200')}>
+            <div className="flex items-start gap-2 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <div>
+                <div className="font-semibold">Подключение больше не активно</div>
+                <p className="mt-1 text-xs opacity-60">Подготовьте новую ссылку и добавьте бота в нужную группу.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {candidateQuery.data?.status !== 'detected' && unboundChats.some((item) => item.chat_type !== 'private') && (
           <div className={card}>
             <div className="text-sm font-semibold">Группа уже появилась?</div>
-            <p className="mt-1 text-xs opacity-60">Выберите её вручную, если автоматическая привязка ещё не произошла.</p>
+            <p className="mt-1 text-xs opacity-60">Запасной вариант: выберите группу вручную и подтвердите, что она принадлежит этому ученику.</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <select className={input} value={selectedUnboundChatId} onChange={(event) => setSelectedUnboundChatId(event.target.value)}>
                 <option value="">Выберите непривязанную группу</option>

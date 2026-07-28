@@ -10,7 +10,7 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -77,6 +77,71 @@ async def _current_student_id(db: AsyncSession, chat_id: uuid.UUID) -> uuid.UUID
     )
     row = result.first()
     return row[0] if row else None
+
+
+async def _cancel_open_pairings(db: AsyncSession, user_id: uuid.UUID, now: datetime) -> None:
+    """Keep group discovery unambiguous: one pending request per staff user."""
+    await db.execute(
+        update(TelegramPairingCode)
+        .where(
+            TelegramPairingCode.created_by == user_id,
+            TelegramPairingCode.used_at.is_(None),
+            TelegramPairingCode.cancelled_at.is_(None),
+        )
+        .values(cancelled_at=now)
+    )
+
+
+async def _pairing_for_actor(
+    db: AsyncSession,
+    code: str,
+    current_user: User,
+    *,
+    lock: bool = False,
+) -> TelegramPairingCode:
+    query = select(TelegramPairingCode).where(TelegramPairingCode.code == code)
+    if lock:
+        query = query.with_for_update()
+    pairing = await db.scalar(query)
+    if not pairing:
+        raise HTTPException(status_code=404, detail="Заявка подключения не найдена")
+    if current_user.role == UserRole.mentor and pairing.created_by != current_user.id:
+        raise HTTPException(status_code=404, detail="Заявка подключения не найдена")
+    await require_student_access(db, pairing.student_id, current_user)
+    return pairing
+
+
+async def _pairing_candidate_response(
+    db: AsyncSession,
+    pairing: TelegramPairingCode,
+) -> dict:
+    now = datetime.now(timezone.utc)
+    student = await db.get(Student, pairing.student_id)
+    chat = await db.get(TelegramChat, pairing.candidate_chat_id) if pairing.candidate_chat_id else None
+    if pairing.used_at:
+        status = "confirmed"
+    elif pairing.cancelled_at:
+        status = "cancelled"
+    elif pairing.expires_at <= now:
+        status = "expired"
+    elif chat:
+        status = "detected"
+    else:
+        status = "waiting"
+    return {
+        "code": pairing.code,
+        "status": status,
+        "student_id": str(pairing.student_id),
+        "student_name": student.full_name if student else None,
+        "expires_at": pairing.expires_at.isoformat(),
+        "detected_at": pairing.candidate_detected_at.isoformat() if pairing.candidate_detected_at else None,
+        "candidate": {
+            "id": str(chat.id),
+            "telegram_chat_id": chat.chat_id,
+            "title": chat.title,
+            "chat_type": chat.chat_type.value,
+        } if chat else None,
+    }
 
 
 async def _student_responsibles(db: AsyncSession, student_id: uuid.UUID | None, current_user_id: uuid.UUID) -> tuple[list[dict], bool]:
@@ -1329,12 +1394,14 @@ async def create_pairing_code(
     if not settings.TELEGRAM_BOT_USERNAME:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_USERNAME не настроен")
 
+    now = datetime.now(timezone.utc)
+    await _cancel_open_pairings(db, current_user.id, now)
     code = secrets.token_urlsafe(9)
     pairing = TelegramPairingCode(
         code=code,
         student_id=student.id,
         created_by=current_user.id,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=PAIRING_CODE_TTL_MINUTES),
+        expires_at=now + timedelta(minutes=PAIRING_CODE_TTL_MINUTES),
     )
     db.add(pairing)
     await db.commit()
@@ -1354,9 +1421,9 @@ async def create_group_setup_link(
 ):
     """Create the assisted `startgroup` link from variant A.
 
-    Telegram creates/selects the group. The `/start <code>` command delivered
-    with the deep-link silently consumes the pairing code and attaches the
-    registered group to this student.
+    Telegram lets the staff member create/select a group. The bot detects that
+    group as a candidate; CRM requires an explicit confirmation before messages
+    are associated with the student.
     """
     student_id = body.get("student_id")
     if not student_id:
@@ -1369,12 +1436,14 @@ async def create_group_setup_link(
     if not settings.TELEGRAM_BOT_USERNAME:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_USERNAME не настроен")
 
+    now = datetime.now(timezone.utc)
+    await _cancel_open_pairings(db, current_user.id, now)
     code = secrets.token_urlsafe(9)
     pairing = TelegramPairingCode(
         code=code,
         student_id=student.id,
         created_by=current_user.id,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=PAIRING_CODE_TTL_MINUTES),
+        expires_at=now + timedelta(minutes=PAIRING_CODE_TTL_MINUTES),
     )
     db.add(pairing)
     suggested_title = await _suggested_group_title(db, student)
@@ -1393,6 +1462,80 @@ async def create_group_setup_link(
         "suggested_title": suggested_title,
         "expires_at": pairing.expires_at.isoformat(),
     }
+
+
+@router.get("/pairing-candidates/{code}")
+async def get_pairing_candidate(
+    code: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    pairing = await _pairing_for_actor(db, code, current_user)
+    return await _pairing_candidate_response(db, pairing)
+
+
+@router.post("/pairing-candidates/{code}/confirm")
+async def confirm_pairing_candidate(
+    code: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    from app.services.telegram_bot import _bind_chat_to_pairing
+
+    pairing = await _pairing_for_actor(db, code, current_user, lock=True)
+    now = datetime.now(timezone.utc)
+    if pairing.used_at:
+        raise HTTPException(status_code=409, detail="Группа уже подтверждена")
+    if pairing.cancelled_at:
+        raise HTTPException(status_code=409, detail="Подключение отменено")
+    if pairing.expires_at <= now:
+        raise HTTPException(status_code=410, detail="Ссылка подключения истекла")
+    if not pairing.candidate_chat_id:
+        raise HTTPException(status_code=409, detail="Telegram-группа ещё не найдена")
+
+    chat = await db.get(TelegramChat, pairing.candidate_chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Найденная группа больше недоступна")
+    if chat.status != TelegramChatStatus.unbound:
+        raise HTTPException(status_code=409, detail="Эта группа уже привязана")
+
+    student = await _bind_chat_to_pairing(db, pairing, chat, now)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    record_audit(
+        db,
+        action=AuditAction.telegram_linked,
+        actor=current_user,
+        target_type="student",
+        target_id=str(student.id),
+        meta={"kind": "telegram_group_confirmed", "tg_chat_id": chat.chat_id},
+    )
+    await db.commit()
+    session = await db.scalar(
+        select(TelegramChatSession)
+        .where(
+            TelegramChatSession.chat_id == chat.id,
+            TelegramChatSession.status == TelegramSessionStatus.active,
+        )
+        .order_by(TelegramChatSession.opened_at.desc())
+        .limit(1)
+    )
+    return await _chat_to_dict(db, chat, session=session, current_user=current_user)
+
+
+@router.post("/pairing-candidates/{code}/cancel")
+async def cancel_pairing_candidate(
+    code: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    pairing = await _pairing_for_actor(db, code, current_user, lock=True)
+    if pairing.used_at:
+        raise HTTPException(status_code=409, detail="Подтверждённую связь нужно отвязать в карточке ученика")
+    if not pairing.cancelled_at:
+        pairing.cancelled_at = datetime.now(timezone.utc)
+        await db.commit()
+    return await _pairing_candidate_response(db, pairing)
 
 
 @router.get("/{chat_id}/readiness")

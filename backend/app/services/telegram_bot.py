@@ -86,9 +86,9 @@ async def on_my_chat_member(event: ChatMemberUpdated):
             logger.warning("Failed to refresh Telegram privacy-mode status", exc_info=True)
 
         # `?startgroup=<code>` does NOT deliver a `/start <code>` message to the
-        # group — only this update fires. So when a linked mentor adds the bot
-        # to a group, match them to their most recent group-setup pairing and
-        # attach the group to that student here (see consume_pairing_for_adder).
+        # group — only this update fires. Match the adder to their one active
+        # setup request, but keep the group unbound until the mentor confirms
+        # the detected candidate in CRM.
         if bot_is_in_chat and chat.chat_type in (TelegramChatType.group, TelegramChatType.supergroup):
             student = await consume_pairing_for_adder(db, chat, adder_id)
         await db.commit()
@@ -97,7 +97,11 @@ async def on_my_chat_member(event: ChatMemberUpdated):
     if student:
         # Бот молчит в клиентских группах без исключений — подтверждение
         # подключения видно менторам в CRM (карточка студента), не в чате.
-        logger.info("Telegram group connected via startgroup: chat_id=%s student_id=%s", event.chat.id, student.id)
+        logger.info(
+            "Telegram group detected as pairing candidate: chat_id=%s student_id=%s",
+            event.chat.id,
+            student.id,
+        )
 
 
 async def consume_pairing_code(db, code: str, chat, now: datetime | None = None):
@@ -127,6 +131,9 @@ async def consume_pairing_code(db, code: str, chat, now: datetime | None = None)
     if pairing.used_at is not None:
         logger.warning("Telegram pairing failed: code already used (chat_id=%s)", chat.chat_id)
         return None
+    if pairing.cancelled_at is not None:
+        logger.warning("Telegram pairing failed: code cancelled (chat_id=%s)", chat.chat_id)
+        return None
     if pairing.expires_at < used_at:
         logger.warning("Telegram pairing failed: code expired (chat_id=%s)", chat.chat_id)
         return None
@@ -137,8 +144,7 @@ async def consume_pairing_code(db, code: str, chat, now: datetime | None = None)
 async def _bind_chat_to_pairing(db, pairing, chat, used_at):
     """Attach `chat` to the student behind `pairing`: close any prior active
     session, mark the pairing used, flip the chat to active and open a fresh
-    session. Shared by code-based (`consume_pairing_code`) and adder-based
-    (`consume_pairing_for_adder`) attach so both behave identically."""
+    session. Used by exact code pairing and by the explicit confirmation API."""
     from sqlalchemy import select
     from app.models.telegram_chat import TelegramChatStatus
     from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
@@ -172,14 +178,17 @@ async def _bind_chat_to_pairing(db, pairing, chat, used_at):
 
 
 async def consume_pairing_for_adder(db, chat, adder_tg_user_id, now: datetime | None = None):
-    """Attach a freshly-added group to a student when the bot was added via a
-    `?startgroup=<code>` link. Telegram drops the startgroup payload, so instead
-    of a code we match the person who ADDED the bot (`my_chat_member.from_user`)
-    to their most recent still-valid group-setup pairing. Only ever attaches an
-    unbound chat — never hijacks one already bound to a student."""
+    """Register a freshly-added group as a confirmation candidate.
+
+    Telegram drops the startgroup payload, so we match the staff member who
+    added the bot to their only current setup request. The chat remains
+    unbound, messages are ignored, and no student session is created until the
+    staff member confirms it in CRM.
+    """
     from sqlalchemy import select
     from app.models.telegram_chat import TelegramChatStatus
     from app.models.telegram_pairing_code import TelegramPairingCode
+    from app.models.student import Student
     from app.models.user import User
 
     if adder_tg_user_id is None or chat.status != TelegramChatStatus.unbound:
@@ -197,6 +206,8 @@ async def consume_pairing_for_adder(db, chat, adder_tg_user_id, now: datetime | 
         .where(
             TelegramPairingCode.created_by == adder.id,
             TelegramPairingCode.used_at.is_(None),
+            TelegramPairingCode.cancelled_at.is_(None),
+            TelegramPairingCode.candidate_chat_id.is_(None),
             TelegramPairingCode.expires_at > used_at,
         )
         .order_by(TelegramPairingCode.created_at.desc())
@@ -208,7 +219,14 @@ async def consume_pairing_for_adder(db, chat, adder_tg_user_id, now: datetime | 
         logger.info("Telegram auto-attach skipped: no pending pairing for adder %s (chat_id=%s)", adder.id, chat.chat_id)
         return None
 
-    return await _bind_chat_to_pairing(db, pairing, chat, used_at)
+    student = await db.get(Student, pairing.student_id)
+    if not student:
+        return None
+
+    pairing.candidate_chat_id = chat.id
+    pairing.candidate_detected_at = used_at
+    await db.flush()
+    return student
 
 
 def is_invite_link_usable(link, now: datetime | None = None) -> bool:
