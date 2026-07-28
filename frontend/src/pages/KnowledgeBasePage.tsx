@@ -25,7 +25,7 @@ export const KnowledgeBasePage: React.FC = () => {
   })
 
   React.useEffect(() => {
-    if (syncJob?.status === 'done') {
+    if (syncJob?.status === 'done' || syncJob?.status === 'failed') {
       queryClient.invalidateQueries({ queryKey: ['knowledge-articles'] })
     }
   }, [syncJob?.status, queryClient])
@@ -106,11 +106,17 @@ export const KnowledgeBasePage: React.FC = () => {
                 />
               </div>
               <div className="font-semibold text-p-text">
-                {syncJob.status === 'running' ? 'Синхронизация идёт…' : syncJob.status === 'done' ? 'Готово' : 'Ошибка'}
+                {syncJob.status === 'running'
+                  ? 'Синхронизация идёт…'
+                  : syncJob.result?.failed
+                    ? 'Завершено с ошибками'
+                    : syncJob.status === 'done'
+                      ? 'Готово'
+                      : 'Ошибка'}
               </div>
               {syncJob.result && (
                 <div className="mt-1 text-p-muted">
-                  Найдено {syncJob.result.found} · создано {syncJob.result.created} · обновлено {syncJob.result.updated}
+                  Проверено {syncJob.result.found} · создано {syncJob.result.created} · обновлено {syncJob.result.updated}
                   {syncJob.result.failed ? ` · ошибок ${syncJob.result.failed}` : ''}
                 </div>
               )}

@@ -26,19 +26,24 @@ from app.core.import_notion_root_roadmaps import NotionClient, _parse_dt, _plain
 from app.models.knowledge_article import KnowledgeArticle
 from migration.sources.notion import flatten_property
 
-# page_id -> category label. Curated by hand from the team's Notion index —
-# these pages don't share a discoverable schema the way roadmap/form
-# databases do, so there is nothing to search for.
+# page_id -> category label. Curated from the current "КОРНЕВЫЕ РОУДМАПЫ
+# 2026" index (page 2024a5e7-9e3c-8025-a249-d92583ecdbd9). Keep explicit IDs:
+# the page also contains dozens of roadmap/form sources that must not appear in
+# the staff knowledge base.
 TARGETS: list[dict[str, str]] = [
-    {"page_id": "8538111c-ac94-83c8-be91-8182b8f04d50", "category": "Мифы и разборы"},       # ОП - Разбор
-    {"page_id": "3ff8111c-ac94-83a0-af3a-81822546a78f", "category": "Стипендии"},             # Italy Need-based
-    {"page_id": "71d8111c-ac94-823d-afca-818f2f7e39ea", "category": "Стипендии"},             # Hungary Hungaricum
-    {"page_id": "f6b8111c-ac94-829f-b91a-0131c55d260e", "category": "Стипендии"},             # UK Chevening 2026
-    {"page_id": "1fe8111c-ac94-8210-8d69-01cc27468ae6", "category": "Регламенты"},            # Регламент «Компания - Ментор»
-    {"page_id": "a078111c-ac94-8252-b5bb-81ef503386e6", "category": "Пакеты и выплаты"},      # Grand table Packages (Jun'2025)
-    {"page_id": "ed78111c-ac94-836e-8a23-8168b4fb66b9", "category": "Пакеты и выплаты"},      # Grand table Packages (DEC'2025, junior mentors)
-    {"page_id": "5798111c-ac94-8359-a55d-819754e2ed05", "category": "Пакеты и выплаты"},      # Grand table Packages (AUG'2025)
-    {"page_id": "ebb8111c-ac94-83f9-bafd-017d57f5a35a", "category": "Шаблоны"},               # SAMPLE_Counselor page
+    {"page_id": "2654a5e7-9e3c-80b9-a1f9-e6d0d4ac74e5", "category": "Стипендии"},         # UK Chevening 2026
+    {"page_id": "2654a5e7-9e3c-80e7-b015-e9d153feafa2", "category": "Стипендии"},         # Hungary Hungaricum
+    {"page_id": "2674a5e7-9e3c-803e-90e4-f834229d90e1", "category": "Стипендии"},         # Italy Need-based
+    {"page_id": "2674a5e7-9e3c-8057-922f-f0d9d65b7da3", "category": "Стипендии"},         # Korea GKS Undergraduate
+    {"page_id": "2674a5e7-9e3c-805e-8365-e231f3555bf0", "category": "Стипендии"},         # Korea GKS Graduate
+    {"page_id": "2684a5e7-9e3c-803a-b609-cd1bbc453677", "category": "Стипендии"},         # Korea merit-based
+    {"page_id": "27e4a5e7-9e3c-80b3-8e87-c225b3c1c6e4", "category": "Мифы и разборы"},   # ОП - Разбор
+    {"page_id": "2064a5e7-9e3c-80f9-9232-cb88b1651b4b", "category": "Регламенты"},        # Компания - Ментор
+    {"page_id": "24b4a5e7-9e3c-8027-aa16-d751ecdb9f0b", "category": "Пакеты и выплаты"},  # Packages AUG'2025
+    {"page_id": "2024a5e7-9e3c-804b-a46f-da0e42d55bad", "category": "Пакеты и выплаты"},  # Кураторы Packages Jun'2025
+    {"page_id": "2be4a5e7-9e3c-81d7-b424-e6057b09d0a4", "category": "Пакеты и выплаты"},  # Кураторы Packages DEC'2025
+    {"page_id": "2094a5e7-9e3c-80f7-ac55-ed6d274c43b5", "category": "Пакеты и выплаты"},  # Компания Packages Jun'2025
+    {"page_id": "21f4a5e7-9e3c-80a3-af45-dd081f2e2768", "category": "Шаблоны"},           # SAMPLE_Counselor
 ]
 
 MAX_DEPTH = 6

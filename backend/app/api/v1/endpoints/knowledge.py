@@ -90,7 +90,13 @@ async def start_notion_knowledge_sync(current_user: CurrentUser):
         on_event = background_jobs.make_on_event(job.id)
         try:
             result = await run_import(on_event=on_event)
-            await background_jobs.finish_job(job.id, status="done", result=result)
+            failed = int(result.get("failed") or 0)
+            await background_jobs.finish_job(
+                job.id,
+                status="failed" if failed else "done",
+                result=result,
+                error=f"Не удалось импортировать страниц: {failed}" if failed else None,
+            )
         except Exception as exc:
             await background_jobs.finish_job(job.id, status="failed", error=str(exc))
 
