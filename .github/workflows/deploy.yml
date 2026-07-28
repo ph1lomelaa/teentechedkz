@@ -9,6 +9,11 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      # Backend imports shared migration helpers from the repository root.
+      # Several validation steps run with working-directory=backend, so make
+      # the root importable consistently for pytest, bootstrap and live E2E.
+      PYTHONPATH: ${{ github.workspace }}
 
     # Postgres для проверки миграций (alembic upgrade head на чистой БД).
     services:
@@ -37,13 +42,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ---------- Frontend ----------
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -70,7 +75,7 @@ jobs:
 
       # ---------- Backend ----------
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
