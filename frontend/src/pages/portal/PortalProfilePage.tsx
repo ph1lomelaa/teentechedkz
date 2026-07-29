@@ -82,8 +82,8 @@ export const PortalProfilePage: React.FC = () => {
 }
 
 const Row: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
-  <div className="flex justify-between gap-4 py-2 text-sm">
+  <div className="flex flex-col gap-1 py-2 text-sm sm:flex-row sm:justify-between sm:gap-4">
     <dt className="text-p-muted">{label}</dt>
-    <dd className="text-p-text font-bold text-right">{value || '—'}</dd>
+    <dd className="break-words font-bold text-p-text sm:text-right">{value || '—'}</dd>
   </div>
 )

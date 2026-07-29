@@ -153,7 +153,7 @@ export const PortalNotesPage: React.FC = () => {
   ) : detailLoading || !detail ? (
     <p className="text-sm text-p-muted">Загрузка…</p>
   ) : (
-    <article className="rounded-card border border-p-line bg-p-panel p-[22px]">
+    <article className="rounded-card border border-p-line bg-p-panel p-4 sm:p-[22px]">
       <button
         type="button"
         onClick={() => setSelectedId(null)}
@@ -165,7 +165,7 @@ export const PortalNotesPage: React.FC = () => {
       <p className="mt-1 text-[12px] text-p-muted">{fmt(detail.published_at || detail.created_at)}</p>
       {/* Markdown component uses light-theme grays — render on a white
           surface so it stays legible under the portal's dark theme too. */}
-      <div className="mt-5 rounded-panel border border-p-line bg-white p-5">
+      <div className="mt-5 rounded-panel border border-p-line bg-white p-3 sm:p-5">
         <Markdown>{detail.summary_markdown ?? ''}</Markdown>
       </div>
     </article>

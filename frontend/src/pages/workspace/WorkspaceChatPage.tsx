@@ -408,7 +408,7 @@ export const WorkspaceChatPage: React.FC = () => {
         />
       ) : (
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <AppCard colorPrefix="w" className="flex max-h-[600px] flex-col p-3">
+        <AppCard colorPrefix="w" className="flex max-h-[280px] flex-col p-3 sm:max-h-[420px] lg:max-h-[600px]">
           <div className="mb-2 space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-w-muted2" />
@@ -496,7 +496,7 @@ export const WorkspaceChatPage: React.FC = () => {
           )}
         </AppCard>
 
-        <AppCard colorPrefix="w" className="p-5">
+        <AppCard colorPrefix="w" className="p-3 sm:p-5">
           {!selected || !user ? (
             <EmptyState colorPrefix="w" title="Выберите диалог" description="Сообщения откроются справа." />
           ) : channel === 'all' ? (
@@ -520,7 +520,7 @@ export const WorkspaceChatPage: React.FC = () => {
               <ChatThread
                 conversationId={selected.internal.id}
                 currentUserId={user.id}
-                heightClass="h-[560px]"
+                heightClass="h-[min(560px,60dvh)] lg:h-[560px]"
                 variant="portal"
                 readOnly={selected.internal.can_write === false}
               />
@@ -704,7 +704,7 @@ function UnifiedThread({
         />
       </div>
 
-      <div className="h-[520px] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-4">
+      <div className="h-[min(520px,60dvh)] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-3 sm:p-4 lg:h-[520px]">
         {hasNextPage && (
           <div className="text-center">
             <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>

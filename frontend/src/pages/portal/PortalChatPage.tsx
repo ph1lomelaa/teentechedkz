@@ -152,7 +152,7 @@ export const PortalChatPage: React.FC = () => {
                 />
               </div>
               <div className="mb-4 flex flex-col gap-3">
-                <div className="h-[480px] space-y-2.5 overflow-y-auto rounded-panel border border-p-line bg-p-panel2 p-4">
+                <div className="h-[min(480px,60dvh)] space-y-2.5 overflow-y-auto rounded-panel border border-p-line bg-p-panel2 p-3 sm:p-4 lg:h-[480px]">
                   {telegram.messages.length === 0 ? (
                     <p className="mt-8 text-center text-sm text-p-muted">Сообщений пока нет.</p>
                   ) : filteredTelegramMessages.length === 0 ? (
@@ -234,7 +234,7 @@ export const PortalChatPage: React.FC = () => {
         </AppCard>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-          <AppCard colorPrefix="p" className="p-3">
+          <AppCard colorPrefix="p" className="max-h-[320px] overflow-y-auto p-3 lg:max-h-none">
             <div className="mb-2 px-1">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
@@ -310,7 +310,7 @@ export const PortalChatPage: React.FC = () => {
             )}
           </AppCard>
 
-          <AppCard colorPrefix="p" className="p-5">
+          <AppCard colorPrefix="p" className="p-3 sm:p-5">
             {activeConversation && user ? (
               <>
                 <div className="mb-4 border-b border-p-line pb-4">
@@ -322,7 +322,7 @@ export const PortalChatPage: React.FC = () => {
                 <ChatThread
                   conversationId={activeConversation.id}
                   currentUserId={user.id}
-                  heightClass="h-[520px]"
+                  heightClass="h-[min(520px,60dvh)] lg:h-[520px]"
                   variant="portal"
                   readOnly={activeConversation.can_write === false}
                 />
