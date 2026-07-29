@@ -67,7 +67,7 @@ export const PortalMeetingsPage: React.FC = () => {
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Календарь сопровождения</p>
-      <h1 className="mt-2 font-display text-[40px] leading-none font-black tracking-tight text-p-text">Встречи</h1>
+      <h1 className="mt-2 font-display text-3xl font-black leading-none tracking-tight text-p-text sm:text-[40px]">Встречи</h1>
       <p className="mt-2 max-w-[520px] text-sm text-p-muted">
         Созвоны с ментором: планируйте, подключайтесь и возвращайтесь к записям.
       </p>

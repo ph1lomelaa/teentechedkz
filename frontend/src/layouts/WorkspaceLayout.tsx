@@ -153,6 +153,15 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
     setMobileNavOpen(false)
   }, [location.pathname])
 
+  useEffect(() => {
+    if (!mobileNavOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [mobileNavOpen])
+
   const setMentorFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)
     if (value) {
@@ -164,8 +173,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   const sidebar = (
-    <aside aria-label="Навигация кабинета ментора" className="flex h-full w-[248px] shrink-0 flex-col gap-1.5 border-r border-w-line bg-black px-4 py-5">
-      <div className="relative px-2 pb-5">
+    <aside aria-label="Навигация кабинета ментора" className="flex h-full w-[248px] max-w-[85vw] shrink-0 flex-col gap-1.5 border-r border-w-line bg-black px-4 py-5">
+      <div className="relative flex h-full min-h-0 flex-col px-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <Link
           to={brandDestination}
           className="flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent"
@@ -245,7 +254,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   )
 
   return (
-    <div className="portal workspace-shell grid min-h-[100dvh] bg-w-bg text-w-ink lg:grid-cols-[248px_1fr]" data-theme={theme}>
+    <div className="portal workspace-shell grid min-h-[100dvh] min-w-0 overflow-x-hidden bg-w-bg text-w-ink lg:grid-cols-[248px_1fr]" data-theme={theme}>
       <a href="#workspace-main" className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-w-accent px-4 py-2 font-bold text-black transition focus:translate-y-0">
         Перейти к содержимому
       </a>
@@ -267,7 +276,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         </>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center gap-4 border-b border-w-line bg-w-bg/85 px-5 py-4 backdrop-blur-md md:px-8">
+        <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-w-line bg-w-bg/85 px-3 py-2.5 backdrop-blur-md sm:gap-3 sm:px-5 md:px-8 md:py-4">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
@@ -282,10 +291,10 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
               {user?.name || user?.email} · {user?.role}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
             <ThemeToggle variant="portal" />
             <NotificationsBell variant="portal" />
-            <div className="flex items-center gap-2 rounded-full border border-w-line bg-w-panel px-2 py-1.5">
+            <div className="hidden items-center gap-2 rounded-full border border-w-line bg-w-panel px-2 py-1.5 sm:flex">
               <span className="max-w-[180px] truncate text-[11px] font-semibold text-w-muted">
                 {(user?.role || 'mentor')} · {user?.name || user?.email || 'Пользователь'}
               </span>
@@ -296,7 +305,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
           </div>
         </header>
 
-        <main id="workspace-main" tabIndex={-1} className="mx-auto w-full max-w-[1180px] flex-1 px-4 py-6 sm:px-5 md:px-8 md:py-7">
+        <main id="workspace-main" tabIndex={-1} className="mx-auto w-full max-w-[1180px] min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 md:px-8 md:py-7">
           {isPreview && canPreviewMentor && (
             <div className="mb-5 rounded-card border border-w-accentDim/40 bg-w-accent/10 p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">

@@ -86,7 +86,7 @@ export function StudentWelcomePage() {
   return (
     <div className="min-h-screen overflow-hidden bg-[#0A0A0A] text-white">
       <header className="fixed top-0 z-50 w-full border-b border-white/10 bg-[#0A0A0A]/85 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-[1000px] items-center justify-between px-6 md:px-8">
+        <div className="mx-auto flex h-16 max-w-[1000px] items-center justify-between gap-3 px-4 sm:px-6 md:px-8">
           <div className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
@@ -97,7 +97,7 @@ export function StudentWelcomePage() {
           </div>
           <Link
             to="/login"
-            className="text-xs font-bold uppercase tracking-[0.14em] text-white/60 transition-colors hover:text-white"
+            className="text-right text-[10px] font-bold uppercase tracking-[0.1em] text-white/60 transition-colors hover:text-white sm:text-xs sm:tracking-[0.14em]"
           >
             Уже есть доступ? Войти
           </Link>
@@ -105,14 +105,14 @@ export function StudentWelcomePage() {
       </header>
 
       {/* HERO */}
-      <section className="relative px-6 pb-16 pt-32 text-center md:px-8 md:pt-40">
+      <section className="relative px-4 pb-14 pt-28 text-center sm:px-6 sm:pb-16 sm:pt-32 md:px-8 md:pt-40">
         <div className="pointer-events-none absolute left-1/2 top-24 h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[760px]">
           <p className="mb-4 font-display text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">
             Личное приглашение
           </p>
-          <h1 className="mb-6 text-4xl font-black leading-[1.05] tracking-tight md:text-5xl">
+          <h1 className="mb-5 text-3xl font-black leading-[1.08] tracking-tight sm:mb-6 sm:text-4xl md:text-5xl">
             {checking || !valid ? (
               <>
                 Ваш личный кабинет
@@ -127,7 +127,7 @@ export function StudentWelcomePage() {
               </>
             )}
           </h1>
-          <p className="mx-auto mb-10 max-w-[560px] text-lg leading-relaxed text-[#B0B0B0]">
+          <p className="mx-auto mb-8 max-w-[560px] text-base leading-relaxed text-[#B0B0B0] sm:mb-10 sm:text-lg">
             Ментор пригласил вас в TeenTechEd — здесь весь ваш путь к университету:
             план, задачи, документы и встречи в одном месте.
           </p>

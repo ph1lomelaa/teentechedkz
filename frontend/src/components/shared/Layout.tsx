@@ -145,7 +145,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [mobileOpen])
 
   return (
-    <div data-theme={theme} className="crm-shell flex h-[100dvh] overflow-hidden">
+    <div data-theme={theme} className="crm-shell flex h-[100dvh] min-w-0 overflow-hidden">
       {/* Backdrop для мобильного меню */}
       {mobileOpen && (
         <div
@@ -267,7 +267,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       {/* Main */}
       <div className="crm-content flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="crm-header flex items-center gap-3 border-b px-4 py-4 shrink-0 md:px-6">
+        <header className="crm-header flex min-h-14 items-center gap-2 border-b px-3 py-3 shrink-0 sm:gap-3 sm:px-4 md:px-6 md:py-4">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -285,14 +285,14 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
               </>
             )}
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
             <ThemeToggle />
             <NotificationsBell />
           </div>
         </header>
 
         {/* Content */}
-        <main className="app-main flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="app-main flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6">
           <div className="mx-auto w-full max-w-[1180px]">
             <React.Suspense
               fallback={(

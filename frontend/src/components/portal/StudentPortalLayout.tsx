@@ -180,7 +180,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   )
 
   return (
-    <div className="portal min-h-[100dvh] relative" data-theme={theme}>
+    <div className="portal relative min-h-[100dvh] min-w-0 overflow-x-hidden" data-theme={theme}>
       {/* Yellow radial blur glow background */}
       <div className="pointer-events-none absolute left-1/2 top-20 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-p-accent/[0.05] blur-3xl" />
 
@@ -204,7 +204,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
 
         {/* main */}
         <div className="flex flex-col min-w-0 bg-p-bg text-p-text">
-          <header className="sticky top-0 z-20 flex items-center gap-4 px-5 md:px-8 py-3.5 border-b border-p-line bg-p-bg/80 backdrop-blur-md">
+          <header className="sticky top-0 z-20 flex min-h-14 items-center gap-2 border-b border-p-line bg-p-bg/80 px-3 py-2.5 backdrop-blur-md sm:gap-3 sm:px-5 md:px-8 md:py-3.5">
             <button
               onClick={() => setMobileOpen(true)}
               className="p-1.5 -ml-1.5 text-p-muted hover:text-p-text lg:hidden"
@@ -216,10 +216,10 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
               TeenTechEd <span className="text-p-muted2/60">/</span>{' '}
               <b className="text-p-text font-semibold">{breadcrumbFor(location.pathname)}</b>
             </div>
-            <div className="ml-auto flex items-center gap-3">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
               <ThemeToggle variant="portal" />
               <NotificationsBell variant="portal" />
-              <div className="flex items-center gap-2 rounded-full border border-p-line bg-p-panel px-2 py-1.5">
+              <div className="hidden items-center gap-2 rounded-full border border-p-line bg-p-panel px-2 py-1.5 sm:flex">
                 <span className="max-w-[140px] truncate text-[11px] font-semibold text-p-muted">Студент · {user?.name || 'Пользователь'}</span>
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-p-accent text-[11px] font-black text-black">
                   {initials(user?.name) || 'С'}
@@ -228,7 +228,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
             </div>
           </header>
 
-          <main className="flex-1 px-5 md:px-8 py-7 md:py-8">
+          <main className="min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-7 md:px-8 md:py-8">
             <React.Suspense
               fallback={(
                 <div className="flex min-h-[50vh] items-center justify-center text-sm text-p-muted">

@@ -41,7 +41,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   colorPrefix = 'ds',
 }) => {
   return (
-    <AppCard colorPrefix={colorPrefix} className={cn('px-8 py-10 text-center', className)}>
+    <AppCard colorPrefix={colorPrefix} className={cn('px-4 py-8 text-center sm:px-8 sm:py-10', className)}>
       <div className={cn('mx-auto grid h-16 w-16 place-items-center rounded-pill border', ICON_BOX_CLASS[colorPrefix])}>
         {icon || <Users className="h-6 w-6" />}
       </div>

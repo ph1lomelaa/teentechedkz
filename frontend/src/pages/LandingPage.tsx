@@ -104,7 +104,7 @@ export function LandingPage() {
             : 'border-b border-transparent bg-transparent'
         }`}
       >
-        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6 md:px-8">
+        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-3 px-4 sm:px-6 md:px-8">
           <div className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
@@ -144,7 +144,7 @@ export function LandingPage() {
       </header>
 
       {/* HERO */}
-      <section className="relative px-6 pb-20 pt-32 text-center md:px-8 md:pt-44">
+      <section className="relative px-4 pb-16 pt-28 text-center sm:px-6 sm:pb-20 sm:pt-32 md:px-8 md:pt-44">
         <div className="glow-pulse pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[1200px]">
@@ -153,7 +153,7 @@ export function LandingPage() {
             accentLine={1}
           />
 
-          <p className="mx-auto mb-10 max-w-[600px] text-lg leading-relaxed text-[#B0B0B0]">
+          <p className="mx-auto mb-8 max-w-[600px] text-base leading-relaxed text-[#B0B0B0] sm:mb-10 sm:text-lg">
             Пайплайн, документы, звонки и менторы — в одной системе.
           </p>
 
@@ -430,7 +430,7 @@ export function HeroHeadline({ lines, accentLine }: { lines: [string, string]; a
   let wordIndex = 0
 
   return (
-    <h1 className="mb-6 font-display text-[40px] font-black leading-[1.02] tracking-tight md:text-[56px]">
+    <h1 className="mb-5 font-display text-[32px] font-black leading-[1.05] tracking-tight sm:mb-6 sm:text-[40px] md:text-[56px]">
       {lines.map((line, lineIdx) => (
         <span key={line} className={lineIdx === accentLine ? 'text-[#FFD400]' : undefined}>
           {line.split(' ').map((word, i) => {

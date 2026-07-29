@@ -111,7 +111,7 @@ export function StudentLandingPage() {
             : 'border-b border-transparent bg-transparent'
         }`}
       >
-        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6 md:px-8">
+        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-3 px-4 sm:px-6 md:px-8">
           <Link to="/" className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center rounded-ctl bg-[#FFD400]">
               <BeeMark className="h-5 w-5" />
@@ -145,7 +145,7 @@ export function StudentLandingPage() {
       </header>
 
       {/* HERO */}
-      <section className="relative px-6 pb-20 pt-32 text-center md:px-8 md:pt-44">
+      <section className="relative px-4 pb-16 pt-28 text-center sm:px-6 sm:pb-20 sm:pt-32 md:px-8 md:pt-44">
         <div className="glow-pulse pointer-events-none absolute left-1/2 top-32 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.07] blur-3xl" />
 
         <div className="relative mx-auto max-w-[1200px]">
@@ -157,7 +157,7 @@ export function StudentLandingPage() {
             accentLine={1}
           />
 
-          <p className="mx-auto mb-10 max-w-[600px] text-lg leading-relaxed text-[#B0B0B0]">
+          <p className="mx-auto mb-8 max-w-[600px] text-base leading-relaxed text-[#B0B0B0] sm:mb-10 sm:text-lg">
             Roadmap, задачи, документы и встречи с ментором — ничего не теряется в чатах.
           </p>
 

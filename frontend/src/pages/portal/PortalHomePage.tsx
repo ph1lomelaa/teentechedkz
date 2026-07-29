@@ -81,7 +81,7 @@ export const PortalHomePage: React.FC = () => {
           <div className="mb-2 font-display text-[11px] uppercase tracking-[.24em] text-p-accent">
             Панель студента
           </div>
-          <h1 className="font-display text-4xl font-black leading-[1.05] tracking-tight text-p-text">
+          <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text sm:text-4xl">
             Привет, <span className="text-p-accent">{firstName}</span>
           </h1>
           <p className="mt-2 max-w-[440px] text-sm text-p-muted">

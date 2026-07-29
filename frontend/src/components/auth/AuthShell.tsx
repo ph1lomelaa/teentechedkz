@@ -48,10 +48,10 @@ export function AuthShell({ eyebrow, title, description, children, wide = false 
         <span className="text-[10px] font-black uppercase tracking-[0.22em]">На главную</span>
       </Link>
 
-      <div className="relative flex min-h-[100dvh] items-center justify-center px-4 py-20 sm:px-6">
+      <div className="relative flex min-h-[100dvh] items-center justify-center px-3 py-16 sm:px-6 sm:py-20">
         <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-[440px]'}`}>
           <div
-            className={`relative overflow-hidden rounded-card border border-white/10 bg-white/[0.04] p-8 backdrop-blur-xl transition-all duration-300 ease-out focus-within:bg-white/[0.06] hover:bg-white/[0.05] sm:p-10 motion-reduce:transition-none ${
+            className={`relative overflow-hidden rounded-card border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl transition-all duration-300 ease-out focus-within:bg-white/[0.06] hover:bg-white/[0.05] sm:p-8 lg:p-10 motion-reduce:transition-none ${
               mounted ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-2 scale-[0.97] opacity-0'
             }`}
           >

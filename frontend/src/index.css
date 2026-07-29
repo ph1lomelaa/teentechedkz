@@ -58,12 +58,27 @@ html[data-theme='light'] {
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+  }
+
+  html {
+    overflow-x: hidden;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
     min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
     background-color: #0A0A0A;
     font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -127,6 +142,55 @@ html[data-theme='light'] {
   /* Table row hover */
   .table-row-hover {
     @apply hover:bg-muted/60 transition-colors duration-100;
+  }
+}
+
+/* Horizontal data regions remain usable on narrow screens without widening
+   the application shell. A visible, touch-friendly scrollbar also makes the
+   available gesture discoverable on tablets and phones. */
+.table-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.table-scroll:focus-visible {
+  outline: 2px solid #FFD400;
+  outline-offset: 2px;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+/* Long user-entered values and URLs must wrap instead of forcing the whole
+   viewport wider than the device. */
+:where(.crm-shell, .workspace-shell, .portal, .auth-shell) main {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 639px) {
+  /* Comfortable compact cards and controls at 320–430px while preserving
+     the desktop spacing from the sm breakpoint upward. */
+  :where(.crm-shell, .workspace-shell, .portal) :where(.rounded-card, .rounded-panel) {
+    max-width: 100%;
+  }
+
+  :where(.crm-shell, .workspace-shell, .portal) :where(button, a, input, select, textarea) {
+    min-width: 0;
+  }
+
+  .kb-content .kb-fields {
+    grid-template-columns: 1fr;
+    gap: 0.2em;
+  }
+
+  .kb-content .kb-field {
+    display: block;
+    padding: 0.35em 0;
+  }
+
+  .kb-content .kb-field-label {
+    margin-bottom: 0.15em;
   }
 }
 
