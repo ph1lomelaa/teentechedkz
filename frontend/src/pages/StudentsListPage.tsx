@@ -301,7 +301,7 @@ function IntakeInbox() {
             {items.map((sub) => (
               <TableRow key={sub.id} className="border-p-line hover:bg-p-bg">
                 <TableCell>
-                  <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
+                  <span className={`whitespace-nowrap text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
                     sub.source === 'package'
                       ? 'bg-sky-50 text-sky-700 border border-sky-200'
                       : 'bg-violet-50 text-violet-700 border border-violet-200'
@@ -1536,13 +1536,13 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+                    <span className={`whitespace-nowrap text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                       {DEGREE_LEVEL_LABELS[student.degree_level]}
                     </span>
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
+                      <span className={`whitespace-nowrap text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
                       </span>
                     ) : (
@@ -1557,7 +1557,7 @@ export const StudentsListPage: React.FC = () => {
                           <span
                             key={service.id}
                             title={`${SERVICE_TYPE_LABELS[service.service_type]} · ${SERVICE_STATUS_LABELS[service.status]}${service.assigned_mentor_name ? ` · ${service.assigned_mentor_name}` : ''}`}
-                            className={`rounded-pill border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
+                            className={`whitespace-nowrap rounded-pill border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
                               service.status === 'completed'
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : service.status === 'in_progress' || service.status === 'scheduled'
