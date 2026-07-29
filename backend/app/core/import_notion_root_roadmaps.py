@@ -40,7 +40,20 @@ from migration.sources.notion import NOTION_VERSION, flatten_property
 
 
 NOTION_BASE = "https://api.notion.com/v1"
-SEARCH_QUERIES = ("Roadmap", "Все задачи", "Задачи", "FOUNDATION", "Italy", "Qatar")
+SEARCH_QUERIES = (
+    "Roadmap",
+    "Все задачи",
+    "Задачи",
+    "FOUNDATION",
+    "Italy",
+    "Qatar",
+    "Hong Kong",
+    "Korea",
+    "USA",
+    "Austria",
+    "Canada",
+    "Отчетный",
+)
 STAGE_ORDER = ("Onboarding", "Pre-Admission", "Admission", "Post-Admission", "Off-boarding")
 STAGE_POS = {name.lower(): i for i, name in enumerate(STAGE_ORDER)}
 
@@ -52,9 +65,11 @@ COUNTRY_EN_TO_RU = {
     "Czech Republic": "Чехия",
     "Czech Rep": "Чехия",
     "Germany": "Германия",
+    "Hong Kong": "Гонконг",
     "Hungary": "Венгрия",
     "Italy": "Италия",
     "Japan": "Япония",
+    "Korea": "Корея",
     "Malaysia": "Малайзия",
     "Qatar": "Катар",
     "Turkey": "Турция",
@@ -85,6 +100,40 @@ class DatabaseCandidate:
     key: TemplateKey
     last_edited_time: datetime | None
     rows_count: int = 0
+
+
+# Notion's /search endpoint does not index every master roadmap database, even
+# though a direct GET by id succeeds (the integration can read them, they're
+# just outside the search index — likely because they live outside the
+# "КОРНЕВЫЕ РОУДМАПЫ 2026" page tree that /search seems to prioritize). These
+# ids were found by following the "в рамках задачи" relation from each
+# country's live per-student task tracker back to its master template.
+# Fetched directly and merged into discovery results explicitly.
+EXTRA_MASTER_DB_IDS: tuple[str, ...] = (
+    "2554a5e7-9e3c-8166-b955-dd4c48e7cb7f",  # Hong Kong UG
+    "2594a5e7-9e3c-8168-be21-eaae2f0da2d4",  # Hong Kong Graduate
+    "26e4a5e7-9e3c-8107-b531-ff4fbae2e61e",  # USA UG
+    "26e4a5e7-9e3c-81c4-9a4f-ce3fb1e7460a",  # USA Graduate
+    "2ad4a5e7-9e3c-81a5-9bee-e81f1ac5e7f6",  # Austria UG
+    "2ae4a5e7-9e3c-8135-a6af-fc0f796f49dd",  # Austria Graduate
+    "2ad4a5e7-9e3c-8193-a8c0-c499593f29b6",  # Canada UG
+    "2ae4a5e7-9e3c-8150-b2b5-fb5f9715d539",  # Canada Graduate
+    "2824a5e7-9e3c-81ba-ba0c-c378109db6f1",  # UAE UG
+    "2c04a5e7-9e3c-81b9-8dba-f79d8bdfea2a",  # Turkey UG
+    "2a94a5e7-9e3c-819f-bde1-fe51f3a275c5",  # China Graduate
+    "2814a5e7-9e3c-814b-974e-eba84652a43c",  # Italy Graduate
+    "2ad4a5e7-9e3c-8116-b97a-c6a74b63f2b9",  # Czech Republic UG
+    "2ae4a5e7-9e3c-8197-8485-de325b28c426",  # Germany Graduate
+    "2ad4a5e7-9e3c-811f-aee3-f4ef00ff1350",  # Malaysia UG
+    "2ad4a5e7-9e3c-81a4-9a33-c67b7c7991f6",  # Japan UG
+    "2c04a5e7-9e3c-8116-8a32-cbd85d9b7730",  # Qatar Graduate
+)
+
+# A handful of master databases have titles with no parseable country/degree
+# text at all (e.g. "Roadmap задач " for Hong Kong Graduate) — resolved by id.
+MASTER_DB_ID_OVERRIDES: dict[str, TemplateKey] = {
+    "2594a5e7-9e3c-8168-be21-eaae2f0da2d4": TemplateKey(country="Гонконг", degree="masters", year=2026),
+}
 
 
 @dataclass
@@ -252,10 +301,23 @@ def _parse_key(title: str) -> TemplateKey | None:
     if "foundation" in clean.lower():
         return TemplateKey(country=None, degree="foundation", year=2026, track="Foundation")
 
+    # "Roadmap задач (Country UG)" - country and degree live inside the parens.
+    inner_match = re.match(r"^Roadmap\s*задач\s*\(([^)]*)\)\s*$", clean, flags=re.I)
+    if inner_match:
+        inner = inner_match.group(1).replace("'26", "").strip()
+        degree_match = re.search(r"\b(UG|Graduate|Grad)\b\s*$", inner, flags=re.I)
+        if degree_match:
+            degree_raw = degree_match.group(1)
+            country_raw = inner[: degree_match.start()].strip()
+            if country_raw:
+                country_ru = COUNTRY_EN_TO_RU.get(country_raw, country_raw)
+                return TemplateKey(country=country_ru, degree=_normalize_degree(degree_raw), year=2026)
+
     # Strip known prefixes/placeholders and keep the country/degree tail.
     tail = clean
     tail = re.sub(r"^Roadmap\s*\([^)]*\)\s*задач\s*", "", tail, flags=re.I)
     tail = re.sub(r"^Roadmap\s*задач\s*\([^)]*\)\s*", "", tail, flags=re.I)
+    tail = re.sub(r"^Roadmap\s*задач\s*", "", tail, flags=re.I)
     tail = re.sub(r"^Задачи\s*\([^)]*\)\s*", "", tail, flags=re.I)
     tail = tail.replace("'26", "").strip()
     if tail == clean:
@@ -358,12 +420,18 @@ async def discover_candidates(client: NotionClient) -> list[DatabaseCandidate]:
         for db in await client.search_databases(query):
             seen[db["id"]] = db
 
+    # /search does not index every master database (see EXTRA_MASTER_DB_IDS) —
+    # fetch and merge those too.
+    for db_id in EXTRA_MASTER_DB_IDS:
+        if db_id not in seen:
+            seen[db_id] = await client.request("GET", f"/databases/{db_id}")
+
     candidates: list[DatabaseCandidate] = []
     for db in seen.values():
         if not _has_master_schema(db):
             continue
         title = _db_title(db)
-        key = _parse_key(title)
+        key = MASTER_DB_ID_OVERRIDES.get(db["id"]) or _parse_key(title)
         if not key:
             continue
         candidates.append(

@@ -71,6 +71,16 @@ async def _load(db: AsyncSession, qid: uuid.UUID) -> Questionnaire | None:
     return res.scalar_one_or_none()
 
 
+async def _load_for_update(db: AsyncSession, qid: uuid.UUID) -> Questionnaire | None:
+    """Row-locked variant of _load() for the submit path: a concurrent double
+    submit must serialize on this row instead of racing past the status check.
+    """
+    res = await db.execute(
+        select(Questionnaire).where(Questionnaire.id == qid).options(*_LOADER).with_for_update()
+    )
+    return res.scalar_one_or_none()
+
+
 async def _hydrate_notion_help_text(db: AsyncSession, q: Questionnaire) -> None:
     """Lazily cache captions for a form the first time it is opened.
 
@@ -335,7 +345,7 @@ async def respond_questionnaire(
     qid: uuid.UUID, body: RespondIn, current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    q = await _load(db, qid)
+    q = await _load_for_update(db, qid)
     if not q:
         raise _NOT_FOUND
     if current_user.role != UserRole.student or await _my_student_id(db, current_user) != q.student_id:

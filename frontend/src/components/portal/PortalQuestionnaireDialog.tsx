@@ -7,6 +7,7 @@ import {
   QuestionnaireQuestion,
 } from '@/api/questionnaires'
 import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 
 export const PortalQuestionnaireDialog: React.FC<{
   questionnaireId: string
@@ -33,6 +34,7 @@ export const PortalQuestionnaireDialog: React.FC<{
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['questionnaire', questionnaireId] })
       queryClient.invalidateQueries({ queryKey: ['portal', 'questionnaires'] })
+      toast({ title: 'Ответы отправлены', description: 'Ментор получит уведомление.' })
       onClose()
     },
     onError: (e: unknown) => {
