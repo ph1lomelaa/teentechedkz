@@ -162,13 +162,15 @@ html[data-theme='light'] {
   height: 6px;
 }
 
-/* Long user-entered values and URLs must wrap instead of forcing the whole
-   viewport wider than the device. */
-:where(.crm-shell, .workspace-shell, .portal, .auth-shell) main {
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 639px) {
+  /* Long user-entered values and URLs must wrap instead of forcing the whole
+     viewport wider than the device. Scoped to narrow screens only — on
+     desktop it broke short uppercase table headers (e.g. "СТЕПЕНЬ") mid-word
+     because .table-scroll already handles overflow via horizontal scroll. */
+  :where(.crm-shell, .workspace-shell, .portal, .auth-shell) main {
+    overflow-wrap: anywhere;
+  }
+
   /* Comfortable compact cards and controls at 320–430px while preserving
      the desktop spacing from the sm breakpoint upward. */
   :where(.crm-shell, .workspace-shell, .portal) :where(.rounded-card, .rounded-panel) {
