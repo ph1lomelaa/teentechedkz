@@ -173,6 +173,11 @@ class Stage(Base):
     status: Mapped[RoadmapItemStatus] = mapped_column(
         SAEnum(RoadmapItemStatus, name="roadmap_item_status"), default=RoadmapItemStatus.planned
     )
+    # Скрытый этап не виден студенту целиком, вместе со всеми задачами внутри.
+    # Дефолт true: существующие роадмапы остаются видимыми как были.
+    visible_to_student: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     roadmap: Mapped["Roadmap"] = relationship(back_populates="stages")
     tasks: Mapped[list["RoadmapTask"]] = relationship(
@@ -221,6 +226,12 @@ class RoadmapTask(Base):
     )
     status: Mapped[RoadmapItemStatus] = mapped_column(
         SAEnum(RoadmapItemStatus, name="roadmap_item_status"), default=RoadmapItemStatus.planned
+    )
+    # Поштучное скрытие: задача не видна студенту, даже если этап видимый.
+    # Ортогонально audience — coordinator-задачи и так внутренние, а этот флаг
+    # позволяет придержать applicant-задачу до нужного момента.
+    visible_to_student: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
     )
     review_status: Mapped[TaskReviewStatus] = mapped_column(
         SAEnum(TaskReviewStatus, name="task_review_status"),

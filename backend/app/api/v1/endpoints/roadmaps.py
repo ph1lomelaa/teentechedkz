@@ -30,6 +30,11 @@ from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
 from app.services.notify import dismiss_unread, has_unread, notify, push_notification, push_ws
 from app.services.questionnaire_seed import seed_questionnaire_for_task
+from app.services.roadmap_rules import (
+    is_required,
+    stage_status_after_task_change,
+    task_visible_to_student,
+)
 from app.models.student import Student
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User, UserRole
@@ -126,6 +131,42 @@ async def _load_roadmap(db: AsyncSession, roadmap_id: uuid.UUID) -> Roadmap | No
 async def _student_of_roadmap(db: AsyncSession, roadmap_id: uuid.UUID) -> uuid.UUID | None:
     res = await db.execute(select(Roadmap.student_id).where(Roadmap.id == roadmap_id))
     return res.scalar_one_or_none()
+
+
+async def _sync_stage_after_task_change(
+    db: AsyncSession, task: RoadmapTask, actor_id: uuid.UUID
+) -> None:
+    """Держит инвариант «этап done => все обязательные задачи приняты».
+
+    Правило вынесено в services/roadmap_rules.py — там же его тест.
+    """
+    # Явный flush: новый статус задачи ещё висит в сессии, а пересчёт идёт
+    # запросом к БД — без этого считались бы дофлашевые значения и снятие
+    # отметки не переоткрывало этап.
+    await db.flush()
+    stage = await db.get(Stage, task.stage_id)
+    if not stage:
+        return
+    rows = (
+        await db.execute(
+            select(RoadmapTask.priority, RoadmapTask.status).where(
+                RoadmapTask.stage_id == stage.id
+            )
+        )
+    ).all()
+    required = [row for row in rows if is_required(row[0])]
+    required_done = sum(row[1] == RoadmapItemStatus.done for row in required)
+    new_status = stage_status_after_task_change(
+        stage_status=stage.status,
+        required_total=len(required),
+        required_done=required_done,
+    )
+    if new_status != stage.status:
+        await log_change(
+            db, "stage", stage.id, "status", stage.status.value, new_status.value,
+            str(actor_id), source="cascade",
+        )
+        stage.status = new_status
 
 
 # ==========================================================================
@@ -339,7 +380,13 @@ async def get_student_roadmap(student_id: uuid.UUID, current_user: CurrentUser, 
     """A student can have several roadmaps active at once — returns all of
     them, newest first."""
     await _assert_view(db, student_id, current_user)
-    return await _active_roadmaps(db, student_id)
+    roadmaps = await _active_roadmaps(db, student_id)
+    # _assert_view пускает и владеющего студента, поэтому скрытое режется по
+    # роли вызывающего, а не по маршруту: иначе студент увидел бы придержанные
+    # этапы, зайдя сюда вместо /portal/roadmap.
+    if current_user.role == UserRole.student:
+        return _strip_hidden_for_student(roadmaps)
+    return roadmaps
 
 
 @router.get("/roadmaps/{roadmap_id}", response_model=RoadmapOut)
@@ -353,6 +400,8 @@ async def get_roadmap(roadmap_id: uuid.UUID, current_user: CurrentUser, db: Anno
     roadmap = await _load_roadmap(db, roadmap_id)
     if roadmap is None:
         raise _NOT_FOUND
+    if current_user.role == UserRole.student:
+        return _strip_hidden_for_student([roadmap])[0]
     return roadmap
 
 
@@ -363,13 +412,16 @@ async def get_my_roadmap(current_user: CurrentUser, db: Annotated[AsyncSession, 
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    return await _active_roadmaps(db, sid)
+    return _strip_hidden_for_student(await _active_roadmaps(db, sid))
 
 
 @router.get("/students/{student_id}/tasks", response_model=list[TaskFlatOut])
 async def get_student_tasks(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     await _assert_view(db, student_id, current_user)
-    return _flatten_tasks(await _active_roadmaps(db, student_id))
+    return _flatten_tasks(
+        await _active_roadmaps(db, student_id),
+        for_student=current_user.role == UserRole.student,
+    )
 
 
 @router.get("/portal/tasks", response_model=list[TaskFlatOut])
@@ -379,7 +431,7 @@ async def get_my_tasks(current_user: CurrentUser, db: Annotated[AsyncSession, De
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    return _flatten_tasks(await _active_roadmaps(db, sid))
+    return _flatten_tasks(await _active_roadmaps(db, sid), for_student=True)
 
 
 # ==========================================================================
@@ -421,6 +473,17 @@ async def _student_claim_context(
         raise _ROADMAP_ARCHIVED
     if task.audience != TaskAudience.applicant:
         raise _FORBIDDEN
+    # Придержанной задачи для студента не существует: 404, а не 403 — иначе по
+    # коду ответа можно нащупать, что задача есть, просто скрыта.
+    stage_visible = (
+        await db.execute(select(Stage.visible_to_student).where(Stage.id == task.stage_id))
+    ).scalar_one_or_none()
+    if not task_visible_to_student(
+        audience=task.audience,
+        task_visible=task.visible_to_student,
+        stage_visible=bool(stage_visible),
+    ):
+        raise _NOT_FOUND
     return sid, task, row.mentor_id
 
 
@@ -751,6 +814,12 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
             db, "roadmap_task", task.id, "review_status", "approved", "none",
             str(current_user.id), source="workspace",
         )
+    # Снятие отметки с задачи в завершённом этапе возвращает этап в работу:
+    # иначе этап остаётся `done` с незакрытой обязательной задачей, и ментор,
+    # случайно отметивший задачу, не может её вернуть.
+    if "status" in data:
+        await _sync_stage_after_task_change(db, task, current_user.id)
+
     if was_pending and "status" in data:
         task.reviewed_by = current_user.id
         task.reviewed_at = datetime.now(timezone.utc)
@@ -917,13 +986,47 @@ def _flat_task_out(stage: Stage, task: RoadmapTask) -> TaskFlatOut:
     )
 
 
-def _flatten_tasks(roadmaps: list[Roadmap]) -> list[TaskFlatOut]:
+def _flatten_tasks(roadmaps: list[Roadmap], *, for_student: bool = False) -> list[TaskFlatOut]:
+    """Плоский список задач.
+
+    `for_student=True` убирает скрытое (см. roadmap_rules.task_visible_to_student).
+    Флаг обязателен именно здесь: этот же хелпер обслуживает staff-роут
+    /students/{id}/tasks, которому скрытые задачи видеть как раз нужно.
+    """
     return [
         _flat_task_out(stage, task)
         for roadmap in roadmaps
         for stage in roadmap.stages
         for task in stage.tasks
+        if not for_student
+        or task_visible_to_student(
+            audience=task.audience,
+            task_visible=task.visible_to_student,
+            stage_visible=stage.visible_to_student,
+        )
     ]
+
+
+def _strip_hidden_for_student(roadmaps: list[Roadmap]) -> list[Roadmap]:
+    """Выбрасывает скрытые этапы и задачи из уже загруженных роадмапов.
+
+    Мутирует коллекции в загруженных объектах, а не БД: сессия дальше только
+    сериализуется в ответ. Скрытый этап уходит целиком, чтобы студент не видел
+    даже его название и прогресс.
+    """
+    for roadmap in roadmaps:
+        roadmap.stages = [s for s in roadmap.stages if s.visible_to_student]
+        for stage in roadmap.stages:
+            stage.tasks = [
+                t
+                for t in stage.tasks
+                if task_visible_to_student(
+                    audience=t.audience,
+                    task_visible=t.visible_to_student,
+                    stage_visible=stage.visible_to_student,
+                )
+            ]
+    return roadmaps
 
 
 async def _active_roadmaps(db: AsyncSession, student_id: uuid.UUID) -> list[Roadmap]:

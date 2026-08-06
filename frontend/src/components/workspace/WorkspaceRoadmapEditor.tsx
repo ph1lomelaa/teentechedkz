@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, ClipboardList, Clock, FileUp, Plus, Video, X } from 'lucide-react'
+import { Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, Plus, Video, X } from 'lucide-react'
 import {
   roadmapApi,
   Roadmap,
@@ -57,6 +57,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const [busy, setBusy] = useState(false)
   const [qTask, setQTask] = useState<{ id: string; title: string } | null>(null)
   const [returnTask, setReturnTask] = useState<RoadmapTask | null>(null)
+  const [uncheckTask, setUncheckTask] = useState<RoadmapTask | null>(null)
   const [returnComment, setReturnComment] = useState('')
   const [newTaskStage, setNewTaskStage] = useState<RoadmapStage | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -98,8 +99,27 @@ export const WorkspaceRoadmapEditor: React.FC<{
     }
   }
 
-  const toggleTask = (t: RoadmapTask) =>
-    run(() => roadmapApi.updateTask(t.id, { status: t.status === 'done' ? 'planned' : 'done' }))
+  // Снятие отметки — подтверждаемое действие: оно откатывает и сам этап, если
+  // тот уже был завершён, а при подтверждённой заявке студента ещё и стирает
+  // штампы ревью. Случайный клик по галочке не должен всё это делать молча.
+  const toggleTask = (t: RoadmapTask) => {
+    if (t.status === 'done') {
+      setUncheckTask(t)
+      return
+    }
+    run(() => roadmapApi.updateTask(t.id, { status: 'done' }))
+  }
+
+  const confirmUncheck = (t: RoadmapTask) => {
+    setUncheckTask(null)
+    run(() => roadmapApi.updateTask(t.id, { status: 'planned' }))
+  }
+
+  const toggleTaskVisibility = (t: RoadmapTask) =>
+    run(() => roadmapApi.updateTask(t.id, { visible_to_student: !t.visible_to_student }))
+
+  const toggleStageVisibility = (s: RoadmapStage) =>
+    run(() => roadmapApi.updateStage(s.id, { visible_to_student: !s.visible_to_student }))
 
   // Ревью заявки студента (T3/T4). API возвращает полный обновлённый Roadmap —
   // тот же контракт, что у остальных мутаций редактора. 409 (гонка со снятием
@@ -251,6 +271,20 @@ export const WorkspaceRoadmapEditor: React.FC<{
                     обязательные {s.required_done}/{s.required_total}
                   </span>
                 )}
+                {!s.visible_to_student && (
+                  <Pill colorPrefix="w" tone="neutral">скрыт от студента</Pill>
+                )}
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleStageVisibility(s) }}
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-w-muted2 transition hover:bg-w-panel2 hover:text-w-ink"
+                    title={s.visible_to_student ? 'Скрыть этап от студента' : 'Показать этап студенту'}
+                    aria-label={s.visible_to_student ? 'Скрыть этап от студента' : 'Показать этап студенту'}
+                  >
+                    {s.visible_to_student ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  </button>
+                )}
                 <ChevronRight
                   className={cn('ml-auto h-4 w-4 text-w-muted2 transition-transform', isOpen && 'rotate-90')}
                 />
@@ -266,6 +300,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
                         task={t}
                         canManage={canManage}
                         onToggle={() => toggleTask(t)}
+                        onToggleVisibility={() => toggleTaskVisibility(t)}
                         onToggleSub={toggleSubtask}
                         onAddSub={() => addSubtask(t)}
                         onRemove={() => removeTask(t)}
@@ -307,6 +342,32 @@ export const WorkspaceRoadmapEditor: React.FC<{
         onClose={() => setQTask(null)}
       />
     )}
+    <Dialog open={Boolean(uncheckTask)} onOpenChange={(o) => !o && setUncheckTask(null)}>
+      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Снять отметку о выполнении</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            «{uncheckTask?.title}» вернётся в работу.
+            {uncheckTask?.review_status === 'approved' && ' Подтверждение заявки студента будет снято.'}
+            {' '}Если этап уже завершён, он тоже вернётся в работу.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setUncheckTask(null)}>
+            Отмена
+          </AppButton>
+          <AppButton
+            colorPrefix="w"
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={busy}
+            onClick={() => uncheckTask && confirmUncheck(uncheckTask)}
+          >
+            Снять отметку
+          </AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={Boolean(returnTask)} onOpenChange={(o) => !o && setReturnTask(null)}>
       <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
@@ -414,6 +475,7 @@ const TaskCard: React.FC<{
   task: RoadmapTask
   canManage: boolean
   onToggle: () => void
+  onToggleVisibility: () => void
   onToggleSub: (id: string, isDone: boolean) => void
   onAddSub: () => void
   onRemove: () => void
@@ -421,7 +483,7 @@ const TaskCard: React.FC<{
   onOpenQuestionnaire?: () => void
   onApproveReview?: () => void
   onReturnReview?: () => void
-}> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
   const isDone = task.status === 'done'
   return (
     <div className="rounded-[13px] border border-w-line bg-w-panel2 transition hover:translate-x-[3px] hover:border-w-accentDim">
@@ -455,6 +517,9 @@ const TaskCard: React.FC<{
             </div>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
+            {!task.visible_to_student && (
+              <Pill colorPrefix="w" tone="neutral">скрыта от студента</Pill>
+            )}
             {task.review_status === 'pending' && (
               <Pill colorPrefix="w" tone="accent">ждёт проверки</Pill>
             )}
@@ -509,6 +574,17 @@ const TaskCard: React.FC<{
           </div>
         </div>
         <PriorityPill priority={task.priority} colorPrefix="w" className="shrink-0" />
+        {canManage && (
+          <button
+            type="button"
+            onClick={onToggleVisibility}
+            className="shrink-0 text-w-muted2 transition hover:text-w-ink"
+            title={task.visible_to_student ? 'Скрыть задачу от студента' : 'Показать задачу студенту'}
+            aria-label={task.visible_to_student ? 'Скрыть задачу от студента' : 'Показать задачу студенту'}
+          >
+            {task.visible_to_student ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          </button>
+        )}
         {canManage && (
           <button
             type="button"

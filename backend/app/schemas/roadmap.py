@@ -153,6 +153,7 @@ class RoadmapTaskOut(BaseModel):
     questionnaire_url: str | None = None
     priority: str
     audience: str
+    visible_to_student: bool = True
     status: str
     review_status: str = "none"
     completed_at: datetime | None = None
@@ -177,6 +178,7 @@ class StageOut(BaseModel):
     description: str
     position: int
     status: str
+    visible_to_student: bool = True
     tasks_total: int = 0
     required_total: int = 0
     required_done: int = 0
@@ -218,6 +220,7 @@ class TaskFlatOut(BaseModel):
     questionnaire_url: str | None = None
     priority: str
     audience: str
+    visible_to_student: bool = True
     status: str
     review_status: str = "none"
     completed_at: datetime | None = None
@@ -264,6 +267,7 @@ class TaskCreate(BaseModel):
     questionnaire_url: str | None = None
     priority: TaskPriority = TaskPriority.required
     audience: TaskAudience = TaskAudience.applicant
+    visible_to_student: bool = True
     due_date: date | None = None
 
 
@@ -276,6 +280,7 @@ class TaskUpdate(BaseModel):
     questionnaire_url: str | None = None
     priority: TaskPriority | None = None
     audience: TaskAudience | None = None
+    visible_to_student: bool | None = None
     status: RoadmapItemStatus | None = None
     due_date: date | None = None
 
@@ -293,4 +298,5 @@ class SubtaskUpdate(BaseModel):
 class StageUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    visible_to_student: bool | None = None
     status: RoadmapItemStatus | None = None

@@ -27,6 +27,7 @@ export interface RoadmapTask {
   questionnaire_url: string | null
   priority: Priority
   audience: Audience
+  visible_to_student: boolean
   status: ItemStatus
   review_status: ReviewStatus
   completed_at: string | null
@@ -45,6 +46,7 @@ export interface RoadmapStage {
   description: string
   position: number
   status: ItemStatus
+  visible_to_student: boolean
   tasks_total: number
   required_total: number
   required_done: number
@@ -223,6 +225,7 @@ export interface FlatTask {
   questionnaire_url: string | null
   priority: Priority
   audience: Audience
+  visible_to_student: boolean
   status: ItemStatus
   review_status: ReviewStatus
   completed_at: string | null
@@ -256,7 +259,10 @@ export const roadmapApi = {
   studentTasks: (studentId: string) =>
     data<FlatTask[]>(apiClient.get(`/students/${studentId}/tasks`)),
 
-  updateStage: (stageId: string, body: { status?: ItemStatus; name?: string; description?: string }) =>
+  updateStage: (
+    stageId: string,
+    body: { status?: ItemStatus; name?: string; description?: string; visible_to_student?: boolean },
+  ) =>
     data<Roadmap>(apiClient.patch(`/stages/${stageId}`, body)),
   createTask: (body: {
     stage_id: string
@@ -268,6 +274,7 @@ export const roadmapApi = {
     questionnaire_url?: string | null
     priority?: Priority
     audience?: Audience
+    visible_to_student?: boolean
     due_date?: string | null
   }) =>
     data<Roadmap>(apiClient.post('/roadmap-tasks', body)),
@@ -281,6 +288,7 @@ export const roadmapApi = {
     status: ItemStatus
     priority: Priority
     audience: Audience
+    visible_to_student: boolean
     due_date: string | null
   }>) =>
     data<Roadmap>(apiClient.patch(`/roadmap-tasks/${taskId}`, body)),
