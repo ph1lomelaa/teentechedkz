@@ -4,7 +4,8 @@ import { Pencil, Plus, Shield } from 'lucide-react'
 import { confidentialNotesApi } from '@/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
-import { AppButton, AppSelect } from '@/components/ui'
+import { AppButton } from '@/components/ui'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import { formatDate } from '@/lib/utils'
 import type { ConfidentialNote, NoteVisibility } from '@/types'
 
@@ -190,11 +191,19 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
           />
           <div className="flex flex-wrap items-center gap-2">
             {canPickVisibility && (
-              <AppSelect colorPrefix="w" value={role} onChange={(e) => setRole(e.target.value as NoteVisibility)} className="w-44">
-                <option value="admin_only">Только admin</option>
-                <option value="admin_and_mzk">Admin и MZK</option>
-                <option value="all_mentors">Все менторы</option>
-              </AppSelect>
+              // Radix Select вместо нативного <select>: на macOS/Safari
+              // системный список игнорирует тему страницы и рисуется в
+              // светлой теме ОС независимо от темы приложения.
+              <Select value={role} onValueChange={(v) => setRole(v as NoteVisibility)}>
+                <SelectTrigger className="h-10 w-44 border-w-line bg-w-panel2 text-sm font-bold text-w-ink focus:border-w-accentDim">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border-w-line bg-w-panel text-w-ink">
+                  <SelectItem value="admin_only">Только admin</SelectItem>
+                  <SelectItem value="admin_and_mzk">Admin и MZK</SelectItem>
+                  <SelectItem value="all_mentors">Все менторы</SelectItem>
+                </SelectContent>
+              </Select>
             )}
             <AppButton colorPrefix="w" size="sm" disabled={!text.trim() || addMutation.isPending} onClick={() => addMutation.mutate()}>
               Сохранить

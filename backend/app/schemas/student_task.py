@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,6 +24,12 @@ class StudentTaskUpdate(BaseModel):
     service_id: uuid.UUID | None = None
 
 
+class StudentTaskDueDateSet(BaseModel):
+    """Payload for assigning/changing a task's due date. Admin-only (§2.2 ОС 30/07)."""
+
+    due_date: date | None = None
+
+
 class StudentTaskResponse(BaseModel):
     """Full task record including the resolved creator name."""
 
@@ -38,3 +44,6 @@ class StudentTaskResponse(BaseModel):
     created_by_name: str | None = None  # resolved from join / eager-loaded relation
     created_at: datetime
     done_at: datetime | None = None
+    due_date: date | None = None
+    due_date_set_by: uuid.UUID | None = None
+    urgency: str | None = None  # resolved via app.services.task_urgency, not a DB column

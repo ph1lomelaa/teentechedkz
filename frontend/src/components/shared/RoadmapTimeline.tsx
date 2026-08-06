@@ -8,7 +8,17 @@ import {
   ItemStatus,
 } from '@/api/roadmap'
 import { cn, formatDate } from '@/lib/utils'
-import { StatusPill, PriorityPill } from '@/components/ui'
+import { StatusPill, PriorityPill, UrgencyBadge, AppButton } from '@/components/ui'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/primitives/dialog'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
 
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
   planned: 'in_progress',
@@ -35,6 +45,9 @@ export const RoadmapTimeline: React.FC<{
 }> = ({ roadmap, canManage = false, onChanged }) => {
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
   const [busy, setBusy] = useState(false)
+  const [newTaskStage, setNewTaskStage] = useState<RoadmapStage | null>(null)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
 
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -64,9 +77,21 @@ export const RoadmapTimeline: React.FC<{
   const cycleStage = (s: RoadmapStage) =>
     run(() => roadmapApi.updateStage(s.id, { status: STAGE_CYCLE[s.status] }))
 
-  const addTask = (s: RoadmapStage) => {
-    const title = window.prompt('Название задачи')?.trim()
-    if (title) run(() => roadmapApi.createTask({ stage_id: s.id, title }))
+  const openAddTask = (s: RoadmapStage) => {
+    setNewTaskStage(s)
+    setNewTaskTitle('')
+    setNewTaskDueDate('')
+  }
+  const submitAddTask = () => {
+    const title = newTaskTitle.trim()
+    const stage = newTaskStage
+    if (!title || !stage) return
+    setNewTaskStage(null)
+    run(() => roadmapApi.createTask({
+      stage_id: stage.id,
+      title,
+      due_date: newTaskDueDate || null,
+    }))
   }
   const removeTask = async (t: RoadmapTask) => {
     if (busy || !window.confirm('Удалить задачу?')) return
@@ -177,7 +202,7 @@ export const RoadmapTimeline: React.FC<{
                   )}
                   {canManage && (
                     <button
-                      onClick={() => addTask(s)}
+                      onClick={() => openAddTask(s)}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-black px-2 py-1.5"
                     >
                       <Plus className="w-3.5 h-3.5" /> Добавить задачу
@@ -189,6 +214,46 @@ export const RoadmapTimeline: React.FC<{
           )
         })}
       </div>
+
+      <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Новая задача</DialogTitle>
+            <DialogDescription>
+              Этап «{newTaskStage?.name}». Срок необязателен, но именно по нему считается срочность.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Название</Label>
+              <Input
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="Что нужно сделать"
+                className="mt-1"
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label>Срок</Label>
+              <Input
+                type="date"
+                value={newTaskDueDate}
+                onChange={(e) => setNewTaskDueDate(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <AppButton variant="subtle" size="sm" onClick={() => setNewTaskStage(null)}>
+              Отмена
+            </AppButton>
+            <AppButton size="sm" disabled={!newTaskTitle.trim() || busy} onClick={submitAddTask}>
+              Создать задачу
+            </AppButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -256,6 +321,7 @@ const TaskRow: React.FC<{
           )}
           <div className="flex items-center gap-3 mt-1 text-xs text-p-muted flex-wrap">
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
+            <UrgencyBadge dueDate={task.due_date} status={task.status} />
             {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
             {/* Заявка студента: галочка здесь = подтверждение — пусть это будет видно */}
             {task.review_status === 'pending' && (

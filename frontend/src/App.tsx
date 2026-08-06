@@ -16,6 +16,7 @@ import { JoinMentorPage } from '@/pages/JoinMentorPage'
 import { StudentWelcomePage } from '@/pages/StudentWelcomePage'
 import { InvitePage } from '@/pages/InvitePage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
+import { AgreementSignPage } from '@/pages/AgreementSignPage'
 import { StudentPortalLayout } from '@/components/portal/StudentPortalLayout'
 import { WorkspaceLayout } from '@/layouts/WorkspaceLayout'
 
@@ -31,9 +32,24 @@ const PortalRoadmapPage = React.lazy(() => import('@/pages/portal/PortalRoadmapP
 const PortalTasksPage = React.lazy(() => import('@/pages/portal/PortalTasksPage').then((m) => ({ default: m.PortalTasksPage })))
 const PortalMeetingsPage = React.lazy(() => import('@/pages/portal/PortalMeetingsPage').then((m) => ({ default: m.PortalMeetingsPage })))
 const PortalNotesPage = React.lazy(() => import('@/pages/portal/PortalNotesPage').then((m) => ({ default: m.PortalNotesPage })))
+const PortalComplaintsPage = React.lazy(() => import('@/pages/portal/PortalComplaintsPage').then((m) => ({ default: m.PortalComplaintsPage })))
+const WorkspaceComplaintsPage = React.lazy(() => import('@/pages/workspace/WorkspaceComplaintsPage').then((m) => ({ default: m.WorkspaceComplaintsPage })))
+const WorkspaceRefundCasesPage = React.lazy(() => import('@/pages/workspace/WorkspaceRefundCasesPage').then((m) => ({ default: m.WorkspaceRefundCasesPage })))
+const WorkspaceSecurityIncidentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceSecurityIncidentsPage').then((m) => ({ default: m.WorkspaceSecurityIncidentsPage })))
+const WorkspaceMzkQualityPage = React.lazy(() => import('@/pages/workspace/WorkspaceMzkQualityPage').then((m) => ({ default: m.WorkspaceMzkQualityPage })))
+const WorkspaceMentorRewardsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMentorRewardsPage').then((m) => ({ default: m.WorkspaceMentorRewardsPage })))
+const WorkspaceMyRewardsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyRewardsPage').then((m) => ({ default: m.WorkspaceMyRewardsPage })))
+// CRM-версии тех же админ-разделов (общие компоненты, токены ds-*).
+const AgreementsPage = React.lazy(() => import('@/pages/AgreementsPage').then((m) => ({ default: m.AgreementsPage })))
+const MzkQualityPage = React.lazy(() => import('@/pages/MzkQualityPage').then((m) => ({ default: m.MzkQualityPage })))
+const MentorRewardsPage = React.lazy(() => import('@/pages/MentorRewardsPage').then((m) => ({ default: m.MentorRewardsPage })))
 const PortalImportantNotesPage = React.lazy(() => import('@/pages/portal/PortalImportantNotesPage').then((m) => ({ default: m.PortalImportantNotesPage })))
 const PortalUniversitiesPage = React.lazy(() => import('@/pages/portal/PortalUniversitiesPage').then((m) => ({ default: m.PortalUniversitiesPage })))
+const PortalUniversityDetailPage = React.lazy(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
+const PortalShortlistPage = React.lazy(() => import('@/pages/portal/PortalShortlistPage').then((m) => ({ default: m.PortalShortlistPage })))
+const PortalApplicationsPage = React.lazy(() => import('@/pages/portal/PortalApplicationsPage').then((m) => ({ default: m.PortalApplicationsPage })))
 const PortalCountriesPage = React.lazy(() => import('@/pages/portal/PortalCountriesPage').then((m) => ({ default: m.PortalCountriesPage })))
+const PortalCountryDetailPage = React.lazy(() => import('@/pages/portal/PortalCountryDetailPage').then((m) => ({ default: m.PortalCountryDetailPage })))
 const PortalChatPage = React.lazy(() => import('@/pages/portal/PortalChatPage').then((m) => ({ default: m.PortalChatPage })))
 const PortalQuestionnairesPage = React.lazy(() => import('@/pages/portal/PortalQuestionnairesPage').then((m) => ({ default: m.PortalQuestionnairesPage })))
 const PortalProfilePage = React.lazy(() => import('@/pages/portal/PortalProfilePage').then((m) => ({ default: m.PortalProfilePage })))
@@ -49,7 +65,11 @@ const WorkspaceDocumentsPage = React.lazy(() => import('@/pages/workspace/Worksp
 const WorkspaceChatPage = React.lazy(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
 const WorkspaceRoadmapPage = React.lazy(() => import('@/pages/workspace/WorkspaceRoadmapPage').then((m) => ({ default: m.WorkspaceRoadmapPage })))
 const WorkspaceUniversitiesPage = React.lazy(() => import('@/pages/workspace/WorkspaceUniversitiesPage').then((m) => ({ default: m.WorkspaceUniversitiesPage })))
+const WorkspaceUniversityDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceUniversityDetailPage').then((m) => ({ default: m.WorkspaceUniversityDetailPage })))
 const WorkspaceCountriesPage = React.lazy(() => import('@/pages/workspace/WorkspaceCountriesPage').then((m) => ({ default: m.WorkspaceCountriesPage })))
+const WorkspaceCountryDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceCountryDetailPage').then((m) => ({ default: m.WorkspaceCountryDetailPage })))
+const WorkspaceAgreementsPage = React.lazy(() => import('@/pages/workspace/WorkspaceAgreementsPage').then((m) => ({ default: m.WorkspaceAgreementsPage })))
+const WorkspaceMyDayPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyDayPage').then((m) => ({ default: m.WorkspaceMyDayPage })))
 const WorkspaceQuestionnairesPage = React.lazy(() => import('@/pages/workspace/WorkspaceQuestionnairesPage').then((m) => ({ default: m.WorkspaceQuestionnairesPage })))
 const WorkspaceNotificationsPage = React.lazy(() => import('@/pages/workspace/WorkspaceNotificationsPage').then((m) => ({ default: m.WorkspaceNotificationsPage })))
 const NewStudentPage = React.lazy(() =>
@@ -57,6 +77,9 @@ const NewStudentPage = React.lazy(() =>
 )
 const MyStudentsPage = React.lazy(() =>
   import('@/pages/MyStudentsPage').then((m) => ({ default: m.MyStudentsPage }))
+)
+const CountryDetailPage = React.lazy(() =>
+  import('@/pages/CountryDetailPage').then((m) => ({ default: m.CountryDetailPage }))
 )
 const CountriesPage = React.lazy(() =>
   import('@/pages/CountriesPage').then((m) => ({ default: m.CountriesPage }))
@@ -75,6 +98,9 @@ const TemplatesPage = React.lazy(() =>
 )
 const KnowledgeBasePage = React.lazy(() =>
   import('@/pages/KnowledgeBasePage').then((m) => ({ default: m.KnowledgeBasePage }))
+)
+const UniversityDetailPage = React.lazy(() =>
+  import('@/pages/UniversityDetailPage').then((m) => ({ default: m.UniversityDetailPage }))
 )
 const UniversitiesPage = React.lazy(() =>
   import('@/pages/UniversitiesPage').then((m) => ({ default: m.UniversitiesPage }))
@@ -156,6 +182,7 @@ function useBaseAuthGuard(): React.ReactElement | null {
   if (isLoading) return <AppLoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   if (user.must_change_password) return <Navigate to="/change-password" replace />
+  if (user.agreement_signature_required) return <Navigate to="/agreements/sign" replace />
   return null
 }
 
@@ -213,6 +240,17 @@ function ChangePasswordRoute() {
   if (isLoading) return <AppLoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   return <ChangePasswordPage />
+}
+
+// Same idea: reachable by any authenticated user whose password is already
+// set (must_change_password gate runs first), so an unsigned agreement can
+// never trap someone before they even have a real password.
+function AgreementSignRoute() {
+  const { user, isLoading } = useAuth()
+  if (isLoading) return <AppLoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.must_change_password) return <Navigate to="/change-password" replace />
+  return <AgreementSignPage />
 }
 
 function AppRoutes() {
@@ -331,6 +369,19 @@ function AppRoutes() {
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <CountriesPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/countries/:id"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <CountryDetailPage />
               </React.Suspense>
             </AppLayout>
           </ProtectedRoute>
@@ -471,8 +522,88 @@ function AppRoutes() {
         }
       />
 
+      <Route
+        path="/universities/:id"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <UniversityDetailPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* CRM is the superset shell: the same complaints/refunds pages the
+          workspace renders, mounted here for admins working in the CRM. */}
+      <Route
+        path="/complaints"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <WorkspaceComplaintsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      {/* Narrower than complaints: every refund-case endpoint is admin/mzk
+          only, so a mentor here would 403 on the first fetch. */}
+      <Route
+        path="/refund-cases"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <WorkspaceRefundCasesPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      {/* Регламенты создаёт и публикует только админ (все write-эндпоинты AdminOnly). */}
+      <Route
+        path="/agreements"
+        element={
+          <ProtectedRoute roles={['admin']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <AgreementsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/mzk-quality"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <MzkQualityPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/mentor-rewards"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <MentorRewardsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Forced/optional password change (no layout) */}
       <Route path="/change-password" element={<ChangePasswordRoute />} />
+      <Route path="/agreements/sign" element={<AgreementSignRoute />} />
 
       {/* Student portal (cabinet) */}
       <Route path="/portal" element={<StudentRoute><PortalHomePage /></StudentRoute>} />
@@ -480,13 +611,18 @@ function AppRoutes() {
       <Route path="/portal/tasks" element={<StudentRoute><PortalTasksPage /></StudentRoute>} />
       <Route path="/portal/meetings" element={<StudentRoute><PortalMeetingsPage /></StudentRoute>} />
       <Route path="/portal/notes" element={<StudentRoute><PortalNotesPage /></StudentRoute>} />
+      <Route path="/portal/complaints" element={<StudentRoute><PortalComplaintsPage /></StudentRoute>} />
       <Route path="/portal/questionnaires" element={<StudentRoute><PortalQuestionnairesPage /></StudentRoute>} />
       <Route path="/portal/important-notes" element={<StudentRoute><PortalImportantNotesPage /></StudentRoute>} />
       <Route path="/portal/documents" element={<StudentRoute><PortalDocumentsPage /></StudentRoute>} />
       <Route path="/portal/notifications" element={<StudentRoute><PortalNotificationsPage /></StudentRoute>} />
       <Route path="/portal/chat" element={<StudentRoute><PortalChatPage /></StudentRoute>} />
       <Route path="/portal/universities" element={<StudentRoute><PortalUniversitiesPage /></StudentRoute>} />
+      <Route path="/portal/universities/:id" element={<StudentRoute><PortalUniversityDetailPage /></StudentRoute>} />
+      <Route path="/portal/shortlist" element={<StudentRoute><PortalShortlistPage /></StudentRoute>} />
+      <Route path="/portal/applications" element={<StudentRoute><PortalApplicationsPage /></StudentRoute>} />
       <Route path="/portal/countries" element={<StudentRoute><PortalCountriesPage /></StudentRoute>} />
+      <Route path="/portal/countries/:id" element={<StudentRoute><PortalCountryDetailPage /></StudentRoute>} />
       <Route path="/portal/profile" element={<StudentRoute><PortalProfilePage /></StudentRoute>} />
 
       {/* Staff/mentor workspace — donor-style mentor cabinet backed by CRM data */}
@@ -505,7 +641,17 @@ function AppRoutes() {
       <Route path="/workspace/notes" element={<Navigate to="/workspace/meetings?tab=notes" replace />} />
       <Route path="/workspace/chat" element={<WorkspaceRoute><WorkspaceChatPage /></WorkspaceRoute>} />
       <Route path="/workspace/universities" element={<WorkspaceRoute><WorkspaceUniversitiesPage /></WorkspaceRoute>} />
+      <Route path="/workspace/universities/:id" element={<WorkspaceRoute><WorkspaceUniversityDetailPage /></WorkspaceRoute>} />
       <Route path="/workspace/countries" element={<WorkspaceRoute><WorkspaceCountriesPage /></WorkspaceRoute>} />
+      <Route path="/workspace/countries/:id" element={<WorkspaceRoute><WorkspaceCountryDetailPage /></WorkspaceRoute>} />
+      <Route path="/workspace/agreements" element={<WorkspaceRoute><WorkspaceAgreementsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/complaints" element={<WorkspaceRoute><WorkspaceComplaintsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/refund-cases" element={<WorkspaceRoute><WorkspaceRefundCasesPage /></WorkspaceRoute>} />
+      <Route path="/workspace/security-incidents" element={<WorkspaceRoute><WorkspaceSecurityIncidentsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/mzk-quality" element={<WorkspaceRoute><WorkspaceMzkQualityPage /></WorkspaceRoute>} />
+      <Route path="/workspace/mentor-rewards" element={<WorkspaceRoute><WorkspaceMentorRewardsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/my-rewards" element={<WorkspaceRoute><WorkspaceMyRewardsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/my-day" element={<WorkspaceRoute><WorkspaceMyDayPage /></WorkspaceRoute>} />
       <Route path="/workspace/notifications" element={<WorkspaceRoute><WorkspaceNotificationsPage /></WorkspaceRoute>} />
       <Route
         path="/workspace/status"

@@ -25,7 +25,6 @@ from app.models.telegram_chat_session import TelegramChatSession, TelegramSessio
 from app.models.telegram_message import TelegramMessage, TelegramMessageType
 from app.models.meeting import Meeting, MeetingStatus
 from app.services.note_blocks import filter_visible
-from app.services.telegram_bot import get_bot
 from app.services.telegram_ingest import dump_telegram_object
 from pydantic import BaseModel
 
@@ -188,53 +187,12 @@ async def portal_telegram_send(
     student: CurrentStudent,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Отправить сообщение в Telegram-группу студента."""
-    if not payload.text or not payload.text.strip():
-        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
-
-    if len(payload.text) > 4096:
-        raise HTTPException(status_code=400, detail="Сообщение слишком длинное (максимум 4096 символов)")
-
-    session_result = await db.execute(
-        select(TelegramChatSession)
-        .where(
-            TelegramChatSession.student_id == student.id,
-            TelegramChatSession.status == TelegramSessionStatus.active,
-        )
-        .order_by(TelegramChatSession.opened_at.desc())
-        .limit(1)
+    """Группа доступна ученику для чтения, но писать в неё может только менеджер."""
+    raise HTTPException(
+        status_code=403,
+        detail="Отправка в Telegram-группу доступна только менеджеру",
+        headers={"X-Error-Code": "TELEGRAM_GROUP_MANAGER_ONLY"},
     )
-    session = session_result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=400, detail="Telegram-группа не подключена")
-
-    chat = await db.get(TelegramChat, session.chat_id)
-    if not chat or chat.status == TelegramChatStatus.unbound:
-        raise HTTPException(status_code=400, detail="Telegram-группа не привязана")
-
-    try:
-        bot = get_bot()
-        sent = await bot.send_message(chat_id=chat.chat_id, text=payload.text.strip())
-
-        # Bug #4 fix: persist student's message in the database
-        message = TelegramMessage(
-            chat_id=chat.id,
-            session_id=session.id,
-            telegram_message_id=sent.message_id,
-            update_id=None,
-            sent_by_user_id=student.user_id,
-            sender_tg_id=None,
-            sender_name=student.full_name,
-            message_type=TelegramMessageType.text,
-            raw_text=payload.text.strip(),
-            raw_payload=dump_telegram_object(sent),
-        )
-        db.add(message)
-        await db.commit()
-
-        return {"success": True, "message": "Сообщение отправлено"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка отправки: {str(e)}")
 
 
 @router.get("/portal/notes/{note_id}")

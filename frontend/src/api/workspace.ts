@@ -68,6 +68,7 @@ export interface WorkspaceDashboard {
     documents_total: number
     documents_unverified: number
     ai_drafts: number
+    security_incidents: number
   }
   students: WorkspaceStudentSummary[]
   upcoming_meetings: Array<{
@@ -124,6 +125,7 @@ export interface WorkspaceRoadmapTask {
   priority: 'required' | 'recommended' | 'optional'
   audience: 'applicant' | 'coordinator'
   due_date: string | null
+  urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null
   needs_document: boolean
   needs_zoom: boolean
   has_questionnaire: boolean
@@ -196,9 +198,55 @@ export interface WorkspaceUnifiedMessage {
   attachments: WorkspaceUnifiedMessageAttachment[]
 }
 
+export interface WorkspaceMyDayTask {
+  id: string
+  student_id: string
+  student_name: string
+  task_text: string
+  due_date: string
+}
+
+export interface WorkspaceMyDayComplaint {
+  id: string
+  subject: string
+  hours_left: number
+  is_sla_breached: boolean
+}
+
+export interface WorkspaceMyDayMeeting {
+  id: string
+  student_id: string
+  student_name: string
+  title: string
+  starts_at: string
+  meeting_link: string
+  meeting_type: string
+}
+
+export interface WorkspaceMyDayAgreement {
+  id: string
+  title: string
+}
+
+export interface WorkspaceMyDay {
+  tasks: {
+    yellow: WorkspaceMyDayTask[]
+    orange: WorkspaceMyDayTask[]
+    red: WorkspaceMyDayTask[]
+    critical: WorkspaceMyDayTask[]
+  }
+  burning_complaints: WorkspaceMyDayComplaint[]
+  today_meetings: WorkspaceMyDayMeeting[]
+  unsigned_agreements: WorkspaceMyDayAgreement[]
+}
+
 export const workspaceApi = {
   dashboard: async (params?: WorkspaceScopeParams): Promise<WorkspaceDashboard> => {
     const response = await apiClient.get<WorkspaceDashboard>('/workspace/dashboard', { params })
+    return response.data
+  },
+  myDay: async (): Promise<WorkspaceMyDay> => {
+    const response = await apiClient.get<WorkspaceMyDay>('/workspace/my-day')
     return response.data
   },
   students: async (params?: WorkspaceScopeParams): Promise<{ items: WorkspaceStudentSummary[]; total: number }> => {

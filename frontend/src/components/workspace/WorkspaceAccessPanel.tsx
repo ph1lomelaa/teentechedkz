@@ -125,7 +125,7 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2">
             <Field label="Email для входа" value={access?.email || '—'} />
-            <Field label="Основной ментор" value={access?.primary_mentor_name || 'не назначен'} />
+            <Field label="МЗК" value={access?.primary_mentor_name || 'не назначен'} />
             <Field
               label="Последний вход"
               value={access?.last_login_at ? formatDate(access.last_login_at) : 'ещё не входил(а)'}

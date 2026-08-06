@@ -31,6 +31,7 @@ from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id,
 from app.services.notify import dismiss_unread, has_unread, notify, push_notification, push_ws
 from app.services.questionnaire_seed import seed_questionnaire_for_task
 from app.models.student import Student
+from app.models.mentor_assignment import MentorAssignment
 from app.models.user import User, UserRole
 from app.models.roadmap import (
     RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
@@ -642,6 +643,42 @@ async def update_stage(stage_id: uuid.UUID, body: StageUpdate, current_user: Cur
     # and view progress, they never edit stage/task status directly anymore.
     await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
+    if data.get("status") == RoadmapItemStatus.in_progress and stage.status == RoadmapItemStatus.planned:
+        required_roles = {"career", "ielts", "lead", "country"}
+        assignment_result = await db.execute(
+            select(MentorAssignment.role).where(
+                MentorAssignment.student_id == student_id,
+                MentorAssignment.is_active == True,  # noqa: E712
+                MentorAssignment.assignment_status == "active",
+            )
+        )
+        active_roles = {row[0].value for row in assignment_result.all()}
+        missing_roles = sorted(required_roles - active_roles)
+        if missing_roles:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Этап нельзя начать: обязательная команда ещё не полностью допущена",
+                    "missing_roles": missing_roles,
+                },
+                headers={"X-Error-Code": "STAGE_REQUIRED_TEAM_INCOMPLETE"},
+            )
+    if data.get("status") == RoadmapItemStatus.done:
+        task_result = await db.execute(
+            select(RoadmapTask.priority, RoadmapTask.status).where(RoadmapTask.stage_id == stage.id)
+        )
+        required_tasks = [row for row in task_result.all() if row[0].value == "required"]
+        incomplete_required = sum(row[1] != RoadmapItemStatus.done for row in required_tasks)
+        if incomplete_required:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Этап нельзя завершить: обязательные задачи ещё не приняты",
+                    "required_total": len(required_tasks),
+                    "required_done": len(required_tasks) - incomplete_required,
+                },
+                headers={"X-Error-Code": "STAGE_REQUIRED_TASKS_INCOMPLETE"},
+            )
     for field, value in data.items():
         setattr(stage, field, value)
     await db.commit()

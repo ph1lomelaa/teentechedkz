@@ -16,6 +16,7 @@ class DocType(str, enum.Enum):
     contract_scan = "contract_scan"
     transcript = "transcript"
     resume = "resume"
+    onboarding = "onboarding"  # регламент МЗК п.2.2, п.3.5-3.6 — файл по онбордингу
     other = "other"
 
 
@@ -50,6 +51,13 @@ class Document(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     # Whether the student sees this document in their portal (false = internal only).
     visible_to_student: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    signature_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
+    signature_requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    signature_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signature_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signature_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signature_signed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    signature_full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

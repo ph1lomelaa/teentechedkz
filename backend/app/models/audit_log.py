@@ -38,6 +38,8 @@ class AuditAction(str, enum.Enum):
     telegram_unlinked = "telegram_unlinked"
     google_linked = "google_linked"
     google_unlinked = "google_unlinked"
+    agreement_published = "agreement_published"
+    agreement_signed = "agreement_signed"
 
 
 class AuditLog(Base):

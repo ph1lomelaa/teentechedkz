@@ -377,14 +377,15 @@ async def _apply_intake_services(db: AsyncSession, student: Student, mapped: dic
         if included is None:
             continue
 
-        existing_services = (await db.execute(
+        # uq_services_student_service_type гарантирует не больше одной строки
+        # на тип (миграция 066); раньше здесь брали .all()[0] в обход
+        # MultipleResultsFound из-за дубликатов после слияния студентов.
+        existing = (await db.execute(
             select(Service).where(
                 Service.student_id == student.id,
                 Service.service_type == svc_type,
             )
-            .order_by(Service.created_at.asc(), Service.id.asc())
-        )).scalars().all()
-        existing = existing_services[0] if existing_services else None
+        )).scalar_one_or_none()
 
         if existing:
             if existing.included != included:

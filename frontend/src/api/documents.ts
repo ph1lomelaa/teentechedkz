@@ -47,6 +47,10 @@ export const documentsApi = {
     })
     return response.data
   },
+  requestSignature: async (docId: string): Promise<Document> => {
+    const response = await apiClient.post<Document>(`/documents/${docId}/request-signature`)
+    return response.data
+  },
 
   // portal (student)
   myDocuments: async (): Promise<Document[]> => {
@@ -69,6 +73,14 @@ export const documentsApi = {
   },
   portalDelete: async (docId: string): Promise<{ ok: true }> => {
     const response = await apiClient.delete<{ ok: true }>(`/documents/portal/${docId}`)
+    return response.data
+  },
+  markSignatureViewed: async (docId: string): Promise<Document> => {
+    const response = await apiClient.post<Document>(`/documents/portal/${docId}/signature-viewed`)
+    return response.data
+  },
+  sign: async (docId: string, data: { full_name: string; acknowledged: boolean }): Promise<Document> => {
+    const response = await apiClient.post<Document>(`/documents/portal/${docId}/sign`, data)
     return response.data
   },
 }

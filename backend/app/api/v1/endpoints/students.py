@@ -21,12 +21,15 @@ from app.models.payment import PaymentType, PaymentStatus
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
+from app.models.complaint import Complaint, ComplaintStatus
 from app.models.application import Application
+from app.models.country_reference import CountryReference
 from app.models.service import Service, ServiceStatus, ServiceType
 from app.services.default_services import ensure_default_services
 from app.services import contract_finance
 from app.core.config import settings
 from app.services.people_facets import build_people_index
+from app.services.task_urgency import task_urgency
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
 from app.models.pending_insight import InsightStatus, PendingInsight
@@ -48,6 +51,11 @@ from app.models.user import User, UserRole
 from app.schemas.student import StudentCreate, StudentUpdate
 
 router = APIRouter(prefix="/students", tags=["students"])
+
+# "Перепродление": контракт истекает через RENEWAL_THRESHOLD_DAYS дней.
+# Предупреждаем МЗК заранее — за RENEWAL_WARNING_DAYS дней до порога, а не постфактум.
+RENEWAL_THRESHOLD_DAYS = 500
+RENEWAL_WARNING_DAYS = RENEWAL_THRESHOLD_DAYS - 30
 
 
 class MergeStudentBody(BaseModel):
@@ -110,6 +118,7 @@ async def _student_responsibles(
         .order_by(MentorAssignment.assigned_at.desc())
     )
     assignments = result.scalars().all()
+    required_roles = ("career", "ielts", "lead", "country")
     responsibles = [
         {
             "id": str(a.mentor_id),
@@ -117,11 +126,22 @@ async def _student_responsibles(
             "name": a.mentor.name if a.mentor else None,
             "role": a.role.value,
             "is_active": a.is_active,
+            "assignment_status": a.assignment_status,
+            "country_scope": a.country_scope,
+            "functional_zone": a.functional_zone,
+            "first_task_due_date": a.first_task_due_date.isoformat() if a.first_task_due_date else None,
         }
         for a in assignments
     ]
     is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
-    return responsibles, is_mine
+    active_roles = {a.role.value for a in assignments if a.is_active and a.assignment_status == "active"}
+    readiness = {
+        "required_roles": list(required_roles),
+        "ready_roles": [role for role in required_roles if role in active_roles],
+        "missing_roles": [role for role in required_roles if role not in active_roles],
+        "is_ready": all(role in active_roles for role in required_roles),
+    }
+    return responsibles, is_mine, readiness
 
 
 def _compute_duplicate_pairs(students: list[dict]) -> list[dict]:
@@ -305,7 +325,6 @@ async def merge_student(
     for model, label in [
         (Contract, "contracts"),
         (Guardian, "guardians"),
-        (Service, "services"),
         (ConfidentialNote, "confidential_notes"),
         (StudentTask, "student_tasks"),
         (Document, "documents"),
@@ -337,6 +356,44 @@ async def merge_student(
     if source_portfolio and target_portfolio is None:
         source_portfolio.student_id = target.id
         moved_counts["portfolio_progress"] += 1
+
+    # Услуги дедуплицируем по типу: у обоих студентов уже есть полный
+    # стандартный набор (ensure_default_services), поэтому слепой перенос
+    # давал бы 12 строк вместо 6 — тот самый «список дважды» в карточке.
+    # Из дубликата забираем только те поля, которых нет у цели, и удаляем его.
+    target_services_result = await db.execute(select(Service).where(Service.student_id == target.id))
+    target_services = {svc.service_type: svc for svc in target_services_result.scalars().all()}
+
+    source_services_result = await db.execute(
+        select(Service).where(Service.student_id == source.id).order_by(Service.created_at, Service.id)
+    )
+    for svc in source_services_result.scalars().all():
+        existing = target_services.get(svc.service_type)
+        if existing is None:
+            svc.student_id = target.id
+            target_services[svc.service_type] = svc
+            moved_counts["services"] += 1
+            continue
+
+        # included=True — осмысленный выбор менеджера, он не должен потеряться.
+        if svc.included and not existing.included:
+            existing.included = True
+        if existing.status == ServiceStatus.not_started and svc.status != ServiceStatus.not_started:
+            existing.status = svc.status
+        for field in (
+            "contract_id",
+            "result",
+            "assigned_mentor_id",
+            "deadline",
+            "notes",
+            "portfolio_directions_count",
+            "portfolio_directions_types",
+            "proforientation_specialty",
+        ):
+            if getattr(existing, field) in (None, "") and getattr(svc, field) not in (None, ""):
+                setattr(existing, field, getattr(svc, field))
+        await db.delete(svc)
+        moved_counts["services_merged"] += 1
 
     # Merge applications with a simple dedupe by country; keep one primary.
     target_apps_result = await db.execute(select(Application).where(Application.student_id == target.id))
@@ -431,6 +488,7 @@ async def list_students(
     mzk_manager_id: uuid.UUID | None = None,
     lead_mentor_id: uuid.UUID | None = None,
     country: str | None = None,
+    country_primary_only: bool = False,
     mentor_id: uuid.UUID | None = None,
     mentor_name: str | None = None,
     mzk_name: str | None = None,
@@ -513,6 +571,8 @@ async def list_students(
     if country:
         query = query.join(Application, Application.student_id == Student.id, isouter=True)
         query = query.where(Application.country.ilike(f"%{country}%"))
+        if country_primary_only:
+            query = query.where(Application.is_primary == True)  # noqa: E712
 
     if service_type:
         try:
@@ -549,16 +609,43 @@ async def list_students(
     # Страна для карточек дашборда — основная заявка (fallback: любая).
     # Один батч-запрос вместо N+1 по студентам.
     country_map: dict[uuid.UUID, str] = {}
+    # Блок F (ОС 30/07): полный список стран студента с флагом is_primary —
+    # разделение main/доп. уже есть в данных (Application.is_primary), просто
+    # не было отдано наружу (country_map схлопывал до одной строки).
+    countries_by_student: dict[uuid.UUID, list[dict]] = {}
     student_ids = [s.id for s in students]
     if student_ids:
         app_result = await db.execute(
-            select(Application.student_id, Application.country)
+            select(Application.student_id, Application.country, Application.is_primary)
             .where(Application.student_id.in_(student_ids))
             .order_by(Application.is_primary.desc(), Application.id)
         )
-        for sid, app_country in app_result.all():
+        distinct_country_names: set[str] = set()
+        for sid, app_country, is_primary in app_result.all():
             if sid not in country_map and app_country:
                 country_map[sid] = app_country
+            if app_country:
+                countries_by_student.setdefault(sid, []).append(
+                    {"country": app_country, "is_primary": is_primary}
+                )
+                distinct_country_names.add(app_country)
+
+        # Application.country — свободный текст, связи с CountryReference нет
+        # (см. § 2.6 плана). Матчим по точному имени best-effort: не найдено —
+        # просто нет флага, а не ошибка.
+        flag_by_country: dict[str, dict] = {}
+        if distinct_country_names:
+            flag_result = await db.execute(
+                select(CountryReference.country_name, CountryReference.flag_emoji, CountryReference.flag_url)
+                .where(CountryReference.country_name.in_(distinct_country_names))
+            )
+            for name, emoji, url in flag_result.all():
+                flag_by_country[name] = {"flag_emoji": emoji, "flag_url": url}
+        for entries in countries_by_student.values():
+            for entry in entries:
+                flags = flag_by_country.get(entry["country"], {})
+                entry["flag_emoji"] = flags.get("flag_emoji", "")
+                entry["flag_url"] = flags.get("flag_url", "")
 
     # Батч-запросы вместо N+1: раньше здесь был цикл с ~14 отдельными запросами
     # к БД на каждого студента (до ~28000 запросов при size=2000, из-за чего
@@ -637,6 +724,7 @@ async def list_students(
         roadmap_tasks_done_by_roadmap = dict(done_result.all())
 
     open_tasks_by_student: dict[uuid.UUID, int] = {}
+    overdue_task_student_ids: set[uuid.UUID] = set()
     if student_ids:
         open_tasks_result = await db.execute(
             select(StudentTask.student_id, func.count())
@@ -644,6 +732,27 @@ async def list_students(
             .group_by(StudentTask.student_id)
         )
         open_tasks_by_student = dict(open_tasks_result.all())
+
+        due_tasks_result = await db.execute(
+            select(StudentTask.student_id, StudentTask.due_date).where(
+                StudentTask.student_id.in_(student_ids),
+                StudentTask.status == TaskStatus.open,
+                StudentTask.due_date.is_not(None),
+            )
+        )
+        for sid, due_date in due_tasks_result.all():
+            if task_urgency(due_date, "open") != "none":
+                overdue_task_student_ids.add(sid)
+
+    open_complaint_student_ids: set[uuid.UUID] = set()
+    if student_ids:
+        open_complaints_result = await db.execute(
+            select(Complaint.student_id).where(
+                Complaint.student_id.in_(student_ids),
+                Complaint.status.in_((ComplaintStatus.new, ComplaintStatus.in_progress)),
+            )
+        )
+        open_complaint_student_ids = {row[0] for row in open_complaints_result.all()}
 
     next_meeting_by_student: dict[uuid.UUID, Meeting] = {}
     if student_ids:
@@ -733,6 +842,14 @@ async def list_students(
                 days_in_work = (date.today() - contract.signed_date).days
             pipeline_status_val = contract.pipeline_status.value if contract.pipeline_status else None
 
+        risk_category = None
+        if pipeline_status_val == "suspended":
+            risk_category = "suspended"
+        elif pipeline_status_val == "paused":
+            risk_category = "paused"
+        elif days_in_work is not None and days_in_work >= RENEWAL_WARNING_DAYS:
+            risk_category = "renewal"
+
         assignments = assignments_by_student.get(s.id, [])
         responsibles = [
             {
@@ -786,8 +903,10 @@ async def list_students(
             "intake_year": s.intake_year,
             "pipeline_status": pipeline_status_val,
             "days_in_work": days_in_work,
+            "risk_category": risk_category,
             "is_mine": is_mine,
             "country": country_map.get(s.id),
+            "countries": countries_by_student.get(s.id, []),
             "mentors": people.student_mentor_labels.get(s.id, []),
             "mzk_manager_name": (
                 contract.mzk_manager.name if contract and contract.mzk_manager
@@ -811,6 +930,8 @@ async def list_students(
                 "tasks_done": roadmap_tasks_done,
             },
             "open_tasks_count": open_tasks_count,
+            "has_overdue_tasks": s.id in overdue_task_student_ids,
+            "has_open_complaints": s.id in open_complaint_student_ids,
             "next_meeting": (
                 {
                     "id": str(next_meeting.id),
@@ -873,6 +994,26 @@ async def create_student(
     await db.flush()
 
     await ensure_default_services(db, student.id)
+
+    # Create explicit placeholders so the case cannot look team-ready before
+    # the mandatory roles have actually been assigned.
+    required_roles = (MentorRole.career, MentorRole.ielts, MentorRole.lead, MentorRole.country)
+    for role in required_roles:
+        db.add(MentorAssignment(
+            student_id=student.id,
+            mentor_id=None,
+            role=role,
+            assignment_status="required",
+            is_active=True,
+        ))
+        db.add(StudentTask(
+            student_id=student.id,
+            task_text=f"Назначить специалиста: {role.value}",
+            expected_result=f"Активное назначение роли {role.value}",
+            priority="high",
+            created_by=current_user.id,
+            status=TaskStatus.open,
+        ))
 
     await log_change(
         db, "student", student.id, "created", None, student.full_name,
@@ -1136,6 +1277,32 @@ async def get_student_timeline(
         for entry in history_entries
     )
 
+    from app.models.complaint import Complaint
+    from app.models.confidential_note import note_visible_to_role
+
+    complaints = (
+        await db.execute(
+            select(Complaint)
+            .where(Complaint.student_id == student_id)
+            .order_by(Complaint.created_at.desc())
+            .limit(fetch_limit)
+        )
+    ).scalars().all()
+    events.extend(
+        _timeline_item(
+            item_id=f"complaint:{c.id}",
+            at=c.created_at,
+            kind="Жалоба" if c.kind.value == "complaint" else "Рекомендация",
+            title=c.subject,
+            text=c.status.value,
+            href="/workspace/complaints",
+            source="complaint",
+            meta={"complaint_id": str(c.id), "status": c.status.value, "is_sla_breached": c.is_sla_breached},
+        )
+        for c in complaints
+        if note_visible_to_role(c.visible_to_role, current_user.role) or c.author_user_id == current_user.id
+    )
+
     events = [event for event in events if event["at"]]
     events.sort(key=lambda event: event["at"], reverse=True)
     return {"items": events[offset:offset + limit], "total": len(events), "limit": limit, "offset": offset}
@@ -1208,6 +1375,7 @@ async def get_student(
         .where(Student.id == student_id)
         .options(
             selectinload(Student.contracts).selectinload(Contract.payments),
+            selectinload(Student.contracts).selectinload(Contract.mzk_manager),
             selectinload(Student.applications),
             selectinload(Student.mentor_assignments),
             selectinload(Student.services),
@@ -1229,8 +1397,9 @@ async def get_student(
         raise HTTPException(status_code=404, detail="Студент не найден")
 
     data = _student_to_dict(student)
-    responsibles, is_mine = await _student_responsibles(db, student.id, current_user.id)
+    responsibles, is_mine, team_readiness = await _student_responsibles(db, student.id, current_user.id)
     data["responsibles"] = responsibles
+    data["team_readiness"] = team_readiness
     data["is_mine"] = is_mine
     data["days_in_work"] = None
     if student.contracts and student.contracts[0].signed_date:
@@ -1284,6 +1453,7 @@ async def get_student(
                 "payment_plan": c.payment_plan.value if c.payment_plan else None,
                 "pipeline_status": c.pipeline_status.value if c.pipeline_status else None,
                 "mzk_manager_id": str(c.mzk_manager_id) if c.mzk_manager_id else None,
+                "mzk_manager_name": c.mzk_manager.name if c.mzk_manager else None,
                 "ielts_payment_included": c.ielts_payment_included,
                 "english_sum": str(c.english_sum) if c.english_sum else None,
                 "english_paid": str(c.english_paid) if c.english_paid else None,
@@ -1338,6 +1508,7 @@ async def update_student(
         "full_name", "phone", "city", "age", "specialty", "group_direction",
         "additional_sphere", "gpa", "achievements_text", "budget_per_year",
         "transcript_resume_url", "intake_year", "degree_level", "intake_season",
+        "work_folder_url", "work_phone",
     ]
     for field in scalar_fields:
         if field in updates:
@@ -1405,6 +1576,8 @@ def _student_to_dict(s: Student) -> dict:
         "transcript_resume_url": s.transcript_resume_url,
         "intake_year": s.intake_year,
         "intake_season": s.intake_season.value if s.intake_season else None,
+        "work_folder_url": s.work_folder_url,
+        "work_phone": s.work_phone,
         "is_archived": s.is_archived,
         "created_at": s.created_at.isoformat(),
         "updated_at": s.updated_at.isoformat(),
@@ -1413,7 +1586,21 @@ def _student_to_dict(s: Student) -> dict:
                 "id": str(a.id),
                 "country": a.country,
                 "university": a.university,
+                "university_id": str(a.university_id) if a.university_id else None,
+                # Разворачиваем вуз здесь же: карточка студента в CRM и
+                # воркспейсе читает заявки только отсюда, отдельного запроса
+                # ради ссылки на вуз делать не нужно.
+                "university_ref": {
+                    "id": str(a.university_ref.id),
+                    "name": a.university_ref.name,
+                    "country_name": a.university_ref.country_name,
+                    "city": a.university_ref.city,
+                    "photo_url": a.university_ref.photo_url,
+                    "country_flag_emoji": getattr(a.university_ref, "country_flag_emoji", None),
+                    "deadline_note": a.university_ref.deadline_note,
+                } if a.university_ref else None,
                 "program": a.program,
+                "deadline": a.deadline.isoformat() if a.deadline else None,
                 "submissions_planned": a.submissions_planned,
                 "submissions_done": a.submissions_done,
                 "submission_status": a.submission_status.value,

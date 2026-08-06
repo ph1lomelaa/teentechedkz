@@ -4,18 +4,33 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ChevronDown, ClipboardList, FileUp, Route, Video } from 'lucide-react'
 import { roadmapApi } from '@/api/roadmap'
 import { workspaceApi, WorkspaceRoadmapTask } from '@/api/workspace'
+import { tasksApi } from '@/api'
+import { StudentTask } from '@/types'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs } from '@/components/ui'
+import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs, UrgencyBadge } from '@/components/ui'
 
 const PRIORITY_LABEL: Record<string, string> = {
   required: 'Обязательно',
   recommended: 'Желательно',
   optional: 'По желанию',
+}
+
+const WORKFLOW_STATUS_LABEL: Record<StudentTask['status'], string> = {
+  open: 'Открыта',
+  awaiting_signature: 'Ожидает подписи',
+  in_progress: 'В работе',
+  submitted: 'На проверке',
+  needs_revision: 'На доработке',
+  accepted: 'Принята',
+  blocked_by_agreement: 'Заблокирована',
+  overdue: 'Просрочена',
+  cancelled: 'Отменена',
+  done: 'Закрыта',
 }
 
 export const WorkspaceTasksPage: React.FC = () => {
@@ -25,6 +40,14 @@ export const WorkspaceTasksPage: React.FC = () => {
   const [studentFilter, setStudentFilter] = useLocalState('workspace:tasks:studentFilter', '')
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [questionnaireTask, setQuestionnaireTask] = useState<WorkspaceRoadmapTask | null>(null)
+  const [delegatedStatus, setDelegatedStatus] = useLocalState<StudentTask['status'] | ''>('workspace:tasks:delegatedStatus', '')
+  const [delegatedPriority, setDelegatedPriority] = useLocalState<string>('workspace:tasks:delegatedPriority', '')
+  const [evidenceTask, setEvidenceTask] = useState<StudentTask | null>(null)
+  const [evidenceRequirement, setEvidenceRequirement] = useState('')
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null)
+  const [reviewTask, setReviewTask] = useState<StudentTask | null>(null)
+  const [reviewDecision, setReviewDecision] = useState<'accepted' | 'needs_revision'>('accepted')
+  const [reviewNote, setReviewNote] = useState('')
 
   // ---- roadmap tasks (student-facing) ----
   const { data: roadmapData, isLoading: roadmapLoading } = useQuery({
@@ -35,6 +58,51 @@ export const WorkspaceTasksPage: React.FC = () => {
   const { data: studentsData } = useQuery({
     queryKey: ['workspace', 'tasks', 'students', params],
     queryFn: () => workspaceApi.students(params),
+  })
+
+  const { data: delegatedData, isLoading: delegatedLoading } = useQuery({
+    queryKey: ['workspace', 'delegated-tasks', params],
+    queryFn: () => tasksApi.listAll({ ...params, size: 200 }),
+  })
+  const delegatedTasks = (delegatedData?.items ?? []).filter((task) => (
+    (!delegatedStatus || task.status === delegatedStatus)
+    && (!delegatedPriority || task.priority === delegatedPriority)
+  ))
+  const delegatedMutation = useMutation({
+    mutationFn: ({ task, status, note }: { task: StudentTask; status: StudentTask['status']; note?: string }) => tasksApi.update(task.id, { status, ...(note !== undefined ? { review_note: note } : {}) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] }),
+    onError: () => toast({ title: 'Не удалось обновить статус задачи', variant: 'destructive' }),
+  })
+  const reviewMutation = useMutation({
+    mutationFn: () => {
+      if (!reviewTask) throw new Error('Задача не выбрана')
+      return tasksApi.update(reviewTask.id, { status: reviewDecision, review_note: reviewNote.trim() || undefined })
+    },
+    onSuccess: () => {
+      setReviewTask(null)
+      setReviewNote('')
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
+      toast({ title: reviewDecision === 'accepted' ? 'Результат принят' : 'Задача возвращена на доработку' })
+    },
+    onError: () => toast({ title: 'Не удалось сохранить решение', variant: 'destructive' }),
+  })
+  const evidenceMutation = useMutation({
+    mutationFn: () => {
+      if (!evidenceTask || !evidenceFile) throw new Error('Файл не выбран')
+      return tasksApi.uploadEvidence(evidenceTask.id, evidenceFile, evidenceRequirement || undefined)
+    },
+    onSuccess: () => {
+      setEvidenceTask(null)
+      setEvidenceRequirement('')
+      setEvidenceFile(null)
+      toast({ title: 'Подтверждение загружено' })
+    },
+    onError: () => toast({ title: 'Не удалось загрузить подтверждение', variant: 'destructive' }),
+  })
+  const { data: evidenceData, isLoading: evidenceLoading } = useQuery({
+    queryKey: ['workspace', 'task-evidence', evidenceTask?.id],
+    queryFn: () => tasksApi.listEvidence(evidenceTask!.id),
+    enabled: Boolean(evidenceTask),
   })
 
   const refreshRoadmap = () => {
@@ -134,6 +202,172 @@ export const WorkspaceTasksPage: React.FC = () => {
           onClose={() => setQuestionnaireTask(null)}
         />
       )}
+      <section className="mt-6">
+        <PageHeader colorPrefix="w"
+          eyebrow="Делегированные задачи"
+          title="Очередь работы"
+          description="Задачи, назначенные вам или вашей рабочей области, с контролем подписи и приемки."
+        />
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <AppSelect colorPrefix="w" value={delegatedStatus} onChange={(event) => setDelegatedStatus(event.target.value as StudentTask['status'] | '')}>
+            <option value="">Все статусы</option>
+            {Object.entries(WORKFLOW_STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </AppSelect>
+          <AppSelect colorPrefix="w" value={delegatedPriority} onChange={(event) => setDelegatedPriority(event.target.value)}>
+            <option value="">Все приоритеты</option>
+            <option value="urgent">Срочные</option>
+            <option value="high">Высокие</option>
+            <option value="normal">Обычные</option>
+            <option value="low">Низкие</option>
+          </AppSelect>
+        </div>
+        <AppCard colorPrefix="w" className="p-5">
+          {delegatedLoading ? <p className="text-sm text-w-muted">Загрузка очереди...</p> : delegatedTasks.length === 0 ? (
+            <EmptyState colorPrefix="w" title="В очереди нет задач" description="Делегированные задачи появятся здесь после назначения исполнителя." />
+          ) : (
+            <div className="space-y-2">
+              {delegatedTasks.map((task) => (
+                <div key={task.id} className="flex flex-wrap items-center gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
+                  <div className="min-w-[220px] flex-1">
+                    <p className="text-sm font-bold text-w-ink">{task.task_text}</p>
+                    <p className="mt-1 text-xs text-w-muted">{task.student_name || 'Студент'} · {task.assignee_name || 'Без исполнителя'}</p>
+                  </div>
+                  <span className="text-xs text-w-muted">{WORKFLOW_STATUS_LABEL[task.status]}</span>
+                  <span className="text-xs font-bold text-w-accentText">{task.priority || 'normal'}</span>
+                  {task.status === 'open' && task.assignee_id && (
+                    <button type="button" className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim" onClick={() => delegatedMutation.mutate({ task, status: 'in_progress' })}>
+                      В работу
+                    </button>
+                  )}
+                  {task.status === 'in_progress' && (
+                    <button type="button" className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim" onClick={() => delegatedMutation.mutate({ task, status: 'submitted' })}>
+                      На проверку
+                    </button>
+                  )}
+                  {task.status === 'submitted' && (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-ctl bg-w-good px-3 py-1.5 text-xs font-bold text-black hover:brightness-95"
+                        onClick={() => {
+                          setReviewTask(task)
+                          setReviewDecision('accepted')
+                          setReviewNote(task.review_note || '')
+                        }}
+                      >
+                        Принять
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim"
+                        onClick={() => {
+                          setReviewTask(task)
+                          setReviewDecision('needs_revision')
+                          setReviewNote(task.review_note || '')
+                        }}
+                      >
+                        На доработку
+                      </button>
+                    </>
+                  )}
+                  {task.required_documents && task.required_documents.length > 0 && (
+                    <button
+                      type="button"
+                      className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim"
+                      onClick={() => {
+                        setEvidenceTask(task)
+                        setEvidenceRequirement(task.required_documents?.[0] || '')
+                      }}
+                    >
+                      Подтверждение
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </AppCard>
+      </section>
+      {evidenceTask && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Загрузка подтверждения">
+          <div className="w-full max-w-md rounded-card border border-w-line bg-w-panel p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-black text-w-ink">Загрузить подтверждение</h2>
+                <p className="mt-1 text-xs text-w-muted">{evidenceTask.task_text}</p>
+              </div>
+              <button type="button" className="text-xs text-w-muted hover:text-w-ink" onClick={() => setEvidenceTask(null)}>Закрыть</button>
+            </div>
+            <div className="space-y-3">
+              <div className="rounded-panel border border-w-line bg-w-panel2 p-3">
+                <p className="mb-2 text-xs font-bold text-w-ink">Загруженные подтверждения</p>
+                {evidenceLoading ? <p className="text-xs text-w-muted">Загрузка списка...</p> : evidenceData?.length ? (
+                  <div className="space-y-1.5">
+                    {evidenceData.map((evidence) => (
+                      <div key={evidence.id} className="flex items-center justify-between gap-2 text-xs text-w-muted">
+                        <span className="truncate">{evidence.requirement || 'Без требования'}</span>
+                        <span className="shrink-0 text-w-muted2">{evidence.file_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-xs text-w-muted">Пока нет загруженных файлов.</p>}
+              </div>
+              <AppSelect colorPrefix="w" value={evidenceRequirement} onChange={(event) => setEvidenceRequirement(event.target.value)}>
+                <option value="">Выберите требование</option>
+                {(evidenceTask.required_documents || []).map((document) => <option key={document} value={document}>{document}</option>)}
+              </AppSelect>
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                onChange={(event) => setEvidenceFile(event.target.files?.[0] || null)}
+                className="block w-full text-xs text-w-muted file:mr-3 file:rounded-ctl file:border-0 file:bg-w-accent file:px-3 file:py-2 file:text-xs file:font-bold file:text-black"
+              />
+              <button
+                type="button"
+                disabled={!evidenceRequirement || !evidenceFile || evidenceMutation.isPending}
+                onClick={() => evidenceMutation.mutate()}
+                className="w-full rounded-ctl bg-w-accent px-3 py-2 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {evidenceMutation.isPending ? 'Загрузка...' : 'Загрузить файл'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {reviewTask && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Проверка результата">
+          <div className="w-full max-w-md rounded-card border border-w-line bg-w-panel p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-black text-w-ink">Проверка результата</h2>
+                <p className="mt-1 text-xs text-w-muted">{reviewTask.task_text}</p>
+              </div>
+              <button type="button" className="text-xs text-w-muted hover:text-w-ink" onClick={() => setReviewTask(null)}>Закрыть</button>
+            </div>
+            <div className="space-y-3">
+              <AppSelect colorPrefix="w" value={reviewDecision} onChange={(event) => setReviewDecision(event.target.value as typeof reviewDecision)}>
+                <option value="accepted">Принять результат</option>
+                <option value="needs_revision">Вернуть на доработку</option>
+              </AppSelect>
+              <textarea
+                value={reviewNote}
+                onChange={(event) => setReviewNote(event.target.value)}
+                placeholder="Комментарий проверки..."
+                rows={4}
+                className="w-full rounded-ctl border border-w-line bg-w-panel2 p-3 text-sm text-w-ink outline-none focus:border-w-accentDim"
+              />
+              <button
+                type="button"
+                disabled={reviewMutation.isPending}
+                onClick={() => reviewMutation.mutate()}
+                className="w-full rounded-ctl bg-w-accent px-3 py-2 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {reviewMutation.isPending ? 'Сохранение...' : 'Сохранить решение'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -204,7 +438,6 @@ function RoadmapTaskRow({
   onOpenQuestionnaire: () => void
 }) {
   const done = task.status === 'done'
-  const overdue = !done && task.due_date && new Date(task.due_date) < new Date(new Date().toDateString())
   return (
     <div className="flex items-start gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
       <button
@@ -231,9 +464,10 @@ function RoadmapTaskRow({
           {task.due_date && (
             <>
               <span>·</span>
-              <span className={cn('tabular-nums', overdue && 'font-bold text-w-danger')}>до {formatDate(task.due_date)}</span>
+              <span className="tabular-nums">до {formatDate(task.due_date)}</span>
             </>
           )}
+          <UrgencyBadge dueDate={task.due_date} status={task.status} />
           {task.subtasks_total > 0 && (
             <>
               <span>·</span>

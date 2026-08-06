@@ -227,7 +227,9 @@ async def logout_all(
 
 
 @router.get("/me")
-async def me(current_user: CurrentUser):
+async def me(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    from app.services.agreements import has_pending_agreement_signature
+
     return {
         "id": str(current_user.id),
         "name": current_user.name,
@@ -237,6 +239,9 @@ async def me(current_user: CurrentUser):
         "phone": current_user.phone,
         "is_active": current_user.is_active,
         "must_change_password": current_user.must_change_password,
+        "agreement_signature_required": (
+            settings.ENABLE_AGREEMENT_GATE and await has_pending_agreement_signature(db, current_user)
+        ),
     }
 
 

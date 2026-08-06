@@ -19,6 +19,7 @@ export interface StudentsQueryParams {
   mzk_manager_id?: string
   lead_mentor_id?: string
   country?: string
+  country_primary_only?: boolean
   mentor_name?: string
   mzk_name?: string
   service_type?: string

@@ -168,12 +168,12 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
           <div className="space-y-4 py-1">
             {!access?.primary_mentor_id && (
               <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                У студента нет активного основного ментора. Назначьте ментора в карточке, чтобы roadmap, встречи и чат были связаны с ответственным.
+                У студента нет активного МЗК. Назначьте МЗК в карточке, чтобы roadmap, встречи и чат были связаны с ответственным.
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
               <Row label="Основной email" value={access?.email} />
-              <Row label="Основной ментор" value={access?.primary_mentor_name} />
+              <Row label="МЗК" value={access?.primary_mentor_name} />
               <Row label="Статус" value={access?.is_active ? 'Активен' : 'Отключён'} />
               <Row label="Последний вход" value={fmtDate(access?.last_login_at)} />
               <Row
@@ -267,12 +267,12 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
           <div className="space-y-4 py-1">
             {!access?.primary_mentor_id && (
               <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                Сначала лучше назначить основного ментора. Тогда студент сразу увидит контакт в чате, а встречи и roadmap будут привязаны к ответственному.
+                Сначала лучше назначить МЗК. Тогда студент сразу увидит контакт в чате, а встречи и roadmap будут привязаны к ответственному.
               </div>
             )}
             {access?.primary_mentor_name && (
               <div className="rounded-panel border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                Основной ментор: {access.primary_mentor_name}
+                МЗК: {access.primary_mentor_name}
               </div>
             )}
             <p className="text-sm text-gray-500">

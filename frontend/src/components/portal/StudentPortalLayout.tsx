@@ -11,6 +11,7 @@ import {
   MessageCircle,
   GraduationCap,
   Globe,
+  Star,
   User,
   LogOut,
   Menu,
@@ -18,6 +19,8 @@ import {
   FileText,
   ClipboardList,
   Bell,
+  MessageSquareWarning,
+  Send,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -43,6 +46,9 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Главная', path: '/portal', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
       { label: 'Мой roadmap', path: '/portal/roadmap', icon: <Map className="w-[18px] h-[18px]" /> },
+      // Не в «МАТЕРИАЛЫ»: заявки — это собственный процесс студента, а не
+      // справочник. Рядом с roadmap и задачами по смыслу.
+      { label: 'Мои заявки', path: '/portal/applications', icon: <Send className="w-[18px] h-[18px]" /> },
       { label: 'Задачи', path: '/portal/tasks', icon: <CheckSquare className="w-[18px] h-[18px]" /> },
       { label: 'Встречи', path: '/portal/meetings', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
       { label: 'Анкеты', path: '/portal/questionnaires', icon: <ClipboardList className="w-[18px] h-[18px]" /> },
@@ -55,6 +61,7 @@ const navGroups: NavGroup[] = [
       { label: 'Заметки', path: '/portal/important-notes', icon: <StickyNote className="w-[18px] h-[18px]" /> },
       { label: 'Документы', path: '/portal/documents', icon: <FileText className="w-[18px] h-[18px]" /> },
       { label: 'Университеты', path: '/portal/universities', icon: <GraduationCap className="w-[18px] h-[18px]" /> },
+      { label: 'Избранные вузы', path: '/portal/shortlist', icon: <Star className="w-[18px] h-[18px]" /> },
       { label: 'Страны', path: '/portal/countries', icon: <Globe className="w-[18px] h-[18px]" /> },
     ],
   },
@@ -62,6 +69,7 @@ const navGroups: NavGroup[] = [
     group: 'КОММУНИКАЦИЯ',
     items: [
       { label: 'Чат', path: '/portal/chat', icon: <MessageCircle className="w-[18px] h-[18px]" /> },
+      { label: 'Обращения', path: '/portal/complaints', icon: <MessageSquareWarning className="w-[18px] h-[18px]" /> },
       { label: 'Уведомления', path: '/portal/notifications', icon: <Bell className="w-[18px] h-[18px]" /> },
     ],
   },

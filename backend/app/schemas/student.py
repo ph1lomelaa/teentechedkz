@@ -38,6 +38,8 @@ class StudentCreate(BaseModel):
     transcript_resume_url: str | None = None
     intake_year: int
     intake_season: IntakeSeason | None = None
+    work_folder_url: str | None = None
+    work_phone: str | None = None
 
 
 class StudentUpdate(BaseModel):
@@ -57,6 +59,8 @@ class StudentUpdate(BaseModel):
     transcript_resume_url: str | None = None
     intake_year: int | None = None
     intake_season: IntakeSeason | None = None
+    work_folder_url: str | None = None
+    work_phone: str | None = None
 
 
 class StudentBase(BaseModel):
@@ -79,6 +83,8 @@ class StudentBase(BaseModel):
     transcript_resume_url: str | None = None
     intake_year: int
     intake_season: IntakeSeason | None = None
+    work_folder_url: str | None = None
+    work_phone: str | None = None
     user_id: uuid.UUID | None = None  # linked portal (student) account, if access was granted
     created_at: datetime
     updated_at: datetime

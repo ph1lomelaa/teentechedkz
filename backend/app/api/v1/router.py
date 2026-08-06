@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     student_access,
     invites,
     contracts,
+    contract_addenda,
     applications,
     services,
     guardians,
@@ -39,6 +40,16 @@ from app.api.v1.endpoints import (
     workspace,
     public,
     notifications,
+    agreements,
+    complaints,
+    emergency_contacts,
+    refund_cases,
+    mzk_quality,
+    mentor_rewards,
+    reward_rules,
+    credentials,
+    student_universities,
+    security_incidents,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -50,6 +61,7 @@ api_router.include_router(students.router)
 api_router.include_router(student_access.router)
 api_router.include_router(invites.router)
 api_router.include_router(contracts.router)
+api_router.include_router(contract_addenda.router)
 api_router.include_router(applications.router)
 api_router.include_router(services.router)
 api_router.include_router(guardians.router)
@@ -81,3 +93,14 @@ api_router.include_router(notifications.router)
 api_router.include_router(portal.router)
 api_router.include_router(workspace.router)
 api_router.include_router(public.router)
+api_router.include_router(agreements.router)
+api_router.include_router(complaints.router)
+api_router.include_router(emergency_contacts.router)
+api_router.include_router(refund_cases.router)
+api_router.include_router(mzk_quality.router)
+api_router.include_router(mentor_rewards.router)
+api_router.include_router(security_incidents.router)
+api_router.include_router(reward_rules.router)
+# credentials was written but never registered — its endpoints were unreachable.
+api_router.include_router(credentials.router)
+api_router.include_router(student_universities.router)

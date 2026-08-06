@@ -99,6 +99,10 @@ export const telegramApi = {
     })
     return response.data
   },
+  publishOnboarding: async (chatId: string, data: { team: string[]; contacts: string[]; response_time: string }): Promise<TelegramChat> => {
+    const response = await apiClient.post<TelegramChat>(`/telegram-chats/${chatId}/onboarding`, data)
+    return response.data
+  },
   createGroupInviteLink: async (studentId: string, telegramChatId: number): Promise<TelegramGroupInviteLink> => {
     const response = await apiClient.post<TelegramGroupInviteLink>('/telegram-chats/invite-link', {
       student_id: studentId,

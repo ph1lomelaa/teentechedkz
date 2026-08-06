@@ -22,6 +22,10 @@ class MeetingType(str, enum.Enum):
     application = "application"
     finance = "finance"
     other = "other"
+    # Блок E (ОС 30/07): расписание IELTS — переиспользуем Meeting вместо новой
+    # сущности, бесплатно подхватываются iCal-экспорт, календарь, напоминания.
+    ielts_lesson = "ielts_lesson"
+    ielts_mock = "ielts_mock"
 
 
 class Meeting(Base):

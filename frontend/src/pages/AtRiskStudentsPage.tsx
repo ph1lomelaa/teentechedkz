@@ -11,6 +11,7 @@ import {
   PIPELINE_STATUS_COLORS,
   DegreeLevel,
 } from '@/types'
+import { SegmentedTabs, PageHeader } from '@/components/ui'
 import {
   Table,
   TableBody,
@@ -25,9 +26,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
+
+type RiskCategory = 'suspended' | 'paused' | 'renewal'
+
+const RISK_CATEGORY_LABELS: Record<RiskCategory, string> = {
+  suspended: 'Подвешено',
+  paused: 'На паузе',
+  renewal: 'Перепродление',
+}
 
 type DuplicatePair = {
   reason: 'phone' | 'name'
@@ -44,6 +52,7 @@ export const AtRiskStudentsPage: React.FC = () => {
   const [mergePair, setMergePair] = useState<DuplicatePair | null>(null)
   const [mainSide, setMainSide] = useState<'a' | 'b'>('a')
   const [search, setSearch] = useState('')
+  const [riskTab, setRiskTab] = useState<'all' | RiskCategory>('all')
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
 
@@ -78,17 +87,27 @@ export const AtRiskStudentsPage: React.FC = () => {
   })
 
   const q = search.trim().toLowerCase()
-  const atRiskStudents = useMemo(
+  const allAtRiskStudents = useMemo(
     () =>
       students
-        .filter((s) => {
-          const status = s.pipeline_status
-          return status === 'on_visa' || status === 'suspended' || status === 'transferred_pipeline'
-        })
+        .filter((s) => !!s.risk_category)
         .filter((s) => !q || s.full_name.toLowerCase().includes(q))
         .filter((s) => matchesDirectoryFilters(s, directoryFilters))
         .sort((a, b) => (b.days_in_work ?? 0) - (a.days_in_work ?? 0)),
     [students, q, directoryFilters],
+  )
+
+  const riskCounts = useMemo(() => {
+    const counts: Record<RiskCategory, number> = { suspended: 0, paused: 0, renewal: 0 }
+    for (const s of allAtRiskStudents) {
+      if (s.risk_category) counts[s.risk_category] += 1
+    }
+    return counts
+  }, [allAtRiskStudents])
+
+  const atRiskStudents = useMemo(
+    () => riskTab === 'all' ? allAtRiskStudents : allAtRiskStudents.filter((s) => s.risk_category === riskTab),
+    [allAtRiskStudents, riskTab],
   )
 
   const activeFiltersCount =
@@ -126,8 +145,21 @@ export const AtRiskStudentsPage: React.FC = () => {
       <PageHeader
         eyebrow="Контроль"
         title="Зона риска"
-        description="Студенты, за процессом которых стоит следить внимательнее: виза в работе, процесс подвешен или студента перевели. Статусы: «На визе», «Подвешено», «Перевели». Отсортировано по дням в работе — сверху дольше всего висящие случаи."
+        description="Студенты, за процессом которых стоит следить внимательнее: процесс подвешен, на паузе или приближается к порогу перепродления (500 дней с подписания). Отсортировано по дням в работе — сверху дольше всего висящие случаи."
       />
+
+      <div className="mb-4">
+        <SegmentedTabs
+          value={riskTab}
+          onChange={(v) => setRiskTab(v as 'all' | RiskCategory)}
+          tabs={[
+            { value: 'all', label: `Все · ${allAtRiskStudents.length}` },
+            { value: 'suspended', label: `${RISK_CATEGORY_LABELS.suspended} · ${riskCounts.suspended}` },
+            { value: 'paused', label: `${RISK_CATEGORY_LABELS.paused} · ${riskCounts.paused}` },
+            { value: 'renewal', label: `${RISK_CATEGORY_LABELS.renewal} · ${riskCounts.renewal}` },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
@@ -215,6 +247,7 @@ export const AtRiskStudentsPage: React.FC = () => {
               <TableHead>Студент</TableHead>
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
+              <TableHead>Риск</TableHead>
               <TableHead>Год</TableHead>
               <TableHead>Дней в работе</TableHead>
               <TableHead></TableHead>
@@ -223,13 +256,13 @@ export const AtRiskStudentsPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : atRiskStudents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   В зоне риска никого нет
                 </TableCell>
               </TableRow>
@@ -258,6 +291,17 @@ export const AtRiskStudentsPage: React.FC = () => {
                     {student.pipeline_status && (
                       <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
                         {PIPELINE_STATUS_LABELS[student.pipeline_status]}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {student.risk_category && (
+                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${
+                        student.risk_category === 'renewal'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}>
+                        {RISK_CATEGORY_LABELS[student.risk_category]}
                       </span>
                     )}
                   </TableCell>

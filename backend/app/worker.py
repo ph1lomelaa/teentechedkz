@@ -239,6 +239,27 @@ async def on_startup(ctx: dict) -> None:
     else:
         logger.info("Payment notifications disabled")
 
+    if settings.ENABLE_TASK_URGENCY_NOTIFICATIONS:
+        from app.services.task_urgency_notifier import task_urgency_notifier_loop
+        tasks.append(asyncio.create_task(task_urgency_notifier_loop()))
+        logger.info("Task urgency notifier started")
+    else:
+        logger.info("Task urgency notifications disabled")
+
+    if settings.ENABLE_COMPLAINT_SLA_NOTIFICATIONS:
+        from app.services.complaint_sla import complaint_sla_loop
+        tasks.append(asyncio.create_task(complaint_sla_loop()))
+        logger.info("Complaint SLA loop started")
+    else:
+        logger.info("Complaint SLA notifications disabled")
+
+    if settings.ENABLE_MZK_QUALITY_SCORE:
+        from app.services.mzk_quality_score import mzk_quality_score_loop
+        tasks.append(asyncio.create_task(mzk_quality_score_loop()))
+        logger.info("MZK quality score loop started")
+    else:
+        logger.info("MZK quality score computation disabled")
+
     ctx["background_tasks"] = tasks
 
 

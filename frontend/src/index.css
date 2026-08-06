@@ -49,12 +49,40 @@ html.theme-switching *::after {
 }
 
 /* Native form controls (select dropdown lists, datetime pickers) follow the
-   app theme instead of the OS one — otherwise dark screens pop light popups. */
+   app theme instead of the OS one — otherwise dark screens pop light popups.
+
+   На macOS список <select> рисует система: `select option { background }`
+   там игнорируется, единственный рычаг — color-scheme ближайшего предка.
+   Тема приложения живёт на shell-контейнерах (data-theme на .crm-shell /
+   .workspace-shell / .portal), поэтому color-scheme надо ставить на них же,
+   а не только на html — иначе на светлой теме список остаётся тёмным
+   (тёмный текст на тёмном фоне = «списки не видны»). */
 html {
   color-scheme: dark;
 }
 html[data-theme='light'] {
   color-scheme: light;
+}
+
+:where(.crm-shell, .workspace-shell, .portal)[data-theme='dark'] {
+  color-scheme: dark;
+}
+:where(.crm-shell, .workspace-shell, .portal)[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* Диалоги и меню Radix уезжают через портал в <body>, вне shell-контейнера,
+   поэтому color-scheme с shell'а до них не доходит. Тему для порталов уже
+   держит html[data-crm-theme] (см. ThemeContext) — вешаем схему на него. */
+html[data-crm-theme='dark'] {
+  color-scheme: dark;
+}
+html[data-crm-theme='light'] {
+  color-scheme: light;
+}
+/* Экраны входа/заявок всегда тёмные независимо от темы приложения. */
+.auth-shell {
+  color-scheme: dark;
 }
 
 @layer base {
@@ -271,6 +299,29 @@ html[data-theme='light'] {
   --ds-ink-rgb: 245 245 243;
   --ds-muted-rgb: 154 154 148;
   --ds-muted2-rgb: 110 110 104;
+  /* Акцентный/статусный текст админ-разделов (регламенты, ОКК МЗК,
+     вознаграждения). Раньше ds-accent/good/danger были захардкожены в
+     tailwind.config, поэтому на светлой теме жёлтый текст становился
+     нечитаемым. Значения совпадают с --w-* ниже — это те же экраны. */
+  --ds-accent-text-rgb: 255 212 0;
+  --ds-danger-rgb: 248 113 113;
+  --ds-good-rgb: 139 212 106;
+  /* w-* прокси: страницы воркспейса (жалобы, возвраты и далее) монтируются и
+     в CRM-оболочке. Без этого rgb(var(--w-panel-rgb) / …) невалиден и страница
+     рендерится нечитаемой — та же причина, что и у p-* блока выше. Триплеты
+     RGB, а не hex: токены читаются как rgb(var(--x) / <alpha-value>). */
+  --w-bg-rgb: 10 10 10;
+  --w-panel-rgb: 20 20 20;
+  --w-panel2-rgb: 28 28 28;
+  --w-line-rgb: 42 42 42;
+  --w-ink-rgb: 245 245 243;
+  --w-muted-rgb: 154 154 148;
+  --w-muted2-rgb: 110 110 104;
+  --w-accent-rgb: 255 212 0;
+  --w-accent-dim-rgb: 201 168 0;
+  --w-accent-text-rgb: 255 212 0;
+  --w-danger-rgb: 248 113 113;
+  --w-good-rgb: 139 212 106;
   --background: 0 0% 4%;
   --foreground: 60 9% 96%;
   --card: 0 0% 8%;
@@ -315,6 +366,24 @@ html[data-theme='light'] {
   --ds-ink-rgb: 23 23 15;
   --ds-muted-rgb: 101 101 95;
   --ds-muted2-rgb: 139 139 132;
+  --ds-accent-text-rgb: 138 111 0;
+  --ds-danger-rgb: 180 35 24;
+  --ds-good-rgb: 61 122 32;
+  /* w-* прокси для светлой темы — см. комментарий в тёмном блоке. Значения
+     совпадают с .workspace-shell[data-theme='light'], иначе одна и та же
+     страница выглядела бы по-разному в двух оболочках. */
+  --w-bg-rgb: 250 250 247;
+  --w-panel-rgb: 255 255 255;
+  --w-panel2-rgb: 243 241 234;
+  --w-line-rgb: 227 223 212;
+  --w-ink-rgb: 23 23 15;
+  --w-muted-rgb: 101 101 95;
+  --w-muted2-rgb: 139 139 132;
+  --w-accent-rgb: 255 212 0;
+  --w-accent-dim-rgb: 138 111 0;
+  --w-accent-text-rgb: 138 111 0;
+  --w-danger-rgb: 180 35 24;
+  --w-good-rgb: 61 122 32;
   --background: 60 23% 97%;
   --foreground: 60 21% 7%;
   --card: 0 0% 100%;
@@ -365,6 +434,23 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
    paired with a light accent/status chip on the same element (buttons, tabs,
    pills), or that text goes near-white on yellow and becomes unreadable. */
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black) { color: #000 !important; }
+
+/* Нативные <select> внутри порталов: compat-слои выше ограничены
+   .crm-header/.app-main и header/main, а диалог рендерится вне них, поэтому
+   поля в модалках оставались без темы — на тёмной теме это давало тёмный
+   текст на тёмном фоне. Задаём фон/рамку/цвет явно для обеих тем. */
+html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea, select) {
+  border-color: #2A2A2A;
+  background-color: #1C1C1C;
+  color: #F5F5F3;
+}
+html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea)::placeholder { color: #77776F; }
+html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea, select) {
+  border-color: #E0DCCF;
+  background-color: #FFFFFF;
+  color: #17170F;
+}
+html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea)::placeholder { color: #6E6E68; }
 
 .crm-content,
 .crm-shell .app-main {
@@ -429,6 +515,10 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
    which inherits into any child text with no color class of its own —
    e.g. a button label or a message body — making it unreadable on yellow. */
 :is(.workspace-shell, .portal) :where(header, main) :is(.bg-brand.text-black, .bg-w-accent.text-black, .bg-w-good.text-black, .bg-w-danger.text-black, .bg-p-accent.text-black, .bg-p-good.text-black, .bg-p-danger.text-black) { color: #000 !important; }
+/* Solid accent surfaces always use black text. Some shared controls carry a
+  theme text utility instead of text-black, so the paired-selector exception
+  above is not enough for selected tabs and segmented controls. */
+:is(.crm-shell, .workspace-shell, .portal, .auth-shell) :where(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent) { color: #000 !important; }
 /* Same exception, hover-variant: a button that turns solid brand-colored on
    hover and pairs it with hover:text-black (e.g. PortalRoadmap's CTA) must
    keep that text black on hover too, not get recolored to near-white. */
@@ -750,17 +840,32 @@ select:disabled {
 
 /* Выпадающий список: на Windows/Linux он красится напрямую; на macOS
    цвет задаёт color-scheme выше. */
-select option {
+select option,
+select optgroup {
   background-color: #1c1c1c;
   color: #f5f5f3;
 }
-html[data-theme='light'] select option {
+/* Светлая тема: и когда её держит html, и когда — shell-контейнер. */
+html[data-theme='light'] select option,
+html[data-theme='light'] select optgroup,
+:where(.crm-shell, .workspace-shell, .portal)[data-theme='light'] select option,
+:where(.crm-shell, .workspace-shell, .portal)[data-theme='light'] select optgroup {
   background-color: #ffffff;
   color: #17170f;
 }
-html[data-theme='light'] .auth-shell select option {
+/* auth-shell перекрывает обе ветки выше: он всегда тёмный. */
+.auth-shell select option,
+.auth-shell select optgroup {
   background-color: #1c1c1c;
   color: #f5f5f3;
+}
+/* Плейсхолдерная опция («Выберите ментора») — приглушённая, но читаемая. */
+select option[value=''] {
+  color: #9A9A94;
+}
+html[data-theme='light'] select option[value=''],
+:where(.crm-shell, .workspace-shell, .portal)[data-theme='light'] select option[value=''] {
+  color: #6E6E68;
 }
 
 /* Scrollbar global — цвет из темы, а не фиксированный светло-серый,

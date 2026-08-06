@@ -5,6 +5,7 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from starlette.background import BackgroundTask
@@ -311,6 +312,77 @@ async def set_visibility(
     return _doc_to_dict(doc)
 
 
+@router.post("/{doc_id}/request-signature")
+async def request_document_signature(
+    doc_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Share a concrete student document and request the student's signature."""
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    await require_student_access(db, doc.student_id, current_user)
+    doc.visible_to_student = True
+    doc.signature_status = "pending"
+    doc.signature_requested_by = current_user.id
+    doc.signature_requested_at = datetime.now(timezone.utc)
+    doc.signature_viewed_at = None
+    doc.signature_signed_at = None
+    doc.signature_signed_by = None
+    doc.signature_full_name = None
+    await db.commit()
+    await db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
+@router.post("/portal/{doc_id}/signature-viewed")
+async def mark_document_signature_viewed(
+    doc_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=403, detail="Access denied")
+    sid = await _my_student_id(db, current_user)
+    doc = await db.get(Document, doc_id)
+    if not doc or doc.student_id != sid or not doc.visible_to_student or doc.signature_status != "pending":
+        raise HTTPException(status_code=404, detail="Документ для подписи не найден")
+    doc.signature_viewed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
+@router.post("/portal/{doc_id}/sign")
+async def sign_student_document(
+    doc_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=403, detail="Access denied")
+    sid = await _my_student_id(db, current_user)
+    doc = await db.get(Document, doc_id)
+    if not doc or doc.student_id != sid or not doc.visible_to_student or doc.signature_status != "pending":
+        raise HTTPException(status_code=404, detail="Документ для подписи не найден")
+    if not doc.signature_viewed_at:
+        raise HTTPException(status_code=409, detail="Сначала откройте превью документа")
+    full_name = str(body.get("full_name") or "").strip()
+    if not full_name or not bool(body.get("acknowledged")):
+        raise HTTPException(status_code=422, detail="Подтвердите ознакомление и укажите ФИО")
+    doc.signature_status = "signed"
+    doc.signature_signed_at = datetime.now(timezone.utc)
+    doc.signature_signed_by = current_user.id
+    doc.signature_full_name = full_name
+    await db.commit()
+    await db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
 @router.patch("/{doc_id}/type")
 async def set_document_type(
     doc_id: uuid.UUID,
@@ -487,5 +559,10 @@ def _doc_to_dict(d: Document) -> dict:
         "ai_doc_type_confidence": float(d.ai_doc_type_confidence) if d.ai_doc_type_confidence else None,
         "is_verified": d.is_verified,
         "visible_to_student": d.visible_to_student,
+        "signature_status": d.signature_status,
+        "signature_requested_at": d.signature_requested_at.isoformat() if d.signature_requested_at else None,
+        "signature_viewed_at": d.signature_viewed_at.isoformat() if d.signature_viewed_at else None,
+        "signature_signed_at": d.signature_signed_at.isoformat() if d.signature_signed_at else None,
+        "signature_full_name": d.signature_full_name,
         "uploaded_at": d.uploaded_at.isoformat(),
     }

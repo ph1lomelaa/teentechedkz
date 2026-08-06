@@ -90,8 +90,17 @@ export default {
           ink: 'rgb(var(--ds-ink-rgb) / <alpha-value>)',
           muted: 'rgb(var(--ds-muted-rgb) / <alpha-value>)',
           muted2: 'rgb(var(--ds-muted2-rgb) / <alpha-value>)',
-          good: '#8BD46A',
-          danger: '#FF6B6B',
+          // Theme-aware, unlike the flat hex above: on the light CRM theme a
+          // #FFD400 accent or #8BD46A good is unreadable on white. Mirrors the
+          // `w` scale so a page renders identically in either shell.
+          // The fallbacks matter: --ds-* is declared per shell (.crm-shell,
+          // .workspace-shell and their light variants), and ds-good/ds-danger
+          // are used by shared components that also render on the auth screen
+          // and inside Radix portals. Without a fallback the colour would
+          // resolve to nothing there instead of the old hex.
+          accentText: 'rgb(var(--ds-accent-text-rgb, 255 212 0) / <alpha-value>)',
+          good: 'rgb(var(--ds-good-rgb, 139 212 106) / <alpha-value>)',
+          danger: 'rgb(var(--ds-danger-rgb, 255 107 107) / <alpha-value>)',
         },
         // Student-portal tokens — driven by CSS vars under .portal (theme-aware)
         p: {

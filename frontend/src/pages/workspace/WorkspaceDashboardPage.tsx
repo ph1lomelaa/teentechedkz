@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { CalendarDays, ClipboardCheck, Clock3, Map, Users } from 'lucide-react'
+import { CalendarDays, ClipboardCheck, Clock3, Map, ShieldAlert, Users } from 'lucide-react'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
@@ -38,12 +38,13 @@ export const WorkspaceDashboardPage: React.FC = () => {
         description="Здесь собраны ваши студенты, ближайшие roadmap-задачи, встречи и точки внимания."
       />
 
-      <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard colorPrefix="w" label="Студенты" value={isLoading ? '…' : String(stats?.students_total ?? 0)} sub="в работе" icon={<Users className="h-5 w-5" />} />
         <StatCard colorPrefix="w" label="Задачи" value={isLoading ? '…' : String(stats?.open_roadmap_tasks ?? 0)} sub="открыто в roadmap" icon={<Map className="h-5 w-5" />} />
         <StatCard colorPrefix="w" label="На проверке" value={String(reviewCount)} sub="заявки студентов ждут ревью" icon={<ClipboardCheck className="h-5 w-5" />} warn={reviewCount > 0} onClick={() => navigate('/workspace/review')} />
         <StatCard colorPrefix="w" label="Дедлайны" value={String(overdue)} sub="требуют внимания" icon={<Clock3 className="h-5 w-5" />} warn={overdue > 0} />
         <StatCard colorPrefix="w" label="Встречи" value={isLoading ? '…' : String(stats?.upcoming_meetings ?? 0)} sub="запланировано" icon={<CalendarDays className="h-5 w-5" />} />
+        <StatCard colorPrefix="w" label="Инциденты" value={isLoading ? '…' : String(stats?.security_incidents ?? 0)} sub="открыто" icon={<ShieldAlert className="h-5 w-5" />} warn={(stats?.security_incidents ?? 0) > 0} onClick={() => navigate('/workspace/security-incidents')} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">

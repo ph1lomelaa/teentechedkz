@@ -34,6 +34,7 @@ class Contract(Base):
     amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="KZT")
     payment_plan: Mapped[PaymentPlan | None] = mapped_column(SAEnum(PaymentPlan, name="payment_plan"), nullable=True)
+    contract_type: Mapped[str] = mapped_column(String(20), default="civil", server_default="civil")
     pipeline_status: Mapped[PipelineStatus] = mapped_column(
         SAEnum(PipelineStatus, name="pipeline_status"), default=PipelineStatus.no_status
     )

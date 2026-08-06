@@ -187,6 +187,28 @@ async def _require_chat_access(db: AsyncSession, chat_id: uuid.UUID, current_use
         raise HTTPException(status_code=404, detail="Чат не найден")
 
 
+def _require_telegram_manager(current_user: User) -> None:
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(status_code=403, detail="Только менеджер может публиковать сообщения в группу")
+
+
+def _onboarding_text(student_name: str, team: list[str], contacts: list[str], response_time: str) -> str:
+    lines = [
+        f"Добро пожаловать в рабочую группу сопровождения {student_name}.",
+        "",
+        "Команда:",
+        *[f"• {member}" for member in team],
+        "",
+        "Контакты:",
+        *[f"• {contact}" for contact in contacts],
+        "",
+        f"Срок ответа: {response_time}.",
+        "Не отправляйте в этот чат пароли, паспортные данные и другие конфиденциальные сведения.",
+        "Существенные договорённости фиксируются в личном кабинете.",
+    ]
+    return "\n".join(lines)
+
+
 def _clean_group_title_part(value: object | None) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip(" —-")
 
@@ -629,6 +651,63 @@ async def send_telegram_message(
         "created_at": message.created_at.isoformat(),
         "attachments": [],
     }
+
+
+@router.post("/{chat_id}/onboarding")
+async def publish_onboarding(
+    chat_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    await _require_chat_access(db, chat_id, current_user)
+    _require_telegram_manager(current_user)
+    chat = await db.get(TelegramChat, chat_id)
+    if not chat or chat.status != TelegramChatStatus.active or chat.chat_type.value == "private":
+        raise HTTPException(status_code=409, detail="Onboarding доступен только для активной группы")
+    student_id = await _current_student_id(db, chat.id)
+    if not student_id:
+        raise HTTPException(status_code=422, detail="Сначала привяжите группу к студенту")
+    student = await db.get(Student, student_id)
+    team = [str(value).strip() for value in body.get("team", []) if str(value).strip()]
+    contacts = [str(value).strip() for value in body.get("contacts", []) if str(value).strip()]
+    response_time = str(body.get("response_time") or "в течение 1 рабочего дня").strip()
+    if not team or not contacts or not response_time:
+        raise HTTPException(status_code=422, detail="Нужны команда, контакты и срок ответа")
+    if len(team) > 12 or len(contacts) > 12:
+        raise HTTPException(status_code=422, detail="Слишком много строк в onboarding")
+    text = _onboarding_text(student.full_name if student else "студента", team, contacts, response_time)
+    try:
+        if chat.onboarding_message_id:
+            sent = await get_bot().edit_message_text(
+                chat_id=chat.chat_id,
+                message_id=chat.onboarding_message_id,
+                text=text,
+            )
+        else:
+            sent = await get_bot().send_message(chat_id=chat.chat_id, text=text)
+        await get_bot().pin_chat_message(
+            chat_id=chat.chat_id,
+            message_id=sent.message_id,
+            disable_notification=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Telegram не принял onboarding-сообщение") from exc
+    chat.onboarding_message_id = sent.message_id
+    chat.onboarding_text = text
+    chat.onboarding_updated_at = datetime.now(timezone.utc)
+    await log_change(
+        db,
+        "telegram_chat",
+        chat.id,
+        "onboarding_published",
+        None,
+        str(sent.message_id),
+        str(current_user.id),
+        source="workspace_telegram_manager",
+    )
+    await db.commit()
+    return await _chat_to_dict(db, chat, current_user=current_user)
 
 
 @router.get("/{chat_id}/participants")
@@ -1835,6 +1914,9 @@ async def _chat_to_dict(
         "chat_id": chat.chat_id,
         "chat_type": chat.chat_type.value,
         "title": chat.title,
+        "onboarding_message_id": chat.onboarding_message_id,
+        "onboarding_text": chat.onboarding_text,
+        "onboarding_updated_at": chat.onboarding_updated_at.isoformat() if chat.onboarding_updated_at else None,
         "status": chat.status.value,
         "privacy_mode_disabled": chat.privacy_mode_disabled,
         "created_at": chat.created_at.isoformat(),

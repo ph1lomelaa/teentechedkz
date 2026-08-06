@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum as SAEnum, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum as SAEnum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -30,6 +30,9 @@ class TelegramChat(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     chat_type: Mapped[TelegramChatType] = mapped_column(SAEnum(TelegramChatType, name="telegram_chat_type"))
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    onboarding_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    onboarding_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    onboarding_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     privacy_mode_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[TelegramChatStatus] = mapped_column(
         SAEnum(TelegramChatStatus, name="telegram_chat_status"),

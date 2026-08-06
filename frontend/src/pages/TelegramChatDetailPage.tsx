@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FolderInput, History, Paperclip, Search, Sparkles, Upload } from 'lucide-react'
+import { ArrowLeft, FolderInput, History, Paperclip, Pin, Search, Sparkles, Upload } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
@@ -59,6 +59,10 @@ export default function TelegramChatDetailPage() {
   const [contextDraftOpen, setContextDraftOpen] = useState(false)
   const [contextDraft, setContextDraft] = useState<TelegramContextDraft | null>(null)
   const [messageSearch, setMessageSearch] = useState('')
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [onboardingTeam, setOnboardingTeam] = useState('')
+  const [onboardingContacts, setOnboardingContacts] = useState('')
+  const [onboardingResponseTime, setOnboardingResponseTime] = useState('в течение 1 рабочего дня')
 
   const { data: chat } = useQuery({
     queryKey: ['telegram-chat', chatId],
@@ -150,6 +154,20 @@ export default function TelegramChatDetailPage() {
       toast({ title: 'Сессия завершена' })
     },
     onError: (err) => toast({ title: 'Не удалось завершить сессию', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
+  const onboardingMutation = useMutation({
+    mutationFn: () => telegramApi.publishOnboarding(chatId!, {
+      team: onboardingTeam.split('\n').map((value) => value.trim()).filter(Boolean),
+      contacts: onboardingContacts.split('\n').map((value) => value.trim()).filter(Boolean),
+      response_time: onboardingResponseTime.trim(),
+    }),
+    onSuccess: () => {
+      invalidateChat()
+      setOnboardingOpen(false)
+      toast({ title: chat?.onboarding_message_id ? 'Onboarding обновлён и закреплён' : 'Onboarding опубликован и закреплён' })
+    },
+    onError: (err) => toast({ title: 'Не удалось опубликовать onboarding', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const reviewMutation = useMutation({
@@ -270,6 +288,12 @@ export default function TelegramChatDetailPage() {
                 {messageSearch.trim() ? 'Заметки из поиска' : `Создать заметки${chat.has_context_signal ? ` (${chat.context_signal_count})` : ''}`}
               </Button>
             )}
+            {chat.status === 'active' && chat.chat_type !== 'private' && (
+              <Button variant="outline" size="sm" onClick={() => setOnboardingOpen(true)}>
+                <Pin className="w-4 h-4" />
+                {chat.onboarding_message_id ? 'Обновить onboarding' : 'Опубликовать onboarding'}
+              </Button>
+            )}
             <input
               ref={importInputRef}
               type="file"
@@ -308,6 +332,26 @@ export default function TelegramChatDetailPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={onboardingOpen} onOpenChange={setOnboardingOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{chat.onboarding_message_id ? 'Обновить onboarding' : 'Опубликовать onboarding'}</DialogTitle>
+            <DialogDescription>Сообщение будет отправлено в группу от имени менеджера и закреплено.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <textarea value={onboardingTeam} onChange={(event) => setOnboardingTeam(event.target.value)} placeholder="Команда, по одному участнику в строке" rows={4} className="w-full rounded-md border border-p-line bg-transparent p-3 text-sm" />
+            <textarea value={onboardingContacts} onChange={(event) => setOnboardingContacts(event.target.value)} placeholder="Контакты, по одному в строке" rows={3} className="w-full rounded-md border border-p-line bg-transparent p-3 text-sm" />
+            <Input value={onboardingResponseTime} onChange={(event) => setOnboardingResponseTime(event.target.value)} placeholder="Срок ответа" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOnboardingOpen(false)}>Отмена</Button>
+            <Button disabled={onboardingMutation.isPending} onClick={() => onboardingMutation.mutate()}>
+              {onboardingMutation.isPending ? 'Публикация…' : 'Опубликовать и закрепить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="border border-p-line rounded-card">
         <div className="px-4 py-2 border-b border-p-line">

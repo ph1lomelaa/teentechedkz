@@ -2,7 +2,7 @@ import apiClient from './client'
 import { StudentNote } from '@/types'
 
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled'
-export type MeetingType = 'intro' | 'regular' | 'documents' | 'roadmap' | 'application' | 'finance' | 'other'
+export type MeetingType = 'intro' | 'regular' | 'documents' | 'roadmap' | 'application' | 'finance' | 'other' | 'ielts_lesson' | 'ielts_mock'
 
 export interface Meeting {
   id: string

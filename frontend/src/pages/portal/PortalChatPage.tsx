@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { MessageCircle, Paperclip, Send, AlertCircle, Search } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { MessageCircle, Paperclip, Search, Send } from 'lucide-react'
 import { chatApi } from '@/api/chat'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
@@ -31,7 +31,6 @@ export const PortalChatPage: React.FC = () => {
   const queryClient = useQueryClient()
   const [channel, setChannel] = useState<Channel>('internal')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [messageText, setMessageText] = useState('')
   const [dialogSearch, setDialogSearch] = useState('')
   const [telegramSearch, setTelegramSearch] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -51,16 +50,6 @@ export const PortalChatPage: React.FC = () => {
 
   useWsEvent('message.new', () => queryClient.invalidateQueries({ queryKey: ['portal', 'conversations'] }))
 
-  const sendMessageMutation = useMutation({
-    mutationFn: (text: string) => portalApi.telegramSend(text),
-    onSuccess: () => {
-      setMessageText('')
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['portal', 'telegram'] })
-      }, 500)
-    },
-  })
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -68,12 +57,6 @@ export const PortalChatPage: React.FC = () => {
   useEffect(() => {
     scrollToBottom()
   }, [telegram?.messages])
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!messageText.trim()) return
-    await sendMessageMutation.mutateAsync(messageText.trim())
-  }
 
   const activeConversation = conversations.find((item) => item.id === selectedId) || conversations[0] || null
   const visibleConversations = useMemo(() => {
@@ -138,8 +121,8 @@ export const PortalChatPage: React.FC = () => {
             <>
               <div className="mb-4 border-b border-p-line pb-4">
                 <div className="text-base font-black text-p-text">{telegram.chat.title || 'Telegram-группа'}</div>
-                <div className="mt-1 text-xs text-p-muted">
-                  Отправляй сообщения прямо из кабинета
+                  <div className="mt-1 text-xs text-p-muted">
+                  Просмотр переписки. Сообщения в группу отправляет менеджер.
                 </div>
               </div>
               <div className="mb-3 relative">
@@ -204,30 +187,9 @@ export const PortalChatPage: React.FC = () => {
                   )}
                 </div>
 
-                {sendMessageMutation.isError && (
-                  <div className="flex items-center gap-2 rounded-ctl border border-p-danger/30 bg-p-danger/10 px-3 py-2 text-xs text-p-danger">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {sendMessageMutation.error instanceof Error ? sendMessageMutation.error.message : 'Ошибка отправки'}
-                  </div>
-                )}
-
-                <form onSubmit={handleSendMessage} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Напиши сообщение..."
-                    disabled={sendMessageMutation.isPending}
-                    className="flex-1 rounded-ctl border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-text placeholder-p-muted outline-none transition disabled:opacity-50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!messageText.trim() || sendMessageMutation.isPending}
-                    className="rounded-ctl border border-p-accent bg-p-accent px-3 py-2.5 text-black transition hover:opacity-90 disabled:opacity-50"
-                  >
-                    <Send className="h-4 w-4" />
-                  </button>
-                </form>
+                <div className="rounded-ctl border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-muted">
+                  Чтобы написать в группу, обратитесь к менеджеру.
+                </div>
               </div>
             </>
           )}

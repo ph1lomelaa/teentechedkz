@@ -48,6 +48,32 @@ export const setAccessToken = (token: string | null) => {
 
 export const getAccessToken = () => accessToken
 
+/** Refresh the access token, reusing an in-flight refresh if one is running.
+ *  Exported for non-axios consumers (the WebSocket, which carries its token in
+ *  the query string and so never passes through the response interceptor).
+ *  Returns the new token, or null when the session is truly gone. */
+export const refreshAccessToken = async (): Promise<string | null> => {
+  if (isRefreshing) {
+    return new Promise<string>((resolve, reject) => {
+      failedQueue.push({ resolve, reject })
+    }).catch(() => null)
+  }
+  isRefreshing = true
+  try {
+    const response = await axios.post(`${API_URL}/api/v1/auth/refresh`, {}, { withCredentials: true })
+    const newToken = response.data.access_token
+    setAccessToken(newToken)
+    processQueue(null, newToken)
+    return newToken
+  } catch (error) {
+    processQueue(error, null)
+    setAccessToken(null)
+    return null
+  } finally {
+    isRefreshing = false
+  }
+}
+
 // A role change made elsewhere (admin editing this user's role) leaves the
 // session technically alive but the client's cached role stale — the next
 // request that now fails with a role-check 403 is our only signal to go

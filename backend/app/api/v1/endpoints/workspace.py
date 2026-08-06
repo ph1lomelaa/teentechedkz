@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +15,8 @@ from app.core.deps import CurrentUser
 from app.core.audit import log_change
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.chat import ConversationMember, Message, MessageAttachment
+from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
+from app.models.complaint import Complaint, ComplaintStatus
 from app.models.contract import Contract, PipelineStatus
 from app.models.document import Document
 from app.models.meeting import Meeting, MeetingStatus
@@ -27,10 +29,12 @@ from app.models.roadmap import Roadmap, RoadmapStatus, RoadmapItemStatus, Stage,
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.student_task import StudentTask, TaskStatus
+from app.services.task_urgency import task_urgency
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_attachment import TelegramAttachment
 from app.models.telegram_message import TelegramMessage
 from app.models.telegram_participant_identity import TelegramParticipantIdentity
+from app.models.security_incident import SecurityIncident, SecurityIncidentStatus
 from app.models.user import User, UserRole
 from app.models.workspace_message_read import WorkspaceMessageRead
 from app.services.mentor_scope import primary_mentor_id, require_student_access
@@ -476,6 +480,31 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
         .where(StudentTask.student_id.in_(student_ids), StudentTask.status == TaskStatus.open)
         .group_by(StudentTask.student_id)
     )
+    open_complaints = await grouped_counts(
+        select(Complaint.student_id, func.count(Complaint.id))
+        .where(
+            Complaint.student_id.in_(student_ids),
+            Complaint.status.in_((ComplaintStatus.new, ComplaintStatus.in_progress)),
+        )
+        .group_by(Complaint.student_id)
+    )
+    due_tasks_result = await db.execute(
+        select(StudentTask.student_id, StudentTask.due_date)
+        .where(
+            StudentTask.student_id.in_(student_ids),
+            StudentTask.status == TaskStatus.open,
+            StudentTask.due_date.is_not(None),
+        )
+    )
+    task_urgency_counts: dict[uuid.UUID, dict[str, int]] = {}
+    for student_id, due_date in due_tasks_result.all():
+        urgency = task_urgency(due_date, "open")
+        if urgency == "none":
+            continue
+        bucket = task_urgency_counts.setdefault(
+            student_id, {"overdue_yellow": 0, "overdue_orange": 0, "overdue_red": 0, "critical": 0}
+        )
+        bucket["critical" if urgency == "critical" else f"overdue_{urgency}"] += 1
     document_result = await db.execute(
         select(
             Document.student_id,
@@ -569,6 +598,10 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
             "roadmap": roadmap_summary,
             "open_roadmap_tasks": max(roadmap_summary["tasks_total"] - roadmap_summary["tasks_done"], 0),
             "open_internal_tasks": open_tasks.get(student.id, 0),
+            "tasks": task_urgency_counts.get(
+                student.id, {"overdue_yellow": 0, "overdue_orange": 0, "overdue_red": 0, "critical": 0}
+            ),
+            "open_complaints": open_complaints.get(student.id, 0),
             "next_meeting": {
                 "id": str(meeting.id),
                 "title": meeting.title,
@@ -713,6 +746,18 @@ def _workspace_health_signals(summaries: list[dict], attention: list[dict]) -> l
             "count": count_attention("low_roadmap_progress"),
             "severity": "low",
         },
+        {
+            "kind": "task_critical_overdue",
+            "label": "Критично просроченные задачи (>72ч)",
+            "count": count_attention("task_critical_overdue"),
+            "severity": "high",
+        },
+        {
+            "kind": "open_complaints",
+            "label": "Открытые обращения",
+            "count": count_attention("open_complaints"),
+            "severity": "medium",
+        },
     ]
     return [signal for signal in signals if signal["count"] > 0]
 
@@ -754,8 +799,20 @@ async def workspace_dashboard(
             attention.append({"student": student, "kind": "telegram_signals", "count": item["telegram"]["pending_signals"]})
         if item["roadmap"]["id"] and item["roadmap"]["progress"] < 35:
             attention.append({"student": student, "kind": "low_roadmap_progress", "progress": item["roadmap"]["progress"]})
+        if item["tasks"]["critical"] > 0:
+            # >72ч просрочки — существенное нарушение (Прил. № 3, п. 3.4), сигнал
+            # для руководителя, а не тихая плашка ментору (см. ОС 30/07, Блок B).
+            attention.append({"student": student, "kind": "task_critical_overdue", "count": item["tasks"]["critical"]})
+        if item["open_complaints"] > 0:
+            attention.append({"student": student, "kind": "open_complaints", "count": item["open_complaints"]})
     workload = await _workspace_workload(db, student_ids, summaries)
     health_signals = _workspace_health_signals(summaries, attention)
+    security_incidents = await _count(
+        db,
+        select(func.count()).select_from(SecurityIncident).where(
+            SecurityIncident.status.in_((SecurityIncidentStatus.open, SecurityIncidentStatus.investigating))
+        ),
+    )
     return {
         "stats": {
             "students_total": len(summaries),
@@ -768,6 +825,7 @@ async def workspace_dashboard(
             "documents_total": sum(item["documents"]["total"] for item in summaries),
             "documents_unverified": sum(item["documents"]["unverified"] for item in summaries),
             "ai_drafts": sum(item["notes"]["ai_drafts"] for item in summaries),
+            "security_incidents": security_incidents,
         },
         "students": summaries,
         "upcoming_meetings": upcoming_meetings[:10],
@@ -911,6 +969,7 @@ async def workspace_roadmap_tasks(
                         "priority": task.priority.value,
                         "audience": task.audience.value,
                         "due_date": task.due_date.isoformat() if task.due_date else None,
+                        "urgency": task_urgency(task.due_date, task.status.value),
                         "needs_document": task.needs_document,
                         "needs_zoom": task.needs_zoom,
                         "has_questionnaire": bool(task.questionnaire_url),
@@ -1684,3 +1743,116 @@ async def workspace_student_summary(
     if not student or student.is_archived:
         raise HTTPException(status_code=404, detail="Студент не найден")
     return await _student_summary(db, student)
+
+
+@router.get("/my-day")
+async def workspace_my_day(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """«Мой день» (§ 8.2е плана): регламент требует проверять систему в 10:00 —
+    один экран вместо обхода нескольких. Собран из существующих источников:
+    просроченные задачи по цветам, горящий SLA обращений, встречи сегодня,
+    неподписанные регламенты. Персональный экран — виден только своему
+    пользователю, без scope=mentor_id (в отличие от остальных /workspace/*)."""
+    _require_staff(current_user)
+    student_ids = await _workspace_student_ids(db, current_user, own_only=True)
+
+    # --- Просроченные задачи по цветам (StudentTask, своих студентов) ---
+    tasks_by_urgency: dict[str, list[dict]] = {"yellow": [], "orange": [], "red": [], "critical": []}
+    if student_ids:
+        due_tasks_result = await db.execute(
+            select(StudentTask, Student.full_name)
+            .join(Student, Student.id == StudentTask.student_id)
+            .where(
+                StudentTask.student_id.in_(student_ids),
+                StudentTask.status == TaskStatus.open,
+                StudentTask.due_date.is_not(None),
+            )
+        )
+        for task, student_name in due_tasks_result.all():
+            urgency = task_urgency(task.due_date, "open")
+            if urgency == "none":
+                continue
+            tasks_by_urgency[urgency].append({
+                "id": str(task.id),
+                "student_id": str(task.student_id),
+                "student_name": student_name,
+                "task_text": task.task_text,
+                "due_date": task.due_date.isoformat(),
+            })
+
+    # --- Горящий SLA по обращениям, назначенным на меня ---
+    burning_complaints: list[dict] = []
+    complaints_result = await db.execute(
+        select(Complaint).where(
+            Complaint.assigned_to == current_user.id,
+            Complaint.status.in_((ComplaintStatus.new, ComplaintStatus.in_progress)),
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for c in complaints_result.scalars().all():
+        hours_left = 24 - (now - c.created_at).total_seconds() / 3600
+        if hours_left <= 4:
+            burning_complaints.append({
+                "id": str(c.id),
+                "subject": c.subject,
+                "hours_left": round(hours_left, 1),
+                "is_sla_breached": c.is_sla_breached,
+            })
+    burning_complaints.sort(key=lambda item: item["hours_left"])
+
+    # --- Встречи сегодня ---
+    today_meetings: list[dict] = []
+    if student_ids:
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = start_of_day + timedelta(days=1)
+        meetings_result = await db.execute(
+            select(Meeting, Student.full_name)
+            .join(Student, Student.id == Meeting.student_id)
+            .where(
+                Meeting.student_id.in_(student_ids),
+                Meeting.status == MeetingStatus.scheduled,
+                Meeting.starts_at >= start_of_day,
+                Meeting.starts_at < end_of_day,
+            )
+            .order_by(Meeting.starts_at.asc())
+        )
+        for meeting, student_name in meetings_result.all():
+            today_meetings.append({
+                "id": str(meeting.id),
+                "student_id": str(meeting.student_id),
+                "student_name": student_name,
+                "title": meeting.title,
+                "starts_at": meeting.starts_at.isoformat(),
+                "meeting_link": meeting.meeting_link,
+                "meeting_type": meeting.meeting_type.value,
+            })
+
+    # --- Неподписанные регламенты (та же EXISTS-логика, что и в шлюзе доступа) ---
+    from app.services.agreements import audience_for_role
+
+    unsigned_agreements: list[dict] = []
+    audience = audience_for_role(current_user.role)
+    if audience is not None:
+        signed_result = await db.execute(
+            select(AgreementSignature.agreement_id).where(AgreementSignature.user_id == current_user.id)
+        )
+        signed_ids = {row[0] for row in signed_result.all()}
+        published_result = await db.execute(
+            select(Agreement).where(
+                Agreement.audience == audience,
+                Agreement.status == AgreementStatus.published,
+                Agreement.is_active == True,  # noqa: E712
+            )
+        )
+        for agreement in published_result.scalars().all():
+            if agreement.id not in signed_ids:
+                unsigned_agreements.append({"id": str(agreement.id), "title": agreement.title})
+
+    return {
+        "tasks": tasks_by_urgency,
+        "burning_complaints": burning_complaints,
+        "today_meetings": today_meetings,
+        "unsigned_agreements": unsigned_agreements,
+    }

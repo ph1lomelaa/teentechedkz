@@ -9,7 +9,7 @@ import {
   ItemStatus,
 } from '@/api/roadmap'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import { AppButton, Pill, PriorityPill, StatusPill } from '@/components/ui'
+import { AppButton, Pill, PriorityPill, StatusPill, UrgencyBadge } from '@/components/ui'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,8 @@ import {
   DialogTitle,
 } from '@/components/ui/primitives/dialog'
 import { Textarea } from '@/components/ui/primitives/textarea'
+import { Input } from '@/components/ui/primitives/input'
+import { Label } from '@/components/ui/primitives/label'
 import { toast } from '@/hooks/use-toast'
 import { withViewTransition } from '@/lib/motion'
 import { cn, formatDate } from '@/lib/utils'
@@ -56,6 +58,9 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const [qTask, setQTask] = useState<{ id: string; title: string } | null>(null)
   const [returnTask, setReturnTask] = useState<RoadmapTask | null>(null)
   const [returnComment, setReturnComment] = useState('')
+  const [newTaskStage, setNewTaskStage] = useState<RoadmapStage | null>(null)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     const current =
@@ -73,6 +78,21 @@ export const WorkspaceRoadmapEditor: React.FC<{
       // Кроссфейд перестройки: галочки, счётчики done/total и статус-пиллы
       // меняются плавно, а не одним кадром.
       withViewTransition(() => onChanged(updated))
+    } catch (err) {
+      const response = (err as {
+        response?: { status?: number; headers?: Record<string, string>; data?: { detail?: { message?: string; missing_roles?: string[] } | string }
+      } })?.response
+      const detail = response?.data?.detail
+      const missingRoles = typeof detail === 'object' ? detail.missing_roles : undefined
+      toast({
+        title: response?.headers?.['x-error-code'] === 'STAGE_REQUIRED_TEAM_INCOMPLETE'
+          ? 'Этап ещё нельзя начать'
+          : 'Не удалось обновить этап',
+        description: missingRoles?.length
+          ? `Не допущены роли: ${missingRoles.join(', ')}`
+          : typeof detail === 'object' ? detail.message : detail,
+        variant: 'destructive',
+      })
     } finally {
       setBusy(false)
     }
@@ -115,12 +135,34 @@ export const WorkspaceRoadmapEditor: React.FC<{
   }
   const toggleSubtask = (subId: string, isDone: boolean) =>
     run(() => roadmapApi.updateSubtask(subId, { is_done: !isDone }))
-  const cycleStage = (s: RoadmapStage) =>
-    run(() => roadmapApi.updateStage(s.id, { status: STAGE_CYCLE[s.status] }))
+  const cycleStage = (s: RoadmapStage) => {
+    const nextStatus = STAGE_CYCLE[s.status]
+    if (nextStatus === 'done' && !s.can_complete) {
+      toast({
+        title: 'Этап ещё нельзя закрыть',
+        description: `Принято обязательных задач: ${s.required_done}/${s.required_total}`,
+        variant: 'destructive',
+      })
+      return
+    }
+    return run(() => roadmapApi.updateStage(s.id, { status: nextStatus }))
+  }
 
-  const addTask = (s: RoadmapStage) => {
-    const title = window.prompt('Название задачи')?.trim()
-    if (title) run(() => roadmapApi.createTask({ stage_id: s.id, title }))
+  const openAddTask = (s: RoadmapStage) => {
+    setNewTaskStage(s)
+    setNewTaskTitle('')
+    setNewTaskDueDate('')
+  }
+  const submitAddTask = () => {
+    const title = newTaskTitle.trim()
+    const stage = newTaskStage
+    if (!title || !stage) return
+    setNewTaskStage(null)
+    run(() => roadmapApi.createTask({
+      stage_id: stage.id,
+      title,
+      due_date: newTaskDueDate || null,
+    }))
   }
   const addSubtask = (t: RoadmapTask) => {
     const title = window.prompt('Название подзадачи')?.trim()
@@ -182,7 +224,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
                   )}
                 />
               )}
-              <StageNode status={s.status} onClick={() => canManage && cycleStage(s)} disabled={!canManage} />
+              <StageNode
+                status={s.status}
+                onClick={() => canManage && cycleStage(s)}
+                disabled={!canManage || (STAGE_CYCLE[s.status] === 'done' && !s.can_complete)}
+              />
 
               <div
                 className="flex cursor-pointer select-none items-center gap-2.5 py-1"
@@ -200,6 +246,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
                 <span className="text-xs font-bold text-w-muted2">
                   {stageDone}/{s.tasks.length}
                 </span>
+                {s.required_total > 0 && (
+                  <span className={cn('text-[11px] font-bold', s.can_complete ? 'text-w-good' : 'text-w-muted2')}>
+                    обязательные {s.required_done}/{s.required_total}
+                  </span>
+                )}
                 <ChevronRight
                   className={cn('ml-auto h-4 w-4 text-w-muted2 transition-transform', isOpen && 'rotate-90')}
                 />
@@ -233,7 +284,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
                     {canManage && (
                       <button
                         type="button"
-                        onClick={() => addTask(s)}
+                        onClick={() => openAddTask(s)}
                         className="inline-flex items-center gap-1.5 rounded-ctl px-2 py-1.5 text-xs font-bold text-w-muted transition hover:text-w-accentText"
                       >
                         <Plus className="h-3.5 w-3.5" /> Добавить задачу
@@ -282,6 +333,51 @@ export const WorkspaceRoadmapEditor: React.FC<{
             onClick={() => returnTask && reviewTask(returnTask, 'return', returnComment.trim())}
           >
             Вернуть с комментарием
+          </AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
+      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Новая задача</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            Этап «{newTaskStage?.name}». Срок необязателен, но именно по нему считается срочность.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-w-muted">Название</Label>
+            <Input
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="Что нужно сделать"
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+              autoFocus
+            />
+          </div>
+          <div>
+            <Label className="text-w-muted">Срок</Label>
+            <Input
+              type="date"
+              value={newTaskDueDate}
+              onChange={(e) => setNewTaskDueDate(e.target.value)}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setNewTaskStage(null)}>
+            Отмена
+          </AppButton>
+          <AppButton
+            colorPrefix="w"
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={!newTaskTitle.trim() || busy}
+            onClick={submitAddTask}
+          >
+            Создать задачу
           </AppButton>
         </DialogFooter>
       </DialogContent>
@@ -384,6 +480,7 @@ const TaskCard: React.FC<{
               </>
             )}
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
+            <UrgencyBadge dueDate={task.due_date} status={task.status} />
             {task.audience === 'coordinator' && <span className="text-w-muted2">координатор</span>}
             {task.needs_document && (
               <span className="inline-flex items-center gap-1 text-2xs text-w-muted2"><FileUp className="h-3 w-3" /> документ</span>

@@ -179,6 +179,25 @@ class Stage(Base):
         back_populates="stage", cascade="all, delete-orphan", order_by="RoadmapTask.position"
     )
 
+    @property
+    def tasks_total(self) -> int:
+        return len(self.tasks)
+
+    @property
+    def required_total(self) -> int:
+        return sum(task.priority == TaskPriority.required for task in self.tasks)
+
+    @property
+    def required_done(self) -> int:
+        return sum(
+            task.priority == TaskPriority.required and task.status == RoadmapItemStatus.done
+            for task in self.tasks
+        )
+
+    @property
+    def can_complete(self) -> bool:
+        return self.required_done == self.required_total
+
 
 class RoadmapTask(Base):
     __tablename__ = "roadmap_tasks"

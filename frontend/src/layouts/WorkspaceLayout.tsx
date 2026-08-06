@@ -2,12 +2,16 @@ import React, { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Banknote,
   Bell,
   CalendarDays,
   CheckSquare,
   ClipboardCheck,
   ClipboardList,
+  Coins,
   FileText,
+  Gauge,
+  ShieldAlert,
   GraduationCap,
   Globe,
   KeyRound,
@@ -17,6 +21,9 @@ import {
   Map,
   Menu,
   MessageCircle,
+  MessageSquareWarning,
+  ScrollText,
+  Sun,
   Users,
   X,
 } from 'lucide-react'
@@ -40,11 +47,17 @@ interface NavGroup {
   items: NavItem[]
 }
 
-function getNavGroups(studentsNavLabel: string, canReturnToCrm: boolean): NavGroup[] {
+function getNavGroups(
+  studentsNavLabel: string,
+  canReturnToCrm: boolean,
+  isAdminOrMzk: boolean,
+  isMentor: boolean,
+): NavGroup[] {
   const baseGroups: NavGroup[] = [
     {
       group: 'МОИ ДАННЫЕ',
       items: [
+        { label: 'Мой день', path: '/workspace/my-day', icon: <Sun className="h-4 w-4" /> },
         { label: 'Главная', path: '/workspace', icon: <LayoutDashboard className="h-4 w-4" /> },
         { label: studentsNavLabel, path: '/workspace/students', icon: <Users className="h-4 w-4" /> },
       ],
@@ -66,16 +79,41 @@ function getNavGroups(studentsNavLabel: string, canReturnToCrm: boolean): NavGro
         { label: 'Документы', path: '/workspace/documents', icon: <FileText className="h-4 w-4" /> },
         { label: 'Университеты', path: '/workspace/universities', icon: <GraduationCap className="h-4 w-4" /> },
         { label: 'Страны', path: '/workspace/countries', icon: <Globe className="h-4 w-4" /> },
+        { label: 'Регламенты', path: '/workspace/agreements', icon: <ScrollText className="h-4 w-4" /> },
       ],
     },
     {
       group: 'КОММУНИКАЦИЯ',
       items: [
         { label: 'Чат', path: '/workspace/chat', icon: <MessageCircle className="h-4 w-4" /> },
+        { label: 'Обращения', path: '/workspace/complaints', icon: <MessageSquareWarning className="h-4 w-4" /> },
         { label: 'Уведомления', path: '/workspace/notifications', icon: <Bell className="h-4 w-4" /> },
       ],
     },
   ]
+
+  if (isAdminOrMzk) {
+    baseGroups.push({
+      group: 'МОТИВАЦИЯ',
+      items: [
+        { label: 'Возвратные кейсы', path: '/workspace/refund-cases', icon: <Banknote className="h-4 w-4" /> },
+        { label: 'Инциденты безопасности', path: '/workspace/security-incidents', icon: <ShieldAlert className="h-4 w-4" /> },
+        { label: 'ОКК МЗК', path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" /> },
+        { label: 'Вознаграждение менторов', path: '/workspace/mentor-rewards', icon: <Coins className="h-4 w-4" /> },
+      ],
+    })
+  }
+
+  // Ментор видит только свои этапы и штрафы — и может возразить (п.6.8).
+  // Раньше право возражать было лишь в API, а сами санкции ментору не показывали.
+  if (isMentor) {
+    baseGroups.push({
+      group: 'МОТИВАЦИЯ',
+      items: [
+        { label: 'Моё вознаграждение', path: '/workspace/my-rewards', icon: <Coins className="h-4 w-4" /> },
+      ],
+    })
+  }
 
   if (canReturnToCrm) {
     baseGroups.push({
@@ -106,7 +144,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const isPreview = Boolean(mentorId)
   const studentsNavLabel = isPreview ? 'Студенты ментора' : 'Мои студенты'
 
-  const navGroups = getNavGroups(studentsNavLabel, canReturnToCrm)
+  const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager'
+  const navGroups = getNavGroups(studentsNavLabel, canReturnToCrm, isAdminOrMzk, user?.role === 'mentor')
 
   const findActiveNavItem = () => {
     for (const group of navGroups) {

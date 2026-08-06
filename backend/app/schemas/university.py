@@ -9,6 +9,12 @@ _cfg = ConfigDict(from_attributes=True)
 
 
 class UniversityOut(BaseModel):
+    """List payload — deliberately lean.
+
+    `GET /universities` returns the whole table unpaginated, so the heavy
+    parsed fields (full description, per-degree requirements) live only on
+    UniversityDetailOut. `faculties` is here because the catalog filters on it.
+    """
     model_config = _cfg
     id: uuid.UUID
     country_ref_id: uuid.UUID | None = None
@@ -22,6 +28,20 @@ class UniversityOut(BaseModel):
     world_ranking: int | None = None
     tuition_range: str
     has_grants: bool
+    has_grants_status: str = "unknown"
+    photo_url: str | None = None
+    degree_levels: list[str] = []
+    faculties: list[str] = []
+    source_tilda_url: str | None = None
+
+
+class UniversityDetailOut(UniversityOut):
+    description_full: str = ""
+    requirements: dict[str, list[str]] = {}
+    deadline_note: str = ""
+    deadline_year_mentioned: int | None = None
+    grant_note: str = ""
+    updated_at: datetime | None = None
 
 
 class UniversityCreate(BaseModel):
@@ -34,6 +54,10 @@ class UniversityCreate(BaseModel):
     world_ranking: int | None = None
     tuition_range: str = ""
     has_grants: bool = False
+    has_grants_status: str = "unknown"
+    grant_note: str = ""
+    photo_url: str | None = None
+    degree_levels: list[str] = []
 
 
 class UniversityUpdate(BaseModel):
@@ -46,6 +70,10 @@ class UniversityUpdate(BaseModel):
     world_ranking: int | None = None
     tuition_range: str | None = None
     has_grants: bool | None = None
+    has_grants_status: str | None = None
+    grant_note: str | None = None
+    photo_url: str | None = None
+    degree_levels: list[str] | None = None
 
 
 # ---- credentials ----

@@ -59,6 +59,26 @@ interface UserForm {
 
 const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
 
+function AgreementStatusBadge({ status }: { status?: User['agreement_status'] }) {
+  const value = status?.status ?? 'not_applicable'
+  if (value === 'not_applicable') {
+    return <span className="text-xs text-p-muted2">—</span>
+  }
+  if (value === 'signed') {
+    const date = status?.signed_at ? new Date(status.signed_at).toLocaleDateString('ru-RU') : null
+    return (
+      <span className="text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-pill font-medium uppercase tracking-wide">
+        подписан{date ? ` ${date}` : ''}
+      </span>
+    )
+  }
+  return (
+    <span className="text-[11px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-pill font-medium uppercase tracking-wide">
+      ожидает
+    </span>
+  )
+}
+
 function UserModal({
   user,
   open,
@@ -397,19 +417,20 @@ export const SettingsUsersPage: React.FC = () => {
               <TableHead>Роль</TableHead>
               <TableHead>Telegram</TableHead>
               <TableHead>Статус</TableHead>
+              <TableHead>Регламент</TableHead>
               <TableHead>Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Нет пользователей по выбранным фильтрам
                 </TableCell>
               </TableRow>
@@ -430,6 +451,9 @@ export const SettingsUsersPage: React.FC = () => {
                     <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${user.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
                       {user.is_active ? 'Активен' : 'Неактивен'}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    <AgreementStatusBadge status={user.agreement_status} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">

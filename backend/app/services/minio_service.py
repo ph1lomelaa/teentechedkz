@@ -105,6 +105,28 @@ async def minio_upload_note_audio(
     return object_name
 
 
+async def minio_upload_agreement(
+    content: bytes,
+    agreement_id: uuid.UUID,
+    filename: str,
+    mime_type: str,
+) -> str:
+    """Stores an agreement's attached PDF/DOCX. Not student-scoped — regламенты
+    приходят одной штукой на всех менторов, не привязаны к documents.student_id."""
+    client = get_minio()
+    safe_name = filename.replace(" ", "_")
+    object_name = f"agreements/{agreement_id}/{safe_name}"
+
+    client.put_object(
+        bucket_name=settings.MINIO_BUCKET_NAME,
+        object_name=object_name,
+        data=BytesIO(content),
+        length=len(content),
+        content_type=mime_type,
+    )
+    return object_name
+
+
 async def minio_download(storage_path: str) -> bytes:
     client = get_minio()
     response = client.get_object(bucket_name=settings.MINIO_BUCKET_NAME, object_name=storage_path)

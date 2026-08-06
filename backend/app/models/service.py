@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, timezone
-from sqlalchemy import String, Boolean, Integer, Text, Date, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Boolean, Integer, Text, Date, DateTime, ForeignKey, UniqueConstraint, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -26,6 +26,12 @@ class ServiceStatus(str, enum.Enum):
 
 class Service(Base):
     __tablename__ = "services"
+    # Одна услуга каждого типа на студента: без этого слияние студентов и гонка
+    # параллельных POST /services плодили дубликаты, и карточка показывала
+    # стандартный набор дважды. См. миграцию 066.
+    __table_args__ = (
+        UniqueConstraint("student_id", "service_type", name="uq_services_student_service_type"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))

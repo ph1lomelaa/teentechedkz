@@ -1,9 +1,9 @@
 import React from 'react'
 import { PageShell } from '@/components/shared/PageShell'
-import { PortalCountriesCatalog } from '@/components/portal/PortalCountriesCatalog'
+import { CountriesCatalog } from '@/components/shared/CountriesCatalog'
 
 export const PortalCountriesPage: React.FC = () => (
   <PageShell maxWidth="lg">
-    <PortalCountriesCatalog />
+    <CountriesCatalog eyebrow="Кабинет" basePath="/portal/countries" />
   </PageShell>
 )

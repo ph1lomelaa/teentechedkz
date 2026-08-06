@@ -48,6 +48,11 @@ export interface User {
   phone?: string
   is_active: boolean
   must_change_password: boolean
+  agreement_signature_required?: boolean
+  agreement_status?: {
+    status: 'not_applicable' | 'pending' | 'signed'
+    signed_at?: string | null
+  }
 }
 
 export interface StudentListItem {
@@ -59,8 +64,15 @@ export interface StudentListItem {
   city?: string
   pipeline_status?: PipelineStatus
   days_in_work?: number
+  risk_category?: 'suspended' | 'paused' | 'renewal' | null
   is_mine?: boolean
   country?: string | null
+  countries?: Array<{
+    country: string
+    is_primary: boolean
+    flag_emoji?: string
+    flag_url?: string
+  }>
   mentors?: string[]
   mzk_manager_name?: string | null
   responsible_count?: number
@@ -89,6 +101,8 @@ export interface StudentListItem {
     tasks_done?: number
   }
   open_tasks_count?: number
+  has_overdue_tasks?: boolean
+  has_open_complaints?: boolean
   next_meeting?: {
     id: string
     title: string
@@ -130,6 +144,40 @@ export interface ResponsibleUser {
   name?: string | null
   role?: string
   is_active: boolean
+  assignment_status?: 'required' | 'awaiting_signature' | 'assigned' | 'active' | 'paused' | 'replaced' | 'completed' | string
+  country_scope?: string | null
+  functional_zone?: string | null
+  first_task_due_date?: string | null
+}
+
+export interface TeamReadiness {
+  required_roles: string[]
+  ready_roles: string[]
+  missing_roles: string[]
+  is_ready: boolean
+}
+
+export const MENTOR_ROLE_LABELS: Record<string, string> = {
+  lead: 'Ментор по УП',
+  ielts: 'Учитель IELTS',
+  sat: 'SAT',
+  portfolio: 'Портфолио',
+  visa: 'Виза',
+  english: 'Английский',
+  career: 'Профориентолог',
+  country: 'Ментор по стране',
+}
+
+/** Вуз в заявке, развёрнутый бэкендом, — минимум для карточки и ссылки. */
+export interface ApplicationUniversityRef {
+  id: string
+  name: string
+  country_name?: string | null
+  city?: string | null
+  photo_url?: string | null
+  country_flag_emoji?: string | null
+  /** Справочный дедлайн вуза — ориентир, когда у заявки своей даты ещё нет. */
+  deadline_note?: string | null
 }
 
 export interface Application {
@@ -137,8 +185,15 @@ export interface Application {
   student_id?: string
   contract_id?: string
   country: string
-  university?: string
-  program?: string
+  /** Свободный текст — остаётся ведущим: вуза может не быть в справочнике.
+   *  null допустим: так поле очищается через PATCH. */
+  university?: string | null
+  /** Необязательная привязка к каталогу; есть — значит вуз кликабелен. */
+  university_id?: string | null
+  university_ref?: ApplicationUniversityRef | null
+  program?: string | null
+  /** Дедлайн этой подачи (ISO). Пусто — UI берёт справочный из вуза/страны. */
+  deadline?: string | null
   submissions_planned: number
   submissions_done: number
   submission_status: SubmissionStatus
@@ -215,11 +270,37 @@ export interface StudentTask {
   student_id: string
   service_id?: string | null
   student_name?: string
+  assignee_id?: string | null
+  assignee_name?: string | null
   task_text: string
-  status: 'open' | 'done'
+  expected_result?: string | null
+  acceptance_criteria?: string | null
+  required_documents?: string[] | null
+  result_text?: string | null
+  evidence_documents?: string[] | null
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  status:
+    | 'open'
+    | 'awaiting_signature'
+    | 'in_progress'
+    | 'submitted'
+    | 'needs_revision'
+    | 'accepted'
+    | 'blocked_by_agreement'
+    | 'overdue'
+    | 'cancelled'
+    | 'done'
   created_by: string
   created_at: string
   done_at?: string
+  submitted_at?: string | null
+  submitted_by?: string | null
+  accepted_at?: string | null
+  accepted_by?: string | null
+  review_note?: string | null
+  due_date?: string | null
+  due_date_set_by?: string | null
+  urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null
 }
 
 export interface PortfolioProgress {
@@ -254,6 +335,11 @@ export interface Document {
   ai_description?: string
   is_verified: boolean
   visible_to_student?: boolean
+  signature_status?: 'none' | 'pending' | 'signed'
+  signature_requested_at?: string | null
+  signature_viewed_at?: string | null
+  signature_signed_at?: string | null
+  signature_full_name?: string | null
   uploaded_at: string
 }
 
@@ -274,6 +360,10 @@ export interface MentorAssignment {
   mentor_name?: string
   role: string
   is_active?: boolean
+  assignment_status?: 'required' | 'awaiting_signature' | 'assigned' | 'active' | 'paused' | 'replaced' | 'completed' | string
+  country_scope?: string | null
+  functional_zone?: string | null
+  first_task_due_date?: string | null
   assigned_at: string
 }
 
@@ -426,6 +516,9 @@ export interface TelegramChat {
   chat_id: number
   chat_type: 'private' | 'group' | 'supergroup'
   title: string | null
+  onboarding_message_id: number | null
+  onboarding_text: string | null
+  onboarding_updated_at: string | null
   status: TelegramChatStatus
   privacy_mode_disabled: boolean
   created_at: string
@@ -652,6 +745,8 @@ export interface StudentFull extends StudentListItem {
   budget_per_year?: string
   transcript_resume_url?: string | null
   intake_season?: 'fall' | 'spring' | 'summer' | null
+  work_folder_url?: string | null
+  work_phone?: string | null
   contracts: Contract[]
   applications: Application[]
   services: Service[]
@@ -665,6 +760,7 @@ export interface StudentFull extends StudentListItem {
   guardians?: Guardian[]
   confidential_notes?: ConfidentialNote[]
   responsibles?: ResponsibleUser[]
+  team_readiness?: TeamReadiness
   is_mine?: boolean
   alerts?: StudentAlert[]
 }
@@ -839,9 +935,18 @@ export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
   enrolled: 'Зачислен',
 }
 
+/** Статус визы раньше показывался сырым значением из БД («not_started»)
+ *  во всех интерфейсах — читать это студенту невозможно. */
+export const VISA_STATUS_LABELS: Record<string, string> = {
+  not_started: 'Не начата',
+  applied: 'Подана',
+  received: 'Получена',
+  refused: 'Отказ',
+}
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Администратор',
-  mzk_manager: 'MZK Менеджер',
+  mzk_manager: 'МЗК',
   mentor: 'Ментор',
   student: 'Студент',
 }

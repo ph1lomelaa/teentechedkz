@@ -33,6 +33,7 @@ export interface RoadmapTask {
   reviewed_at: string | null
   review_comment: string | null
   due_date: string | null
+  urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null
   position: number
   subtasks: RoadmapSubtask[]
 }
@@ -44,6 +45,10 @@ export interface RoadmapStage {
   description: string
   position: number
   status: ItemStatus
+  tasks_total: number
+  required_total: number
+  required_done: number
+  can_complete: boolean
   tasks: RoadmapTask[]
 }
 
@@ -224,6 +229,7 @@ export interface FlatTask {
   reviewed_at: string | null
   review_comment: string | null
   due_date: string | null
+  urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null
   position: number
   subtasks: RoadmapSubtask[]
 }

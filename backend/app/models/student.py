@@ -39,6 +39,10 @@ class Student(Base):
         SAEnum(IntakeSeason, name="intake_season"), nullable=True
     )
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Регламент МЗК п.2.2: ссылка на рабочую папку студента (Google Drive и т.п.).
+    work_folder_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Регламент МЗК п.3.2/3.4: рабочий номер Компании для данного студента.
+    work_phone: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Bridge to a login-capable portal account (role=student). NULL = no portal access yet.
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True

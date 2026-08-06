@@ -90,6 +90,21 @@ class Settings(BaseSettings):
     PAYMENT_NOTIFICATION_INTERVAL_SECONDS: int = 3600 * 6  # 6 hours
     PAYMENT_DUE_LOOK_AHEAD_DAYS: int = 14
 
+    # Task urgency notifications (ОС 30/07, Блок B): >72ч просрочки — существенное
+    # нарушение (Прил. № 3, п. 3.4), уходит Академ Хэду и МЗК, не тихой плашкой ментору.
+    ENABLE_TASK_URGENCY_NOTIFICATIONS: bool = True
+    TASK_URGENCY_NOTIFICATION_INTERVAL_SECONDS: int = 3600 * 3  # 3 hours
+
+    # Agreement signature gate (ОС 30/07, Блок C): без подписи regламента ментор
+    # не может начать работу. Самое рискованное место плана — ошибка в условии
+    # блокирует вход всем менторам. Флаг позволяет выключить без деплоя.
+    ENABLE_AGREEMENT_GATE: bool = False
+
+    # Complaint SLA notifications (ОС 30/07, Блок D)
+    ENABLE_COMPLAINT_SLA_NOTIFICATIONS: bool = True
+    COMPLAINT_SLA_CHECK_INTERVAL_SECONDS: int = 3600  # 1 hour — SLA окно всего 24ч
+    ENABLE_MZK_QUALITY_SCORE: bool = True
+
     # First admin seed
     FIRST_ADMIN_EMAIL: str = "admin@teenteched.kz"
     FIRST_ADMIN_PASSWORD: str = "Admin1234!"

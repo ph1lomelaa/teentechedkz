@@ -55,7 +55,7 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
-type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review'
+type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints'
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
   'proforientation',
   'ielts_mock',
@@ -401,7 +401,7 @@ function IntakeInbox() {
             <DialogDescription>
               Будет создано {creatableCount} студентов из новых анкет без кандидата на привязку.
               Анкеты с кандидатом останутся на ручное решение. Суммы и договорённости
-              не переносятся — их менеджер вносит вручную.
+              не переносятся — их МЗК вносит вручную.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -794,6 +794,7 @@ export const StudentsListPage: React.FC = () => {
   const [responsibleRole, setResponsibleRole] = useState<ResponsibleRoleFilter>('any')
   const [intakeYearFilter, setIntakeYearFilter] = useState('')
   const [countryFilter, setCountryFilter] = useState('')
+  const [countryPrimaryOnly, setCountryPrimaryOnly] = useState(false)
   const [degreeFilter, setDegreeFilter] = useState('')
   const [serviceTypeFilter, setServiceTypeFilter] = useState('')
   const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>('all')
@@ -859,6 +860,7 @@ export const StudentsListPage: React.FC = () => {
       mzkManagerFilter,
       intakeYearFilter,
       countryFilter,
+      countryPrimaryOnly,
       degreeFilter,
       serviceTypeFilter,
     ],
@@ -871,6 +873,7 @@ export const StudentsListPage: React.FC = () => {
         mzk_manager_id: mzkManagerFilter || undefined,
         intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
         country: countryFilter.trim() || undefined,
+        country_primary_only: countryFilter.trim() ? countryPrimaryOnly : undefined,
         degree_level: degreeFilter || undefined,
         service_type: serviceTypeFilter || undefined,
         page: 1,
@@ -962,6 +965,10 @@ export const StudentsListPage: React.FC = () => {
           return !s.telegram?.linked
         case 'open_tasks':
           return (s.open_tasks_count ?? 0) > 0
+        case 'overdue_tasks':
+          return !!s.has_overdue_tasks
+        case 'open_complaints':
+          return !!s.has_open_complaints
         case 'docs_review':
           return (s.documents_unverified ?? 0) > 0
         default:
@@ -1036,8 +1043,8 @@ export const StudentsListPage: React.FC = () => {
   if (countryFilter.trim())
     activeFilterChips.push({
       key: 'country',
-      label: `Страна: ${countryFilter}`,
-      onRemove: () => setCountryFilter(''),
+      label: `Страна: ${countryFilter}${countryPrimaryOnly ? ' (основная)' : ''}`,
+      onRemove: () => { setCountryFilter(''); setCountryPrimaryOnly(false) },
     })
   const clearResponsible = () => {
     setResponsibleRole('any')
@@ -1070,6 +1077,8 @@ export const StudentsListPage: React.FC = () => {
       no_meeting: 'Нет встречи',
       telegram_unlinked: 'Нет Telegram',
       open_tasks: 'Есть задачи',
+      overdue_tasks: 'Просроченные задачи',
+      open_complaints: 'Открытые обращения',
       docs_review: 'Документы на проверке',
     }
     activeFilterChips.push({
@@ -1291,6 +1300,8 @@ export const StudentsListPage: React.FC = () => {
                       <SelectItem value="no_meeting">Нет ближайшей встречи</SelectItem>
                       <SelectItem value="telegram_unlinked">Telegram не привязан</SelectItem>
                       <SelectItem value="open_tasks">Есть открытые задачи</SelectItem>
+                      <SelectItem value="overdue_tasks">Просроченные задачи</SelectItem>
+                      <SelectItem value="open_complaints">Открытые обращения</SelectItem>
                       <SelectItem value="docs_review">Документы на проверке</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1355,6 +1366,24 @@ export const StudentsListPage: React.FC = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {countryFilter.trim() && (
+                    <div className="flex rounded-full border border-p-line bg-p-bg p-0.5 text-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setCountryPrimaryOnly(false)}
+                        className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${!countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
+                      >
+                        Любая
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCountryPrimaryOnly(true)}
+                        className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
+                      >
+                        Основная
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1500,6 +1529,7 @@ export const StudentsListPage: React.FC = () => {
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead>Год</TableHead>
+              <TableHead>Страны</TableHead>
               <TableHead>Программы</TableHead>
               <TableHead>Ответственные</TableHead>
               {isManager && <TableHead>Анкеты</TableHead>}
@@ -1509,13 +1539,13 @@ export const StudentsListPage: React.FC = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-p-muted text-sm">
+                <TableCell colSpan={isManager ? 9 : 8} className="text-center py-12 text-p-muted text-sm">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 8 : 7} className="text-center py-12 text-p-muted text-sm">
+                <TableCell colSpan={isManager ? 9 : 8} className="text-center py-12 text-p-muted text-sm">
                   Студенты не найдены
                 </TableCell>
               </TableRow>
@@ -1550,6 +1580,24 @@ export const StudentsListPage: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-p-muted">{student.intake_year}</TableCell>
+                  <TableCell>
+                    <div className="flex max-w-[180px] flex-col gap-0.5">
+                      {(student.countries ?? []).length > 0 ? (
+                        [...(student.countries ?? [])]
+                          .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
+                          .map((c, idx) => (
+                            <span
+                              key={`${c.country}-${idx}`}
+                              className={`truncate text-xs ${c.is_primary ? 'font-semibold text-p-text' : 'text-p-muted2'}`}
+                            >
+                              {c.flag_emoji ? `${c.flag_emoji} ` : ''}{c.country}
+                            </span>
+                          ))
+                      ) : (
+                        <span className="text-xs text-p-muted2">—</span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex max-w-[220px] flex-wrap gap-1.5">
                       {(student.services_summary?.items ?? []).length > 0 ? (

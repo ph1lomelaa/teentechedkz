@@ -623,7 +623,7 @@ export const NewStudentPage: React.FC = () => {
           {step === 5 && (
             <>
               <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm text-orange-800">
-                Конфиденциальные заметки видны только администраторам и менеджерам.
+                Конфиденциальные заметки видны только администраторам и МЗК.
               </div>
               <div>
                 <Label>Заметка (опционально)</Label>

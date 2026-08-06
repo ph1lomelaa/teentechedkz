@@ -18,6 +18,7 @@ import {
   Route,
   Send,
   Shield,
+  Star,
   UserRound,
   Users,
 } from 'lucide-react'
@@ -41,6 +42,8 @@ import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapE
 import { WorkspaceAccessPanel } from '@/components/workspace/WorkspaceAccessPanel'
 import { WorkspaceNotesPanel } from '@/components/workspace/WorkspaceNotesPanel'
 import { ChatThread } from '@/components/shared/ChatThread'
+import { ShortlistSection } from '@/components/portal/ShortlistSection'
+import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -49,7 +52,6 @@ import {
   PIPELINE_STATUS_LABELS,
   SERVICE_STATUS_LABELS,
   SERVICE_TYPE_LABELS,
-  SUBMISSION_STATUS_LABELS,
   ResponsibleUser,
   Service,
   StudentFull,
@@ -57,7 +59,8 @@ import {
 } from '@/types'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { AppButton, AppSelect, EmptyState, Pill, SegmentedTabs } from '@/components/ui'
+import { AppButton, EmptyState, Pill, SegmentedTabs } from '@/components/ui'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 
 type WorkspaceTab = 'card' | 'roadmap' | 'tasks' | 'meetings' | 'documents' | 'telegram' | 'chat' | 'notes' | 'access'
 
@@ -447,7 +450,6 @@ function CardListView({
   unlinkingNotion: boolean
 }) {
   const contract = student.contracts?.[0]
-  const applications = student.applications ?? []
   const guardians = student.guardians ?? []
   const services = student.services ?? []
   const currency = contract?.currency || 'KZT'
@@ -544,7 +546,7 @@ function CardListView({
                   { label: 'GPA', value: student.gpa || '—' },
                   { label: 'Бюджет', value: student.budget_per_year || '—' },
                   { label: 'Сезон поступления', value: student.intake_season || '—' },
-                  { label: 'MZK/менеджер', value: student.mzk_manager_name || '—' },
+                  { label: 'МЗК', value: student.mzk_manager_name || '—' },
                   { label: 'Pipeline', value: student.pipeline_status ? (PIPELINE_STATUS_LABELS[student.pipeline_status] || student.pipeline_status) : '—' },
                 ]}
               />
@@ -591,33 +593,18 @@ function CardListView({
           />
         </WSection>
 
+        {/* Same component the CRM card uses: it is styled with p-* tokens,
+            which the workspace shell defines (the w-* tokens are aliases of
+            them), so one implementation covers both shells. */}
+        <WSection value="shortlist" title="Избранные вузы" icon={<Star className="h-4 w-4" />}>
+          <ShortlistSection mode="staff" studentId={student.id} basePath="/workspace/universities" />
+        </WSection>
+
+        {/* Тот же общий блок, что и в карточке CRM: раньше здесь была
+            собственная таблица только на чтение, из-за чего ментор не мог ни
+            добавить заявку, ни привязать вуз — хотя бэкенд ему это разрешает. */}
         <WSection value="applications" title="Заявки на поступление" icon={<ExternalLink className="h-4 w-4" />}>
-          {applications.length === 0 ? (
-            <p className="text-sm text-w-muted">Заявки ещё не добавлены.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[760px]">
-                <div className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] gap-3 border-b border-w-line px-3 pb-3 text-2xs font-black uppercase tracking-[0.16em] text-w-muted2">
-                  <span>Страна / вуз</span><span>Статус</span><span>Подачи</span><span>Виза</span><span>Стипендия</span>
-                </div>
-                {applications.map((application) => (
-                  <div key={application.id} className="grid grid-cols-[1.2fr_0.9fr_0.5fr_0.7fr_0.8fr] items-center gap-3 border-b border-w-line px-3 py-3 text-sm last:border-b-0">
-                    <div className="min-w-0">
-                      <div className="truncate font-bold text-w-ink">{application.university || application.country}</div>
-                      <div className="mt-0.5 truncate text-xs text-w-muted">
-                        {[application.country, application.program].filter(Boolean).join(' · ')}
-                        {application.is_primary ? ' · Основная' : ''}
-                      </div>
-                    </div>
-                    <span className="text-w-ink">{SUBMISSION_STATUS_LABELS[application.submission_status] || application.submission_status}</span>
-                    <span className="text-w-ink">{`${application.submissions_done}/${application.submissions_planned}`}</span>
-                    <span className="text-w-muted">{application.visa_status || '—'}</span>
-                    <span className="text-w-muted">{application.scholarship_target ? 'Цель' : 'Нет'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <ApplicationsSection mode="staff" studentId={student.id} basePath="/workspace/universities" />
         </WSection>
 
         <WSection value="guardians" title="Родители и контакты" icon={<UserRound className="h-4 w-4" />}>
@@ -1089,18 +1076,21 @@ function RoadmapTab({
       </p>
     ) : (
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <AppSelect colorPrefix="w"
-          value={templateId}
-          onChange={(e) => setTemplateId(e.target.value)}
-          className="min-w-[260px] bg-w-panel2"
-        >
-          <option value="">Выберите шаблон…</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} · {[t.country_name, t.degree, t.year].filter(Boolean).join(' ')} ({t.stage_count} эт.)
-            </option>
-          ))}
-        </AppSelect>
+        {/* Radix Select вместо нативного <select>: на macOS/Safari системный
+            список игнорирует тему страницы и рисуется в светлой теме ОС
+            независимо от темы приложения. */}
+        <Select value={templateId} onValueChange={setTemplateId}>
+          <SelectTrigger className="h-10 min-w-[260px] border-w-line bg-w-panel2 text-sm font-bold text-w-ink focus:border-w-accentDim">
+            <SelectValue placeholder="Выберите шаблон…" />
+          </SelectTrigger>
+          <SelectContent className="border-w-line bg-w-panel text-w-ink">
+            {templates.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name} · {[t.country_name, t.degree, t.year].filter(Boolean).join(' ')} ({t.stage_count} эт.)
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <AppButton colorPrefix="w"
           disabled={!templateId || assignMutation.isPending}
           onClick={() => assignMutation.mutate()}

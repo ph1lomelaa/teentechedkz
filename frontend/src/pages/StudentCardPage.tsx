@@ -15,8 +15,13 @@ import {
   Link2Off,
   Trash2,
   ListChecks,
+  FileSignature,
 } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
+import { emergencyContactsApi } from '@/api/emergencyContacts'
+import { ShortlistSection } from '@/components/portal/ShortlistSection'
+import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
+import { getErrorMessage } from '@/lib/errorMessage'
 import { studentsApi } from '@/api/students'
 import {
   guardiansApi,
@@ -37,6 +42,7 @@ import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection
 import { StudentMeetingsSection } from '@/components/shared/StudentMeetingsSection'
 import { DocVisibilityToggle } from '@/components/shared/DocVisibilityToggle'
 import { StudentChatSection } from '@/components/shared/StudentChatSection'
+import { ContractAddendaSection } from '@/components/shared/ContractAddendaSection'
 import { PortalAccessSection } from '@/components/shared/PortalAccessSection'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { useAuth } from '@/contexts/AuthContext'
@@ -44,23 +50,34 @@ import {
   DOC_TYPE_LABELS,
   SERVICE_TYPE_LABELS,
   SERVICE_STATUS_LABELS,
-  SUBMISSION_STATUS_LABELS,
   PIPELINE_STATUS_LABELS,
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
   PIPELINE_STATUS_COLORS,
   StudentFull,
+  StudentTask,
   Service,
   Guardian,
   Document,
   NoteVisibility,
   StudentTimelineItem,
+  MENTOR_ROLE_LABELS,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { Label } from '@/components/ui/primitives/label'
 import { Textarea } from '@/components/ui/primitives/textarea'
 import { Checkbox } from '@/components/ui/primitives/checkbox'
+import { UrgencyBadge } from '@/components/ui'
+
+const SERVICE_ROLE_REQUIREMENTS: Record<string, string[]> = {
+  proforientation: ['career'],
+  ielts_mock: ['ielts'],
+  ielts_prep: ['ielts'],
+  sat_prep: ['sat'],
+  portfolio_improvement: ['portfolio'],
+  english_general: ['english'],
+}
 import {
   Accordion,
   AccordionContent,
@@ -252,6 +269,8 @@ function EditStudentModal({
     achievements_text: student.achievements_text ?? '',
     budget_per_year: student.budget_per_year ?? '',
     city: student.city ?? '',
+    work_folder_url: student.work_folder_url ?? '',
+    work_phone: student.work_phone ?? '',
   })
 
   const mutation = useMutation({
@@ -302,6 +321,14 @@ function EditStudentModal({
             <Label>Бюджет в год</Label>
             <Input value={form.budget_per_year} onChange={(e) => setForm({ ...form, budget_per_year: e.target.value })} />
           </div>
+          <div>
+            <Label>Ссылка на рабочую папку (Google Drive)</Label>
+            <Input value={form.work_folder_url} onChange={(e) => setForm({ ...form, work_folder_url: e.target.value })} />
+          </div>
+          <div>
+            <Label>Рабочий телефон (регламент МЗК)</Label>
+            <Input value={form.work_phone} onChange={(e) => setForm({ ...form, work_phone: e.target.value })} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
@@ -314,16 +341,82 @@ function EditStudentModal({
   )
 }
 
+function EmergencyContactsSection({ studentId }: { studentId: string }) {
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState({ full_name: '', relation: '', phone: '' })
+
+  const { data: contacts = [] } = useQuery({
+    queryKey: ['emergency-contacts', studentId],
+    queryFn: () => emergencyContactsApi.list(studentId),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => emergencyContactsApi.create(studentId, {
+      full_name: form.full_name.trim(),
+      relation: form.relation.trim() || undefined,
+      phone: form.phone.trim(),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emergency-contacts', studentId] })
+      setForm({ full_name: '', relation: '', phone: '' })
+      toast({ title: 'Контакт добавлен' })
+    },
+    onError: (err) => toast({ title: 'Не удалось добавить контакт', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => emergencyContactsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['emergency-contacts', studentId] }),
+    onError: () => toast({ title: 'Не удалось удалить контакт', variant: 'destructive' }),
+  })
+
+  return (
+    <div className="mt-5 pt-4 border-t border-p-line">
+      <h3 className="text-sm font-semibold text-p-text mb-3">Экстренные контакты (регламент МЗК)</h3>
+      {contacts.length > 0 ? (
+        <div className="space-y-2 mb-3">
+          {contacts.map((c) => (
+            <div key={c.id} className="flex items-center justify-between rounded-panel border border-p-line bg-p-bg px-3 py-2 text-sm">
+              <div>
+                <span className="font-medium text-p-text">{c.full_name}</span>
+                {c.relation && <span className="text-p-muted"> · {c.relation}</span>}
+                <span className="text-p-muted"> · {c.phone}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => removeMutation.mutate(c.id)}>
+                Удалить
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-p-muted mb-3">Экстренные контакты не добавлены</p>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input placeholder="ФИО" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+        <Input placeholder="Кем приходится" value={form.relation} onChange={(e) => setForm({ ...form, relation: e.target.value })} />
+        <Input placeholder="Телефон" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <Button
+          size="sm"
+          disabled={!form.full_name.trim() || !form.phone.trim() || createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+        >
+          Добавить
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function ServiceEditModal({
   service,
   open,
   onClose,
-  mentors,
+  eligibleAssignees,
 }: {
   service: Service
   open: boolean
   onClose: () => void
-  mentors: Array<{ id: string; name: string }>
+  eligibleAssignees: Array<{ id: string; name: string; role: string; active_assignments: number }>
 }) {
   const queryClient = useQueryClient()
   const { id: studentId } = useParams()
@@ -401,9 +494,13 @@ function ServiceEditModal({
               <SelectTrigger><SelectValue placeholder="Выберите ментора" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Не назначен</SelectItem>
-                {mentors.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
+                {eligibleAssignees
+                  .filter((assignee) => (SERVICE_ROLE_REQUIREMENTS[service.service_type] ?? []).includes(assignee.role))
+                  .map((assignee) => (
+                    <SelectItem key={assignee.id} value={assignee.id}>
+                      {assignee.name} · {assignee.active_assignments} студ.
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -469,6 +566,11 @@ export const StudentCardPage: React.FC = () => {
   const [revealedIins, setRevealedIins] = useState<Record<string, string>>({})
   const [revealConfirm, setRevealConfirm] = useState<string | null>(null)
   const [newTaskText, setNewTaskText] = useState('')
+  const [newTaskAssigneeId, setNewTaskAssigneeId] = useState('')
+  const [newTaskExpectedResult, setNewTaskExpectedResult] = useState('')
+  const [newTaskAcceptanceCriteria, setNewTaskAcceptanceCriteria] = useState('')
+  const [newTaskRequiredDocuments, setNewTaskRequiredDocuments] = useState('')
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal')
   const [addingTask, setAddingTask] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [addingNote, setAddingNote] = useState(false)
@@ -484,6 +586,10 @@ export const StudentCardPage: React.FC = () => {
   // Предложение записать в Notion после правки поля договора (см. CONTRACT_PUSH_FIELDS).
   const [pendingNotionPush, setPendingNotionPush] = useState<{ field: string; label: string } | null>(null)
   const [mentorToAssign, setMentorToAssign] = useState('')
+  const [assignmentRole, setAssignmentRole] = useState('lead')
+  const [assignmentZone, setAssignmentZone] = useState('')
+  const [assignmentCountry, setAssignmentCountry] = useState('')
+  const [assignmentDueDate, setAssignmentDueDate] = useState('')
 
   const { data: student, isLoading, error } = useQuery<StudentFull>({
     queryKey: ['student', id],
@@ -494,6 +600,18 @@ export const StudentCardPage: React.FC = () => {
   const { data: mentors = [] } = useQuery({
     queryKey: ['users', 'mentor'],
     queryFn: () => usersApi.list({ role: 'mentor' }),
+  })
+
+  const { data: eligibleAssignees = [] } = useQuery({
+    queryKey: ['services', 'eligible-assignees', id],
+    queryFn: () => servicesApi.eligibleAssignees(id!),
+    enabled: !!id,
+  })
+
+  const { data: mzkManagers = [] } = useQuery({
+    queryKey: ['users', 'mzk_manager'],
+    queryFn: () => usersApi.list({ role: 'mzk_manager' }),
+    enabled: hasRole('admin', 'mzk_manager'),
   })
 
   const { data: history = [] } = useQuery({
@@ -619,7 +737,10 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: (mentorId: string) =>
       mentorAssignmentsApi.create(id!, {
         mentor_id: mentorId,
-        role: 'lead',
+        role: assignmentRole,
+        functional_zone: assignmentZone || null,
+        country_scope: assignmentCountry || null,
+        first_task_due_date: assignmentDueDate || null,
         is_active: true,
       }),
     onSuccess: () => {
@@ -627,6 +748,10 @@ export const StudentCardPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       setMentorToAssign('')
+      setAssignmentRole('lead')
+      setAssignmentZone('')
+      setAssignmentCountry('')
+      setAssignmentDueDate('')
       toast({
         title: 'Ментор назначен',
         description: 'Студент появится у этого ментора в CRM «Мои студенты» и в личном кабинете.',
@@ -652,7 +777,7 @@ export const StudentCardPage: React.FC = () => {
   })
 
   const toggleTaskMutation = useMutation({
-    mutationFn: (task: { id: string; status: 'open' | 'done' }) =>
+    mutationFn: (task: StudentTask) =>
       tasksApi.update(task.id, {
         status: task.status === 'open' ? 'done' : 'open',
         done_at: task.status === 'open' ? new Date().toISOString() : undefined,
@@ -660,12 +785,31 @@ export const StudentCardPage: React.FC = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', id] }),
   })
 
+  const setTaskDueDateMutation = useMutation({
+    mutationFn: (task: { id: string; due_date: string | null }) =>
+      tasksApi.update(task.id, { due_date: task.due_date }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', id] }),
+  })
+
   const addTaskMutation = useMutation({
     mutationFn: (text: string) =>
-      tasksApi.create(id!, { task_text: text, status: 'open' }),
+      tasksApi.create(id!, {
+        task_text: text,
+        status: 'open',
+        expected_result: newTaskExpectedResult.trim() || undefined,
+        acceptance_criteria: newTaskAcceptanceCriteria.trim() || undefined,
+        required_documents: newTaskRequiredDocuments.split('\n').map((item) => item.trim()).filter(Boolean),
+        priority: newTaskPriority,
+        ...(newTaskAssigneeId ? { assignee_id: newTaskAssigneeId } : {}),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['student', id] })
       setNewTaskText('')
+      setNewTaskAssigneeId('')
+      setNewTaskExpectedResult('')
+      setNewTaskAcceptanceCriteria('')
+      setNewTaskRequiredDocuments('')
+      setNewTaskPriority('normal')
       setAddingTask(false)
     },
   })
@@ -765,6 +909,16 @@ export const StudentCardPage: React.FC = () => {
     }
   }
 
+  const handleRequestDocumentSignature = async (doc: Document) => {
+    try {
+      await documentsApi.requestSignature(doc.id)
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      toast({ title: 'Документ отправлен', description: 'Ученик увидит его в кабинете и сможет подписать после просмотра.' })
+    } catch (err) {
+      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось отправить документ на подпись'), variant: 'destructive' })
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -786,7 +940,14 @@ export const StudentCardPage: React.FC = () => {
 
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
-  const openTasks = (student.student_tasks || []).filter((task) => task.status === 'open')
+  const openTasks = (student.student_tasks || [])
+    .filter((task) => task.status === 'open')
+    .sort((a, b) => {
+      if (!a.due_date && !b.due_date) return 0
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return a.due_date.localeCompare(b.due_date)
+    })
   const intakeMismatchCount = intake?.comparison?.filter((row) => (
     (row.mismatch && row.ai_same_meaning !== true) ||
     (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
@@ -942,6 +1103,14 @@ export const StudentCardPage: React.FC = () => {
           <p className="mt-1 text-sm font-semibold text-p-text">
             {openTasks[0]?.task_text || (student.is_mine ? 'Открытых задач нет' : 'Назначьте ответственного')}
           </p>
+          {openTasks[0] && (
+            <div className="mt-1 flex items-center gap-2">
+              {openTasks[0].due_date && (
+                <span className="text-2xs text-p-muted2">до {formatDate(openTasks[0].due_date)}</span>
+              )}
+              <UrgencyBadge dueDate={openTasks[0].due_date} status={openTasks[0].status} />
+            </div>
+          )}
         </div>
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
           <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
@@ -965,13 +1134,36 @@ export const StudentCardPage: React.FC = () => {
         </div>
       </div>
 
-      <Accordion type="multiple" defaultValue={['profile', 'applications', 'services', 'tasks']} className="space-y-2">
+      <Accordion type="multiple" defaultValue={['profile', 'shortlist', 'applications', 'services', 'tasks']} className="space-y-2">
         <AccordionItem value="responsibles" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
             Ответственные
           </AccordionTrigger>
           <AccordionContent>
             <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-p-muted">МЗК:</span>
+                <span className="font-medium text-p-text">{contract?.mzk_manager_name || '—'}</span>
+              </div>
+              {(() => {
+                const requiredRoles: Array<'career' | 'ielts' | 'lead' | 'country'> = ['career', 'ielts', 'lead', 'country']
+                const missingRoles = student.team_readiness?.missing_roles ?? requiredRoles.filter(
+                  (role) => !student.responsibles?.some((r) => r.role === role && r.is_active)
+                )
+                if (missingRoles.length === 0) return null
+                return (
+                  <div className="flex flex-wrap gap-2">
+                    {missingRoles.map((role) => (
+                      <span
+                        key={role}
+                        className="inline-flex items-center gap-1.5 rounded-pill border border-amber-300 bg-amber-50 px-2 py-1 text-2xs font-semibold uppercase tracking-wide text-amber-700"
+                      >
+                        {MENTOR_ROLE_LABELS[role]}: требуется назначение
+                      </span>
+                    ))}
+                  </div>
+                )
+              })()}
               {student.responsibles && student.responsibles.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {student.responsibles.map((responsible) => (
@@ -984,8 +1176,15 @@ export const StudentCardPage: React.FC = () => {
                       }`}
                     >
                       {responsible.name || 'Без имени'}
+                      {responsible.role && (
+                        <span className="text-2xs uppercase tracking-wide opacity-70">
+                          {MENTOR_ROLE_LABELS[responsible.role] || responsible.role}
+                        </span>
+                      )}
                       <span className="text-2xs uppercase tracking-wide opacity-70">
-                        {responsible.is_active ? 'активен' : 'снят'}
+                        {responsible.assignment_status === 'awaiting_signature'
+                          ? 'ожидает подписи'
+                          : responsible.is_active ? 'активен' : 'снят'}
                       </span>
                     </span>
                   ))}
@@ -1012,7 +1211,15 @@ export const StudentCardPage: React.FC = () => {
                       После назначения студент появится у выбранного ментора в CRM «Мои студенты» и в личном кабинете ментора.
                     </p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <Select value={assignmentRole} onValueChange={setAssignmentRole}>
+                      <SelectTrigger className="bg-white"><SelectValue placeholder="Роль" /></SelectTrigger>
+                      <SelectContent>
+                        {['career', 'ielts', 'lead', 'country'].map((role) => (
+                          <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Select value={mentorToAssign} onValueChange={setMentorToAssign}>
                       <SelectTrigger className="sm:max-w-xs bg-white">
                         <SelectValue placeholder="Выберите ментора" />
@@ -1030,6 +1237,9 @@ export const StudentCardPage: React.FC = () => {
                         })}
                       </SelectContent>
                     </Select>
+                    <Input value={assignmentZone} onChange={(event) => setAssignmentZone(event.target.value)} placeholder="Функциональная зона" className="bg-white" />
+                    <Input value={assignmentCountry} onChange={(event) => setAssignmentCountry(event.target.value)} placeholder="Страна / область" className="bg-white" />
+                    <Input type="date" value={assignmentDueDate} onChange={(event) => setAssignmentDueDate(event.target.value)} className="bg-white" />
                     <Button
                       size="sm"
                       disabled={!mentorToAssign || assignMentorMutation.isPending}
@@ -1328,6 +1538,22 @@ export const StudentCardPage: React.FC = () => {
             <InfoRow label="Бюджет/год" value={student.budget_per_year} />
             <InfoRow label="Достижения" value={student.achievements_text} />
             <InfoRow label="Дней в работе" value={student.days_in_work} />
+            <InfoRow label="Рабочий телефон" value={student.work_phone} />
+            {student.work_folder_url ? (
+              <div className="flex flex-col sm:flex-row sm:items-center py-2 border-b border-p-line last:border-0">
+                <span className="text-sm text-p-muted sm:w-48 shrink-0">Рабочая папка</span>
+                <a
+                  href={student.work_folder_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-medium text-blue-600 hover:underline mt-0.5 sm:mt-0"
+                >
+                  Открыть папку
+                </a>
+              </div>
+            ) : (
+              <InfoRow label="Рабочая папка" value={null} />
+            )}
 
             {canAccess('guardians') && (
               <div className="mt-5 pt-4 border-t border-p-line">
@@ -1377,6 +1603,10 @@ export const StudentCardPage: React.FC = () => {
                 )}
               </div>
             )}
+
+            {canAccess('guardians') && (
+              <EmergencyContactsSection studentId={student.id} />
+            )}
           </AccordionContent>
         </AccordionItem>
 
@@ -1423,6 +1653,7 @@ export const StudentCardPage: React.FC = () => {
                 onSave={(v) => updateContractFieldMutation.mutate({ mentor_total_owed: v || null })} />
               <EditableInfoRow label="Примечания" display={contract.notes} canEdit={canEditContract} type="textarea"
                 onSave={(v) => updateContractFieldMutation.mutate({ notes: v || null })} />
+              <ContractAddendaSection studentId={student.id} contractId={contract.id} canEdit={canEditContract} />
             </AccordionContent>
           </AccordionItem>
         )}
@@ -1468,46 +1699,25 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
+        {/* Shortlist — the wishlist that precedes an actual application. */}
+        <AccordionItem value="shortlist" className="border border-p-line rounded-card px-4">
+          <AccordionTrigger className="text-base font-semibold">
+            Избранные вузы
+          </AccordionTrigger>
+          <AccordionContent>
+            <ShortlistSection mode="staff" studentId={student.id} basePath="/universities" />
+          </AccordionContent>
+        </AccordionItem>
+
         {/* 5. Applications */}
         <AccordionItem value="applications" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
             Заявки в вузы
           </AccordionTrigger>
           <AccordionContent>
-            {student.applications && student.applications.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Страна</TableHead>
-                    <TableHead>Статус</TableHead>
-                    <TableHead>Подано</TableHead>
-                    <TableHead>Виза</TableHead>
-                    <TableHead>Основная</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {student.applications.map((app) => (
-                    <TableRow key={app.id}>
-                      <TableCell className="font-medium">{app.country}</TableCell>
-                      <TableCell>
-                        <span className="text-xs text-p-muted">
-                          {SUBMISSION_STATUS_LABELS[app.submission_status]}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {app.submissions_done}/{app.submissions_planned}
-                      </TableCell>
-                      <TableCell className="text-p-muted">{app.visa_status ?? '—'}</TableCell>
-                      <TableCell>
-                        {app.is_primary && <Check className="w-4 h-4 text-green-600" />}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="text-sm text-p-muted py-2">Заявки не добавлены</p>
-            )}
+            {/* Раньше здесь была таблица, которая не показывала вуз вообще —
+                только страну, а статус визы выводила сырым значением из БД. */}
+            <ApplicationsSection mode="staff" studentId={student.id} basePath="/universities" />
           </AccordionContent>
         </AccordionItem>
 
@@ -1711,6 +1921,22 @@ export const StudentCardPage: React.FC = () => {
                           visible={!!doc.visible_to_student}
                           studentId={id!}
                         />
+                      )}
+                      {hasRole('admin', 'mzk_manager', 'mentor') && doc.signature_status !== 'signed' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => handleRequestDocumentSignature(doc)}
+                        >
+                          <FileSignature className="mr-1.5 h-3.5 w-3.5" />
+                          {doc.signature_status === 'pending' ? 'Отправлено' : 'На подпись'}
+                        </Button>
+                      )}
+                      {doc.signature_status === 'signed' && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                          <Check className="h-3 w-3" /> Подписан
+                        </span>
                       )}
                       {hasRole('admin', 'mzk_manager') && (
                         <Button
@@ -1971,16 +2197,28 @@ export const StudentCardPage: React.FC = () => {
                     <Checkbox
                       checked={task.status === 'done'}
                       onCheckedChange={() => toggleTaskMutation.mutate(task)}
-                      disabled={!canAccess('tasks_create')}
+                      disabled={!canAccess('tasks_create') || !['open', 'done'].includes(task.status)}
                     />
                     <div className="flex-1">
                       <p className={`text-sm ${task.status === 'done' ? 'line-through text-p-muted' : 'text-p-text'}`}>
                         {task.task_text}
                       </p>
-                      <p className="text-xs text-p-muted mt-0.5">
-                        {formatDate(task.created_at)}
-                        {task.done_at && ` · Выполнено ${formatDate(task.done_at)}`}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <p className="text-xs text-p-muted">
+                          {formatDate(task.created_at)}
+                          {task.done_at && ` · Выполнено ${formatDate(task.done_at)}`}
+                          {task.due_date && ` · до ${formatDate(task.due_date)}`}
+                        </p>
+                        <UrgencyBadge dueDate={task.due_date} status={task.status} />
+                      </div>
+                      {hasRole('admin') && task.status === 'open' && (
+                        <Input
+                          type="date"
+                          value={task.due_date || ''}
+                          onChange={(e) => setTaskDueDateMutation.mutate({ id: task.id, due_date: e.target.value || null })}
+                          className="mt-1.5 h-7 w-40 text-xs"
+                        />
+                      )}
                     </div>
                   </div>
                 ))
@@ -1996,7 +2234,7 @@ export const StudentCardPage: React.FC = () => {
                   Добавить задачу
                 </Button>
               ) : (
-                <div className="flex items-center gap-2">
+                <div className="space-y-2">
                   <Input
                     placeholder="Текст задачи..."
                     value={newTaskText}
@@ -2008,6 +2246,57 @@ export const StudentCardPage: React.FC = () => {
                     }}
                     autoFocus
                   />
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input
+                      placeholder="Ожидаемый результат..."
+                      value={newTaskExpectedResult}
+                      onChange={(e) => setNewTaskExpectedResult(e.target.value)}
+                    />
+                    <select
+                      value={newTaskPriority}
+                      onChange={(e) => setNewTaskPriority(e.target.value as typeof newTaskPriority)}
+                      className="h-9 rounded-ctl border border-p-line bg-p-panel px-3 text-sm text-p-text"
+                      aria-label="Приоритет задачи"
+                    >
+                      <option value="low">Низкий приоритет</option>
+                      <option value="normal">Обычный приоритет</option>
+                      <option value="high">Высокий приоритет</option>
+                      <option value="urgent">Срочная задача</option>
+                    </select>
+                  </div>
+                  <Textarea
+                    placeholder="Критерии приемки результата..."
+                    value={newTaskAcceptanceCriteria}
+                    onChange={(e) => setNewTaskAcceptanceCriteria(e.target.value)}
+                    rows={2}
+                  />
+                  <Textarea
+                    placeholder="Обязательные документы, по одному в строке..."
+                    value={newTaskRequiredDocuments}
+                    onChange={(e) => setNewTaskRequiredDocuments(e.target.value)}
+                    rows={2}
+                  />
+                  {hasRole('admin', 'mzk_manager') && (
+                    <select
+                      value={newTaskAssigneeId}
+                      onChange={(e) => setNewTaskAssigneeId(e.target.value)}
+                      className="h-9 w-full rounded-ctl border border-p-line bg-p-panel px-3 text-sm text-p-text"
+                      aria-label="Исполнитель задачи"
+                    >
+                      <option value="">Без исполнителя</option>
+                      <optgroup label="Менторы">
+                        {mentors.map((user) => (
+                          <option key={user.id} value={user.id}>{user.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="МЗК">
+                        {mzkManagers.map((user) => (
+                          <option key={user.id} value={user.id}>{user.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
                   <Button
                     size="sm"
                     onClick={() => addTaskMutation.mutate(newTaskText)}
@@ -2015,9 +2304,10 @@ export const StudentCardPage: React.FC = () => {
                   >
                     Добавить
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setAddingTask(false); setNewTaskText('') }}>
+                  <Button variant="outline" size="sm" onClick={() => { setAddingTask(false); setNewTaskText(''); setNewTaskAssigneeId(''); setNewTaskExpectedResult(''); setNewTaskAcceptanceCriteria(''); setNewTaskRequiredDocuments(''); setNewTaskPriority('normal') }}>
                     Отмена
                   </Button>
+                  </div>
                 </div>
               )
             )}
@@ -2087,7 +2377,7 @@ export const StudentCardPage: React.FC = () => {
           service={editService}
           open={!!editService}
           onClose={() => setEditService(null)}
-          mentors={mentors}
+          eligibleAssignees={eligibleAssignees}
         />
       )}
 

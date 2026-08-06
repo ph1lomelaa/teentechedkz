@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type React from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, ChevronRight, UserRound, GraduationCap, MessageSquareText } from 'lucide-react'
 import { publicApi } from '@/api/public'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -65,54 +65,35 @@ export function ApplyPage() {
       description="Заполните короткую анкету. Она попадёт в CRM, команда свяжется с вами и после обработки откроет доступ в кабинет."
     >
           <form
-            className="grid gap-4 sm:grid-cols-2"
+            className="space-y-6"
             onSubmit={(event) => {
               event.preventDefault()
               mutation.mutate()
             }}
           >
-            <Field label="ФИО">
-              <Input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-            </Field>
-            <Field label="Телефон">
-              <Input required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            </Field>
-            <Field label="Email">
-              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </Field>
-            <Field label="Город">
-              <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-            </Field>
-            <Field label="Уровень">
-              <select
-                value={form.degree_level}
-                onChange={(e) => setForm({ ...form, degree_level: e.target.value })}
-                className="h-10 w-full rounded-ctl border px-3 text-sm"
-              >
-                <option value="undergraduate">Бакалавриат</option>
-                <option value="foundation">Foundation</option>
-                <option value="found_ug">Foundation + UG</option>
-                <option value="masters">Магистратура</option>
-              </select>
-            </Field>
-            <Field label="Год поступления">
-              <Input
-                type="number"
-                value={form.intake_year}
-                onChange={(e) => setForm({ ...form, intake_year: Number(e.target.value) })}
-              />
-            </Field>
-            <Field label="Страна интереса">
-              <Input value={form.target_country} onChange={(e) => setForm({ ...form, target_country: e.target.value })} />
-            </Field>
-            <Field label="Программа/услуга">
-              <Input value={form.program_interest} onChange={(e) => setForm({ ...form, program_interest: e.target.value })} />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Комментарий">
-                <Textarea rows={5} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
-              </Field>
-            </div>
+            <FormSection icon={<UserRound className="h-4 w-4" />} title="Контакты" description="Как с вами связаться">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="ФИО" required><Input required placeholder="Имя и фамилия" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></Field>
+                <Field label="Телефон" required><Input required type="tel" placeholder="+7 700 000 00 00" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+                <Field label="Email"><Input type="email" placeholder="name@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+                <Field label="Город"><Input placeholder="Алматы" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></Field>
+              </div>
+            </FormSection>
+            <FormSection icon={<GraduationCap className="h-4 w-4" />} title="Поступление" description="Поможем подобрать маршрут">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Уровень поступления" required>
+                  <select required value={form.degree_level} onChange={(e) => setForm({ ...form, degree_level: e.target.value })} className="h-10 w-full rounded-ctl border border-white/15 bg-white/[0.05] px-3 text-sm text-white">
+                    <option value="undergraduate">Бакалавриат</option><option value="foundation">Foundation</option><option value="found_ug">Foundation + бакалавриат</option><option value="masters">Магистратура</option>
+                  </select>
+                </Field>
+                <Field label="Планируемый год" required><Input required type="number" min={new Date().getFullYear()} max={new Date().getFullYear() + 6} value={form.intake_year} onChange={(e) => setForm({ ...form, intake_year: Number(e.target.value) })} /></Field>
+                <Field label="Страна или регион"><Input placeholder="Например: Южная Корея" value={form.target_country} onChange={(e) => setForm({ ...form, target_country: e.target.value })} /></Field>
+                <Field label="Что нужно подготовить"><Input placeholder="IELTS, документы, подбор вузов" value={form.program_interest} onChange={(e) => setForm({ ...form, program_interest: e.target.value })} /></Field>
+              </div>
+            </FormSection>
+            <FormSection icon={<MessageSquareText className="h-4 w-4" />} title="Дополнительно" description="Это поможет команде подготовиться к первому разговору">
+              <Field label="Комментарий"><Textarea rows={4} placeholder="Расскажите о цели, сроках или вопросе" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} /></Field>
+            </FormSection>
 
             {mutation.isError && (
               <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300 sm:col-span-2">
@@ -120,9 +101,9 @@ export function ApplyPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+            <div className="flex flex-wrap items-center gap-3">
               <Button type="submit" disabled={mutation.isPending} className="auth-primary-button h-11 rounded-ctl border-0 px-6 hover:bg-[#E9C200]">
-                {mutation.isPending ? 'Отправка…' : 'Отправить заявку'}
+                {mutation.isPending ? 'Отправляем…' : <>Отправить заявку <ChevronRight className="ml-1 inline h-4 w-4" /></>}
               </Button>
               <Link to="/login" className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]">
                 Уже есть доступ? Войти
@@ -133,10 +114,14 @@ export function ApplyPage() {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function FormSection({ icon, title, description, children }: { icon: React.ReactNode; title: string; description: string; children: React.ReactNode }) {
+  return <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5"><div className="mb-4 flex items-start gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#FFD400]/15 text-[#FFD400]">{icon}</span><div><h2 className="text-sm font-black text-white">{title}</h2><p className="mt-0.5 text-xs text-white/50">{description}</p></div></div>{children}</section>
+}
+
+function Field({ label, children, required = false }: { label: string; children: React.ReactNode; required?: boolean }) {
   return (
     <div className="space-y-2">
-      <Label className="auth-field-label">{label}</Label>
+      <Label className="auth-field-label">{label}{required && <span className="ml-1 text-[#FFD400]">*</span>}</Label>
       {children}
     </div>
   )

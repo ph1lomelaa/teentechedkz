@@ -41,6 +41,24 @@ async def ensure_incremental_columns():
             ADD COLUMN IF NOT EXISTS deadline date NULL;
         """))
         await conn.execute(text("""
+        ALTER TABLE applications
+            ADD COLUMN IF NOT EXISTS deadline date NULL;
+        """))
+        # Колонки-снимки применённых ставок (миграция 068). NOT NULL ставит
+        # миграция; здесь достаточно, чтобы колонка была на дев-базе.
+        await conn.execute(text("""
+        ALTER TABLE mentor_stage_rewards
+            ADD COLUMN IF NOT EXISTS stage_pct_applied integer NOT NULL DEFAULT 0;
+        """))
+        await conn.execute(text("""
+        ALTER TABLE mentor_task_penalties
+            ADD COLUMN IF NOT EXISTS amount integer NOT NULL DEFAULT 0;
+        """))
+        await conn.execute(text("""
+        ALTER TABLE refund_cases
+            ADD COLUMN IF NOT EXISTS bonus_amount integer NULL;
+        """))
+        await conn.execute(text("""
         ALTER TABLE student_tasks
             ADD COLUMN IF NOT EXISTS service_id uuid NULL;
         """))
@@ -110,6 +128,29 @@ async def ensure_incremental_columns():
         await conn.execute(text("""
         CREATE INDEX IF NOT EXISTS ix_questionnaire_templates_source_form_block_id
             ON questionnaire_templates (source_form_block_id);
+        """))
+        # Дубликаты услуг на существующих дев-базах: схлопываем перед тем, как
+        # ставить UNIQUE, иначе ALTER упадёт. Полная версия — в миграции 066.
+        await conn.execute(text("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_services_student_service_type'
+            ) THEN
+                DELETE FROM services WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, row_number() OVER (
+                            PARTITION BY student_id, service_type
+                            ORDER BY created_at, id
+                        ) AS rn
+                        FROM services
+                    ) ranked WHERE rn > 1
+                );
+                ALTER TABLE services
+                    ADD CONSTRAINT uq_services_student_service_type
+                    UNIQUE (student_id, service_type);
+            END IF;
+        END $$;
         """))
         await conn.execute(text("""
         DO $$

@@ -31,6 +31,8 @@ const MEETING_TYPE_LABELS: Record<MeetingType, string> = {
   application: 'Подача',
   finance: 'Финансы',
   other: 'Другое',
+  ielts_lesson: 'IELTS · занятие',
+  ielts_mock: 'IELTS · мок-тест',
 }
 
 function fmt(iso: string) {

@@ -172,7 +172,7 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
           assignForm
         ) : (
           <p className="text-sm text-gray-500 py-2">
-            Roadmap ещё не назначен. Назначить шаблон может администратор или менеджер.
+            Roadmap ещё не назначен. Назначить шаблон может администратор или МЗК.
           </p>
         )}
       </AccordionContent>

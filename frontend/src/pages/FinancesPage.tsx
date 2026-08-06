@@ -1498,7 +1498,7 @@ export const FinancesPage: React.FC = () => {
                             {row.responsible_name ?? row.manager_name ?? row.mentor_name ?? '—'}
                             <div className="text-xs text-p-muted2">
                               {row.responsible_role === 'manager'
-                                ? 'менеджер'
+                                ? 'МЗК'
                                 : row.responsible_role === 'mentor'
                                   ? 'ментор'
                                   : '—'}

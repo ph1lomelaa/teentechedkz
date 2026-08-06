@@ -21,6 +21,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { studentsApi } from '@/api/students'
 import { contractsApi, mentorAssignmentsApi, usersApi } from '@/api/index'
+import { notionApi } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   StudentListItem,
@@ -83,9 +84,10 @@ interface StudentCardProps {
   selected?: boolean
   alreadyAssigned?: boolean
   onToggleSelected?: (studentId: string) => void
+  onOpenStudent?: (student: StudentListItem) => void
 }
 
-function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssigned, onToggleSelected }: StudentCardProps) {
+function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssigned, onToggleSelected, onOpenStudent }: StudentCardProps) {
   // Имена менторов из Notion-снэпшота; фолбэк — активные назначения в CRM
   const mentors = (student.mentors && student.mentors.length > 0
     ? student.mentors
@@ -105,13 +107,13 @@ function StudentCard({ student, isDragging, selectionMode, selected, alreadyAssi
             {student.full_name}
           </span>
         ) : (
-          <Link
-            to={`/students/${student.id}`}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenStudent?.(student) }}
             className="min-w-0 flex-1 font-medium text-sm text-p-text hover:text-black transition-colors line-clamp-2 leading-snug"
-            onClick={(e) => e.stopPropagation()}
           >
             {student.full_name}
-          </Link>
+          </button>
         )}
         {selectionMode && (
           alreadyAssigned ? (
@@ -176,9 +178,10 @@ interface SortableStudentCardProps {
   selected?: boolean
   alreadyAssigned?: boolean
   onToggleSelected?: (studentId: string) => void
+  onOpenStudent?: (student: StudentListItem) => void
 }
 
-function SortableStudentCard({ student, selectionMode, selected, alreadyAssigned, onToggleSelected }: SortableStudentCardProps) {
+function SortableStudentCard({ student, selectionMode, selected, alreadyAssigned, onToggleSelected, onOpenStudent }: SortableStudentCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: student.id })
 
@@ -196,6 +199,7 @@ function SortableStudentCard({ student, selectionMode, selected, alreadyAssigned
         selected={selected}
         alreadyAssigned={alreadyAssigned}
         onToggleSelected={onToggleSelected}
+        onOpenStudent={onOpenStudent}
       />
     </div>
   )
@@ -209,10 +213,12 @@ interface KanbanColumnProps {
   selectedIds?: Set<string>
   assignedIds?: Set<string>
   onToggleSelected?: (studentId: string) => void
+  droppableId?: string
+  onOpenStudent?: (student: StudentListItem) => void
 }
 
-function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, assignedIds, onToggleSelected }: KanbanColumnProps) {
-  const { setNodeRef } = useDroppable({ id: status })
+function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, assignedIds, onToggleSelected, droppableId, onOpenStudent }: KanbanColumnProps) {
+  const { setNodeRef } = useDroppable({ id: droppableId ?? status })
 
   return (
     <div ref={setNodeRef} className="kanban-column flex flex-col rounded-card bg-p-bg/50 border border-p-line">
@@ -239,6 +245,7 @@ function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, a
                 selected={selectedIds?.has(student.id)}
                 alreadyAssigned={Boolean(student.is_mine || assignedIds?.has(student.id))}
                 onToggleSelected={onToggleSelected}
+                onOpenStudent={onOpenStudent}
               />
             ))}
           </SortableContext>
@@ -251,6 +258,7 @@ function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, a
               selected={selectedIds?.has(student.id)}
               alreadyAssigned={Boolean(student.is_mine || assignedIds?.has(student.id))}
               onToggleSelected={onToggleSelected}
+              onOpenStudent={onOpenStudent}
             />
           ))
         )}
@@ -277,6 +285,7 @@ export const DashboardPage: React.FC = () => {
   const [activeStudent, setActiveStudent] = useState<StudentListItem | null>(
     null
   )
+  const [peekStudent, setPeekStudent] = useState<StudentListItem | null>(null)
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
@@ -408,22 +417,10 @@ export const DashboardPage: React.FC = () => {
   const filteredStudents = students
 
   const grouped = useMemo(() => {
-    const map: Record<PipelineStatus, StudentListItem[]> = {} as Record<
-      PipelineStatus,
-      StudentListItem[]
-    >
-    for (const col of PIPELINE_COLUMNS) {
-      map[col] = []
-    }
-    for (const s of filteredStudents) {
-      const status = s.pipeline_status ?? 'no_status'
-      if (map[status]) {
-        map[status].push(s)
-      } else {
-        map['no_status'].push(s)
-      }
-    }
-    return map
+    const groups = {} as Record<PipelineStatus, StudentListItem[]>
+    for (const status of PIPELINE_COLUMNS) groups[status] = []
+    for (const student of filteredStudents) groups[student.pipeline_status ?? 'no_status'].push(student)
+    return groups
   }, [filteredStudents])
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -439,8 +436,9 @@ export const DashboardPage: React.FC = () => {
     const studentId = active.id as string
     const overId = over.id as string
     const overStudent = students.find((s) => s.id === overId)
-    const overColumnStatus = (PIPELINE_COLUMNS.includes(overId as PipelineStatus)
-      ? overId
+    const overColumnId = overId.includes('::') ? overId.split('::').pop() : overId
+    const overColumnStatus = (PIPELINE_COLUMNS.includes(overColumnId as PipelineStatus)
+      ? overColumnId
       : overStudent?.pipeline_status) as PipelineStatus | undefined
 
     if (overColumnStatus && PIPELINE_COLUMNS.includes(overColumnStatus)) {
@@ -588,7 +586,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Kanban board */}
-      <div className="kanban-container flex-1">
+      <div className="kanban-container flex-1 overflow-x-auto">
         {canDrag && !selectionMode ? (
           <DndContext
             sensors={sensors}
@@ -596,18 +594,9 @@ export const DashboardPage: React.FC = () => {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            {PIPELINE_COLUMNS.map((status) => (
-              <KanbanColumn
-                key={status}
-                status={status}
-                students={grouped[status] ?? []}
-                canDrag={canDrag && !selectionMode}
-                selectionMode={selectionMode}
-                selectedIds={selectedIds}
-                assignedIds={assignedIds}
-                onToggleSelected={toggleSelected}
-              />
-            ))}
+            <div className="grid min-w-max grid-cols-[repeat(10,minmax(180px,1fr))] gap-2">
+              {PIPELINE_COLUMNS.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={canDrag && !selectionMode} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
+            </div>
             <DragOverlay>
               {activeStudent ? (
                 <StudentCard student={activeStudent} />
@@ -615,20 +604,40 @@ export const DashboardPage: React.FC = () => {
             </DragOverlay>
           </DndContext>
         ) : (
-          PIPELINE_COLUMNS.map((status) => (
-            <KanbanColumn
-              key={status}
-              status={status}
-              students={grouped[status] ?? []}
-              canDrag={false}
-              selectionMode={selectionMode}
-              selectedIds={selectedIds}
-              assignedIds={assignedIds}
-              onToggleSelected={toggleSelected}
-            />
-          ))
+          <div className="grid min-w-max grid-cols-[repeat(10,minmax(180px,1fr))] gap-2">
+            {PIPELINE_COLUMNS.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={false} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
+          </div>
         )}
       </div>
+      {peekStudent && <StudentPeekPanel student={peekStudent} onClose={() => setPeekStudent(null)} />}
     </div>
+  )
+}
+
+function StudentPeekPanel({ student, onClose }: { student: StudentListItem; onClose: () => void }) {
+  const { data: full, isLoading } = useQuery({ queryKey: ['student', student.id, 'peek'], queryFn: () => studentsApi.get(student.id) })
+  const { data: notion, isLoading: notionLoading } = useQuery({ queryKey: ['notion', 'student', student.id], queryFn: () => notionApi.studentNotion(student.id) })
+  const profile = full ?? student
+  const contract = full?.contracts?.[0]
+  const notionRows = notion?.comparison ?? []
+  const Property = ({ label, value }: { label: string; value?: React.ReactNode }) => (
+    <div className="grid grid-cols-[minmax(105px,.8fr)_1.2fr] gap-3 border-b border-p-line/70 py-2 last:border-0"><span className="text-xs text-p-muted">{label}</span><span className="text-right text-sm font-semibold text-p-text break-words">{value || '—'}</span></div>
+  )
+  return (
+    <>
+      <button type="button" aria-label="Закрыть быстрый просмотр" onClick={onClose} className="fixed inset-0 z-40 bg-black/35" />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col border-l border-p-line bg-p-bg shadow-2xl" aria-label="Быстрый просмотр студента">
+        <header className="flex items-start justify-between gap-3 border-b border-p-line px-5 py-5"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-p-muted2">Быстрый просмотр</p><h2 className="mt-2 font-display text-xl font-black text-p-text">{profile.full_name}</h2><p className="mt-1 text-xs text-p-muted">{DEGREE_LEVEL_LABELS[profile.degree_level]} · {profile.intake_year || 'Год не указан'}</p></div><button type="button" onClick={onClose} className="text-2xl text-p-muted" aria-label="Закрыть">×</button></header>
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {isLoading && <p className="text-sm text-p-muted">Загрузка полного профиля…</p>}
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Notion</h3>{notion?.snapshot?.notion_url && <a href={notion.snapshot.notion_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand hover:underline">Открыть в Notion</a>}</div>{notionLoading ? <p className="mt-3 text-sm text-p-muted">Загрузка данных…</p> : notion?.snapshot ? <><div className="mt-2 space-y-1 text-xs text-p-muted"><p>Синхронизировано: {notion.snapshot.synced_at ? new Date(notion.snapshot.synced_at).toLocaleString('ru-RU') : '—'}</p><p>Изменено в Notion: {notion.snapshot.notion_last_edited_at ? new Date(notion.snapshot.notion_last_edited_at).toLocaleDateString('ru-RU') : '—'}</p></div><div className="mt-3 rounded-panel border border-p-line bg-p-bg px-3">{notionRows.map((row) => <Property key={row.field} label={row.label} value={row.notion ?? '—'} />)}</div></> : <p className="mt-3 text-sm text-p-muted">Студент не привязан к записи Notion</p>}</section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Основные данные</h3><Property label="Этап" value={PIPELINE_STATUS_LABELS[profile.pipeline_status ?? 'no_status']} /><Property label="Страна" value={profile.country ? `${countryFlag(profile.country)} ${profile.country}` : undefined} /><Property label="Город" value={profile.city} /><Property label="Телефон" value={profile.phone} /><Property label="Специальность" value={full?.specialty} /><Property label="GPA" value={full?.gpa} /></section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Менторы" value={(profile.mentors ?? []).join(', ') || 'Не назначены'} /><Property label="МЗК" value={profile.mzk_manager_name} /><Property label="Roadmap" value={profile.roadmap?.name ? `${profile.roadmap.name} · ${profile.roadmap.progress ?? 0}%` : 'Не назначен'} /><Property label="Открытые задачи" value={profile.open_tasks_count ?? 0} /><Property label="Открытые обращения" value={profile.has_open_complaints ? 'Есть' : 'Нет'} /></section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Услуги и документы</h3><Property label="Услуги" value={full?.services?.length ?? profile.services_summary?.total ?? 0} /><Property label="Документы" value={full?.documents?.length ?? 0} /><Property label="Заявки" value={full?.applications?.length ?? 0} /><Property label="Платежей" value={contract?.payments?.length ?? 0} /></section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Договор и финансы</h3><Property label="Дата договора" value={contract?.signed_date} /><Property label="Client fee" value={contract?.amount ? `${contract.amount} ${contract.currency}` : undefined} /><Property label="Остаток клиента" value={contract?.client_remaining_amount ? `${contract.client_remaining_amount} ${contract.currency}` : undefined} /><Property label="Сумма англ." value={contract?.english_sum} /><Property label="Ментору итого" value={contract?.mentor_total_owed} /></section>
+        </div>
+        <footer className="border-t border-p-line p-5"><Link to={`/students/${student.id}`} onClick={onClose} className="flex h-11 w-full items-center justify-center rounded-ctl bg-brand text-sm font-black text-black">Открыть полный профиль</Link></footer>
+      </aside>
+    </>
   )
 }

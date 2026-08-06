@@ -15,13 +15,13 @@ import { cn } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { useLocalState } from '@/lib/use-local-state'
-import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
+import { SegmentedTabs, EmptyState, PriorityPill, StatusPill, UrgencyBadge } from '@/components/ui'
+import { taskUrgency } from '@/lib/taskUrgency'
 
 type TaskTab = 'open' | 'pending' | 'done'
 
 function isOverdue(t: FlatTask): boolean {
-  if (!t.due_date || t.status === 'done') return false
-  return new Date(t.due_date) < new Date(new Date().toDateString())
+  return taskUrgency(t.due_date, t.status) !== 'none'
 }
 
 function byDue(a: FlatTask, b: FlatTask): number {
@@ -216,8 +216,9 @@ const TaskCard: React.FC<{ task: FlatTask; onClaim: () => void; onUnclaim: () =>
         <div className={cn('truncate text-[15px] font-bold', done ? 'text-p-muted2' : 'text-p-text')}>
           {task.title}
         </div>
-        <small className={cn('mt-0.5 block truncate text-[11px]', overdue ? 'text-p-danger' : 'text-p-muted')}>
+        <small className={cn('mt-0.5 flex items-center gap-1.5 truncate text-[11px]', overdue ? 'text-p-danger' : 'text-p-muted')}>
           {meta}
+          <UrgencyBadge dueDate={task.due_date} status={task.status} />
         </small>
         {pending && (
           <small className="mt-0.5 block text-[11px] text-brand/90">

@@ -18,6 +18,12 @@ import {
   Globe,
   BarChart3,
   BookMarked,
+  MessageSquareWarning,
+  ListChecks,
+  Banknote,
+  ScrollText,
+  Gauge,
+  Award,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -59,6 +65,8 @@ const baseNavGroups: NavGroup[] = [
     items: [
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
+      { label: 'Статусы', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" /> },
+      { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" /> },
     ],
   },
   {
@@ -79,18 +87,36 @@ const baseNavGroups: NavGroup[] = [
 ]
 
 const ADMIN_ONLY_ITEMS: NavItem[] = [
+  // Все write-эндпоинты регламентов — AdminOnly, поэтому и пункт админский.
+  { label: 'Регламенты', path: '/agreements', icon: <ScrollText className="w-4 h-4" /> },
   { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
   { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
 ]
 
+// Refund-case endpoints are admin/mzk only, so the nav entry must be too —
+// a mentor following it would land on a page that 403s immediately.
+// То же и у двух разделов ниже: ОКК показывает МЗК только его собственный балл,
+// вознаграждения ведут админ и МЗК.
+const STAFF_ONLY_ITEMS: NavItem[] = [
+  { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" /> },
+  { label: 'ОКК МЗК', path: '/mzk-quality', icon: <Gauge className="w-4 h-4" /> },
+  { label: 'Вознаграждения', path: '/mentor-rewards', icon: <Award className="w-4 h-4" /> },
+]
+
 function getNavGroups(role: string): NavGroup[] {
   if (role !== 'admin' && role !== 'mzk_manager' && role !== 'mentor') return []
-  if (role !== 'admin') return baseNavGroups
-  return baseNavGroups.map((group) =>
-    group.group === 'АДМИНИСТРАЦИЯ'
-      ? { ...group, items: [...group.items, ...ADMIN_ONLY_ITEMS] }
-      : group
-  )
+  const isStaff = role === 'admin' || role === 'mzk_manager'
+  return baseNavGroups.map((group) => {
+    if (group.group !== 'АДМИНИСТРАЦИЯ') return group
+    return {
+      ...group,
+      items: [
+        ...group.items,
+        ...(isStaff ? STAFF_ONLY_ITEMS : []),
+        ...(role === 'admin' ? ADMIN_ONLY_ITEMS : []),
+      ],
+    }
+  })
 }
 
 function getBreadcrumb(pathname: string): string {
@@ -110,7 +136,15 @@ function getBreadcrumb(pathname: string): string {
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',
     '/telegram-inbox': 'Чаты',
+    '/status-inbox': 'Статусы студентов',
+    '/complaints': 'Обращения',
+    '/refund-cases': 'Возвратные кейсы',
+    '/agreements': 'Регламенты',
+    '/mzk-quality': 'ОКК МЗК',
+    '/mentor-rewards': 'Вознаграждения менторов',
   }
+  if (pathname.match(/^\/universities\/[^/]+$/)) return 'Университет'
+  if (pathname.match(/^\/countries\/[^/]+$/)) return 'Страна'
   if (pathname.match(/^\/students\/[^/]+$/)) return 'Карточка студента'
   if (pathname.match(/^\/notes\/session\/[^/]+$/)) return 'Сессия конспекта'
   if (pathname.match(/^\/notes\/[^/]+$/)) return 'Конспект'

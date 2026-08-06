@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Calendar, CheckCircle2, Clock, FileText, MessageSquareText, Mic, Sparkles, Video } from 'lucide-react'
@@ -35,6 +35,8 @@ const MEETING_TYPE_LABELS: Record<MeetingType, string> = {
   application: 'Подача',
   finance: 'Финансы',
   other: 'Другое',
+  ielts_lesson: 'IELTS · занятие',
+  ielts_mock: 'IELTS · мок-тест',
 }
 
 export const WorkspaceMeetingsPage: React.FC = () => {
@@ -51,7 +53,12 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   const [scope, setScope] = useLocalState<'upcoming' | 'all' | MeetingStatus>('workspace:meetings:scope', 'upcoming')
   const [studentFilter, setStudentFilter] = useLocalState('workspace:meetings:studentFilter', '')
   const [followUpDraft, setFollowUpDraft] = useState<MeetingFollowUpDraft | null>(null)
-  const section = searchParams.get('tab') === 'notes' ? 'notes' : 'upcoming'
+  const tabParam = searchParams.get('tab')
+  const section = tabParam === 'notes' ? 'notes' : tabParam === 'ielts' ? 'ielts' : 'upcoming'
+
+  useEffect(() => {
+    if (section === 'ielts') setMeetingType('ielts_lesson')
+  }, [section])
 
   const { data: studentsData, isLoading: studentsLoading } = useQuery({
     queryKey: ['workspace', 'meetings', 'students', mentorId],
@@ -66,6 +73,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
 
   const meetings = useMemo(() => (meetingsData?.items ?? [])
     .filter((meeting) => !studentFilter || meeting.student_id === studentFilter)
+    .filter((meeting) => section !== 'ielts' || meeting.meeting_type === 'ielts_lesson' || meeting.meeting_type === 'ielts_mock')
     .filter((meeting) => {
       if (scope === 'all') return true
       if (scope === 'upcoming') {
@@ -73,7 +81,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
       }
       return meeting.status === scope
     })
-    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()), [meetingsData?.items, scope, studentFilter])
+    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()), [meetingsData?.items, scope, studentFilter, section])
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['workspace', 'meetings'] })
@@ -203,6 +211,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
           }}
           tabs={[
             { value: 'upcoming', label: 'Ближайшие' },
+            { value: 'ielts', label: 'IELTS' },
             { value: 'notes', label: 'Конспекты' },
           ]}
         />

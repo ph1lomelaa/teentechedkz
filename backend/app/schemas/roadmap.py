@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.roadmap import TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus
+from app.services.task_urgency import task_urgency
 
 _cfg = ConfigDict(from_attributes=True, use_enum_values=True)
 
@@ -158,8 +159,14 @@ class RoadmapTaskOut(BaseModel):
     reviewed_at: datetime | None = None
     review_comment: str | None = None
     due_date: date | None = None
+    urgency: str | None = None  # resolved via app.services.task_urgency, not a DB column
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
+
+    @model_validator(mode="after")
+    def _fill_urgency(self) -> "RoadmapTaskOut":
+        self.urgency = task_urgency(self.due_date, self.status)
+        return self
 
 
 class StageOut(BaseModel):
@@ -170,6 +177,10 @@ class StageOut(BaseModel):
     description: str
     position: int
     status: str
+    tasks_total: int = 0
+    required_total: int = 0
+    required_done: int = 0
+    can_complete: bool = True
     tasks: list[RoadmapTaskOut] = []
 
 
@@ -213,8 +224,14 @@ class TaskFlatOut(BaseModel):
     reviewed_at: datetime | None = None
     review_comment: str | None = None
     due_date: date | None = None
+    urgency: str | None = None  # resolved via app.services.task_urgency, not a DB column
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
+
+    @model_validator(mode="after")
+    def _fill_urgency(self) -> "TaskFlatOut":
+        self.urgency = task_urgency(self.due_date, self.status)
+        return self
 
 
 # ---------- Student claim / mentor review ----------

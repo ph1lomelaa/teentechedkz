@@ -59,10 +59,20 @@ export const contractsApi = {
 }
 
 export const applicationsApi = {
-  list: async (params?: Record<string, unknown>): Promise<Application[]> => {
-    const response = await apiClient.get<Application[]>('/applications', {
-      params,
-    })
+  /** Заявки конкретного студента — для CRM и воркспейса.
+   *
+   *  Раньше здесь был `list()`, бивший в `GET /applications`, которого на
+   *  бэкенде никогда не существовало. Метод никто не вызывал, поэтому баг был
+   *  латентным; теперь путь настоящий. */
+  listForStudent: async (studentId: string): Promise<Application[]> => {
+    const response = await apiClient.get<{ items: Application[] }>(
+      `/students/${studentId}/applications`
+    )
+    return response.data.items
+  },
+  /** Собственные заявки студента в портале. */
+  listMine: async (): Promise<Application[]> => {
+    const response = await apiClient.get<Application[]>('/portal/applications')
     return response.data
   },
   create: async (data: ApplicationCreatePayload): Promise<Application> => {
@@ -79,9 +89,18 @@ export const applicationsApi = {
     )
     return response.data
   },
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/applications/${id}`)
+  },
 }
 
 export const servicesApi = {
+  eligibleAssignees: async (studentId: string): Promise<Array<{ id: string; name: string; role: string; active_assignments: number }>> => {
+    const response = await apiClient.get<Array<{ id: string; name: string; role: string; active_assignments: number }>>('/services/eligible-assignees', {
+      params: { student_id: studentId },
+    })
+    return response.data
+  },
   list: async (params?: Record<string, unknown>): Promise<Service[]> => {
     const response = await apiClient.get<Service[]>('/services', { params })
     return response.data
@@ -174,7 +193,7 @@ export const guardiansApi = {
 
 export const tasksApi = {
   listAll: async (params?: {
-    status?: 'open' | 'done'
+    status?: StudentTask['status']
     mentor_id?: string | null
     scope?: 'all' | 'mine'
     page?: number
@@ -206,6 +225,29 @@ export const tasksApi = {
     data: Partial<StudentTask>
   ): Promise<StudentTask> => {
     const response = await apiClient.patch<StudentTask>(`/tasks/${id}`, data)
+    return response.data
+  },
+  uploadEvidence: async (
+    id: string,
+    file: File,
+    requirement?: string,
+  ): Promise<{ id: string; task_id: string; file_name: string; requirement: string | null }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (requirement) formData.append('requirement', requirement)
+    const response = await apiClient.post(`/tasks/${id}/evidence`, formData)
+    return response.data
+  },
+  listEvidence: async (id: string): Promise<Array<{
+    id: string
+    task_id: string
+    file_name: string
+    requirement: string | null
+    file_size: number
+    mime_type: string
+    uploaded_at: string
+  }>> => {
+    const response = await apiClient.get(`/tasks/${id}/evidence`)
     return response.data
   },
 }
