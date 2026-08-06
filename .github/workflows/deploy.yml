@@ -161,7 +161,17 @@ jobs:
             else
               echo "Первый запуск: рабочей БД ещё нет, pre-deploy backup пропущен."
             fi
-            docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
+            if ! docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180; then
+              echo "=== Production compose status ==="
+              docker compose -f docker-compose.prod.yml ps -a
+              echo "=== Backend logs ==="
+              docker compose -f docker-compose.prod.yml logs --no-color --tail=250 backend || true
+              echo "=== Worker logs ==="
+              docker compose -f docker-compose.prod.yml logs --no-color --tail=150 worker || true
+              echo "=== Backend health state ==="
+              docker inspect --format='{{json .State.Health}}' tte_backend_prod || true
+              exit 1
+            fi
             # `up -d` означает лишь «процесс запущен». Проверяем и внутренние
             # loopback-порты, и реальный публичный маршрут через Caddy.
             curl --fail --silent --show-error http://127.0.0.1:8000/health

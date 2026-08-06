@@ -110,11 +110,14 @@ export const MzkQualityManager: React.FC<Props> = ({ colorPrefix = 'w', canManag
             <Select value={mzkManagerId} onValueChange={setMzkManagerId}>
               <SelectTrigger className="h-11"><SelectValue placeholder="Выберите МЗК" /></SelectTrigger>
               <SelectContent>
-                {mzkManagers.map((u) => (
+                {mzkManagers.length > 0 ? mzkManagers.map((u) => (
                   <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                ))}
+                )) : (
+                  <SelectItem value="__no_mzk__" disabled>Нет активных пользователей МЗК</SelectItem>
+                )}
               </SelectContent>
             </Select>
+            {mzkManagers.length === 0 && <p className={cn('mt-1.5 text-xs', t.muted2)}>Создайте пользователя с ролью «МЗК» в разделе «Настройки».</p>}
           </div>
           <div className="min-w-[180px]">
             <Select value={period} onValueChange={setPeriod}>
