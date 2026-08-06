@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime, timezone
-from sqlalchemy import Date, Text, DateTime, ForeignKey, Enum as SAEnum, String, JSON
+from sqlalchemy import Date, Integer, Text, DateTime, ForeignKey, Enum as SAEnum, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -23,7 +23,13 @@ class StudentTask(Base):
     __tablename__ = "student_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
+    # Nullable с тех пор, как МЗК/админ ставит менторам и общие задачи, не
+    # привязанные к студенту («сдай отчёт», «пройди обучение»). Задача по
+    # студенту остаётся основным случаем — student_id просто перестал быть
+    # обязательным.
+    student_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), nullable=True
+    )
     service_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"), nullable=True, index=True)
     task_text: Mapped[str] = mapped_column(Text)
     expected_result: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -46,6 +52,16 @@ class StudentTask(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SLA в часах (регламент менторов: 24ч на задачу) и вычисленный из него
+    # момент дедлайна. Отдельно от due_date: та — календарная дата «к какому
+    # дню», а SLA считает часы от постановки и нужен точным, иначе «просрочено»
+    # определялось бы с точностью до суток.
+    sla_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sla_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Ступень уже начисленной санкции — идемпотентность фонового цикла: он
+    # ходит каждые 15 минут и без этого начислял бы штраф на каждом проходе.
+    sla_penalty_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sla_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     original_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     due_date_set_by: Mapped[uuid.UUID | None] = mapped_column(

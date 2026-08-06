@@ -260,6 +260,20 @@ async def on_startup(ctx: dict) -> None:
     else:
         logger.info("MZK quality score computation disabled")
 
+    if settings.ENABLE_TASK_SLA:
+        from app.services.task_sla_notifier import task_sla_loop
+        tasks.append(asyncio.create_task(task_sla_loop()))
+        logger.info("Task SLA loop started")
+    else:
+        logger.info("Task SLA enforcement disabled")
+
+    if settings.ENABLE_DAILY_CHECKIN:
+        from app.services.checkin_notifier import checkin_loop
+        tasks.append(asyncio.create_task(checkin_loop()))
+        logger.info("Checkin loop started")
+    else:
+        logger.info("Daily check-ins disabled")
+
     ctx["background_tasks"] = tasks
 
 

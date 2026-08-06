@@ -267,7 +267,8 @@ export interface Guardian {
 
 export interface StudentTask {
   id: string
-  student_id: string
+  /** null у общей задачи, не привязанной к студенту (МЗК ставит менторам). */
+  student_id: string | null
   service_id?: string | null
   student_name?: string
   assignee_id?: string | null
@@ -298,6 +299,11 @@ export interface StudentTask {
   accepted_at?: string | null
   accepted_by?: string | null
   review_note?: string | null
+  /** SLA: срок в часах, точный дедлайн и уже начисленная ступень санкции. */
+  sla_hours?: number | null
+  sla_due_at?: string | null
+  sla_penalty_color?: 'yellow' | 'orange' | 'red' | null
+  sla_overdue?: boolean
   due_date?: string | null
   due_date_set_by?: string | null
   urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null

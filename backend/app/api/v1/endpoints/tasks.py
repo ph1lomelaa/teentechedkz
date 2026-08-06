@@ -6,9 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import joinedload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, require_permission
 from app.models.student_task import StudentTask, TaskStatus
@@ -21,9 +22,15 @@ from app.models.notification import Notification
 from app.models.status_history import StatusHistory
 from app.models.task_evidence import TaskEvidence
 from app.services.agreements import has_pending_agreement_signature
+from app.services.task_sla import (
+    PAUSED_STATUSES,
+    TERMINAL_STATUSES,
+    compute_sla_due_at,
+    is_overdue,
+)
 from app.services.task_urgency import task_urgency
 from app.core.uploads import read_upload_capped
-from app.services.minio_service import minio_upload
+from app.services.minio_service import minio_upload, minio_upload_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 TASK_PRIORITIES = {"low", "normal", "high", "urgent"}
@@ -54,11 +61,19 @@ async def list_all_tasks(
     current_user: CurrentUser,
     status: str | None = None,
     mentor_id: uuid.UUID | None = None,
+    assignee_id: uuid.UUID | None = None,
+    overdue: bool | None = None,
+    kind: str = Query("all", pattern="^(all|student|general)$"),
     scope: str = Query("all", pattern="^(all|mine)$"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
 ):
-    """Return all tasks the current user can see, with student name included."""
+    """Return all tasks the current user can see, with student name included.
+
+    Доска МЗК (`/workspace/mentor-tasks`) ходит сюда же: `assignee_id` даёт
+    срез по конкретному ментору, `overdue=true` — только горящие, `kind`
+    разделяет задачи по студенту и общие.
+    """
     query = select(StudentTask).options(
         joinedload(StudentTask.student),
         joinedload(StudentTask.assignee),
@@ -80,12 +95,37 @@ async def list_all_tasks(
             select(Contract.student_id).where(Contract.mzk_manager_id == scoped_mentor_id)
         )
         student_ids.update(row[0] for row in contract_result.all())
-        if not student_ids:
-            return {"items": [], "total": 0, "page": page, "size": size, "pages": 0}
-        query = query.where(StudentTask.student_id.in_(student_ids))
+        # Общая задача не привязана к студенту, поэтому скоуп «по студентам»
+        # её бы отсёк: исполнителю она видна по assignee_id. Без этого ментор
+        # не увидел бы собственные общие задачи вовсе.
+        scope_filter = StudentTask.assignee_id == scoped_mentor_id
+        if student_ids:
+            scope_filter = or_(StudentTask.student_id.in_(student_ids), scope_filter)
+        query = query.where(scope_filter)
 
     if scope == "mine" and mentor_id is None:
         query = query.where(StudentTask.assignee_id == current_user.id)
+
+    if assignee_id is not None:
+        if current_user.role == UserRole.mentor and assignee_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        query = query.where(StudentTask.assignee_id == assignee_id)
+
+    if kind == "student":
+        query = query.where(StudentTask.student_id.isnot(None))
+    elif kind == "general":
+        query = query.where(StudentTask.student_id.is_(None))
+
+    if overdue is not None:
+        # Просрочка считается тем же предикатом, что и в фоновом цикле:
+        # дедлайн в прошлом и задача ещё в работе.
+        live = StudentTask.status.notin_(list(TERMINAL_STATUSES | PAUSED_STATUSES))
+        burning = and_(
+            StudentTask.sla_due_at.isnot(None),
+            StudentTask.sla_due_at <= datetime.now(timezone.utc),
+            live,
+        )
+        query = query.where(burning if overdue else ~burning)
 
     if status:
         try:
@@ -135,7 +175,15 @@ async def create_task(
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    student_id = uuid.UUID(body["student_id"])
+    # student_id опционален: МЗК/админ ставит менторам и общие задачи
+    # («сдай отчёт»), не привязанные к конкретному студенту.
+    student_id = uuid.UUID(body["student_id"]) if body.get("student_id") else None
+    if student_id is None and current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(
+            status_code=403,
+            detail="Общие задачи ставит только МЗК или администратор",
+            headers={"X-Error-Code": "GENERAL_TASK_FORBIDDEN"},
+        )
     assignee_id = uuid.UUID(body["assignee_id"]) if body.get("assignee_id") else None
     assignee = None
     if assignee_id:
@@ -148,7 +196,9 @@ async def create_task(
             current_user,
             "assign_mentor_tasks" if assignee.role == UserRole.mentor else "assign_mzk_tasks",
         )
-        if assignee.role == UserRole.mentor:
+        # Проверка назначения применима только к задаче по студенту: у общей
+        # задачи нет студента, на которого ментора можно было бы назначить.
+        if assignee.role == UserRole.mentor and student_id is not None:
             await _validate_mentor_task_scope(db, student_id, assignee.id)
 
     requested_status = body.get("status")
@@ -171,8 +221,29 @@ async def create_task(
         require_permission(current_user, "manage_deadlines")
         due_date = date.fromisoformat(body["due_date"])
 
+    # SLA: по умолчанию 24 часа на задачу с исполнителем (регламент менторов,
+    # раздел 6). Явный null отключает SLA — бывают задачи без срока.
+    if "sla_hours" in body:
+        sla_hours = body["sla_hours"]
+        if sla_hours is not None:
+            if not isinstance(sla_hours, int) or sla_hours <= 0:
+                raise HTTPException(status_code=422, detail="sla_hours должен быть положительным числом")
+    else:
+        sla_hours = settings.TASK_SLA_DEFAULT_HOURS if assignee else None
+    created_at = datetime.now(timezone.utc)
+    # Заперт гейтом регламента — часы SLA не стартуют: отсчёт начнётся, когда
+    # исполнитель подпишет и задача выйдет из awaiting_signature (см. PATCH
+    # ниже). Иначе человек копил бы просрочку за время, когда работать не мог.
+    sla_due_at = (
+        None
+        if status == TaskStatus.awaiting_signature
+        else compute_sla_due_at(created_at=created_at, sla_hours=sla_hours)
+    )
+
     task = StudentTask(
         student_id=student_id,
+        sla_hours=sla_hours,
+        sla_due_at=sla_due_at,
         service_id=uuid.UUID(body["service_id"]) if body.get("service_id") else None,
         task_text=body.get("task_text", "").strip(),
         expected_result=body.get("expected_result"),
@@ -188,7 +259,7 @@ async def create_task(
     )
     db.add(task)
 
-    student = await db.get(Student, student_id)
+    student = await db.get(Student, student_id) if student_id else None
     if student and student.user_id:
         db.add(Notification(
             user_id=student.user_id,
@@ -211,6 +282,84 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     return _task_to_dict(task)
+
+
+@router.post("/bulk")
+async def create_tasks_bulk(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Одна задача сразу нескольким исполнителям.
+
+    Каждому создаётся своя строка, а не одна общая на всех: у задач разные
+    исполнители, свои сроки SLA и свои санкции за просрочку — «одна задача с
+    несколькими ответственными» ломала бы и то, и другое.
+
+    `assignee_ids: []` вместе с `all_mentors: true` означает «всем активным
+    менторам» — на момент создания, без доназначения тем, кто появится позже.
+    """
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        raise HTTPException(
+            status_code=403,
+            detail="Массовое назначение доступно МЗК и администратору",
+            headers={"X-Error-Code": "BULK_ASSIGN_FORBIDDEN"},
+        )
+
+    raw_ids = body.get("assignee_ids") or []
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=422, detail="assignee_ids должен быть списком")
+
+    roles_wanted: list[UserRole] = []
+    if body.get("all_mentors"):
+        roles_wanted.append(UserRole.mentor)
+    if body.get("all_mzk"):
+        roles_wanted.append(UserRole.mzk_manager)
+
+    assignee_ids: list[uuid.UUID] = []
+    for value in raw_ids:
+        try:
+            assignee_ids.append(uuid.UUID(str(value)))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Некорректный id исполнителя: {value}")
+
+    if roles_wanted:
+        rows = await db.execute(
+            select(User.id).where(
+                User.role.in_(roles_wanted),
+                User.is_active == True,  # noqa: E712
+            )
+        )
+        assignee_ids.extend(rows.scalars().all())
+
+    # Один и тот же человек мог попасть и списком, и через «всем менторам» —
+    # иначе он получил бы две одинаковые задачи с двумя SLA.
+    unique_ids = list(dict.fromkeys(assignee_ids))
+    if not unique_ids:
+        raise HTTPException(status_code=422, detail="Не выбран ни один исполнитель")
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+    for assignee_id in unique_ids:
+        payload = {**body, "assignee_id": str(assignee_id)}
+        payload.pop("assignee_ids", None)
+        payload.pop("all_mentors", None)
+        payload.pop("all_mzk", None)
+        try:
+            created.append(await create_task(payload, db, current_user))
+        except HTTPException as exc:
+            # Один неподходящий исполнитель (не в скоупе студента, деактивирован)
+            # не должен рушить всю рассылку — остальные задачи создаются.
+            await db.rollback()
+            skipped.append({"assignee_id": str(assignee_id), "reason": str(exc.detail)})
+
+    if not created:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Ни одна задача не создана", "skipped": skipped},
+            headers={"X-Error-Code": "BULK_ASSIGN_EMPTY"},
+        )
+    return {"created": created, "skipped": skipped, "created_count": len(created)}
 
 
 @router.patch("/{task_id}")
@@ -270,7 +419,9 @@ async def update_task(
                 current_user,
                 "assign_mentor_tasks" if assignee.role == UserRole.mentor else "assign_mzk_tasks",
             )
-            if assignee.role == UserRole.mentor:
+            # У общей задачи нет студента, на которого ментора можно было бы
+            # назначить — проверка скоупа к ней неприменима.
+            if assignee.role == UserRole.mentor and task.student_id is not None:
                 await _validate_mentor_task_scope(db, task.student_id, assignee.id)
         task.assignee_id = assignee.id if assignee else None
         if assignee and await has_pending_agreement_signature(db, assignee):
@@ -315,8 +466,13 @@ async def update_task(
                     detail="Исполнитель не может начать работу до подписания регламента",
                     headers={"X-Error-Code": "ASSIGNEE_AGREEMENT_REQUIRED"},
                 )
+        was_paused = task.status in PAUSED_STATUSES
         task.status = new_status
         now = datetime.now(timezone.utc)
+        # Гейт регламента снят — только теперь стартуют часы SLA: до этого
+        # исполнитель был заперт и работать не мог.
+        if was_paused and new_status not in PAUSED_STATUSES and task.sla_due_at is None:
+            task.sla_due_at = compute_sla_due_at(created_at=now, sla_hours=task.sla_hours)
         if new_status == TaskStatus.submitted:
             task.submitted_at = now
             task.submitted_by = current_user.id
@@ -408,12 +564,23 @@ async def upload_task_evidence(
     if requirement and task.required_documents and requirement not in task.required_documents:
         raise HTTPException(status_code=422, detail="Документ не указан среди обязательных")
 
-    storage_path = await minio_upload(
-        content=content,
-        student_id=task.student_id,
-        filename=f"task_{task.id}_{file.filename or 'evidence'}",
-        mime_type=mime,
-    )
+    # У общей задачи студента нет, а minio_upload кладёт файл в students/{id}/ —
+    # без отдельной ветки путь стал бы буквально "students/None/...".
+    filename = f"task_{task.id}_{file.filename or 'evidence'}"
+    if task.student_id is not None:
+        storage_path = await minio_upload(
+            content=content,
+            student_id=task.student_id,
+            filename=filename,
+            mime_type=mime,
+        )
+    else:
+        storage_path = await minio_upload_task(
+            content=content,
+            task_id=task.id,
+            filename=filename,
+            mime_type=mime,
+        )
     evidence = TaskEvidence(
         task_id=task.id,
         uploaded_by=current_user.id,
@@ -470,7 +637,9 @@ async def delete_task(
 def _task_to_dict(t: StudentTask, include_student: bool = False) -> dict:
     d = {
         "id": str(t.id),
-        "student_id": str(t.student_id),
+        # None у общей задачи без студента — иначе на фронт уезжала бы строка
+        # "None" вместо null.
+        "student_id": str(t.student_id) if t.student_id else None,
         "service_id": str(t.service_id) if t.service_id else None,
         "task_text": t.task_text,
         "expected_result": t.expected_result,
@@ -494,6 +663,14 @@ def _task_to_dict(t: StudentTask, include_student: bool = False) -> dict:
         "original_due_date": t.original_due_date.isoformat() if t.original_due_date else None,
         "due_date_set_by": str(t.due_date_set_by) if t.due_date_set_by else None,
         "urgency": task_urgency(t.due_date, t.status.value),
+        "sla_hours": t.sla_hours,
+        "sla_due_at": t.sla_due_at.isoformat() if t.sla_due_at else None,
+        "sla_penalty_color": t.sla_penalty_color,
+        # Считается на лету: клиенту нужен признак «горит сейчас», а не на
+        # момент последнего прохода фонового цикла.
+        "sla_overdue": is_overdue(
+            sla_due_at=t.sla_due_at, status=t.status, now=datetime.now(timezone.utc)
+        ),
     }
     if include_student and t.student:
         d["student_name"] = t.student.full_name

@@ -105,6 +105,34 @@ async def minio_upload_note_audio(
     return object_name
 
 
+async def minio_upload_task(
+    content: bytes,
+    task_id: uuid.UUID,
+    filename: str,
+    mime_type: str,
+) -> str:
+    """Подтверждение по общей задаче — той, что не привязана к студенту.
+
+    Обычные задачи кладутся в students/{id}/ через minio_upload; у общей
+    задачи студента нет, и без отдельного префикса путь стал бы
+    "students/None/..." — то есть все такие файлы свалились бы в одну папку
+    с буквальным именем None.
+    """
+    client = get_minio()
+    file_id = str(uuid.uuid4())
+    safe_name = filename.replace(" ", "_")
+    object_name = f"tasks/{task_id}/{file_id}_{safe_name}"
+
+    client.put_object(
+        bucket_name=settings.MINIO_BUCKET_NAME,
+        object_name=object_name,
+        data=BytesIO(content),
+        length=len(content),
+        content_type=mime_type,
+    )
+    return object_name
+
+
 async def minio_upload_agreement(
     content: bytes,
     agreement_id: uuid.UUID,

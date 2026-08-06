@@ -105,6 +105,29 @@ class Settings(BaseSettings):
     COMPLAINT_SLA_CHECK_INTERVAL_SECONDS: int = 3600  # 1 hour — SLA окно всего 24ч
     ENABLE_MZK_QUALITY_SCORE: bool = True
 
+    # Часовой пояс компании: и SLA задач, и чекины считают «сутки» и «10 утра»
+    # по нему, а не по UTC сервера — иначе рабочий день разъезжается со сменой
+    # календарной даты.
+    COMPANY_TIMEZONE: str = "Asia/Almaty"
+
+    # SLA задач менторов (регламент менторов, раздел 6). Просрочка фиксируется
+    # санкцией по ступеням, суммы берутся из reward_rules.
+    ENABLE_TASK_SLA: bool = True
+    TASK_SLA_DEFAULT_HOURS: int = 24
+    TASK_SLA_CHECK_INTERVAL_SECONDS: int = 900  # 15 минут
+    TASK_SLA_REMINDER_HOURS_BEFORE: int = 4
+    # Ступени санкций за просрочку: 1-е нарушение за календарный месяц —
+    # жёлтый, 2-е — оранжевый, 3-е и далее — красный.
+    TASK_SLA_PENALTY_LADDER: str = "yellow,orange,red"
+
+    # Ежедневный чекин сотрудников (менторы и МЗК).
+    ENABLE_DAILY_CHECKIN: bool = True
+    CHECKIN_HOUR: int = 10          # локальное время COMPANY_TIMEZONE
+    CHECKIN_MINUTE: int = 0
+    CHECKIN_GRACE_MINUTES: int = 30  # позже — late, после закрытия окна — missed
+    CHECKIN_WINDOW_MINUTES: int = 240  # окно, после которого ставится missed
+    CHECKIN_CHECK_INTERVAL_SECONDS: int = 600  # 10 минут
+
     # First admin seed
     FIRST_ADMIN_EMAIL: str = "admin@teenteched.kz"
     FIRST_ADMIN_PASSWORD: str = "Admin1234!"

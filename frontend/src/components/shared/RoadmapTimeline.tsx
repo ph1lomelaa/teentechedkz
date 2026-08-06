@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Check, ChevronRight, Plus, X, Clock } from 'lucide-react'
+import { Check, ChevronRight, Eye, EyeOff, Plus, X, Clock } from 'lucide-react'
 import {
   roadmapApi,
   Roadmap,
@@ -18,6 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/primitives/dialog'
 import { Input } from '@/components/ui/primitives/input'
+import { toast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/errorMessage'
 import { Label } from '@/components/ui/primitives/label'
 
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
@@ -48,6 +50,7 @@ export const RoadmapTimeline: React.FC<{
   const [newTaskStage, setNewTaskStage] = useState<RoadmapStage | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
+  const [uncheckTask, setUncheckTask] = useState<RoadmapTask | null>(null)
 
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -63,13 +66,42 @@ export const RoadmapTimeline: React.FC<{
     setBusy(true)
     try {
       onChanged(await fn())
+    } catch (err) {
+      // Раньше ошибка проглатывалась молча: запрос падал, экран не менялся, и
+      // выглядело это как «кнопка не работает».
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      toast({
+        title: typeof detail === 'object' && detail?.message
+          ? detail.message
+          : getErrorMessage(err, 'Не удалось обновить roadmap'),
+        variant: 'destructive',
+      })
     } finally {
       setBusy(false)
     }
   }
 
-  const toggleTask = (t: RoadmapTask) =>
-    run(() => roadmapApi.updateTask(t.id, { status: t.status === 'done' ? 'planned' : 'done' }))
+  // Снятие отметки подтверждаем: оно откатывает и сам этап, если тот уже был
+  // завершён, а у подтверждённой заявки студента стирает штампы ревью.
+  const toggleTask = (t: RoadmapTask) => {
+    if (t.status === 'done') {
+      setUncheckTask(t)
+      return
+    }
+    run(() => roadmapApi.updateTask(t.id, { status: 'done' }))
+  }
+
+  const confirmUncheck = (t: RoadmapTask) => {
+    setUncheckTask(null)
+    run(() => roadmapApi.updateTask(t.id, { status: 'planned' }))
+  }
+
+  const toggleTaskVisibility = (t: RoadmapTask) =>
+    run(() => roadmapApi.updateTask(t.id, { visible_to_student: !t.visible_to_student }))
+
+  const toggleStageVisibility = (s: RoadmapStage) =>
+    run(() => roadmapApi.updateStage(s.id, { visible_to_student: !s.visible_to_student }))
 
   const toggleSubtask = (subId: string, isDone: boolean) =>
     run(() => roadmapApi.updateSubtask(subId, { is_done: !isDone }))
@@ -178,6 +210,22 @@ export const RoadmapTimeline: React.FC<{
                 <span className="text-xs font-bold text-p-muted2 tabular-nums">
                   {s.tasks.filter((t) => t.status === 'done').length}/{s.tasks.length}
                 </span>
+                {!s.visible_to_student && (
+                  <span className="rounded-pill bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500">
+                    скрыт от студента
+                  </span>
+                )}
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleStageVisibility(s) }}
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                    title={s.visible_to_student ? 'Скрыть этап от студента' : 'Показать этап студенту'}
+                    aria-label={s.visible_to_student ? 'Скрыть этап от студента' : 'Показать этап студенту'}
+                  >
+                    {s.visible_to_student ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  </button>
+                )}
                 <ChevronRight
                   className={cn('w-4 h-4 text-gray-400 ml-auto transition-transform', isOpen && 'rotate-90')}
                 />
@@ -191,6 +239,7 @@ export const RoadmapTimeline: React.FC<{
                       task={t}
                       canManage={canManage}
                       onToggle={() => toggleTask(t)}
+                      onToggleVisibility={() => toggleTaskVisibility(t)}
                       onToggleSub={toggleSubtask}
                       onAddSub={() => addSubtask(t)}
                       onRemove={() => removeTask(t)}
@@ -214,6 +263,32 @@ export const RoadmapTimeline: React.FC<{
           )
         })}
       </div>
+
+      <Dialog open={Boolean(uncheckTask)} onOpenChange={(o) => !o && setUncheckTask(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Снять отметку о выполнении</DialogTitle>
+            <DialogDescription>
+              «{uncheckTask?.title}» вернётся в работу.
+              {uncheckTask?.review_status === 'approved' && ' Подтверждение заявки студента будет снято.'}
+              {' '}Если этап уже завершён, он тоже вернётся в работу.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <AppButton colorPrefix="ds" variant="subtle" size="sm" onClick={() => setUncheckTask(null)}>
+              Отмена
+            </AppButton>
+            <AppButton
+              colorPrefix="ds"
+              size="sm"
+              disabled={busy}
+              onClick={() => uncheckTask && confirmUncheck(uncheckTask)}
+            >
+              Снять отметку
+            </AppButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
         <DialogContent>
@@ -283,11 +358,12 @@ const TaskRow: React.FC<{
   task: RoadmapTask
   canManage: boolean
   onToggle: () => void
+  onToggleVisibility: () => void
   onToggleSub: (id: string, isDone: boolean) => void
   onAddSub: () => void
   onRemove: () => void
   onRemoveSub: (id: string) => void
-}> = ({ task, canManage, onToggle, onToggleSub, onAddSub, onRemove, onRemoveSub }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onAddSub, onRemove, onRemoveSub }) => {
   const isDone = task.status === 'done'
   return (
     <div className="border border-p-line rounded-[13px] bg-p-bg transition hover:translate-x-[3px] hover:border-p-accent-dim">
@@ -323,6 +399,11 @@ const TaskRow: React.FC<{
             {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
             <UrgencyBadge dueDate={task.due_date} status={task.status} />
             {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
+            {!task.visible_to_student && (
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-2xs font-bold text-gray-500">
+                скрыта от студента
+              </span>
+            )}
             {/* Заявка студента: галочка здесь = подтверждение — пусть это будет видно */}
             {task.review_status === 'pending' && (
               <span className="rounded-full border border-brand/50 bg-brand/10 px-2 py-0.5 text-2xs font-bold text-brand">
@@ -332,6 +413,16 @@ const TaskRow: React.FC<{
           </div>
         </div>
         <PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" />
+        {canManage && (
+          <button
+            onClick={onToggleVisibility}
+            className="shrink-0 text-p-muted2 transition hover:text-p-text"
+            title={task.visible_to_student ? 'Скрыть задачу от студента' : 'Показать задачу студенту'}
+            aria-label={task.visible_to_student ? 'Скрыть задачу от студента' : 'Показать задачу студенту'}
+          >
+            {task.visible_to_student ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+        )}
         {canManage && (
           <button onClick={onRemove} className="text-p-muted2 hover:text-ds-danger shrink-0" aria-label="Удалить задачу">
             <X className="w-3.5 h-3.5" />

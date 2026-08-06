@@ -21,6 +21,8 @@ import {
   MessageSquareWarning,
   ListChecks,
   Banknote,
+  CalendarCheck,
+  ListTodo,
   ScrollText,
   Gauge,
   Award,
@@ -63,6 +65,7 @@ const baseNavGroups: NavGroup[] = [
   {
     group: 'РАБОТА',
     items: [
+      { label: 'Мои задачи', path: '/my-tasks', icon: <ListTodo className="w-4 h-4" /> },
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
       { label: 'Статусы', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" /> },
@@ -98,6 +101,8 @@ const ADMIN_ONLY_ITEMS: NavItem[] = [
 // То же и у двух разделов ниже: ОКК показывает МЗК только его собственный балл,
 // вознаграждения ведут админ и МЗК.
 const STAFF_ONLY_ITEMS: NavItem[] = [
+  { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" /> },
+  { label: 'Чекины', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" /> },
   { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" /> },
   { label: 'ОКК МЗК', path: '/mzk-quality', icon: <Gauge className="w-4 h-4" /> },
   { label: 'Вознаграждения', path: '/mentor-rewards', icon: <Award className="w-4 h-4" /> },
@@ -138,6 +143,9 @@ function getBreadcrumb(pathname: string): string {
     '/telegram-inbox': 'Чаты',
     '/status-inbox': 'Статусы студентов',
     '/complaints': 'Обращения',
+    '/mentor-tasks': 'Задачи менторов',
+    '/checkins': 'Чекины',
+    '/my-tasks': 'Мои задачи',
     '/refund-cases': 'Возвратные кейсы',
     '/agreements': 'Регламенты',
     '/mzk-quality': 'ОКК МЗК',

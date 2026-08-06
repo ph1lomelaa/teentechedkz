@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Banknote,
   Bell,
+  CalendarCheck,
   CalendarDays,
   CheckSquare,
   ClipboardCheck,
@@ -17,6 +18,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  ListTodo,
   LogOut,
   Map,
   Menu,
@@ -67,6 +69,7 @@ function getNavGroups(
       items: [
         { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" /> },
         { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" /> },
+        { label: 'Мои задачи', path: '/workspace/my-tasks', icon: <ListTodo className="h-4 w-4" /> },
         { label: 'Проверка', path: '/workspace/review', icon: <ClipboardCheck className="h-4 w-4" /> },
         { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" /> },
         { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" /> },
@@ -98,6 +101,8 @@ function getNavGroups(
       items: [
         { label: 'Возвратные кейсы', path: '/workspace/refund-cases', icon: <Banknote className="h-4 w-4" /> },
         { label: 'Инциденты безопасности', path: '/workspace/security-incidents', icon: <ShieldAlert className="h-4 w-4" /> },
+        { label: 'Задачи менторов', path: '/workspace/mentor-tasks', icon: <ListTodo className="h-4 w-4" /> },
+        { label: 'Чекины', path: '/workspace/checkins', icon: <CalendarCheck className="h-4 w-4" /> },
         { label: 'ОКК МЗК', path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" /> },
         { label: 'Вознаграждение менторов', path: '/workspace/mentor-rewards', icon: <Coins className="h-4 w-4" /> },
       ],

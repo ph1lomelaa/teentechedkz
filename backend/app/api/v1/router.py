@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     portfolio,
     confidential_notes,
     tasks,
+    checkins,
     countries,
     mentor_assignments,
     status_history,
@@ -70,6 +71,7 @@ api_router.include_router(documents.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(confidential_notes.router)
 api_router.include_router(tasks.router)
+api_router.include_router(checkins.router)
 api_router.include_router(countries.router)
 api_router.include_router(mentor_assignments.router)
 api_router.include_router(status_history.router)

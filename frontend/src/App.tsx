@@ -43,6 +43,9 @@ const WorkspaceMyRewardsPage = React.lazy(() => import('@/pages/workspace/Worksp
 const AgreementsPage = React.lazy(() => import('@/pages/AgreementsPage').then((m) => ({ default: m.AgreementsPage })))
 const MzkQualityPage = React.lazy(() => import('@/pages/MzkQualityPage').then((m) => ({ default: m.MzkQualityPage })))
 const MentorRewardsPage = React.lazy(() => import('@/pages/MentorRewardsPage').then((m) => ({ default: m.MentorRewardsPage })))
+const MentorTasksPage = React.lazy(() => import('@/pages/MentorTasksPage').then((m) => ({ default: m.MentorTasksPage })))
+const CheckinsPage = React.lazy(() => import('@/pages/CheckinsPage').then((m) => ({ default: m.CheckinsPage })))
+const MyTasksPage = React.lazy(() => import('@/pages/MyTasksPage').then((m) => ({ default: m.MyTasksPage })))
 const PortalImportantNotesPage = React.lazy(() => import('@/pages/portal/PortalImportantNotesPage').then((m) => ({ default: m.PortalImportantNotesPage })))
 const PortalUniversitiesPage = React.lazy(() => import('@/pages/portal/PortalUniversitiesPage').then((m) => ({ default: m.PortalUniversitiesPage })))
 const PortalUniversityDetailPage = React.lazy(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
@@ -60,6 +63,9 @@ const WorkspaceStudentsPage = React.lazy(() => import('@/pages/workspace/Workspa
 const WorkspaceStudentDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceStudentDetailPage').then((m) => ({ default: m.WorkspaceStudentDetailPage })))
 const WorkspaceTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceTasksPage').then((m) => ({ default: m.WorkspaceTasksPage })))
 const WorkspaceReviewPage = React.lazy(() => import('@/pages/workspace/WorkspaceReviewPage').then((m) => ({ default: m.WorkspaceReviewPage })))
+const WorkspaceMentorTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceMentorTasksPage').then((m) => ({ default: m.WorkspaceMentorTasksPage })))
+const WorkspaceMyTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyTasksPage').then((m) => ({ default: m.WorkspaceMyTasksPage })))
+const WorkspaceCheckinsPage = React.lazy(() => import('@/pages/workspace/WorkspaceCheckinsPage').then((m) => ({ default: m.WorkspaceCheckinsPage })))
 const WorkspaceMeetingsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMeetingsPage').then((m) => ({ default: m.WorkspaceMeetingsPage })))
 const WorkspaceDocumentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceDocumentsPage').then((m) => ({ default: m.WorkspaceDocumentsPage })))
 const WorkspaceChatPage = React.lazy(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
@@ -577,6 +583,42 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/mentor-tasks"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <MentorTasksPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/checkins"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <CheckinsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/my-tasks"
+        element={
+          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <MyTasksPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/mzk-quality"
         element={
           <ProtectedRoute roles={['admin', 'mzk_manager']}>
@@ -632,6 +674,9 @@ function AppRoutes() {
       <Route path="/workspace/roadmap" element={<WorkspaceRoute><WorkspaceRoadmapPage /></WorkspaceRoute>} />
       <Route path="/workspace/tasks" element={<WorkspaceRoute><WorkspaceTasksPage /></WorkspaceRoute>} />
       <Route path="/workspace/review" element={<WorkspaceRoute><WorkspaceReviewPage /></WorkspaceRoute>} />
+      <Route path="/workspace/mentor-tasks" element={<WorkspaceRoute><WorkspaceMentorTasksPage /></WorkspaceRoute>} />
+      <Route path="/workspace/my-tasks" element={<WorkspaceRoute><WorkspaceMyTasksPage /></WorkspaceRoute>} />
+      <Route path="/workspace/checkins" element={<WorkspaceRoute><WorkspaceCheckinsPage /></WorkspaceRoute>} />
       <Route path="/workspace/questionnaires" element={<WorkspaceRoute><WorkspaceQuestionnairesPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings" element={<WorkspaceRoute><WorkspaceMeetingsPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings/session/:id" element={<WorkspaceRoute><NoteSessionPage /></WorkspaceRoute>} />

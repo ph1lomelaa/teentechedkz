@@ -65,6 +65,7 @@ from .mentor_assignment_history import MentorAssignmentHistory
 from .mentor_stage_reward import MentorStageReward, MentorStageKind
 from .reward_rule import RewardRule, RewardRuleKind
 from .mentor_task_penalty import MentorTaskPenalty, PenaltyColor
+from .user_checkin import UserCheckin, CheckinStatus
 from .security_incident import SecurityIncident, SecurityIncidentKind, SecurityIncidentStatus
 
 __all__ = [
@@ -112,4 +113,5 @@ __all__ = [
     "MentorStageReward", "MentorStageKind",
     "RewardRule", "RewardRuleKind",
     "MentorTaskPenalty", "PenaltyColor", "SecurityIncident", "SecurityIncidentKind", "SecurityIncidentStatus",
+    "UserCheckin", "CheckinStatus",
 ]

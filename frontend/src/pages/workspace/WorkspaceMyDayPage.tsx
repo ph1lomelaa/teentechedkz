@@ -5,6 +5,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, MessageSquareW
 import { workspaceApi, WorkspaceMyDayTask } from '@/api/workspace'
 import { AppCard, EmptyState, PageHeader } from '@/components/ui'
 import { formatDate } from '@/lib/utils'
+import { CheckinBanner } from '@/components/workspace/CheckinBanner'
 
 const URGENCY_META = {
   critical: { label: 'Критично · >72ч', className: 'border-black bg-black text-white' },
@@ -60,6 +61,8 @@ export const WorkspaceMyDayPage: React.FC = () => {
         title="Мой день"
         description="Всё, что нужно проверить сегодня, в одном экране: просроченные задачи, горящий SLA, встречи и регламенты."
       />
+
+      <CheckinBanner />
 
       {isLoading ? (
         <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div>

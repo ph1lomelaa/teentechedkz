@@ -195,6 +195,12 @@ export const tasksApi = {
   listAll: async (params?: {
     status?: StudentTask['status']
     mentor_id?: string | null
+    /** Срез доски МЗК по конкретному исполнителю. */
+    assignee_id?: string | null
+    /** true — только горящие задачи, false — только уложившиеся в срок. */
+    overdue?: boolean
+    /** student — задачи по студенту, general — общие, без привязки. */
+    kind?: 'all' | 'student' | 'general'
     scope?: 'all' | 'mine'
     page?: number
     size?: number
@@ -211,7 +217,7 @@ export const tasksApi = {
     return response.data
   },
   create: async (
-    studentId: string,
+    studentId: string | null,
     data: Partial<StudentTask>
   ): Promise<StudentTask> => {
     const response = await apiClient.post<StudentTask>(`/tasks`, {
@@ -225,6 +231,22 @@ export const tasksApi = {
     data: Partial<StudentTask>
   ): Promise<StudentTask> => {
     const response = await apiClient.patch<StudentTask>(`/tasks/${id}`, data)
+    return response.data
+  },
+  /** Одна задача сразу нескольким исполнителям — каждому своя строка со своим SLA. */
+  createBulk: async (data: {
+    task_text: string
+    assignee_ids?: string[]
+    all_mentors?: boolean
+    all_mzk?: boolean
+    student_id?: string | null
+    sla_hours?: number | null
+  }): Promise<{
+    created: StudentTask[]
+    skipped: Array<{ assignee_id: string; reason: string }>
+    created_count: number
+  }> => {
+    const response = await apiClient.post('/tasks/bulk', data)
     return response.data
   },
   uploadEvidence: async (
