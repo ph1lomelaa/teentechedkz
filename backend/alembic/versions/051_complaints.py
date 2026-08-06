@@ -9,6 +9,7 @@ Create Date: 2026-08-03
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "051"
@@ -18,12 +19,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    complaint_kind = sa.Enum("complaint", "recommendation", name="complaint_kind")
-    complaint_status = sa.Enum("new", "in_progress", "answered", "closed", name="complaint_status")
+    complaint_kind = postgresql.ENUM("complaint", "recommendation", name="complaint_kind", create_type=False)
+    complaint_status = postgresql.ENUM("new", "in_progress", "answered", "closed", name="complaint_status", create_type=False)
     complaint_kind.create(op.get_bind(), checkfirst=True)
     complaint_status.create(op.get_bind(), checkfirst=True)
 
-    note_visibility = sa.Enum("admin_only", "admin_and_mzk", "all_mentors", name="note_visibility")
+    note_visibility = postgresql.ENUM("admin_only", "admin_and_mzk", "all_mentors", name="note_visibility", create_type=False)
 
     op.create_table(
         "complaints",

@@ -8,6 +8,7 @@ Create Date: 2026-08-04
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "058"
 down_revision = "057"
@@ -16,7 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    mentor_stage_kind = sa.Enum("pre_admission", "admission", "post_admission", name="mentor_stage_kind")
+    mentor_stage_kind = postgresql.ENUM("pre_admission", "admission", "post_admission", name="mentor_stage_kind", create_type=False)
     mentor_stage_kind.create(op.get_bind(), checkfirst=True)
 
     op.create_table(

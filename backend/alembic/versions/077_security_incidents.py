@@ -10,8 +10,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    kind_enum = postgresql.ENUM("wrong_document", "data_leak", "compromised_password", "lost_device", "wrong_access", "unknown_chat_member", name="security_incident_kind")
-    status_enum = postgresql.ENUM("open", "investigating", "resolved", "closed", name="security_incident_status")
+    kind_enum = postgresql.ENUM("wrong_document", "data_leak", "compromised_password", "lost_device", "wrong_access", "unknown_chat_member", name="security_incident_kind", create_type=False)
+    status_enum = postgresql.ENUM("open", "investigating", "resolved", "closed", name="security_incident_status", create_type=False)
     kind_enum.create(op.get_bind(), checkfirst=True)
     status_enum.create(op.get_bind(), checkfirst=True)
     op.create_table(

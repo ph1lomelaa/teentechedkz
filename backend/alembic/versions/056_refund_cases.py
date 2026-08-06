@@ -6,6 +6,7 @@ Create Date: 2026-08-04
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "056"
 down_revision = "055"
@@ -14,8 +15,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    refund_level = sa.Enum("yellow", "orange", "red", name="refund_level")
-    refund_case_status = sa.Enum("open", "resolved", "rejected", name="refund_case_status")
+    refund_level = postgresql.ENUM("yellow", "orange", "red", name="refund_level", create_type=False)
+    refund_case_status = postgresql.ENUM("open", "resolved", "rejected", name="refund_case_status", create_type=False)
     refund_level.create(op.get_bind(), checkfirst=True)
     refund_case_status.create(op.get_bind(), checkfirst=True)
 

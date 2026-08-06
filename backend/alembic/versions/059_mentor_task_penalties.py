@@ -6,6 +6,7 @@ Create Date: 2026-08-04
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "059"
 down_revision = "058"
@@ -14,7 +15,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    penalty_color = sa.Enum("yellow", "orange", "red", name="penalty_color")
+    penalty_color = postgresql.ENUM("yellow", "orange", "red", name="penalty_color", create_type=False)
     penalty_color.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
