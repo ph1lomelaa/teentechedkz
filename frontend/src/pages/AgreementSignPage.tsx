@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { agreementsApi, Agreement } from '@/api/agreements'
 import { downloadBlob } from '@/lib/utils'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { useDocumentPreview } from '@/hooks/useDocumentPreview'
+import { DocumentViewer } from '@/components/shared/DocumentViewer'
 
 /**
  * Подписание регламента. Обязательно для менторов, если у их аудитории есть
@@ -30,20 +32,21 @@ export const AgreementSignPage: React.FC = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [viewed, setViewed] = useState(false)
+
+  const preview = useDocumentPreview(previewOpen ? current ?? null : null)
 
   useEffect(() => {
     setChecked(false)
     setViewed(false)
     setPreviewOpen(false)
-    setPreviewUrl(null)
   }, [current?.id])
 
-  useEffect(() => () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
-  }, [previewUrl])
+  // No attached file (markdown-only agreement) is already readable inline on
+  // the page itself — don't force the modal round-trip to unlock the checkbox.
+  useEffect(() => {
+    if (current && !current.file_name) setViewed(true)
+  }, [current])
 
   useEffect(() => {
     if (!isLoading && pending.length === 0) {
@@ -93,20 +96,9 @@ export const AgreementSignPage: React.FC = () => {
     downloadBlob(blob, current.file_name)
   }
 
-  const openPreview = async () => {
+  const openPreview = () => {
     if (!current) return
     setPreviewOpen(true)
-    setPreviewLoading(true)
-    try {
-      if (current.file_name) {
-        const blob = await agreementsApi.download(current.id)
-        setPreviewUrl(URL.createObjectURL(blob))
-      }
-    } catch (err: unknown) {
-      setError('Не удалось открыть файл документа. Ознакомьтесь с текстом ниже или скачайте файл.')
-    } finally {
-      setPreviewLoading(false)
-    }
   }
 
   if (isLoading || !current) {
@@ -223,19 +215,7 @@ export const AgreementSignPage: React.FC = () => {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto bg-[#242424] p-3 sm:p-5">
-              {previewLoading ? (
-                <div className="grid min-h-[50vh] place-items-center text-sm text-white/60">Загружаем документ…</div>
-              ) : previewUrl && current.file_name?.toLowerCase().endsWith('.pdf') ? (
-                <iframe title={`Превью ${current.title}`} src={previewUrl} className="h-[68vh] min-h-[420px] w-full rounded-lg bg-white" />
-              ) : current.body_markdown ? (
-                <article className="mx-auto min-h-[55vh] max-w-3xl rounded-lg bg-white p-6 text-sm leading-7 text-gray-900 shadow-sm whitespace-pre-wrap sm:p-10">
-                  {current.body_markdown}
-                </article>
-              ) : (
-                <div className="grid min-h-[50vh] place-items-center text-center text-sm text-white/65">
-                  Формат файла нельзя показать прямо в браузере. Скачайте документ для ознакомления.
-                </div>
-              )}
+              <DocumentViewer preview={preview} title={current.title} />
             </div>
             <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <p className="text-xs leading-5 text-white/55">После подтверждения превью вы сможете поставить отметку об ознакомлении.</p>

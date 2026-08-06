@@ -108,6 +108,9 @@ export const agreementsApi = {
     }) as any
     return response.data
   },
+  /** mode is 'text' both for markdown-only agreements and for DOCX files
+   *  (server-side extracted plain text) — the caller distinguishes DOCX by
+   *  file_name and renders it client-side via docx-preview instead. */
   preview: async (id: string): Promise<{ mode: 'pdf' | 'text'; file_name: string | null; mime_type: string; text?: string }> => {
     const response = await apiClient.get(`/agreements/${id}/preview`)
     return response.data

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText, Plus, X } from 'lucide-react'
 import { agreementsApi, Agreement, AgreementAudience } from '@/api/agreements'
@@ -9,7 +9,8 @@ import { AppButton, AppInput, EmptyState, PageHeader } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
-import { renderAsync } from 'docx-preview'
+import { useDocumentPreview } from '@/hooks/useDocumentPreview'
+import { DocumentViewer } from '@/components/shared/DocumentViewer'
 
 const AUDIENCE_LABELS: Record<AgreementAudience, string> = {
   mentor: 'Ментор',
@@ -33,7 +34,7 @@ export const AgreementsManager: React.FC<Props> = ({ colorPrefix = 'w' }) => {
   const { hasRole } = useAuth()
   const isAdmin = hasRole('admin')
   const [creating, setCreating] = useState(false)
-  const [previewAgreement, setPreviewAgreement] = useState<(Agreement & { previewUrl?: string; previewMode?: 'pdf' | 'docx' | 'text' }) | null>(null)
+  const [previewAgreement, setPreviewAgreement] = useState<Agreement | null>(null)
 
   const { data: pendingData, isLoading: pendingLoading } = useQuery({
     queryKey: ['agreements', 'pending'],
@@ -55,25 +56,7 @@ export const AgreementsManager: React.FC<Props> = ({ colorPrefix = 'w' }) => {
     }
   }
 
-  const handlePreview = async (a: Agreement) => {
-    try {
-      const preview = await agreementsApi.preview(a.id)
-      let fileUrl: string | null = null
-      let previewMode: 'pdf' | 'docx' | 'text' = 'text'
-      if (preview.mode === 'pdf') {
-        const blob = await agreementsApi.download(a.id)
-        fileUrl = URL.createObjectURL(blob)
-        previewMode = 'pdf'
-      } else if (a.file_name?.toLowerCase().endsWith('.docx')) {
-        const blob = await agreementsApi.download(a.id)
-        fileUrl = URL.createObjectURL(blob)
-        previewMode = 'docx'
-      }
-      setPreviewAgreement({ ...a, body_markdown: preview.text ?? a.body_markdown, previewUrl: fileUrl ?? undefined, previewMode })
-    } catch (e) {
-      toast({ title: getErrorMessage(e, 'Не удалось открыть документ'), variant: 'destructive' })
-    }
-  }
+  const handlePreview = (a: Agreement) => setPreviewAgreement(a)
 
   return (
     <div className="animate-fade-in">
@@ -174,54 +157,24 @@ export const AgreementsManager: React.FC<Props> = ({ colorPrefix = 'w' }) => {
   )
 }
 
-const AgreementPreviewDialog: React.FC<{ agreement: Agreement & { previewUrl?: string; previewMode?: 'pdf' | 'docx' | 'text' }; onClose: () => void }> = ({ agreement, onClose }) => {
-  const docxRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (agreement.previewMode !== 'docx' || !agreement.previewUrl || !docxRef.current) return
-    let cancelled = false
-    fetch(agreement.previewUrl)
-      .then((response) => response.blob())
-      .then((blob) => {
-        if (!cancelled && docxRef.current) {
-          docxRef.current.innerHTML = ''
-          return renderAsync(blob, docxRef.current)
-        }
-        return undefined
-      })
-      .catch(() => {
-        if (docxRef.current) docxRef.current.textContent = 'Не удалось отобразить документ.'
-      })
-    return () => { cancelled = true }
-  }, [agreement.previewMode, agreement.previewUrl])
-
-  useEffect(() => () => {
-    if (agreement.previewUrl) URL.revokeObjectURL(agreement.previewUrl)
-  }, [agreement.previewUrl])
+const AgreementPreviewDialog: React.FC<{ agreement: Agreement; onClose: () => void }> = ({ agreement, onClose }) => {
+  const preview = useDocumentPreview(agreement)
 
   return (
-  <Dialog open onOpenChange={(open) => !open && onClose()}>
-    <DialogContent className="portal max-h-[92vh] max-w-5xl overflow-hidden border-w-line bg-w-panel p-0 text-w-ink">
-      <DialogHeader className="flex flex-row items-start justify-between border-b border-w-line px-5 py-4">
-        <div>
-          <DialogTitle>{agreement.title}</DialogTitle>
-          <p className="mt-1 text-xs text-w-muted">Версия {agreement.version} · {agreement.signed ? 'подписан' : 'ожидает подписи'}</p>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="portal max-h-[92vh] max-w-5xl overflow-hidden border-w-line bg-w-panel p-0 text-w-ink">
+        <DialogHeader className="flex flex-row items-start justify-between border-b border-w-line px-5 py-4">
+          <div>
+            <DialogTitle>{agreement.title}</DialogTitle>
+            <p className="mt-1 text-xs text-w-muted">Версия {agreement.version} · {agreement.signed ? 'подписан' : 'ожидает подписи'}</p>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-w-muted hover:bg-w-panel2 hover:text-w-ink" aria-label="Закрыть preview"><X className="h-4 w-4" /></button>
+        </DialogHeader>
+        <div className="max-h-[74vh] overflow-auto bg-w-bg p-4 sm:p-6">
+          <DocumentViewer preview={preview} title={agreement.title} />
         </div>
-        <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-w-muted hover:bg-w-panel2 hover:text-w-ink" aria-label="Закрыть preview"><X className="h-4 w-4" /></button>
-      </DialogHeader>
-      <div className="max-h-[74vh] overflow-auto bg-w-bg p-4 sm:p-6">
-        {agreement.previewMode === 'docx' ? (
-          <div ref={docxRef} className="docx-preview mx-auto max-w-4xl rounded-card bg-white p-4 text-black sm:p-8" />
-        ) : agreement.previewUrl ? (
-          <iframe title={`Превью ${agreement.title}`} src={agreement.previewUrl} className="h-[68vh] min-h-[420px] w-full rounded-card bg-white" />
-        ) : (
-          <article className="mx-auto min-h-[55vh] max-w-3xl rounded-card bg-white p-6 text-sm leading-7 text-gray-900 whitespace-pre-wrap shadow-sm sm:p-10">
-            {agreement.body_markdown || 'Текст документа недоступен для встроенного просмотра.'}
-          </article>
-        )}
-      </div>
-    </DialogContent>
-  </Dialog>
+      </DialogContent>
+    </Dialog>
   )
 }
 
