@@ -5,7 +5,7 @@ import { AlertTriangle, Plus } from 'lucide-react'
 import { tasksApi, usersApi } from '@/api'
 import type { StudentTask } from '@/types'
 import { studentsApi } from '@/api/students'
-import { AppButton, AppInput, EmptyState, PageHeader, Pill } from '@/components/ui'
+import { AppButton, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { Label } from '@/components/ui/primitives/label'
 import { Textarea } from '@/components/ui/primitives/textarea'
@@ -114,29 +114,36 @@ export const MentorTasksBoard: React.FC<Props> = ({
         </AppButton>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <select
+      {/* Два независимых фильтра подряд читались одной лентой чипов — развели
+          их в отдельные группы с зазором, чтобы было видно, где что. */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <AppSelect
+          colorPrefix={colorPrefix}
           value={assigneeId}
           onChange={(e) => setAssigneeId(e.target.value)}
-          className={cn('h-9 rounded-ctl border px-3 text-sm', t.borderLine, t.panel2, t.ink)}
+          className="h-9"
         >
           <option value="">Все исполнители</option>
           {(mentors ?? []).map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
-        </select>
+        </AppSelect>
 
-        {(['all', 'student', 'general'] as const).map((k) => (
-          <button key={k} type="button" onClick={() => setKind(k)} className={chip(kind === k)}>
-            {k === 'all' ? 'Все' : k === 'student' ? 'По студенту' : 'Общие'}
-          </button>
-        ))}
+        <div className="flex flex-wrap gap-1.5">
+          {(['all', 'student', 'general'] as const).map((k) => (
+            <button key={k} type="button" onClick={() => setKind(k)} className={chip(kind === k)}>
+              {k === 'all' ? 'Все' : k === 'student' ? 'По студенту' : 'Общие'}
+            </button>
+          ))}
+        </div>
 
-        {(['all', 'overdue', 'on_track'] as const).map((d) => (
-          <button key={d} type="button" onClick={() => setDue(d)} className={chip(due === d)}>
-            {d === 'all' ? 'Любой срок' : d === 'overdue' ? 'Просроченные' : 'В срок'}
-          </button>
-        ))}
+        <div className="flex flex-wrap gap-1.5">
+          {(['all', 'overdue', 'on_track'] as const).map((d) => (
+            <button key={d} type="button" onClick={() => setDue(d)} className={chip(due === d)}>
+              {d === 'all' ? 'Любой срок' : d === 'overdue' ? 'Просроченные' : 'В срок'}
+            </button>
+          ))}
+        </div>
 
         {overdueCount > 0 && (
           <span className={cn('ml-auto inline-flex items-center gap-1.5 text-xs font-bold', t.danger)}>
@@ -227,6 +234,14 @@ export const MentorTasksBoard: React.FC<Props> = ({
 
 type AssignMode = 'pick' | 'all_mentors' | 'all_mzk'
 
+// Пустая строка — задача без срока (sla_hours отправится как null).
+const SLA_PRESETS = [
+  { label: '24 часа', hours: '24' },
+  { label: '2 дня', hours: '48' },
+  { label: 'Неделя', hours: '168' },
+  { label: 'Без срока', hours: '' },
+] as const
+
 const CreateMentorTaskDialog: React.FC<{
   colorPrefix: AdminColorPrefix
   mentors: Array<{ id: string; name: string; role?: string }>
@@ -239,6 +254,11 @@ const CreateMentorTaskDialog: React.FC<{
   const [picked, setPicked] = useState<string[]>([])
   const [slaHours, setSlaHours] = useState('24')
   const [studentId, setStudentId] = useState('')
+  const [search, setSearch] = useState('')
+
+  const visibleMentors = mentors.filter((m) =>
+    m.name.toLowerCase().includes(search.trim().toLowerCase()),
+  )
 
   const { data: students } = useQuery({
     queryKey: ['students', 'for-task'],
@@ -275,102 +295,169 @@ const CreateMentorTaskDialog: React.FC<{
 
   const canSubmit = Boolean(text.trim()) && (mode !== 'pick' || picked.length > 0)
 
+  // Рассылка создаёт по задаче на исполнителя — показываем это до нажатия,
+  // чтобы «Всем менторам» не оказалось неожиданностью на 20 строк.
+  const recipientCount =
+    mode === 'pick'
+      ? picked.length
+      : mentors.filter((m) => (mode === 'all_mzk' ? m.role === 'mzk_manager' : m.role !== 'mzk_manager')).length
+  const summary = recipientCount > 1 ? `Создать ${recipientCount} задачи` : 'Создать задачу'
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Новая задача ментору</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label className={t.muted}>Что нужно сделать</Label>
+
+        <div className="space-y-5">
+          {/* 1. Что сделать */}
+          <section className="space-y-1.5">
+            <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
+              Что нужно сделать
+            </Label>
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Например: связаться со студентом и загрузить документы"
-              className={cn('mt-1 min-h-[90px] border', t.borderLine, t.panel2, t.ink)}
+              className={cn('min-h-[84px] border', t.borderLine, t.panel2, t.ink)}
               autoFocus
             />
-          </div>
-          <div>
-            <Label className={t.muted}>Кому назначить</Label>
-            <div className="mt-1 flex flex-wrap gap-2">
-              {([
-                ['pick', 'Выбрать'],
-                ['all_mentors', 'Всем менторам'],
-                ['all_mzk', 'Всем МЗК'],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setMode(value)}
-                  className={cn(
-                    'h-9 rounded-ctl border px-3 text-xs font-bold transition',
-                    mode === value
-                      ? cn('border-current bg-current/10', t.accentText)
-                      : cn(t.borderLine, t.muted, 'hover:opacity-80'),
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          </section>
+
+          {/* 2. Кому — режим рассылки, затем список под выбранный режим. */}
+          <section className="space-y-2">
+            <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
+              Кому назначить
+            </Label>
+            <SegmentedTabs
+              colorPrefix={colorPrefix}
+              value={mode}
+              onChange={(value) => setMode(value as AssignMode)}
+              className="w-full"
+              tabs={[
+                { value: 'pick', label: 'Выбрать вручную' },
+                { value: 'all_mentors', label: 'Всем менторам' },
+                { value: 'all_mzk', label: 'Всем МЗК' },
+              ]}
+            />
+
             {mode === 'pick' ? (
-              <div className={cn('mt-2 max-h-44 overflow-y-auto rounded-ctl border p-2', t.borderLine, t.panel2)}>
-                {mentors.length === 0 ? (
-                  <p className={cn('px-1 py-2 text-xs', t.muted)}>Нет доступных исполнителей</p>
-                ) : (
-                  mentors.map((m) => (
-                    <label
-                      key={m.id}
-                      className={cn('flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm', t.ink)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={picked.includes(m.id)}
-                        onChange={() => togglePicked(m.id)}
-                        className="h-4 w-4 shrink-0"
-                      />
-                      <span className="min-w-0 truncate">{m.name}</span>
-                    </label>
-                  ))
+              <div className={cn('overflow-hidden rounded-ctl border', t.borderLine)}>
+                {mentors.length > 6 && (
+                  <div className={cn('border-b p-2', t.borderLine, t.panel2)}>
+                    <AppInput
+                      colorPrefix={colorPrefix}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Поиск по имени"
+                      className="h-9"
+                    />
+                  </div>
                 )}
+                <div className={cn('max-h-52 overflow-y-auto p-1.5', t.panel2)}>
+                  {visibleMentors.length === 0 ? (
+                    <p className={cn('px-2 py-3 text-center text-xs', t.muted)}>
+                      {mentors.length === 0 ? 'Нет доступных исполнителей' : 'Никто не найден'}
+                    </p>
+                  ) : (
+                    visibleMentors.map((m) => {
+                      const isPicked = picked.includes(m.id)
+                      return (
+                        <label
+                          key={m.id}
+                          className={cn(
+                            'flex cursor-pointer items-center gap-3 rounded-ctl px-2.5 py-2 text-sm transition',
+                            isPicked ? cn('bg-current/10', t.accentText) : cn(t.ink, 'hover:bg-current/5'),
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isPicked}
+                            onChange={() => togglePicked(m.id)}
+                            className="h-4 w-4 shrink-0"
+                          />
+                          <span className={cn('min-w-0 flex-1 truncate font-bold', t.ink)}>{m.name}</span>
+                          {m.role === 'mzk_manager' && (
+                            <span
+                              className={cn(
+                                'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black',
+                                t.borderLine,
+                                t.muted,
+                              )}
+                            >
+                              МЗК
+                            </span>
+                          )}
+                        </label>
+                      )
+                    })
+                  )}
+                </div>
+                <div className={cn('flex items-center justify-between border-t px-3 py-2 text-xs', t.borderLine, t.panel2)}>
+                  <span className={t.muted}>
+                    {picked.length ? `Выбрано: ${picked.length}` : 'Никто не выбран'}
+                  </span>
+                  {picked.length > 0 && (
+                    <button type="button" onClick={() => setPicked([])} className={cn('font-bold', t.accentText)}>
+                      Сбросить
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
-              <p className={cn('mt-2 text-xs', t.muted)}>
-                Задача уйдёт каждому активному {mode === 'all_mentors' ? 'ментору' : 'МЗК-менеджеру'} —
-                своя строка и свой срок SLA у каждого.
+              <p className={cn('rounded-ctl border px-3 py-2.5 text-xs leading-5', t.borderLine, t.panel2, t.muted)}>
+                Задача уйдёт каждому активному {mode === 'all_mentors' ? 'ментору' : 'МЗК-менеджеру'}: своя
+                строка и свой срок SLA у каждого.
               </p>
             )}
-            {mode === 'pick' && picked.length > 0 && (
-              <p className={cn('mt-1 text-xs', t.muted)}>Выбрано: {picked.length}</p>
-            )}
-          </div>
-          <div>
-            <Label className={t.muted}>Студент (пусто — общая задача)</Label>
-            <select
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              className={cn('mt-1 h-10 w-full rounded-ctl border px-3 text-sm', t.borderLine, t.panel2, t.ink)}
-            >
-              <option value="">Общая задача</option>
-              {(students?.items ?? []).map((s) => (
-                <option key={s.id} value={s.id}>{s.full_name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label className={t.muted}>Срок, часов (пусто — без срока)</Label>
-            <AppInput
-              colorPrefix={colorPrefix}
-              type="number"
-              min={1}
-              value={slaHours}
-              onChange={(e) => setSlaHours(e.target.value)}
-              className="mt-1"
-            />
-          </div>
+          </section>
+
+          {/* 3. Контекст и срок — рядом, оба необязательные. */}
+          <section className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
+                По студенту
+              </Label>
+              <AppSelect
+                colorPrefix={colorPrefix}
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">Общая задача</option>
+                {(students?.items ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                ))}
+              </AppSelect>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
+                Срок
+              </Label>
+              {/* Пресеты вместо ввода часов: «2 дня» читается быстрее, чем «48». */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {SLA_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setSlaHours(preset.hours)}
+                    className={cn(
+                      'h-9 rounded-ctl border text-xs font-bold transition',
+                      slaHours === preset.hours
+                        ? cn('border-current bg-current/10', t.accentText)
+                        : cn(t.borderLine, t.muted, 'hover:opacity-80'),
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
+
         <DialogFooter className="gap-2">
           <AppButton colorPrefix={colorPrefix} variant="ghost" onClick={onClose}>Отмена</AppButton>
           <AppButton
@@ -378,7 +465,7 @@ const CreateMentorTaskDialog: React.FC<{
             disabled={!canSubmit || mutation.isPending}
             onClick={() => mutation.mutate()}
           >
-            {mutation.isPending ? 'Создаём...' : 'Создать'}
+            {mutation.isPending ? 'Создаём...' : summary}
           </AppButton>
         </DialogFooter>
       </DialogContent>

@@ -435,6 +435,20 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
    pills), or that text goes near-white on yellow and becomes unreadable. */
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black, .bg-w-accent.text-black, .bg-p-accent.text-black, .bg-\[\#FFD400\].text-black, .bg-\[\#ffd400\].text-black, .bg-\[\#FFC800\].text-black, .bg-\[\#ffc800\].text-black) { color: #000 !important; }
 
+/* Выпадающий список Radix Select рендерится порталом в конец <body>, вне
+   .portal/.crm-shell, поэтому классы вроде bg-p-panel до него не доходят, а
+   переменная --popover там не переопределена: список оставался прозрачным и
+   сквозь него просвечивала страница (каталог университетов, фильтр «Страна»).
+   Фон задаём самому поповеру — он всегда должен быть непрозрачным. */
+[data-radix-popper-content-wrapper] [role='listbox'],
+[data-radix-popper-content-wrapper] [role='menu'] {
+  background-color: #141414;
+}
+html[data-crm-theme='light'] [data-radix-popper-content-wrapper] [role='listbox'],
+html[data-crm-theme='light'] [data-radix-popper-content-wrapper] [role='menu'] {
+  background-color: #FFFFFF;
+}
+
 /* Нативные <select> внутри порталов: compat-слои выше ограничены
    .crm-header/.app-main и header/main, а диалог рендерится вне них, поэтому
    поля в модалках оставались без темы — на тёмной теме это давало тёмный
