@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText, Plus, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Download, Eye, FileText, Plus } from 'lucide-react'
 import { agreementsApi, Agreement, AgreementAudience } from '@/api/agreements'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
@@ -163,12 +163,10 @@ const AgreementPreviewDialog: React.FC<{ agreement: Agreement; onClose: () => vo
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="portal max-h-[92vh] max-w-5xl overflow-hidden border-w-line bg-w-panel p-0 text-w-ink">
-        <DialogHeader className="flex flex-row items-start justify-between border-b border-w-line px-5 py-4">
-          <div>
-            <DialogTitle>{agreement.title}</DialogTitle>
-            <p className="mt-1 text-xs text-w-muted">Версия {agreement.version} · {agreement.signed ? 'подписан' : 'ожидает подписи'}</p>
-          </div>
-          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-w-muted hover:bg-w-panel2 hover:text-w-ink" aria-label="Закрыть preview"><X className="h-4 w-4" /></button>
+        {/* Крестик рисует сам DialogContent — свой здесь дал бы вторую кнопку закрытия. */}
+        <DialogHeader className="border-b border-w-line px-5 py-4">
+          <DialogTitle>{agreement.title}</DialogTitle>
+          <p className="mt-1 text-xs text-w-muted">Версия {agreement.version} · {agreement.signed ? 'подписан' : 'ожидает подписи'}</p>
         </DialogHeader>
         <div className="max-h-[74vh] overflow-auto bg-w-bg p-4 sm:p-6">
           <DocumentViewer preview={preview} title={agreement.title} />

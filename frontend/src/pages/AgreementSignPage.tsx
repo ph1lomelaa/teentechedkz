@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Eye, FileText, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { agreementsApi, Agreement } from '@/api/agreements'
 import { downloadBlob } from '@/lib/utils'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { workspaceHomeFor } from '@/lib/authRouting'
 import { useDocumentPreview } from '@/hooks/useDocumentPreview'
 import { DocumentViewer } from '@/components/shared/DocumentViewer'
 
@@ -18,6 +19,13 @@ import { DocumentViewer } from '@/components/shared/DocumentViewer'
 export const AgreementSignPage: React.FC = () => {
   const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Гейт кладёт в state страницу, с которой человека развернули, — на неё и
+  // возвращаем. Без state (зашли на /agreements/sign напрямую) отправляем в
+  // рабочее место роли: у ментора это воркспейс, а не CRM.
+  const from = (location.state as { from?: string } | null)?.from
+  const returnTo = from && from !== '/agreements/sign' ? from : workspaceHomeFor(user?.role)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['agreements', 'pending'],
@@ -66,9 +74,9 @@ export const AgreementSignPage: React.FC = () => {
 
   useEffect(() => {
     if (!isLoading && pending.length === 0) {
-      refreshUser().then(() => navigate('/', { replace: true }))
+      refreshUser().then(() => navigate(returnTo, { replace: true }))
     }
-  }, [isLoading, navigate, pending.length, refreshUser])
+  }, [isLoading, navigate, pending.length, refreshUser, returnTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -95,7 +103,7 @@ export const AgreementSignPage: React.FC = () => {
         const remaining = (refreshed.data?.items || []).filter((agreement) => !agreement.signed)
         if (remaining.length === 0) {
           await refreshUser()
-          navigate('/', { replace: true })
+          navigate(returnTo, { replace: true })
         }
       }
     } catch (err: unknown) {

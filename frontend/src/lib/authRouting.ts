@@ -14,3 +14,16 @@ export function getDefaultPath(role: UserRole): string {
       return '/dashboard'
   }
 }
+
+/**
+ * Куда вернуть человека после экрана-«ворот» (подпись регламента), когда
+ * неизвестно, откуда он пришёл.
+ *
+ * Отличается от getDefaultPath только для ментора: подпись регламента — часть
+ * его рабочего дня, и после неё он должен оказаться в воркспейсе, а не в
+ * CRM-разделе «Мои студенты».
+ */
+export function workspaceHomeFor(role: UserRole | undefined): string {
+  if (!role) return '/'
+  return role === 'mentor' ? '/workspace/my-day' : getDefaultPath(role)
+}

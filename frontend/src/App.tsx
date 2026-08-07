@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -185,10 +185,15 @@ class AppErrorBoundary extends React.Component<
 // apply its own (route-specific) role check.
 function useBaseAuthGuard(): React.ReactElement | null {
   const { user, isLoading } = useAuth()
+  const location = useLocation()
   if (isLoading) return <AppLoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   if (user.must_change_password) return <Navigate to="/change-password" replace />
-  if (user.agreement_signature_required) return <Navigate to="/agreements/sign" replace />
+  // Куда человек шёл до гейта — туда и вернём после подписи: ментор работает в
+  // воркспейсе, и дефолтный путь роли увёл бы его в CRM.
+  if (user.agreement_signature_required) {
+    return <Navigate to="/agreements/sign" replace state={{ from: location.pathname + location.search }} />
+  }
   return null
 }
 

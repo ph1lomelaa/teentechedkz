@@ -433,7 +433,7 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
    white background — it must not touch a .text-black that's deliberately
    paired with a light accent/status chip on the same element (buttons, tabs,
    pills), or that text goes near-white on yellow and becomes unreadable. */
-html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black) { color: #000 !important; }
+html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :is(.bg-primary.text-black, .bg-brand.text-black, .bg-ds-accent.text-black, .bg-ds-good.text-black, .bg-ds-danger.text-black, .bg-w-accent.text-black, .bg-p-accent.text-black, .bg-\[\#FFD400\].text-black, .bg-\[\#ffd400\].text-black, .bg-\[\#FFC800\].text-black, .bg-\[\#ffc800\].text-black) { color: #000 !important; }
 
 /* Нативные <select> внутри порталов: compat-слои выше ограничены
    .crm-header/.app-main и header/main, а диалог рендерится вне них, поэтому
@@ -517,8 +517,18 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
 :is(.workspace-shell, .portal) :where(header, main) :is(.bg-brand.text-black, .bg-w-accent.text-black, .bg-w-good.text-black, .bg-w-danger.text-black, .bg-p-accent.text-black, .bg-p-good.text-black, .bg-p-danger.text-black) { color: #000 !important; }
 /* Solid accent surfaces always use black text. Some shared controls carry a
   theme text utility instead of text-black, so the paired-selector exception
-  above is not enough for selected tabs and segmented controls. */
+  above is not enough for selected tabs and segmented controls.
+
+  `bg-[#FFD400]` (и его hex-варианты) перечислены наравне с именными классами:
+  фирменный жёлтый местами записан произвольным цветом Tailwind, и такие кнопки
+  проходили мимо списка — подпись регламента и переключатель типа обращения
+  получали белый текст на жёлтом. */
 :is(.crm-shell, .workspace-shell, .portal, .auth-shell) :where(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent) { color: #000 !important; }
+/* Без привязки к оболочке: Radix-диалоги рендерятся порталом в конец <body>,
+   вне .portal/.workspace-shell, поэтому селектор по предку до них не достаёт —
+   именно так переключатель «Жалоба/Рекомендация» получал белый текст. Сплошной
+   фирменный жёлтый читается только с чёрным текстом, где бы он ни оказался. */
+:where(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent, .bg-\[\#FFD400\], .bg-\[\#ffd400\], .bg-\[\#FFC800\], .bg-\[\#ffc800\], .bg-\[\#E9C200\], .bg-\[\#e9c200\]) { color: #000 !important; }
 /* Same exception, hover-variant: a button that turns solid brand-colored on
    hover and pairs it with hover:text-black (e.g. PortalRoadmap's CTA) must
    keep that text black on hover too, not get recolored to near-white. */

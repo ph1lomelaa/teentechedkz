@@ -87,6 +87,20 @@ class AgreementGateTests(unittest.TestCase):
             )
         )
 
+    def test_mentor_can_read_own_agreement_before_signing(self) -> None:
+        # Подписать нельзя, не открыв документ: фронт держит чекбокс согласия
+        # заблокированным до просмотра превью. Если гейт закроет preview/download,
+        # он замкнётся сам на себя — подписать регламент станет невозможно.
+        for action in ("preview", "download"):
+            with self.subTest(action=action):
+                self.assertFalse(
+                    agreement_gate_applies(
+                        enabled=True,
+                        role=UserRole.mentor,
+                        path=f"/api/v1/agreements/11111111-1111-1111-1111-111111111111/{action}",
+                    )
+                )
+
     def test_mentor_cannot_reach_sibling_path_that_merely_contains_sign(self) -> None:
         # Guard against a loose prefix/substring check accidentally widening the allow-list.
         self.assertTrue(

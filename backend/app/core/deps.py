@@ -71,10 +71,26 @@ _AGREEMENT_ALLOWED_PATHS = frozenset(
 )
 
 
+_AGREEMENT_PRE_SIGNATURE_ACTIONS = frozenset({"sign", "preview", "download"})
+
+
 def _agreement_sign_path_allowed(path: str) -> bool:
-    # /api/v1/agreements/{id}/sign — the only mutating path reachable pre-signature.
+    """/api/v1/agreements/{id}/{sign|preview|download} — что доступно до подписи.
+
+    `sign` — единственный мутирующий путь. `preview` и `download` обязаны быть
+    здесь же: подписать нельзя, не открыв документ (фронт держит чекбокс
+    заблокированным до просмотра), поэтому без них гейт замыкается сам на себя —
+    превью отдаёт 403, и подписать регламент становится невозможно.
+
+    Права на сам документ это не ослабляет: can_download_agreement всё так же
+    отдаёт только опубликованный регламент своей аудитории.
+    """
     parts = path.split("/")
-    return len(parts) == 6 and parts[1:4] == ["api", "v1", "agreements"] and parts[5] == "sign"
+    return (
+        len(parts) == 6
+        and parts[1:4] == ["api", "v1", "agreements"]
+        and parts[5] in _AGREEMENT_PRE_SIGNATURE_ACTIONS
+    )
 
 
 _AGREEMENT_GATED_ROLES = frozenset({UserRole.mentor, UserRole.mzk_manager, UserRole.student})
