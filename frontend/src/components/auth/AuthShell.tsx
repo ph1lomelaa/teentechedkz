@@ -9,9 +9,11 @@ interface AuthShellProps {
   description?: React.ReactNode
   children: React.ReactNode
   wide?: boolean
+  /** Экраны-«ворота» (подпись регламента) уйти на главную не дают — там ссылка лишняя. */
+  hideHomeLink?: boolean
 }
 
-export function AuthShell({ eyebrow, title, description, children, wide = false }: AuthShellProps) {
+export function AuthShell({ eyebrow, title, description, children, wide = false, hideHomeLink = false }: AuthShellProps) {
   const glowRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
 
@@ -40,13 +42,15 @@ export function AuthShell({ eyebrow, title, description, children, wide = false 
         className="pointer-events-none absolute top-0 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#FFD400]/[0.05] blur-3xl transition-transform duration-300 ease-out"
       />
 
-      <Link
-        to="/"
-        className="absolute left-6 top-6 z-10 flex items-center gap-2 text-white/40 transition hover:text-[#FFD400] sm:left-8 sm:top-8"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span className="text-[10px] font-black uppercase tracking-[0.22em]">На главную</span>
-      </Link>
+      {!hideHomeLink && (
+        <Link
+          to="/"
+          className="absolute left-6 top-6 z-10 flex items-center gap-2 text-white/40 transition hover:text-[#FFD400] sm:left-8 sm:top-8"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span className="text-[10px] font-black uppercase tracking-[0.22em]">На главную</span>
+        </Link>
+      )}
 
       <div className="relative flex min-h-[100dvh] items-center justify-center px-3 py-16 sm:px-6 sm:py-20">
         <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-[440px]'}`}>

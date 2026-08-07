@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Eye, FileText, X } from 'lucide-react'
@@ -47,6 +48,21 @@ export const AgreementSignPage: React.FC = () => {
   useEffect(() => {
     if (current && !current.file_name) setViewed(true)
   }, [current])
+
+  // Пока превью открыто — гасим скролл страницы и вешаем Esc на закрытие.
+  useEffect(() => {
+    if (!previewOpen) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [previewOpen])
 
   useEffect(() => {
     if (!isLoading && pending.length === 0) {
@@ -103,7 +119,7 @@ export const AgreementSignPage: React.FC = () => {
 
   if (isLoading || !current) {
     return (
-      <AuthShell eyebrow="Регламент" title="Загрузка…" wide>
+      <AuthShell eyebrow="Регламент" title="Загрузка…" wide hideHomeLink>
         <p className="text-sm text-white/60">Проверяем регламенты…</p>
       </AuthShell>
     )
@@ -117,6 +133,7 @@ export const AgreementSignPage: React.FC = () => {
       title={current.title}
       description="Прочитайте и подпишите регламент, чтобы продолжить работу."
       wide
+      hideHomeLink
     >
       <div className="space-y-5">
         {error && (
@@ -202,10 +219,10 @@ export const AgreementSignPage: React.FC = () => {
         </form>
       </div>
 
-      {previewOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Превью документа">
-          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#151515] shadow-2xl">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+      {previewOpen && createPortal(
+        <div className="fixed inset-0 z-[80] flex items-stretch justify-center bg-black/80 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Превью документа">
+          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#151515] shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
               <div>
                 <p className="text-sm font-bold text-white">Превью документа</p>
                 <p className="mt-0.5 text-xs text-white/50">Версия {current.version}</p>
@@ -217,18 +234,28 @@ export const AgreementSignPage: React.FC = () => {
             <div className="min-h-0 flex-1 overflow-auto bg-[#242424] p-3 sm:p-5">
               <DocumentViewer preview={preview} title={current.title} />
             </div>
-            <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex shrink-0 flex-col gap-3 border-t border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <p className="text-xs leading-5 text-white/55">После подтверждения превью вы сможете поставить отметку об ознакомлении.</p>
-              <button
-                type="button"
-                onClick={() => { setViewed(true); setPreviewOpen(false) }}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#FFD400] px-4 text-xs font-black text-black hover:bg-[#ffe04d]"
-              >
-                <CheckCircle2 className="h-4 w-4" /> Я ознакомился с документом
-              </button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(false)}
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-white/15 px-4 text-xs font-bold text-white/70 transition hover:border-white/30 hover:text-white"
+                >
+                  Закрыть
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setViewed(true); setPreviewOpen(false) }}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#FFD400] px-4 text-xs font-black text-black hover:bg-[#ffe04d]"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Я ознакомился с документом
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </AuthShell>
   )
