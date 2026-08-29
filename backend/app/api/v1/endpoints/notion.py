@@ -22,6 +22,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract, MentorAssignment
 from app.models.contract import PipelineStatus
@@ -34,14 +35,6 @@ from app.services import notion_sync, notion_write, contract_finance
 from app.services.default_services import ensure_default_services
 
 router = APIRouter(prefix="/notion", tags=["notion"])
-
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
-def _require_manager(user) -> None:
-    if user.role not in _MANAGE_ROLES:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-
 
 # --- Вспомогательные форматтеры ----------------------------------------------
 
@@ -213,8 +206,7 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Недостаточно прав для запуска синхронизации")
+    require_access(current_user, "notion", Action.create)
     try:
         counters = await notion_sync.run_sync(db)
     except RuntimeError as e:
@@ -326,7 +318,7 @@ async def finance_summary(
     current_user: CurrentUser,
 ):
     """Суммы всех денежных колонок Notion по живому пайплайну (кроме скрытых записей)."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
 
     result = await db.execute(
         select(NotionSnapshot).where(NotionSnapshot.status != NotionMatchStatus.ignored)
@@ -452,7 +444,7 @@ async def list_snapshots(
     current_user: CurrentUser,
     status: str = Query(default="new"),
 ):
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     query = select(NotionSnapshot).options(joinedload(NotionSnapshot.suggested_student))
     if status != "all":
         try:
@@ -488,7 +480,7 @@ async def link_snapshot(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     snapshot = await _load_snapshot(db, snapshot_id)
     student = (
         await db.execute(
@@ -518,7 +510,7 @@ async def unlink_snapshot(
     current_user: CurrentUser,
 ):
     """Отвязать запись Notion от студента (например, автопривязка оказалась ошибочной)."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     snapshot = await _load_snapshot(db, snapshot_id)
     if not snapshot.student_id:
         raise HTTPException(status_code=400, detail="Запись и так не привязана")
@@ -545,7 +537,7 @@ async def ignore_snapshot(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     snapshot = await _load_snapshot(db, snapshot_id)
     snapshot.student_id = None
     snapshot.status = NotionMatchStatus.ignored
@@ -561,7 +553,7 @@ async def link_all_snapshots(
     current_user: CurrentUser,
 ):
     """Привязать все непривязанные снапшоты с предложенным студентом."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     result = await db.execute(
         select(NotionSnapshot)
         .join(Student, Student.id == NotionSnapshot.suggested_student_id)
@@ -662,7 +654,7 @@ async def create_student_from_snapshot(
     current_user: CurrentUser,
 ):
     """Создать студента (с договором и странами) из Notion-записи и привязать её."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     snapshot = await _load_snapshot(db, snapshot_id)
     if snapshot.status != NotionMatchStatus.new:
         raise HTTPException(status_code=400, detail="Запись уже обработана")
@@ -696,7 +688,7 @@ async def create_missing_students(
     Записи с предложенным студентом не трогаем — там решает человек.
     Перед созданием каждая запись перепроверяется транслит-матчем: если похожий
     студент нашёлся, запись пропускается и получает кандидата вместо дубля."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
 
     from migration.transformers.match import fuzzy_match
     from app.services.notion_sync import _load_students_index
@@ -774,7 +766,7 @@ async def student_notion(
     current_user: CurrentUser,
 ):
     """Снапшот Notion, привязанный к студенту, + сверка «Notion | CRM» + финансы."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
 
     from migration.transformers.normalize import (
         normalize_phone, parse_pipeline_status, parse_degree_or_none,
@@ -995,7 +987,7 @@ async def apply_field(
     current_user: CurrentUser,
 ):
     """Принять значение из Notion в CRM. Только whitelisted-поля, каждое — в аудит."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
 
     from migration.transformers.normalize import parse_pipeline_status, parse_degree_or_none
 
@@ -1183,7 +1175,7 @@ async def push_field_preview(
     """Что именно уйдёт в Notion, без записи: текущее значение в Notion, что станет,
     и флаг conflict — если Notion изменили после последней синхронизации (перезапись
     затрёт более свежую правку). Фронт показывает это в подтверждении."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     _, snapshot, crm_val = await _load_push_context(db, student_id, body.field)
     field, wanted, page_id = body.field, PUSH_FIELDS[body.field], snapshot.notion_page_id
     snap_current = (snapshot.normalized_data or {}).get(_SNAPSHOT_KEY[field])
@@ -1220,7 +1212,7 @@ async def push_field(
     Только whitelisted-поля, только по действию менеджера, каждая запись — в аудит.
     Формульные/rollup-колонки отсекаются по типу из схемы Notion. Перед записью —
     проверка конфликта (Notion не меняли после синка), после — верификация записи."""
-    _require_manager(current_user)
+    require_access(current_user, "notion", Action.manage)
     student, snapshot, crm_val = await _load_push_context(db, student_id, body.field)
 
     field, wanted, page_id, force = body.field, PUSH_FIELDS[body.field], snapshot.notion_page_id, body.force

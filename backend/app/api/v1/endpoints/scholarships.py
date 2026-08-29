@@ -10,13 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.scholarship import Scholarship
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/scholarships", tags=["scholarships"])
-
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
 
 @router.get("")
 async def list_scholarships(
@@ -56,8 +54,7 @@ async def import_scholarships_from_notion(
     Admin/mzk_manager only: trigger a scholarship import from a Notion database.
     Returns job status (for now, just returns success).
     """
-    if current_user.role not in _MANAGE_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "scholarships", Action.manage)
 
     db_id = body.get("db_id") or ""
     if not db_id.strip():

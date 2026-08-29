@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentStudent, CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.encryption import decrypt
 from app.models.confidential_note import ConfidentialNote
 from app.models.user import UserRole
@@ -86,8 +87,7 @@ async def portal_important_notes(
 
 @router.get("/portal/profile")
 async def portal_profile(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
+    require_access(current_user, "portal", Action.view)
     res = await db.execute(select(Student).where(Student.user_id == current_user.id))
     student = res.scalar_one_or_none()
     return {

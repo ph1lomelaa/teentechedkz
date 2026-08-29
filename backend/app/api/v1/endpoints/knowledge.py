@@ -15,15 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.knowledge_article import KnowledgeArticle
 from app.models.user import UserRole
 from app.services import background_jobs
 
 router = APIRouter(prefix="/knowledge-articles", tags=["knowledge"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Не найдено")
 
 
@@ -46,8 +44,7 @@ async def list_articles(
     current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)],
     category: str | None = None,
 ):
-    if current_user.role not in STAFF:
-        raise _FORBIDDEN
+    require_access(current_user, "knowledge", Action.view)
     stmt = select(KnowledgeArticle).order_by(KnowledgeArticle.category, KnowledgeArticle.title)
     if category:
         stmt = stmt.where(KnowledgeArticle.category == category)
@@ -59,8 +56,7 @@ async def list_articles(
 async def get_article(
     article_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in STAFF:
-        raise _FORBIDDEN
+    require_access(current_user, "knowledge", Action.view)
     article = await db.get(KnowledgeArticle, article_id)
     if not article:
         raise _NOT_FOUND
@@ -76,8 +72,7 @@ _SYNC_JOB_KIND = "knowledge_sync"
 
 @router.post("/sync/notion", status_code=202)
 async def start_notion_knowledge_sync(current_user: CurrentUser):
-    if current_user.role != UserRole.admin:
-        raise _FORBIDDEN
+    require_access(current_user, "knowledge", Action.manage)
     running = await background_jobs.get_running_job(_SYNC_JOB_KIND)
     if running:
         raise HTTPException(status_code=409, detail={"message": "Синхронизация уже запущена", "job_id": str(running.id)})
@@ -106,8 +101,7 @@ async def start_notion_knowledge_sync(current_user: CurrentUser):
 
 @router.get("/sync/notion/{job_id}")
 async def get_notion_knowledge_sync_job(job_id: str, current_user: CurrentUser):
-    if current_user.role != UserRole.admin:
-        raise _FORBIDDEN
+    require_access(current_user, "knowledge", Action.manage)
     job = await background_jobs.get_job(_SYNC_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND

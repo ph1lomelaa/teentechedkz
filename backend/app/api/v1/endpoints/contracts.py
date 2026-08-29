@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.models.contract import Contract, PipelineStatus, PaymentPlan
 from app.models.user import UserRole
@@ -30,7 +31,7 @@ async def create_contract(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "contracts", Action.manage)
     contract = Contract(
         student_id=body.student_id,
         signed_date=body.signed_date,
@@ -62,7 +63,7 @@ async def update_contract(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "contracts", Action.manage)
 
     result = await db.execute(select(Contract).where(Contract.id == contract_id))
     contract = result.scalar_one_or_none()
@@ -108,7 +109,7 @@ async def get_contracts_for_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "contracts", Action.manage)
     result = await db.execute(
         select(Contract)
         .options(joinedload(Contract.mzk_manager))
@@ -124,11 +125,6 @@ async def _load_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
         select(Contract).options(joinedload(Contract.mzk_manager)).where(Contract.id == contract_id)
     )
     return result.scalar_one()
-
-
-def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _optional_update(obj, body: dict, field: str):

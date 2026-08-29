@@ -5,6 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.user import UserRole
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,7 @@ DEEPGRAM_TOKEN_TTL_SECONDS = 3600
 
 @router.post("/deepgram/token")
 async def deepgram_token(current_user: CurrentUser):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "integrations", Action.manage)
 
     api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
     if not api_key:

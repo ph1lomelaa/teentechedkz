@@ -11,16 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.security_incident import SecurityIncident, SecurityIncidentKind, SecurityIncidentStatus
 from app.models.user import User, UserRole
 from app.services.notify import notify, push_notification
 
 router = APIRouter(prefix="/security-incidents", tags=["security-incidents"])
-
-
-def _staff(user) -> None:
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _item(row: SecurityIncident) -> dict:
@@ -65,7 +61,7 @@ async def _notify_recipients(db: AsyncSession, row: SecurityIncident, *, title: 
 
 @router.get("")
 async def list_incidents(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser, status: str | None = None):
-    _staff(current_user)
+    require_access(current_user, "security_incidents", Action.manage)
     query = select(SecurityIncident).order_by(SecurityIncident.created_at.desc())
     if status:
         try:
@@ -78,7 +74,7 @@ async def list_incidents(db: Annotated[AsyncSession, Depends(get_db)], current_u
 
 @router.post("", status_code=201)
 async def create_incident(body: dict, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _staff(current_user)
+    require_access(current_user, "security_incidents", Action.manage)
     try:
         kind = SecurityIncidentKind(body["kind"])
     except (KeyError, ValueError) as exc:
@@ -112,7 +108,7 @@ async def create_incident(body: dict, db: Annotated[AsyncSession, Depends(get_db
 
 @router.patch("/{incident_id}")
 async def update_incident(incident_id: uuid.UUID, body: dict, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _staff(current_user)
+    require_access(current_user, "security_incidents", Action.manage)
     row = await db.get(SecurityIncident, incident_id)
     if not row:
         raise HTTPException(status_code=404, detail="Инцидент не найден")

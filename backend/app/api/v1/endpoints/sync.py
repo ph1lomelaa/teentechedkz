@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.models import IntakeSubmission, IntakeSource, IntakeStatus, Student
 from app.models.user import UserRole
@@ -23,19 +24,6 @@ from app.services.default_services import ensure_default_services
 from app.services.sheets_sync import map_row, PACKAGE_FIELD_PATTERNS, CASES_FIELD_PATTERNS  # noqa: F401
 
 router = APIRouter(prefix="/sync", tags=["sync"])
-
-_MANAGE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
-def _require_manager(user) -> None:
-    if user.role not in _MANAGE_ROLES:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-
-
-def _require_admin(user) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-
 
 def _submission_to_dict(s: IntakeSubmission) -> dict:
     return {
@@ -60,7 +48,7 @@ async def run_sync_now(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin(current_user)
+    require_access(current_user, "sync", Action.create)
     try:
         counters = await sheets_sync.run_sync(db)
     except RuntimeError as e:
@@ -91,7 +79,7 @@ async def list_submissions(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ):
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
     query = select(IntakeSubmission).options(joinedload(IntakeSubmission.suggested_student))
     count_query = select(func.count()).select_from(IntakeSubmission)
 
@@ -145,7 +133,7 @@ async def link_submission(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
     submission = await _load_submission(db, submission_id)
 
     student = (
@@ -187,7 +175,7 @@ async def link_all_submissions(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
 
     query = (
         select(IntakeSubmission)
@@ -245,7 +233,7 @@ async def ignore_submission(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
     submission = await _load_submission(db, submission_id)
     submission.status = IntakeStatus.ignored
     submission.linked_by = current_user.id
@@ -262,7 +250,7 @@ async def create_student_from_submission(
 ):
     """Создать студента из анкеты. Переносятся ТОЛЬКО безопасные поля профиля.
     Суммы договора и договорённости остаются в анкете — менеджер вносит их вручную."""
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
     submission = await _load_submission(db, submission_id)
     if submission.status != IntakeStatus.new:
         raise HTTPException(status_code=400, detail="Анкета уже обработана")
@@ -462,7 +450,7 @@ async def create_missing_from_intake(
     """Создать студентов из всех новых анкет БЕЗ кандидата на привязку.
     Каждая анкета перепроверяется транслит-матчем — при найденном похожем
     студенте запись пропускается и получает кандидата вместо дубля."""
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
 
     from migration.transformers.match import fuzzy_match
     from app.services.sheets_sync import _load_students_index
@@ -613,7 +601,7 @@ async def student_intake(
     current_user: CurrentUser,
 ):
     """Обе анкеты студента + построчная сверка «менеджер | студент | CRM»."""
-    _require_manager(current_user)
+    require_access(current_user, "sync", Action.manage)
 
     student = (
         await db.execute(
@@ -769,8 +757,7 @@ async def create_intake_submission(
     current_user: CurrentUser,
 ):
     """Staff-only: create a new intake submission (e.g., for a student to follow up with)."""
-    if current_user.role not in _MANAGE_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "sync", Action.manage)
 
     full_name = str(body.get("full_name") or "").strip()
     phone = str(body.get("phone") or "").strip()
@@ -812,8 +799,7 @@ async def assign_submission_to_self(
     current_user: CurrentUser,
 ):
     """Staff-only: mark a submission as reviewed/assigned to current user."""
-    if current_user.role not in _MANAGE_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "sync", Action.manage)
 
     submission = await _load_submission(db, submission_id)
 

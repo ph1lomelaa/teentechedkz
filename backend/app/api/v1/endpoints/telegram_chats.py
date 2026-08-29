@@ -20,6 +20,7 @@ from app.core.audit import log_change
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import AllStaff, CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.encryption import decrypt, encrypt
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.application import Application
@@ -185,11 +186,6 @@ async def _require_chat_access(db: AsyncSession, chat_id: uuid.UUID, current_use
     student_id = await _current_student_id(db, chat_id)
     if student_id is None or student_id not in allowed_ids:
         raise HTTPException(status_code=404, detail="Чат не найден")
-
-
-def _require_telegram_manager(current_user: User) -> None:
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Только менеджер может публиковать сообщения в группу")
 
 
 def _onboarding_text(student_name: str, team: list[str], contacts: list[str], response_time: str) -> str:
@@ -661,7 +657,7 @@ async def publish_onboarding(
     current_user: StaffUser,
 ):
     await _require_chat_access(db, chat_id, current_user)
-    _require_telegram_manager(current_user)
+    require_access(current_user, "telegram_chats", Action.manage)
     chat = await db.get(TelegramChat, chat_id)
     if not chat or chat.status != TelegramChatStatus.active or chat.chat_type.value == "private":
         raise HTTPException(status_code=409, detail="Onboarding доступен только для активной группы")

@@ -22,6 +22,7 @@ from starlette.responses import StreamingResponse
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, allows, require_access
 from app.core.audit import log_change
 from app.core.security import decode_access_token
 from app.core.uploads import read_upload_capped
@@ -124,7 +125,7 @@ async def _conversation_student(db: AsyncSession, conv_id: uuid.UUID) -> Student
 async def _can_preview_conversation(db: AsyncSession, conv_id: uuid.UUID, user: User) -> bool:
     if await _is_member(db, conv_id, user.id):
         return True
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    if not allows(resource="chat", action=Action.manage, role=user.role):
         return False
     return await _conversation_student(db, conv_id) is not None
 
@@ -156,8 +157,7 @@ async def _get_or_create_direct(db: AsyncSession, a: uuid.UUID, b: uuid.UUID, cr
 @router.get("/portal/contacts")
 async def portal_contacts(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """A student's mentors — the people they can message."""
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -198,7 +198,7 @@ async def list_conversations(
     if mentor_id:
         if current_user.role == UserRole.mentor and mentor_id != current_user.id:
             raise _FORBIDDEN
-        if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+        if allows(resource="chat", action=Action.manage, role=current_user.role):
             mentor = await db.get(User, mentor_id)
             if not mentor or mentor.role != UserRole.mentor:
                 raise HTTPException(status_code=404, detail="Ментор не найден")
@@ -261,8 +261,7 @@ async def list_conversations(
 @router.post("/conversations")
 async def start_conversation(body: StartConversationBody, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """Student starts a chat with one of their mentors."""
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -282,8 +281,7 @@ async def start_conversation(body: StartConversationBody, current_user: CurrentU
 @router.post("/students/{student_id}/conversation")
 async def staff_conversation(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """Staff opens (or reuses) a direct chat with a student's portal account."""
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise _FORBIDDEN
+    require_access(current_user, "chat", Action.manage)
     await require_student_access(db, student_id, current_user)
     student = await db.get(Student, student_id)
     if not student or not student.user_id:
@@ -362,8 +360,7 @@ async def _internal_message_for_action(
     message_id: uuid.UUID,
     current_user: User,
 ) -> tuple[Message, Student]:
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise _FORBIDDEN
+    require_access(current_user, "chat", Action.manage)
     if not await _can_preview_conversation(db, conv_id, current_user):
         raise _NOT_FOUND
     message = await db.get(Message, message_id)
@@ -577,7 +574,11 @@ async def download_message_attachment(
 @router.post("/conversations/{conv_id}/read", status_code=204)
 async def mark_read(conv_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     if not await _is_member(db, conv_id, current_user.id):
-        if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor) and await _conversation_student(db, conv_id):
+        # Персонал, смотрящий чужую переписку в режиме просмотра, молча
+        # ничего не отмечает — 403 тут был бы шумом.
+        if allows(
+            resource="chat", action=Action.manage, role=current_user.role
+        ) and await _conversation_student(db, conv_id):
             return
         raise _NOT_FOUND
     await db.execute(

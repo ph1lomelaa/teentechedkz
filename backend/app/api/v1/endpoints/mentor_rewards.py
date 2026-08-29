@@ -21,6 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.mentor_stage_reward import MentorStageReward, MentorStageKind
 from app.models.mentor_task_penalty import MentorTaskPenalty, PenaltyColor
 from app.models.user import UserRole
@@ -31,16 +32,11 @@ from app.services.reward_rules import active_rules, penalty_amount_from_payload,
 router = APIRouter(tags=["mentor_rewards"])
 
 
-def _require_staff(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
 def resolve_mentor_scope(*, viewer_role, viewer_id, requested_mentor_id: str | None):
     """Какой mentor_id ставить в фильтр списка (None = все менторы).
 
     Раньше здесь была цепочка `if mentor_id: ... elif role == mentor: ...
-    else: _require_staff(...)`, в которой проверка прав стояла только в
+    else: require_access(..., "mentor_rewards", Action.manage)`, в которой проверка прав стояла только в
     последней ветке. Любой авторизованный — включая студента — получал чужие
     суммы вознаграждений и историю штрафов, просто передав ?mentor_id=<чужой>.
 
@@ -162,7 +158,7 @@ async def create_stage_reward(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "mentor_rewards", Action.manage)
     try:
         stage = MentorStageKind(body["stage"])
     except (KeyError, ValueError):
@@ -211,7 +207,7 @@ async def accept_stage_reward(
     current_user: CurrentUser,
 ):
     """Приёмка этапа уполномоченным сотрудником (п.7.2) — только вручную."""
-    _require_staff(current_user)
+    require_access(current_user, "mentor_rewards", Action.manage)
     result = await db.execute(select(MentorStageReward).where(MentorStageReward.id == reward_id))
     reward = result.scalar_one_or_none()
     if not reward:
@@ -275,7 +271,7 @@ async def create_task_penalty(
     current_user: CurrentUser,
 ):
     """Фиксация нарушения — вручную уполномоченным сотрудником (п.6.7-6.9)."""
-    _require_staff(current_user)
+    require_access(current_user, "mentor_rewards", Action.manage)
     try:
         color = PenaltyColor(body["color"])
     except (KeyError, ValueError):

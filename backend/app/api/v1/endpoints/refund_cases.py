@@ -19,6 +19,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
+from app.core.body import optional_uuid, required_uuid
 from app.core.audit import log_change
 from app.models.refund_case import RefundCase, RefundLevel, RefundCaseStatus
 from app.models.user import UserRole
@@ -26,11 +28,6 @@ from app.models.reward_rule import RewardRuleKind
 from app.services.reward_rules import active_rules, refund_amount_from_payload
 
 router = APIRouter(prefix="/refund-cases", tags=["refund_cases"])
-
-
-def _require_staff(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _require_approved_change_basis(body: dict) -> tuple[str, str]:
@@ -85,7 +82,7 @@ async def list_refund_cases(
     current_user: CurrentUser,
     status: str | None = None,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "refund_cases", Action.manage)
     query = select(RefundCase).options(selectinload(RefundCase.mzk_manager)).order_by(RefundCase.opened_at.desc())
     if status:
         try:
@@ -102,11 +99,11 @@ async def create_refund_case(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "refund_cases", Action.manage)
     case = RefundCase(
-        contract_id=uuid.UUID(body["contract_id"]) if body.get("contract_id") else None,
-        student_id=uuid.UUID(body["student_id"]) if body.get("student_id") else None,
-        mzk_manager_id=uuid.UUID(body.get("mzk_manager_id", str(current_user.id))),
+        contract_id=optional_uuid(body, "contract_id"),
+        student_id=optional_uuid(body, "student_id"),
+        mzk_manager_id=optional_uuid(body, "mzk_manager_id") or current_user.id,
         amount=body.get("amount"),
         status=RefundCaseStatus.draft,
         opened_at=datetime.now(timezone.utc),
@@ -134,9 +131,8 @@ async def mark_refund_bonus_paid(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Выплату бонуса подтверждает только администратор")
+    require_access(current_user, "refund_cases", Action.manage)
+    require_access(current_user, "refund_approval", Action.manage)
     case = await db.get(RefundCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Кейс не найден")
@@ -171,7 +167,7 @@ async def set_refund_case_level(
 ):
     """Утверждение уровня сложности уполномоченным лицом (п.6.8). МЗК не вправе
     самостоятельно повышать уровень после решения кейса (п.6.9) — проверяем это здесь."""
-    _require_staff(current_user)
+    require_access(current_user, "refund_cases", Action.manage)
     result = await db.execute(select(RefundCase).where(RefundCase.id == case_id))
     case = result.scalar_one_or_none()
     if not case:
@@ -220,7 +216,7 @@ async def resolve_refund_case(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "refund_cases", Action.manage)
     result = await db.execute(select(RefundCase).where(RefundCase.id == case_id))
     case = result.scalar_one_or_none()
     if not case:
@@ -252,12 +248,11 @@ async def resolve_refund_case(
 
 @router.patch("/{case_id}/approve")
 async def approve_refund_case(case_id: uuid.UUID, body: dict, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _require_staff(current_user)
+    require_access(current_user, "refund_cases", Action.manage)
     case = await db.get(RefundCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Кейс не найден")
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Утверждение возврата доступно администратору")
+    require_access(current_user, "refund_approval", Action.manage)
     decision = (body.get("decision") or "").strip()
     approval_note = (body.get("approval_note") or "").strip()
     if not decision or not approval_note:

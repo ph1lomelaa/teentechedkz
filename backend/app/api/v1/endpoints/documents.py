@@ -14,6 +14,7 @@ from starlette.responses import StreamingResponse
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.core.uploads import read_upload_capped
 from app.models.document import Document, DocType, DocSource
@@ -199,8 +200,7 @@ async def verify_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "documents", Action.manage)
 
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
@@ -263,8 +263,7 @@ async def delete_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "documents", Action.manage)
 
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
@@ -295,8 +294,7 @@ async def set_visibility(
     current_user: CurrentUser,
 ):
     """Staff toggle whether a document is shared to the student's portal."""
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "documents", Action.manage)
     doc = await db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
@@ -319,8 +317,7 @@ async def request_document_signature(
     current_user: CurrentUser,
 ):
     """Share a concrete student document and request the student's signature."""
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "documents", Action.manage)
     doc = await db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
@@ -344,8 +341,7 @@ async def mark_document_signature_viewed(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     doc = await db.get(Document, doc_id)
     if not doc or doc.student_id != sid or not doc.visible_to_student or doc.signature_status != "pending":
@@ -363,8 +359,7 @@ async def sign_student_document(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     doc = await db.get(Document, doc_id)
     if not doc or doc.student_id != sid or not doc.visible_to_student or doc.signature_status != "pending":
@@ -390,8 +385,7 @@ async def set_document_type(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "documents", Action.manage)
     doc = await db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
@@ -413,8 +407,7 @@ async def set_document_type(
 @router.get("/portal/mine")
 async def my_documents(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
     """Documents the student can see in their portal."""
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -433,8 +426,7 @@ async def portal_download_document(
     current_user: CurrentUser,
 ):
     """Download a document from the student's portal."""
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
 
     sid = await _my_student_id(db, current_user)
     if not sid:
@@ -475,8 +467,7 @@ async def portal_upload(
     file: UploadFile = File(...),
 ):
     """Student uploads a document to their own portal (visible by default)."""
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -521,8 +512,7 @@ async def portal_delete_document(
     current_user: CurrentUser,
 ):
     """Student deletes their own manually uploaded document."""
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")

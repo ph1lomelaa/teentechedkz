@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.payment import Payment, PaymentType, PaymentStatus
 from app.models.contract import Contract
 from app.models.student import Student
@@ -25,17 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 
-def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
 @router.get("")
 async def list_payments(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     result = await db.execute(
         select(Payment, Student.id, Student.full_name)
@@ -61,7 +57,7 @@ async def create_payment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.manage)
 
     try:
         ptype = PaymentType(body["type"])
@@ -105,7 +101,7 @@ async def update_payment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.manage)
     result = await db.execute(select(Payment).where(Payment.id == payment_id))
     p = result.scalar_one_or_none()
     if not p:
@@ -133,7 +129,7 @@ async def finance_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     contracts_result = await db.execute(
         select(
@@ -193,7 +189,7 @@ async def finance_breakdown(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     paid_subquery = (
         select(
@@ -280,7 +276,7 @@ async def mentor_payouts(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     result = await db.execute(
         select(
@@ -316,7 +312,7 @@ async def payment_documents(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     result = await db.execute(
         select(Document).where(Document.payment_id == payment_id).order_by(Document.uploaded_at.desc())
@@ -340,7 +336,7 @@ async def client_balances(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     manager_name_sq = (
         select(User.name)
@@ -420,7 +416,7 @@ async def upcoming_payments(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "finances", Action.view)
 
     look_ahead_days = settings.PAYMENT_DUE_LOOK_AHEAD_DAYS
     threshold_date = date.today() + timedelta(days=look_ahead_days)

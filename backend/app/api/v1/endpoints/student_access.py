@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.security import hash_password
 from app.services.mentor_scope import primary_mentor_id, require_student_access
 from app.services.audit import record_audit
@@ -100,12 +101,7 @@ async def _staff_student(
     db: AsyncSession, student_id: uuid.UUID, user: User
 ) -> Student:
     """Staff-only + mentor scope, then return the student or 404."""
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-            headers={"X-Error-Code": "FORBIDDEN"},
-        )
+    require_access(user, "student_access", Action.manage)
     await require_student_access(db, student_id, user)  # raises 404 for mentors out of scope
     result = await db.execute(select(Student).where(Student.id == student_id))
     student = result.scalar_one_or_none()

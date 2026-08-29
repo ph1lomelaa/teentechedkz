@@ -15,9 +15,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.complaint import (
     Complaint, ComplaintReply, ComplaintKind, ComplaintStatus, ComplaintCategory, ApplicantType,
 )
@@ -34,6 +36,40 @@ LEGAL_RISK_RE = re.compile(r"суд|судебн|иск|прокуратур|а�
 
 def is_legal_risk(subject: str, text: str) -> bool:
     return bool(LEGAL_RISK_RE.search(f"{subject}\n{text}"))
+
+
+def _complaint_loaders(*, include_replies: bool = False) -> tuple:
+    """Связи, которые обходит `_complaint_to_dict`.
+
+    Держим рядом с сериализатором: eager-load — часть его контракта. Ленивая
+    загрузка в async-сессии падает с MissingGreenlet, то есть 500-й.
+    """
+    loaders = (
+        selectinload(Complaint.author),
+        selectinload(Complaint.assignee),
+        selectinload(Complaint.student),
+    )
+    if include_replies:
+        loaders += (selectinload(Complaint.replies).selectinload(ComplaintReply.author),)
+    return loaders
+
+
+async def _reload_complaint(
+    db: AsyncSession, complaint_id: uuid.UUID, *, include_replies: bool = False
+) -> Complaint:
+    """Перечитать обращение со связями после изменения.
+
+    Замена `await db.refresh(complaint)`: refresh обновляет только колонки и при
+    этом сбрасывает уже загруженные relationships. Следующее же обращение к
+    `c.author` в сериализаторе уходило в ленивую загрузку и роняло ответ 500-м —
+    ровно то, что происходило на PATCH /complaints/{id}.
+    """
+    result = await db.execute(
+        select(Complaint)
+        .options(*_complaint_loaders(include_replies=include_replies))
+        .where(Complaint.id == complaint_id)
+    )
+    return result.scalar_one()
 
 
 def _complaint_to_dict(c: Complaint, *, include_replies: bool = False, viewer_id: uuid.UUID | None = None) -> dict:
@@ -123,11 +159,7 @@ async def list_complaints(
     """Список обращений, видимых текущему пользователю — не только персоналу:
     студент/ментор видит свои же обращения (author_user_id), персонал —
     дополнительно всё, что разрешает visible_to_role."""
-    from sqlalchemy.orm import selectinload
-
-    query = select(Complaint).options(
-        selectinload(Complaint.author), selectinload(Complaint.assignee), selectinload(Complaint.student)
-    )
+    query = select(Complaint).options(*_complaint_loaders())
 
     if current_user.role == UserRole.student:
         query = query.where(Complaint.author_user_id == current_user.id)
@@ -187,16 +219,9 @@ async def get_complaint(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    from sqlalchemy.orm import selectinload
-
     result = await db.execute(
         select(Complaint)
-        .options(
-            selectinload(Complaint.author),
-            selectinload(Complaint.assignee),
-            selectinload(Complaint.student),
-            selectinload(Complaint.replies).selectinload(ComplaintReply.author),
-        )
+        .options(*_complaint_loaders(include_replies=True))
         .where(Complaint.id == complaint_id)
     )
     complaint = result.scalar_one_or_none()
@@ -284,7 +309,7 @@ async def create_complaint(
     for note in fresh_notes:
         await db.refresh(note)
         await push_notification(note)
-    await db.refresh(complaint)
+    complaint = await _reload_complaint(db, complaint.id)
     return _complaint_to_dict(complaint)
 
 
@@ -295,8 +320,7 @@ async def update_complaint(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Доступ только для персонала")
+    require_access(current_user, "complaints", Action.manage)
 
     complaint = await db.get(Complaint, complaint_id)
     if not complaint:
@@ -370,10 +394,10 @@ async def update_complaint(
             )
 
     await db.commit()
-    await db.refresh(complaint)
     if note is not None:
         await db.refresh(note)
         await push_notification(note)
+    complaint = await _reload_complaint(db, complaint.id)
     return _complaint_to_dict(complaint)
 
 
@@ -428,5 +452,5 @@ async def create_reply(
     else:
         await db.commit()
 
-    await db.refresh(complaint)
+    complaint = await _reload_complaint(db, complaint.id, include_replies=True)
     return _complaint_to_dict(complaint, include_replies=True, viewer_id=current_user.id)

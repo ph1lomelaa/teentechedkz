@@ -8,16 +8,12 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.encryption import encrypt, decrypt
 from app.models.confidential_note import ConfidentialNote, NoteVisibility, note_visible_to_role
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/confidential-notes", tags=["confidential_notes"])
-
-
-def _require_staff(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/student/{student_id}")
@@ -26,7 +22,7 @@ async def get_notes(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "confidential_notes", Action.manage)
     result = await db.execute(
         select(ConfidentialNote)
         .where(ConfidentialNote.student_id == student_id)
@@ -45,7 +41,7 @@ async def create_note(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "confidential_notes", Action.manage)
     note_text = body.get("note_text", "").strip()
     if not note_text:
         raise HTTPException(status_code=422, detail="note_text обязателен")
@@ -75,7 +71,7 @@ async def update_note(
     current_user: CurrentUser,
 ):
     """Отредактировать текст/уровень видимости заметки (в т.ч. AI-извлечённой)."""
-    _require_staff(current_user)
+    require_access(current_user, "confidential_notes", Action.manage)
     result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
     note = result.scalar_one_or_none()
     if not note or not note_visible_to_role(note.visible_to_role, current_user.role):
@@ -116,7 +112,7 @@ async def set_student_visibility(
 ):
     """Publish/retract an important note into the student's portal «Заметки»
     section. Staff who can see the note (per role) can toggle it."""
-    _require_staff(current_user)
+    require_access(current_user, "confidential_notes", Action.manage)
     result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
     note = result.scalar_one_or_none()
     if not note or not note_visible_to_role(note.visible_to_role, current_user.role):
@@ -133,7 +129,7 @@ async def delete_note(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "confidential_notes", Action.manage)
     result = await db.execute(select(ConfidentialNote).where(ConfidentialNote.id == note_id))
     note = result.scalar_one_or_none()
     if not note:

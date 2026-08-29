@@ -9,6 +9,7 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.status_history import StatusHistory
 from app.models.user import UserRole
 
@@ -24,8 +25,7 @@ async def get_history(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "status_history", Action.view)
 
     query = select(StatusHistory).order_by(StatusHistory.changed_at.desc())
     if entity_type:

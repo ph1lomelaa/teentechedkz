@@ -11,15 +11,11 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.emergency_contact import EmergencyContact
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/emergency-contacts", tags=["emergency_contacts"])
-
-
-def _require_staff(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _to_dict(c: EmergencyContact) -> dict:
@@ -39,7 +35,7 @@ async def list_emergency_contacts(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "emergency_contacts", Action.manage)
     result = await db.execute(
         select(EmergencyContact).where(EmergencyContact.student_id == student_id)
     )
@@ -53,7 +49,7 @@ async def create_emergency_contact(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "emergency_contacts", Action.manage)
     full_name = (body.get("full_name") or "").strip()
     phone = (body.get("phone") or "").strip()
     if not full_name or not phone:
@@ -78,7 +74,7 @@ async def delete_emergency_contact(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "emergency_contacts", Action.manage)
     result = await db.execute(select(EmergencyContact).where(EmergencyContact.id == contact_id))
     contact = result.scalar_one_or_none()
     if not contact:

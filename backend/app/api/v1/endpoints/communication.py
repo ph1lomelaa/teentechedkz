@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
+from app.core.body import optional_date, required_uuid
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
 from app.models.pending_insight import PendingInsight, InsightStatus
 from app.models.student import Student
@@ -28,18 +30,13 @@ from app.services.student_notes import (
 router = APIRouter(prefix="/communications", tags=["communications"])
 
 
-def _require_staff(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
 @router.get("/student/{student_id}")
 async def get_logs(
     student_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "communication", Action.manage)
     result = await db.execute(
         select(CommunicationLog)
         .where(CommunicationLog.student_id == student_id)
@@ -55,7 +52,7 @@ async def create_log(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "communication", Action.manage)
     try:
         source = CommSource(body.get("source", "manual"))
         msg_type = MessageType(body.get("message_type", "text_event"))
@@ -63,12 +60,12 @@ async def create_log(
         raise HTTPException(status_code=422, detail=str(e))
 
     log = CommunicationLog(
-        student_id=uuid.UUID(body["student_id"]),
+        student_id=required_uuid(body, "student_id"),
         source=source,
         message_type=msg_type,
         raw_text=body.get("raw_text"),
         ai_summary=body.get("ai_summary"),
-        zoom_call_date=date.fromisoformat(body["zoom_call_date"]) if body.get("zoom_call_date") else None,
+        zoom_call_date=optional_date(body, "zoom_call_date"),
         zoom_duration_min=body.get("zoom_duration_min"),
     )
     db.add(log)
@@ -84,7 +81,7 @@ async def list_all_pending_insights(
     status: str | None = None,
     scope: str = "all",
 ):
-    _require_staff(current_user)
+    require_access(current_user, "communication", Action.manage)
     query = select(PendingInsight).order_by(PendingInsight.created_at.desc())
     if status:
         try:
@@ -122,7 +119,7 @@ async def get_pending_insights(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "communication", Action.manage)
     result = await db.execute(
         select(PendingInsight)
         .where(
@@ -142,7 +139,7 @@ async def review_insight(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_staff(current_user)
+    require_access(current_user, "communication", Action.manage)
     result = await db.execute(select(PendingInsight).where(PendingInsight.id == insight_id))
     insight = result.scalar_one_or_none()
     if not insight:

@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.services.ai_client import complete_with_fallback, provider_chain
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
 from app.services.note_sessions import generate_note_draft
@@ -37,8 +38,6 @@ from app.services.ws_hub import manager
 
 router = APIRouter(tags=["meetings"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Встреча не найдена")
 
 FOLLOW_UP_SYSTEM = """Ты помощник менеджера образовательной платформы.
@@ -186,19 +185,16 @@ async def _send_chat_message(db: AsyncSession, conv: Conversation, sender, text:
 
 
 async def _assert_view(db: AsyncSession, student_id: uuid.UUID, user) -> None:
+    require_access(user, "meetings", Action.view)
     if user.role == UserRole.student:
         if await _my_student_id(db, user) != student_id:
             raise _NOT_FOUND
         return
-    if user.role in STAFF:
-        await require_student_access(db, student_id, user)
-        return
-    raise _FORBIDDEN
+    await require_student_access(db, student_id, user)
 
 
 async def _assert_staff(db: AsyncSession, student_id: uuid.UUID, user) -> None:
-    if user.role not in STAFF:
-        raise _FORBIDDEN
+    require_access(user, "meetings", Action.manage)
     await require_student_access(db, student_id, user)
 
 
@@ -220,8 +216,7 @@ async def student_meetings(student_id: uuid.UUID, current_user: CurrentUser, db:
 
 @router.get("/portal/meetings", response_model=list[MeetingOut])
 async def my_meetings(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")

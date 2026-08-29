@@ -12,6 +12,8 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, allows, require_access
+from app.core.body import optional_uuid, required_uuid
 from app.core.audit import log_change
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.chat import ConversationMember, Message, MessageAttachment
@@ -43,13 +45,7 @@ from app.services.student_notes import apply_student_updates, snapshot_student
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 _FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
-
-
-def _require_staff(user: User) -> None:
-    if user.role not in STAFF:
-        raise _FORBIDDEN
 
 
 async def _workspace_student_ids(
@@ -769,7 +765,7 @@ async def workspace_dashboard(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     summaries = await _student_summaries(db, students)
     student_ids = [student.id for student in students]
@@ -842,7 +838,7 @@ async def workspace_students(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     return {
         "items": await _student_summaries(db, students),
@@ -857,7 +853,7 @@ async def workspace_roadmap(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     student_ids = [student.id for student in students]
     roadmaps = await _active_roadmaps_for_students(db, student_ids)
@@ -885,7 +881,7 @@ async def workspace_full_roadmaps(
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
     """Full active roadmaps for the mentor workspace in one scoped request."""
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(
         db,
         current_user,
@@ -922,7 +918,7 @@ async def workspace_roadmap_tasks(
     review_status (можно списком через запятую) питает очередь проверки:
     ?review_status=pending — заявки студентов, ждущие ревью.
     """
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(
         db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None)
     )
@@ -1001,7 +997,7 @@ async def workspace_questionnaires(
     reviewed) across their assigned students in one place, instead of having to
     open each roadmap task individually to check its status.
     """
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(
         db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None)
     )
@@ -1046,7 +1042,7 @@ async def workspace_meetings(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     student_ids = [student.id for student in students]
     if not student_ids:
@@ -1091,7 +1087,7 @@ async def workspace_documents(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     student_ids = [student.id for student in students]
     if not student_ids:
@@ -1167,7 +1163,7 @@ async def workspace_notes(
     mentor_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
     student_ids = [student.id for student in students]
     if not student_ids:
@@ -1242,8 +1238,8 @@ async def workspace_message_unread(
     db: Annotated[AsyncSession, Depends(get_db)],
     mentor_id: uuid.UUID | None = Query(default=None),
 ):
-    _require_staff(current_user)
-    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    require_access(current_user, "workspace", Action.view)
+    if mentor_id and allows(resource="workspace", action=Action.view, role=current_user.role):
         mentor = await db.get(User, mentor_id)
         if not mentor or mentor.role != UserRole.mentor:
             raise HTTPException(status_code=404, detail="Ментор не найден")
@@ -1342,7 +1338,7 @@ async def mark_workspace_messages_read(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     student = await _require_workspace_student(db, current_user, student_id)
     channel = str(body.get("channel") or "all")
     if channel not in {"all", "internal", "telegram"}:
@@ -1395,8 +1391,8 @@ async def workspace_student_messages(
     The source records stay in their existing tables.  This endpoint only
     normalizes and sorts them, so CRM and workspace always show the same data.
     """
-    _require_staff(current_user)
-    if mentor_id and current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    require_access(current_user, "workspace", Action.view)
+    if mentor_id and allows(resource="workspace", action=Action.view, role=current_user.role):
         mentor = await db.get(User, mentor_id)
         if not mentor or mentor.role != UserRole.mentor:
             raise HTTPException(status_code=404, detail="Ментор не найден")
@@ -1565,8 +1561,8 @@ async def create_workspace_context_draft(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    _require_staff(current_user)
-    mentor_id = uuid.UUID(str(body["mentor_id"])) if body.get("mentor_id") else None
+    require_access(current_user, "workspace", Action.view)
+    mentor_id = optional_uuid(body, "mentor_id")
     student = await _require_workspace_student(db, current_user, student_id, mentor_id)
     message_response = await workspace_student_messages(
         student_id=student_id,
@@ -1639,7 +1635,7 @@ async def apply_workspace_context_draft(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     student = await _require_workspace_student(db, current_user, student_id)
     run_id = body.get("draft_run_id")
     if not run_id:
@@ -1737,7 +1733,7 @@ async def workspace_student_summary(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     await require_student_access(db, student_id, current_user)
     student = await db.get(Student, student_id)
     if not student or student.is_archived:
@@ -1755,7 +1751,7 @@ async def workspace_my_day(
     просроченные задачи по цветам, горящий SLA обращений, встречи сегодня,
     неподписанные регламенты. Персональный экран — виден только своему
     пользователю, без scope=mentor_id (в отличие от остальных /workspace/*)."""
-    _require_staff(current_user)
+    require_access(current_user, "workspace", Action.view)
     student_ids = await _workspace_student_ids(db, current_user, own_only=True)
 
     # --- Просроченные задачи по цветам (StudentTask, своих студентов) ---

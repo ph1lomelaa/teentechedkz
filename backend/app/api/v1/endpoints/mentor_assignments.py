@@ -10,17 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
+from app.core.body import required_uuid
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.mentor_assignment_history import MentorAssignmentHistory
 from app.models.user import User, UserRole
 from app.services.agreements import has_pending_agreement_signature
 
 router = APIRouter(prefix="/mentor-assignments", tags=["mentor_assignments"])
-
-
-def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/student/{student_id}")
@@ -44,7 +41,7 @@ async def get_assignment_history(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     result = await db.execute(
         select(MentorAssignmentHistory)
         .where(MentorAssignmentHistory.student_id == student_id)
@@ -71,7 +68,7 @@ async def assign_self(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))
@@ -110,7 +107,7 @@ async def update_self_assignment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))
@@ -141,13 +138,13 @@ async def create_assignment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     try:
         role = MentorRole(body.get("role", "lead"))
     except ValueError:
         raise HTTPException(status_code=422, detail="Неверная роль ментора")
 
-    mentor_id = uuid.UUID(body["mentor_id"])
+    mentor_id = required_uuid(body, "mentor_id")
     mentor_result = await db.execute(select(User).where(User.id == mentor_id))
     mentor = mentor_result.scalar_one_or_none()
     if not mentor:
@@ -157,7 +154,7 @@ async def create_assignment(
     active_result = await db.execute(
         select(MentorAssignment)
         .where(
-            MentorAssignment.student_id == uuid.UUID(body["student_id"]),
+            MentorAssignment.student_id == required_uuid(body, "student_id"),
             MentorAssignment.role == role,
             MentorAssignment.is_active == True,  # noqa: E712
             MentorAssignment.assignment_status != "required",
@@ -233,7 +230,7 @@ async def update_assignment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     result = await db.execute(select(MentorAssignment).where(MentorAssignment.id == assignment_id))
     ma = result.scalar_one_or_none()
     if not ma:
@@ -297,7 +294,7 @@ async def delete_assignment(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "mentor_assignments", Action.manage)
     result = await db.execute(select(MentorAssignment).where(MentorAssignment.id == assignment_id))
     ma = result.scalar_one_or_none()
     if not ma:

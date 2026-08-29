@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.mzk_review import MzkReview
 from app.models.mzk_quality_score import MzkQualityScore
 from app.models.user import UserRole
@@ -26,11 +27,6 @@ from app.services.reward_rules import active_rules, bonus_from_tiers
 
 router = APIRouter(prefix="/mzk-quality", tags=["mzk_quality"])
 ALLOWED_REVIEW_SOURCE_KINDS = {"manual", "meeting", "telegram"}
-
-
-def _require_admin(user):
-    if user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def resolve_score_scope(*, viewer_role, viewer_id, requested_manager_id: str | None):
@@ -124,7 +120,7 @@ async def create_review(
     current_user: CurrentUser,
 ):
     """Поставить оценку МЗК за отчётный период — вручную руководителем."""
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     try:
         year = int(body["period_year"])
         month = int(body["period_month"])
@@ -172,7 +168,7 @@ async def create_review(
 
 @router.post("/scores/compute")
 async def compute_score(body: dict, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     manager_id = _parse_uuid(body.get("mzk_manager_id"), field="mzk_manager_id")
     try:
         year, month = int(body["period_year"]), int(body["period_month"])
@@ -210,7 +206,7 @@ async def compute_score(body: dict, db: Annotated[AsyncSession, Depends(get_db)]
 
 @router.patch("/scores/{score_id}/disqualify")
 async def disqualify_score(score_id: uuid.UUID, body: dict, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     score = await db.get(MzkQualityScore, score_id)
     if not score:
         raise HTTPException(status_code=404, detail="Итог ОКК не найден")
@@ -226,7 +222,7 @@ async def disqualify_score(score_id: uuid.UUID, body: dict, db: Annotated[AsyncS
 
 @router.patch("/scores/{score_id}/approve")
 async def approve_score(score_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     score = await db.get(MzkQualityScore, score_id)
     if not score:
         raise HTTPException(status_code=404, detail="Итог ОКК не найден")
@@ -265,7 +261,7 @@ async def list_reviews(
 ):
     # Намеренно остаётся строго админским: по датам отдельных оценок
     # вычисляется, кто именно поставил минус. МЗК видит только помесячный итог.
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     query = (
         select(MzkReview)
         .options(selectinload(MzkReview.mzk_manager))
@@ -286,7 +282,7 @@ async def invalidate_review(
     current_user: CurrentUser,
 ):
     """п.7.8 — недействительные оценки (повтор, самооценка, давление и т.п.)."""
-    _require_admin(current_user)
+    require_access(current_user, "mzk_quality", Action.manage)
     result = await db.execute(select(MzkReview).where(MzkReview.id == review_id))
     review = result.scalar_one_or_none()
     if not review:

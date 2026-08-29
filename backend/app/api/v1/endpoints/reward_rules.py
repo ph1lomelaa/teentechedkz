@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import AdminOnly, CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.reward_rule import RewardRule, RewardRuleKind
 from app.models.user import UserRole
 from app.schemas.reward_rule import RewardRuleOut, RewardRulesResponse, RewardRuleUpdate
@@ -27,16 +28,12 @@ from app.services.reward_rules import active_rules, supersede_rule
 
 router = APIRouter(prefix="/reward-rules", tags=["reward_rules"])
 
-_STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
 @router.get("", response_model=RewardRulesResponse)
 async def list_reward_rules(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in _STAFF:
-        raise HTTPException(status_code=403, detail="Доступ только для персонала")
+    require_access(current_user, "reward_rules", Action.view)
 
     grouped = {kind.value: await active_rules(db, kind) for kind in RewardRuleKind}
     stage = grouped.get(RewardRuleKind.mentor_stage_pct.value, {})

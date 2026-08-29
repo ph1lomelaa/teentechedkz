@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentStudent
+from app.core.permissions import Action, require_access
 from app.models.application import Application, SubmissionStatus, VisaStatus
 from app.models.student import Student
 from app.models.university import University
@@ -20,9 +21,6 @@ from app.services.mentor_scope import require_student_access
 # та же идиома, что в student_universities.py.
 router = APIRouter(tags=["applications"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
 async def _assert_manage(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Заявками студента управляет только персонал в своём скоупе.
 
@@ -33,13 +31,13 @@ async def _assert_manage(db: AsyncSession, student_id: uuid.UUID, user) -> None:
 
     Студент сюда не попадает вовсе: свои заявки он только читает.
     """
-    if user.role not in STAFF:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(user, "applications", Action.manage)
     await require_student_access(db, student_id, user)
 
 
 async def _assert_read(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Читать заявки может персонал в скоупе или сам студент."""
+    require_access(user, "applications", Action.view)
     if user.role == UserRole.student:
         res = await db.execute(select(Student.id).where(Student.user_id == user.id))
         if res.scalar_one_or_none() != student_id:

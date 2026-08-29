@@ -24,6 +24,7 @@ from xml.etree import ElementTree
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, AdminOnly
+from app.core.permissions import Action, require_access
 from app.core.uploads import read_upload_capped
 from app.models.agreement import Agreement, AgreementSignature, AgreementAudience, AgreementStatus
 from app.models.audit_log import AuditAction
@@ -128,8 +129,7 @@ async def list_agreements(
     audience: str | None = None,
 ):
     """Полный список для админ-экрана управления регламентами."""
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Доступ только для администратора")
+    require_access(current_user, "agreements", Action.manage)
 
     query = select(Agreement).order_by(Agreement.created_at.desc())
     if audience:

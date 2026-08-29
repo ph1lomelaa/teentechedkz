@@ -8,13 +8,13 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.core.country_flags_data import flag_for, code_for
 from app.models.country_reference import CountryReference
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/countries", tags=["countries"])
-COUNTRY_EDIT_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 COUNTRY_DEGREE_LEVELS = {"undergraduate", "graduate"}
 
 
@@ -41,8 +41,7 @@ async def create_country(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in COUNTRY_EDIT_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "countries", Action.edit)
 
     name = body.get("country_name", "").strip()
     if not name:
@@ -76,8 +75,7 @@ async def update_country(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in COUNTRY_EDIT_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "countries", Action.edit)
 
     result = await db.execute(select(CountryReference).where(CountryReference.id == country_id))
     c = result.scalar_one_or_none()
@@ -119,8 +117,7 @@ async def delete_country(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in COUNTRY_EDIT_ROLES:
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "countries", Action.edit)
 
     result = await db.execute(select(CountryReference).where(CountryReference.id == country_id))
     c = result.scalar_one_or_none()

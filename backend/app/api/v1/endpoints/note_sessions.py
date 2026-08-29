@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, allows
 from app.core.uploads import read_upload_capped
 from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.meeting import Meeting
@@ -92,10 +93,6 @@ def _add_note_ai_run(
     )
 
 
-def _is_staff_admin(current_user) -> bool:
-    return current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
 async def _mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[uuid.UUID]:
     from app.models.mentor_assignment import MentorAssignment
 
@@ -114,7 +111,7 @@ async def _load_accessible_student(db: AsyncSession, current_user, student_id: u
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
 
-    if _is_staff_admin(current_user):
+    if allows(resource="note_sessions", action=Action.manage, role=current_user.role):
         return student
 
     mentor_ids = await _mentor_student_ids(db, current_user.id)
@@ -179,10 +176,10 @@ async def _load_session_row(
 
 async def _session_access_guard(db: AsyncSession, current_user, session: NoteSession) -> None:
     if session.student_id is None:
-        if session.created_by != current_user.id and not _is_staff_admin(current_user):
+        if session.created_by != current_user.id and not allows(resource="note_sessions", action=Action.manage, role=current_user.role):
             raise HTTPException(status_code=403, detail="Access denied")
         return
-    if _is_staff_admin(current_user):
+    if allows(resource="note_sessions", action=Action.manage, role=current_user.role):
         return
     mentor_ids = await _mentor_student_ids(db, current_user.id)
     if session.student_id not in mentor_ids:
@@ -277,7 +274,7 @@ async def list_sessions(
     if student_id:
         query = query.where(NoteSession.student_id == student_id)
 
-    if not _is_staff_admin(current_user):
+    if not allows(resource="note_sessions", action=Action.manage, role=current_user.role):
         mentor_ids = await _mentor_student_ids(db, current_user.id)
         if mentor_ids:
             query = query.where(

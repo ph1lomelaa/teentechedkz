@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.service import Service, ServiceType, ServiceStatus
 from app.models.mentor_assignment import MentorAssignment
 from app.models.student_task import StudentTask, TaskStatus
@@ -174,8 +175,7 @@ async def _check_access(db: AsyncSession, user, student_id: uuid.UUID) -> None:
     мог править услуги любого студента. require_student_access ограничивает
     ментора его назначениями (админ и МЗК проходят насквозь).
     """
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(user, "services", Action.manage)
     await require_student_access(db, student_id, user)
 
 

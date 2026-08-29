@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
+from app.core.body import required_uuid
 from app.models.portfolio_progress import PortfolioProgress, PortfolioStatus
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import UserRole
@@ -22,8 +24,8 @@ async def create_portfolio(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    student_id = uuid.UUID(body["student_id"])
-    _check_access(current_user, student_id)
+    student_id = required_uuid(body, "student_id")
+    require_access(current_user, "portfolio", Action.manage)
 
     existing = await db.execute(select(PortfolioProgress).where(PortfolioProgress.student_id == student_id))
     if existing.scalar_one_or_none():
@@ -63,7 +65,7 @@ async def update_portfolio(
     if not pp:
         raise HTTPException(status_code=404, detail="Запись УП не найдена")
 
-    _check_access(current_user, pp.student_id)
+    require_access(current_user, "portfolio", Action.manage)
 
     for field in ["vpp_group", "first_call_milestone", "deadline_text", "focus_areas", "special_notes"]:
         if field in body:
@@ -91,17 +93,12 @@ async def get_portfolio(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _check_access(current_user, student_id)
+    require_access(current_user, "portfolio", Action.manage)
     result = await db.execute(select(PortfolioProgress).where(PortfolioProgress.student_id == student_id))
     pp = result.scalar_one_or_none()
     if not pp:
         raise HTTPException(status_code=404, detail="Запись УП не найдена")
     return _pp_to_dict(pp)
-
-
-def _check_access(user, student_id: uuid.UUID):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _pp_to_dict(pp: PortfolioProgress) -> dict:

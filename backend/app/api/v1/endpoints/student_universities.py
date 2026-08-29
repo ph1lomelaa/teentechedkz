@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentStudent
+from app.core.permissions import Action, require_access
 from app.models.student import Student
 from app.models.student_university import StudentUniversity
 from app.models.university import University
@@ -29,8 +30,6 @@ from app.services.notify import notify, push_notification
 
 router = APIRouter(tags=["student_universities"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Запись не найдена")
 
 
@@ -41,14 +40,12 @@ async def _my_student_id(db: AsyncSession, user) -> uuid.UUID | None:
 
 async def _assert_manage(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Owner student or staff-in-scope may manage a student's shortlist."""
+    require_access(user, "student_universities", Action.manage)
     if user.role == UserRole.student:
         if await _my_student_id(db, user) != student_id:
             raise _NOT_FOUND
         return
-    if user.role in STAFF:
-        await require_student_access(db, student_id, user)
-        return
-    raise _FORBIDDEN
+    await require_student_access(db, student_id, user)
 
 
 def _sort_key(item: StudentUniversity):

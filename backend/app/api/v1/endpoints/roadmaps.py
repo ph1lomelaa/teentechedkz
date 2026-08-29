@@ -25,6 +25,7 @@ from sqlalchemy.orm import selectinload
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.services import background_jobs
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
@@ -52,9 +53,6 @@ from app.schemas.roadmap import (
 
 router = APIRouter(tags=["roadmap"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-TEMPLATE_ADMIN = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
 _FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Не найдено")
 
@@ -79,31 +77,18 @@ async def _my_student_id(db: AsyncSession, user) -> uuid.UUID | None:
 
 async def _assert_view(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Staff-in-scope or the owning student may view."""
+    require_access(user, "roadmaps", Action.view)
     if user.role == UserRole.student:
         if await _my_student_id(db, user) != student_id:
             raise _NOT_FOUND
         return
-    if user.role in STAFF:
-        await require_student_access(db, student_id, user)
-        return
-    raise _FORBIDDEN
+    await require_student_access(db, student_id, user)
 
 
 async def _assert_staff(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Only staff-in-scope may edit structure."""
-    if user.role not in STAFF:
-        raise _FORBIDDEN
+    require_access(user, "roadmaps", Action.edit)
     await require_student_access(db, student_id, user)
-
-
-def _assert_template_admin(user) -> None:
-    if user.role not in TEMPLATE_ADMIN:
-        raise _FORBIDDEN
-
-
-def _assert_import_admin(user) -> None:
-    if user.role != UserRole.admin:
-        raise _FORBIDDEN
 
 
 _ROADMAP_LOADER = (
@@ -191,7 +176,7 @@ async def list_templates(current_user: CurrentUser, db: Annotated[AsyncSession, 
 
 @router.post("/roadmap-templates", response_model=TemplateOut, status_code=201)
 async def create_template(body: TemplateCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_template_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.manage)
     tpl = RoadmapTemplate(
         name=body.name, country_name=body.country_name, degree=body.degree,
         year=body.year, description=body.description, created_by=current_user.id,
@@ -207,7 +192,7 @@ async def create_template(body: TemplateCreate, current_user: CurrentUser, db: A
 
 @router.post("/roadmap-templates/import/notion", status_code=202)
 async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_user: CurrentUser):
-    _assert_import_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.create)
     running = await background_jobs.get_running_job(_IMPORT_JOB_KIND)
     if running:
         raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": str(running.id)})
@@ -264,7 +249,7 @@ async def start_notion_roadmap_import(body: NotionRoadmapImportRequest, current_
 
 @router.get("/roadmap-templates/import/notion/{job_id}")
 async def get_notion_roadmap_import_job(job_id: str, current_user: CurrentUser):
-    _assert_import_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.create)
     job = await background_jobs.get_job(_IMPORT_JOB_KIND, job_id)
     if not job:
         raise _NOT_FOUND
@@ -273,7 +258,7 @@ async def get_notion_roadmap_import_job(job_id: str, current_user: CurrentUser):
 
 @router.get("/roadmap-templates/import/notion")
 async def list_notion_roadmap_import_jobs(current_user: CurrentUser):
-    _assert_import_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.create)
     jobs = await background_jobs.list_jobs(_IMPORT_JOB_KIND, limit=10)
     return [background_jobs.serialize(job) for job in jobs]
 
@@ -286,7 +271,7 @@ async def get_template(template_id: uuid.UUID, current_user: CurrentUser, db: An
 
 @router.patch("/roadmap-templates/{template_id}", response_model=TemplateOut)
 async def update_template(template_id: uuid.UUID, body: TemplateMetaUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_template_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.manage)
     tpl = await _get_template_or_404(db, template_id)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(tpl, field, value)
@@ -296,7 +281,7 @@ async def update_template(template_id: uuid.UUID, body: TemplateMetaUpdate, curr
 
 @router.delete("/roadmap-templates/{template_id}", status_code=204)
 async def delete_template(template_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_template_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.manage)
     tpl = await db.get(RoadmapTemplate, template_id)
     if not tpl:
         raise _NOT_FOUND
@@ -306,7 +291,7 @@ async def delete_template(template_id: uuid.UUID, current_user: CurrentUser, db:
 
 @router.put("/roadmap-templates/{template_id}/structure", response_model=TemplateOut)
 async def put_structure(template_id: uuid.UUID, body: StructureIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_template_admin(current_user)
+    require_access(current_user, "roadmap_templates", Action.manage)
     tpl = await _get_template_or_404(db, template_id)
     for s in list(tpl.stages):
         await db.delete(s)
@@ -407,8 +392,7 @@ async def get_roadmap(roadmap_id: uuid.UUID, current_user: CurrentUser, db: Anno
 
 @router.get("/portal/roadmap", response_model=list[RoadmapOut])
 async def get_my_roadmap(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -426,8 +410,7 @@ async def get_student_tasks(student_id: uuid.UUID, current_user: CurrentUser, db
 
 @router.get("/portal/tasks", response_model=list[TaskFlatOut])
 async def get_my_tasks(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -452,8 +435,7 @@ async def _student_claim_context(
     Чужая задача отвечает 404, а не 403 — существование чужих задач не раскрывается
     (та же семантика, что у _assert_view).
     """
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")

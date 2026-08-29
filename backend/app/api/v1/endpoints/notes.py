@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_change
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, allows, require_access
 from app.core.database import get_db
 from app.core.encryption import decrypt, encrypt
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
@@ -51,17 +52,13 @@ async def _mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[uuid.
     return {row[0] for row in result.all()}
 
 
-def _is_staff_admin(current_user) -> bool:
-    return current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-
-
 async def _load_accessible_student(db: AsyncSession, current_user, student_id: uuid.UUID) -> Student:
     result = await db.execute(select(Student).where(Student.id == student_id, Student.is_archived == False))  # noqa: E712
     student = result.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
 
-    if _is_staff_admin(current_user):
+    if allows(resource="notes", action=Action.manage, role=current_user.role):
         return student
 
     mentor_ids = await _mentor_student_ids(db, current_user.id)
@@ -120,7 +117,7 @@ async def list_notes(
     elif scope != "all":
         raise HTTPException(status_code=422, detail="Неверный scope")
 
-    if not _is_staff_admin(current_user):
+    if not allows(resource="notes", action=Action.manage, role=current_user.role):
         if mentor_ids is None:
             mentor_ids = await _mentor_student_ids(db, current_user.id)
         if mentor_ids:
@@ -160,11 +157,11 @@ async def get_note(
         raise HTTPException(status_code=404, detail="Конспект не найден")
     note, student_name = row
 
-    if note.student_id and not _is_staff_admin(current_user):
+    if note.student_id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         mentor_ids = await _mentor_student_ids(db, current_user.id)
         if note.student_id not in mentor_ids:
             raise HTTPException(status_code=403, detail="Access denied")
-    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+    elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return _note_to_response(note, student_name)
@@ -230,7 +227,7 @@ async def set_note_importance(
     note, student_name = row
     if note.student_id:
         await _load_accessible_student(db, current_user, note.student_id)
-    elif note.created_by != current_user.id and not _is_staff_admin(current_user):
+    elif note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     note.is_important = body.is_important
     await db.commit()
@@ -248,11 +245,11 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail="Конспект не найден")
 
-    if note.student_id and not _is_staff_admin(current_user):
+    if note.student_id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         mentor_ids = await _mentor_student_ids(db, current_user.id)
         if note.student_id not in mentor_ids:
             raise HTTPException(status_code=403, detail="Access denied")
-    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+    elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(note)
@@ -267,8 +264,7 @@ async def review_note(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "notes", Action.manage)
 
     result = await db.execute(
         select(StudentNote, Student.full_name)
@@ -402,11 +398,11 @@ async def _load_note_in_scope(db: AsyncSession, current_user, note_id: uuid.UUID
     if not row:
         raise HTTPException(status_code=404, detail="Конспект не найден")
     note, student_name = row
-    if note.student_id and not _is_staff_admin(current_user):
+    if note.student_id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         mentor_ids = await _mentor_student_ids(db, current_user.id)
         if note.student_id not in mentor_ids:
             raise HTTPException(status_code=403, detail="Access denied")
-    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+    elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     return note, student_name
 
@@ -508,11 +504,11 @@ async def note_diff(
     if not row:
         raise HTTPException(status_code=404, detail="Конспект не найден")
     note, student_name = row
-    if note.student_id and not _is_staff_admin(current_user):
+    if note.student_id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         mentor_ids = await _mentor_student_ids(db, current_user.id)
         if note.student_id not in mentor_ids:
             raise HTTPException(status_code=403, detail="Access denied")
-    elif not note.student_id and note.created_by != current_user.id and not _is_staff_admin(current_user):
+    elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return {

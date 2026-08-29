@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.user import User, UserRole
 from app.models.user_checkin import CheckinStatus, UserCheckin
 from app.services.checkins import (
@@ -29,9 +30,6 @@ from app.services.checkins import (
 )
 
 router = APIRouter(prefix="/checkins", tags=["checkins"])
-
-_STAFF_VIEW = (UserRole.admin, UserRole.mzk_manager)
-
 
 def _to_dict(c: UserCheckin, *, with_user: bool = False) -> dict:
     d = {
@@ -162,8 +160,7 @@ async def list_checkins(
     days: int = Query(14, ge=1, le=92),
 ):
     """Сводка посещаемости за период — для МЗК и администратора."""
-    if current_user.role not in _STAFF_VIEW:
-        raise HTTPException(status_code=403, detail="Доступ только для МЗК и администратора")
+    require_access(current_user, "checkins", Action.view)
 
     today = local_now(settings.COMPANY_TIMEZONE).date()
     end = date_to or today
@@ -209,8 +206,7 @@ async def checkin_summary(
     days: int = Query(30, ge=1, le=92),
 ):
     """Счётчики по каждому сотруднику за период: вовремя / с опозданием / пропуски."""
-    if current_user.role not in _STAFF_VIEW:
-        raise HTTPException(status_code=403, detail="Доступ только для МЗК и администратора")
+    require_access(current_user, "checkins", Action.view)
 
     today = local_now(settings.COMPANY_TIMEZONE).date()
     start = today - timedelta(days=days - 1)

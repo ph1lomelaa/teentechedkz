@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.user import UserRole
 from app.models.university import University
 from app.schemas.university import (
@@ -33,14 +34,7 @@ router = APIRouter(prefix="/universities", tags=["universities"])
 
 # Catalog writes are admin/mzk only: a mentor deleting a row removes that
 # university for every student at once. Mentors keep full read access.
-ADMIN = (UserRole.admin, UserRole.mzk_manager)
-_FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _IMPORT_JOB_KIND = "university_import"
-
-
-def _assert_admin(user) -> None:
-    if user.role not in ADMIN:
-        raise _FORBIDDEN
 
 
 @router.get("", response_model=list[UniversityOut])
@@ -53,7 +47,7 @@ async def list_universities(current_user: CurrentUser, db: Annotated[AsyncSessio
 
 @router.post("", response_model=UniversityOut, status_code=201)
 async def create_university(body: UniversityCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_admin(current_user)
+    require_access(current_user, "universities", Action.manage)
     uni = University(**body.model_dump())
     db.add(uni)
     await db.commit()
@@ -64,7 +58,7 @@ async def create_university(body: UniversityCreate, current_user: CurrentUser, d
 
 @router.patch("/{uni_id}", response_model=UniversityOut)
 async def update_university(uni_id: uuid.UUID, body: UniversityUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_admin(current_user)
+    require_access(current_user, "universities", Action.manage)
     uni = await db.get(University, uni_id)
     if not uni:
         raise HTTPException(status_code=404, detail="Университет не найден")
@@ -78,7 +72,7 @@ async def update_university(uni_id: uuid.UUID, body: UniversityUpdate, current_u
 
 @router.delete("/{uni_id}", status_code=204)
 async def delete_university(uni_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _assert_admin(current_user)
+    require_access(current_user, "universities", Action.manage)
     uni = await db.get(University, uni_id)
     if not uni:
         raise HTTPException(status_code=404, detail="Университет не найден")
@@ -93,8 +87,7 @@ async def delete_university(uni_id: uuid.UUID, current_user: CurrentUser, db: An
 # --------------------------------------------------------------------------
 @router.post("/import/run", status_code=202)
 async def start_university_import(current_user: CurrentUser, dry_run: bool = False):
-    if current_user.role != UserRole.admin:
-        raise _FORBIDDEN
+    require_access(current_user, "universities", Action.create)
     running = await background_jobs.get_running_job(_IMPORT_JOB_KIND)
     if running:
         raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": str(running.id)})
@@ -119,8 +112,7 @@ async def start_university_import(current_user: CurrentUser, dry_run: bool = Fal
 
 @router.get("/import/{job_id}")
 async def get_university_import_job(job_id: str, current_user: CurrentUser):
-    if current_user.role != UserRole.admin:
-        raise _FORBIDDEN
+    require_access(current_user, "universities", Action.create)
     job = await background_jobs.get_job(_IMPORT_JOB_KIND, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Не найдено")

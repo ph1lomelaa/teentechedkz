@@ -12,6 +12,8 @@ from sqlalchemy.orm import joinedload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, require_permission
+from app.core.permissions import Action, allows, require_access
+from app.core.body import optional_uuid, required_uuid
 from app.models.student_task import StudentTask, TaskStatus
 from app.models.contract import Contract
 from app.models.mentor_assignment import MentorAssignment
@@ -155,8 +157,7 @@ async def get_tasks(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
     result = await db.execute(
         select(StudentTask).options(joinedload(StudentTask.assignee))
         .where(StudentTask.student_id == student_id)
@@ -172,19 +173,14 @@ async def create_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
 
     # student_id опционален: МЗК/админ ставит менторам и общие задачи
     # («сдай отчёт»), не привязанные к конкретному студенту.
-    student_id = uuid.UUID(body["student_id"]) if body.get("student_id") else None
-    if student_id is None and current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(
-            status_code=403,
-            detail="Общие задачи ставит только МЗК или администратор",
-            headers={"X-Error-Code": "GENERAL_TASK_FORBIDDEN"},
-        )
-    assignee_id = uuid.UUID(body["assignee_id"]) if body.get("assignee_id") else None
+    student_id = optional_uuid(body, "student_id")
+    if student_id is None:
+        require_access(current_user, "tasks_general", Action.manage)
+    assignee_id = optional_uuid(body, "assignee_id")
     assignee = None
     if assignee_id:
         assignee = await db.get(User, assignee_id)
@@ -244,7 +240,7 @@ async def create_task(
         student_id=student_id,
         sla_hours=sla_hours,
         sla_due_at=sla_due_at,
-        service_id=uuid.UUID(body["service_id"]) if body.get("service_id") else None,
+        service_id=optional_uuid(body, "service_id"),
         task_text=body.get("task_text", "").strip(),
         expected_result=body.get("expected_result"),
         acceptance_criteria=body.get("acceptance_criteria"),
@@ -299,12 +295,7 @@ async def create_tasks_bulk(
     `assignee_ids: []` вместе с `all_mentors: true` означает «всем активным
     менторам» — на момент создания, без доназначения тем, кто появится позже.
     """
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(
-            status_code=403,
-            detail="Массовое назначение доступно МЗК и администратору",
-            headers={"X-Error-Code": "BULK_ASSIGN_FORBIDDEN"},
-        )
+    require_access(current_user, "tasks_bulk", Action.manage)
 
     raw_ids = body.get("assignee_ids") or []
     if not isinstance(raw_ids, list):
@@ -369,8 +360,7 @@ async def update_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
     result = await db.execute(
         select(StudentTask).options(joinedload(StudentTask.assignee)).where(StudentTask.id == task_id)
     )
@@ -382,7 +372,7 @@ async def update_task(
     if "task_text" in body:
         task.task_text = body["task_text"]
     if "service_id" in body:
-        task.service_id = uuid.UUID(body["service_id"]) if body["service_id"] else None
+        task.service_id = optional_uuid(body, "service_id")
     for field in ("expected_result", "acceptance_criteria"):
         if field in body:
             setattr(task, field, body[field])
@@ -391,12 +381,14 @@ async def update_task(
             raise HTTPException(status_code=422, detail="required_documents должен быть списком")
         task.required_documents = body["required_documents"]
     if "result_text" in body:
-        if current_user.id != task.assignee_id and current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+        is_assignee = current_user.id == task.assignee_id
+        if not is_assignee and not allows(
+            resource="tasks_review", action=Action.manage, role=current_user.role
+        ):
             raise HTTPException(status_code=403, detail="Результат может изменить только исполнитель")
         task.result_text = body["result_text"]
     if "review_note" in body:
-        if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-            raise HTTPException(status_code=403, detail="Комментарий проверки доступен только reviewer")
+        require_access(current_user, "tasks_review", Action.manage)
         task.review_note = body["review_note"]
     if "evidence_documents" in body:
         if body["evidence_documents"] is not None and not isinstance(body["evidence_documents"], list):
@@ -410,7 +402,7 @@ async def update_task(
     if "assignee_id" in body:
         assignee = None
         if body["assignee_id"]:
-            assignee = await db.get(User, uuid.UUID(body["assignee_id"]))
+            assignee = await db.get(User, required_uuid(body, "assignee_id"))
             if not assignee or not assignee.is_active:
                 raise HTTPException(status_code=404, detail="Исполнитель не найден или неактивен")
             if assignee.role not in (UserRole.mentor, UserRole.mzk_manager):
@@ -545,8 +537,7 @@ async def upload_task_evidence(
     file: UploadFile = File(...),
     requirement: str | None = Form(None),
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
     task = await db.get(StudentTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
@@ -602,8 +593,7 @@ async def list_task_evidence(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
     task = await db.get(StudentTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
@@ -621,8 +611,7 @@ async def delete_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "tasks", Action.manage)
     result = await db.execute(
         select(StudentTask).options(joinedload(StudentTask.assignee)).where(StudentTask.id == task_id)
     )

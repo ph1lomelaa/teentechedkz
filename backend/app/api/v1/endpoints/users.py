@@ -9,6 +9,7 @@ import uuid
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.core.deps import CurrentUser, AdminOnly
+from app.core.permissions import Action, require_access
 from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
 from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
@@ -87,8 +88,7 @@ async def list_users(
     role: str | None = None,
     is_active: bool | None = None,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "users", Action.view)
 
     query = select(User)
     if role:
@@ -199,8 +199,7 @@ async def get_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "users", Action.view)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, Scope, require_access, scope_for
 from app.core.audit import log_change
 from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
@@ -86,7 +87,13 @@ def _timeline_item(
 
 
 def _can_see_student(current_user, student_id: uuid.UUID, mentor_student_ids: set[uuid.UUID]) -> bool:
-    if current_user.role in (UserRole.admin, UserRole.mzk_manager):
+    """Видит ли роль всех студентов или только назначенных.
+
+    Кому какой объём положен — объявлено в реестре (students/view), здесь
+    только применяется. Раньше набор ролей был выписан ещё и тут, третьей
+    копией того же правила.
+    """
+    if scope_for(resource="students", action=Action.view, role=current_user.role) is Scope.all:
         return True
     return student_id in mentor_student_ids
 
@@ -189,8 +196,7 @@ async def find_duplicates(
 ):
     """Возможные дубли: совпадение телефона или транслит-совпадение ФИО.
     «Асель Иванова» и «Assel Ivanova» — скорее всего один человек."""
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    require_access(current_user, "students", Action.manage)
 
     result = await db.execute(
         select(Student).where(Student.is_archived == False)  # noqa: E712
@@ -272,8 +278,7 @@ async def merge_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Недостаточно прав для соединения студентов")
+    require_access(current_user, "students", Action.manage)
 
     if student_id == body.target_student_id:
         raise HTTPException(status_code=400, detail="Нельзя соединить студента сам с собой")
@@ -1042,17 +1047,7 @@ async def create_student(
     # (в т.ч. только что созданные услуги), а lazy-load в async падает.
     result = await db.execute(
         select(Student)
-        .options(
-            selectinload(Student.applications),
-            selectinload(Student.services),
-            selectinload(Student.portfolio_progress),
-            selectinload(Student.documents),
-            selectinload(Student.student_tasks),
-            selectinload(Student.mentor_assignments),
-            selectinload(Student.communication_logs),
-            selectinload(Student.pending_insights),
-            selectinload(Student.notes),
-        )
+        .options(*student_card_loaders())
         .where(Student.id == student.id)
     )
     return _student_to_dict(result.scalar_one())
@@ -1374,17 +1369,9 @@ async def get_student(
         select(Student)
         .where(Student.id == student_id)
         .options(
+            *student_card_loaders(),
             selectinload(Student.contracts).selectinload(Contract.payments),
             selectinload(Student.contracts).selectinload(Contract.mzk_manager),
-            selectinload(Student.applications),
-            selectinload(Student.mentor_assignments),
-            selectinload(Student.services),
-            selectinload(Student.portfolio_progress),
-            selectinload(Student.documents),
-            selectinload(Student.student_tasks),
-            selectinload(Student.communication_logs),
-            selectinload(Student.pending_insights),
-            selectinload(Student.notes),
         )
     )
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
@@ -1525,17 +1512,7 @@ async def update_student(
     # иначе async lazy-load падает с MissingGreenlet
     result = await db.execute(
         select(Student)
-        .options(
-            selectinload(Student.applications),
-            selectinload(Student.services),
-            selectinload(Student.portfolio_progress),
-            selectinload(Student.documents),
-            selectinload(Student.student_tasks),
-            selectinload(Student.mentor_assignments),
-            selectinload(Student.communication_logs),
-            selectinload(Student.pending_insights),
-            selectinload(Student.notes),
-        )
+        .options(*student_card_loaders())
         .where(Student.id == student_id)
     )
     return _student_to_dict(result.scalar_one())
@@ -1547,8 +1524,7 @@ async def archive_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Недостаточно прав для архивирования студентов")
+    require_access(current_user, "students", Action.manage)
     result = await db.execute(select(Student).where(Student.id == student_id))
     student = result.scalar_one_or_none()
     if not student:
@@ -1557,6 +1533,32 @@ async def archive_student(
     await log_change(db, "student", student.id, "is_archived", "false", "true", str(current_user.id))
     await db.commit()
     return {"message": "Студент архивирован"}
+
+
+def student_card_loaders() -> tuple:
+    """Связи, которые обязан иметь загруженным объект перед `_student_to_dict`.
+
+    Живёт рядом с сериализатором намеренно: eager-load — часть его контракта, а
+    не деталь вызывающего кода. Ленивая подгрузка в async-сессии невозможна и
+    падает с MissingGreenlet, то есть 500-й, а не просто лишним запросом.
+
+    Раньше этот список дублировался в каждом вызывающем месте, и в
+    `export/students/{id}` он разъехался: там грузились только applications,
+    services и contracts, а сериализатор доходил до portfolio_progress и ронял
+    выгрузку карточки студента. Один источник правды не даёт списку разойтись
+    снова.
+    """
+    return (
+        selectinload(Student.applications),
+        selectinload(Student.services),
+        selectinload(Student.portfolio_progress),
+        selectinload(Student.documents),
+        selectinload(Student.student_tasks),
+        selectinload(Student.mentor_assignments),
+        selectinload(Student.communication_logs),
+        selectinload(Student.pending_insights),
+        selectinload(Student.notes),
+    )
 
 
 def _student_to_dict(s: Student) -> dict:
@@ -1668,7 +1670,10 @@ def _student_to_dict(s: Student) -> dict:
         "mentor_assignments": [
             {
                 "id": str(ma.id),
-                "mentor_id": str(ma.mentor_id),
+                # Плейсхолдеры ролей заводятся с mentor_id=NULL (см. create_student),
+                # поэтому без guard сюда уезжала строка "None" — фронт принимал её
+                # за настоящий id и считал роль назначенной.
+                "mentor_id": str(ma.mentor_id) if ma.mentor_id else None,
                 "role": ma.role.value,
                 "country_scope": ma.country_scope,
                 "is_active": ma.is_active,

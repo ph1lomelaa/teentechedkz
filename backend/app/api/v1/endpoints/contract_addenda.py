@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.contract import Contract
 from app.models.contract_addendum import AddendumStatus, ContractAddendum
 from app.models.student import Student
@@ -21,11 +22,6 @@ from app.models.student_task import StudentTask, TaskStatus
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/contract-addenda", tags=["contract_addenda"])
-
-
-def _staff(user) -> None:
-    if user.role not in (UserRole.admin, UserRole.mzk_manager):
-        raise HTTPException(status_code=403, detail="Доступ только для персонала")
 
 
 def _business_day(value: date, count: int) -> date:
@@ -72,8 +68,7 @@ async def list_addenda(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.student):
-        raise HTTPException(status_code=403, detail="Access denied")
+    require_access(current_user, "contract_addenda", Action.view)
     student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
@@ -91,7 +86,7 @@ async def create_addendum(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    _staff(current_user)
+    require_access(current_user, "contract_addenda", Action.manage)
     try:
         contract_id = uuid.UUID(body["contract_id"])
         student_id = uuid.UUID(body["student_id"])
@@ -142,7 +137,7 @@ async def create_addendum(
 
 @router.post("/{addendum_id}/send")
 async def send_addendum(addendum_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _staff(current_user)
+    require_access(current_user, "contract_addenda", Action.manage)
     addendum = await db.get(ContractAddendum, addendum_id)
     if not addendum:
         raise HTTPException(status_code=404, detail="Соглашение не найдено")
@@ -174,7 +169,7 @@ async def sign_customer(addendum_id: uuid.UUID, current_user: CurrentUser, db: A
 
 @router.post("/{addendum_id}/sign/company")
 async def sign_company(addendum_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    _staff(current_user)
+    require_access(current_user, "contract_addenda", Action.manage)
     result = await db.execute(select(ContractAddendum).where(ContractAddendum.id == addendum_id))
     addendum = result.scalar_one_or_none()
     if not addendum:

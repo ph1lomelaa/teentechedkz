@@ -8,16 +8,13 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
+from app.core.body import required_uuid
 from app.core.encryption import encrypt, decrypt, mask_iin
 from app.models.guardian import Guardian, GuardianRelation
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/guardians", tags=["guardians"])
-
-
-def _require_admin_mzk(user):
-    if user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/student/{student_id}")
@@ -26,7 +23,7 @@ async def get_guardians(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "guardians", Action.manage)
     result = await db.execute(select(Guardian).where(Guardian.student_id == student_id))
     guardians = result.scalars().all()
     return [_guardian_to_dict(g, reveal_iin=False) for g in guardians]
@@ -38,7 +35,7 @@ async def reveal_iin(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "guardians", Action.manage)
     result = await db.execute(select(Guardian).where(Guardian.id == guardian_id))
     g = result.scalar_one_or_none()
     if not g:
@@ -64,7 +61,7 @@ async def create_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "guardians", Action.manage)
     iin_plain = body.get("iin", "")
     if iin_plain and (not iin_plain.isdigit() or len(iin_plain) != 12):
         raise HTTPException(status_code=422, detail="ИИН должен содержать 12 цифр", headers={"X-Error-Code": "HUMAN_ONLY_FIELD"})
@@ -75,7 +72,7 @@ async def create_guardian(
         relation = GuardianRelation.parent
 
     g = Guardian(
-        student_id=uuid.UUID(body["student_id"]),
+        student_id=required_uuid(body, "student_id"),
         full_name=body.get("full_name", "").strip(),
         iin_encrypted=encrypt(iin_plain) if iin_plain else None,
         phone=body.get("phone", "").strip(),
@@ -96,7 +93,7 @@ async def update_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "guardians", Action.manage)
     result = await db.execute(select(Guardian).where(Guardian.id == guardian_id))
     g = result.scalar_one_or_none()
     if not g:
@@ -127,7 +124,7 @@ async def delete_guardian(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    _require_admin_mzk(current_user)
+    require_access(current_user, "guardians", Action.manage)
     result = await db.execute(select(Guardian).where(Guardian.id == guardian_id))
     g = result.scalar_one_or_none()
     if not g:

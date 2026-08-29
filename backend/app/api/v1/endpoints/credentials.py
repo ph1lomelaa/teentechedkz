@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.core.encryption import encrypt, decrypt
 from app.services.mentor_scope import require_student_access
 from app.models.student import Student
@@ -24,8 +25,6 @@ from app.schemas.university import CredentialOut, CredentialCreate, CredentialUp
 
 router = APIRouter(tags=["credentials"])
 
-STAFF = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-_FORBIDDEN = HTTPException(status_code=403, detail="Access denied", headers={"X-Error-Code": "FORBIDDEN"})
 _NOT_FOUND = HTTPException(status_code=404, detail="Учётные данные не найдены")
 
 
@@ -36,14 +35,12 @@ async def _my_student_id(db: AsyncSession, user) -> uuid.UUID | None:
 
 async def _assert_manage(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     """Owner student or staff-in-scope may manage a student's credentials."""
+    require_access(user, "credentials", Action.manage)
     if user.role == UserRole.student:
         if await _my_student_id(db, user) != student_id:
             raise _NOT_FOUND
         return
-    if user.role in STAFF:
-        await require_student_access(db, student_id, user)
-        return
-    raise _FORBIDDEN
+    await require_student_access(db, student_id, user)
 
 
 def _to_out(c: UniversityCredential) -> CredentialOut:
@@ -73,8 +70,7 @@ async def student_credentials(student_id: uuid.UUID, current_user: CurrentUser, 
 
 @router.get("/portal/credentials", response_model=list[CredentialOut])
 async def my_credentials(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.student:
-        raise _FORBIDDEN
+    require_access(current_user, "portal", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
