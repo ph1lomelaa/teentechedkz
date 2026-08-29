@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 import logging
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 from app.api.v1.router import api_router
@@ -138,19 +140,89 @@ _init_metrics(app)
 app.include_router(api_router)
 
 
-@app.exception_handler(404)
-async def not_found_handler(request: Request, exc):
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Not found", "code": "NOT_FOUND"},
+# Обработка ошибок.
+#
+# Раньше здесь висели два хендлера, зарегистрированных по КОДУ статуса (403 и
+# 404). В Starlette такой хендлер имеет приоритет над всеми остальными и
+# подменяет ответ целиком — вместе с `detail` и заголовками. Из-за этого весь
+# домен ошибок приложения до фронта не доходил: X-Error-Code стирался, а текст
+# заменялся на «Access denied». Пользователь с временным паролем видел «Access
+# denied» вместо «Сначала смените временный пароль», а обработчик смены роли в
+# client.ts не срабатывал ни разу, потому что ждал заголовок, которого уже нет.
+# Пострадавших кодов около десятка: PASSWORD_CHANGE_REQUIRED,
+# AGREEMENT_SIGNATURE_REQUIRED, PERMISSION_REQUIRED, TASK_ACCEPTANCE_FORBIDDEN,
+# ASSIGNEE_AGREEMENT_REQUIRED и другие.
+#
+# Теперь один хендлер на HTTPException: detail и headers проходят как есть.
+
+_DEFAULT_ERROR_CODE = {
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    headers = dict(exc.headers or {})
+    content: dict = {"detail": exc.detail}
+    # `code` в теле — для мест, где читать заголовок неудобно. Источник правды
+    # остаётся заголовком X-Error-Code, поэтому сначала берём его.
+    code = headers.get("X-Error-Code") or _DEFAULT_ERROR_CODE.get(exc.status_code)
+    if code:
+        content["code"] = code
+    return JSONResponse(status_code=exc.status_code, content=content, headers=headers or None)
+
+
+def _cors_headers_for(request: Request) -> dict[str, str]:
+    """CORS-заголовки для ответа, который не пройдёт через CORSMiddleware.
+
+    ServerErrorMiddleware (он и вызывает хендлер Exception) стоит СНАРУЖИ
+    CORSMiddleware, поэтому ответ 500 уходит без CORS-заголовков. В проде фронт
+    и API на одном origin, и это незаметно, а вот локально (5173 → 8001) браузер
+    блокирует такой ответ, axios видит «Network Error» — и error_id, ради
+    которого всё затевалось, до разработчика не доезжает.
+    """
+    origin = request.headers.get("origin")
+    if not origin or origin not in settings.cors_origins:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+    }
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Единая точка для необработанных исключений.
+
+    До этого их не логировал никто: хендлера на Exception не было, ответ уходил
+    дефолтный из Starlette, и разбор каждой 500-ки начинался с археологии по
+    логам докера. Теперь у ошибки есть короткий id — он и в логе, и в теле
+    ответа, и тегом в Sentry. «У меня 500 при сохранении студента» превращается
+    в один grep по id.
+
+    ServerErrorMiddleware после хендлера всё равно пробрасывает исключение
+    дальше, так что Sentry и логи uvicorn своё получают.
+    """
+    error_id = uuid.uuid4().hex[:12]
+    logger.exception(
+        "Необработанная ошибка [%s] %s %s", error_id, request.method, request.url.path
     )
+    try:
+        import sentry_sdk
 
-
-@app.exception_handler(403)
-async def forbidden_handler(request: Request, exc):
+        sentry_sdk.set_tag("error_id", error_id)
+    except Exception:  # noqa: BLE001 — падение телеметрии не должно менять ответ
+        pass
     return JSONResponse(
-        status_code=403,
-        content={"detail": "Access denied", "code": "FORBIDDEN"},
+        status_code=500,
+        content={
+            "detail": "Внутренняя ошибка сервера. Передайте код ошибки в поддержку.",
+            "code": "INTERNAL_ERROR",
+            "error_id": error_id,
+        },
+        headers=_cors_headers_for(request) or None,
     )
 
 
