@@ -116,7 +116,7 @@ CPU/RAM > 90%, диск < 15%, контейнер падает, приближе
 ## 4. UptimeRobot (падение сайта) — 5 минут, без кода
 
 1. Регистрация на **uptimerobot.com** (бесплатно до 50 мониторов).
-2. Add New Monitor → тип **HTTP(s)** → URL `https://teenteched.duckdns.org/health`.
+2. Add New Monitor → тип **HTTP(s)** → URL `https://teenteched.kz/health`.
 3. Интервал 5 мин, добавить контакт (Telegram/почта/пуш в приложение).
 
 Теперь, если прод недоступен, узнаёшь ты, а не пользователи.
