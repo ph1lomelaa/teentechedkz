@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.application import Application, SubmissionStatus
@@ -49,6 +50,8 @@ from app.models.student_task import StudentTask, TaskStatus
 from app.models.student_university import StudentUniversity
 from app.models.university import University
 from app.models.user import User, UserRole
+from app.models.user_checkin import CheckinStatus, UserCheckin
+from app.services.checkins import is_workday, local_now
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,9 @@ ACCOUNTS = [
     ("demo.admin@teenteched.kz", "Демо Администратор", UserRole.admin),
     ("demo.mzk@teenteched.kz", "Демо МЗК-менеджер", UserRole.mzk_manager),
     ("demo.mentor@teenteched.kz", "Айгерим Демо", UserRole.mentor),
+    # Второй ментор — «дубль» для показа гейта регламента: у первого подпись
+    # после демонстрации уже стоит, а гейт нужно показывать на неподписанном.
+    ("demo.mentor2@teenteched.kz", "Дана Демо", UserRole.mentor),
     ("demo.student@teenteched.kz", "Асель Демо", UserRole.student),
 ]
 
@@ -361,14 +367,141 @@ async def _seed_mzk_reviews(db: AsyncSession, mzk: User) -> None:
         )
 
 
+# Посещаемость за прошедшие рабочие дни. Ключ — сотрудник, значение — статусы
+# от самого свежего закрытого дня к более старым; None означает «нет отметки
+# вообще» (день до найма, ничего не рисуем).
+CHECKIN_HISTORY = {
+    # Ментор из основного сценария: почти идеально, одно опоздание.
+    "demo.mentor@teenteched.kz": [
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.late,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+    ],
+    # Второй ментор — проблемный: на нём в сводке админа видно и опоздания,
+    # и пропуски, иначе таблица выглядит одинаково зелёной и ничего не говорит.
+    "demo.mentor2@teenteched.kz": [
+        CheckinStatus.late,
+        CheckinStatus.missed,
+        CheckinStatus.on_time,
+        CheckinStatus.late,
+        CheckinStatus.on_time,
+        CheckinStatus.missed,
+        CheckinStatus.late,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.late,
+    ],
+    "demo.mzk@teenteched.kz": [
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.late,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+        CheckinStatus.on_time,
+    ],
+}
+
+# Во сколько сотрудник отмечался, в минутах от открытия окна. Пропуск времени
+# не имеет: строку создаёт фон, человек кнопку не нажимал.
+_CHECKIN_OFFSET_MINUTES = {
+    CheckinStatus.on_time: 4,
+    CheckinStatus.late: 47,
+}
+
+
+def _past_workdays(today: date, count: int) -> list[date]:
+    """`count` рабочих дней до сегодня, от свежего к старому.
+
+    Сегодняшний день не включаем: его оставляем пустым, чтобы на демо можно
+    было вживую нажать «Я на месте» и показать переход кнопки в отметку.
+    """
+    days: list[date] = []
+    cursor = today - timedelta(days=1)
+    while len(days) < count:
+        if is_workday(cursor):
+            days.append(cursor)
+        cursor -= timedelta(days=1)
+    return days
+
+
+async def _seed_checkins(db: AsyncSession, users: dict[str, User]) -> None:
+    """История чекинов за последние 10 рабочих дней у менторов и МЗК."""
+    tz = local_now(settings.COMPANY_TIMEZONE).tzinfo
+    today = local_now(settings.COMPANY_TIMEZONE).date()
+    days = _past_workdays(today, max(len(v) for v in CHECKIN_HISTORY.values()))
+
+    for email, statuses in CHECKIN_HISTORY.items():
+        user = users[email]
+        for day, status in zip(days, statuses):
+            offset = _CHECKIN_OFFSET_MINUTES.get(status)
+            checked_in_at = None
+            if offset is not None:
+                local_dt = datetime.combine(
+                    day,
+                    datetime.min.time().replace(
+                        hour=settings.CHECKIN_HOUR, minute=settings.CHECKIN_MINUTE
+                    ),
+                    tzinfo=tz,
+                ) + timedelta(minutes=offset)
+                checked_in_at = local_dt.astimezone(timezone.utc)
+
+            existing = (
+                await db.execute(
+                    select(UserCheckin).where(
+                        UserCheckin.user_id == user.id,
+                        UserCheckin.checkin_date == day,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.status = status
+                existing.checked_in_at = checked_in_at
+                continue
+            db.add(
+                UserCheckin(
+                    user_id=user.id,
+                    checkin_date=day,
+                    status=status,
+                    checked_in_at=checked_in_at,
+                )
+            )
+
+    # Сегодня должно быть чисто: если прошлый прогон сида или фоновый цикл уже
+    # что-то записали, отметку за сегодня убираем — иначе кнопка на демо будет
+    # уже нажата и показать сам чекин не получится.
+    for email in CHECKIN_HISTORY:
+        today_row = (
+            await db.execute(
+                select(UserCheckin).where(
+                    UserCheckin.user_id == users[email].id,
+                    UserCheckin.checkin_date == today,
+                )
+            )
+        ).scalar_one_or_none()
+        if today_row is not None:
+            await db.delete(today_row)
+
+
 async def run_demo_seed() -> None:
     async with AsyncSessionLocal() as db:
-        users = {}
-        for email, name, role in ACCOUNTS:
-            users[role if role != UserRole.admin else "admin"] = await _upsert_user(db, email, name, role)
-        mentor = users[UserRole.mentor]
-        mzk = users[UserRole.mzk_manager]
-        portal_user = users[UserRole.student]
+        # Ключ — e-mail, а не роль: менторов двое, по роли второй затёр бы первого.
+        users = {
+            email: await _upsert_user(db, email, name, role) for email, name, role in ACCOUNTS
+        }
+        mentor = users["demo.mentor@teenteched.kz"]
+        mzk = users["demo.mzk@teenteched.kz"]
+        portal_user = users["demo.student@teenteched.kz"]
 
         student = await _upsert_student(db, portal_user)
         await _assign_mentor(db, student, mentor)
@@ -378,6 +511,7 @@ async def run_demo_seed() -> None:
         await _seed_shortlist_and_applications(db, student, mentor)
         await _seed_refund_cases(db, student, mzk)
         await _seed_mzk_reviews(db, mzk)
+        await _seed_checkins(db, users)
 
         await db.commit()
 
