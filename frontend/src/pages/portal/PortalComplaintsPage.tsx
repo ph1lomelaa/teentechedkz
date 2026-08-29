@@ -4,6 +4,7 @@ import { CheckCircle2, Clock3, MessageSquareWarning, Plus, Send, X } from 'lucid
 import { complaintsApi, Complaint, ComplaintKind } from '@/api/complaints'
 import { toast } from '@/hooks/use-toast'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryState } from '@/components/shared/QueryState'
 import { AppButton, EmptyState } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -28,7 +29,7 @@ export const PortalComplaintsPage: React.FC = () => {
   const [creating, setCreating] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'complaints'],
     queryFn: () => complaintsApi.list(),
   })
@@ -70,16 +71,22 @@ export const PortalComplaintsPage: React.FC = () => {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : complaints.length === 0 ? (
-        <EmptyState
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={complaints.length === 0}
+        empty={(
+          <EmptyState
           icon={<MessageSquareWarning className="w-5 h-5" />}
           title="Обращений пока нет"
           description="Если что-то пошло не так или у вас есть идея — напишите нам."
           colorPrefix="p"
         />
-      ) : (
+        )}
+      >
         <div className="mt-6 space-y-2">
           {complaints.map((c) => (
             <button
@@ -99,7 +106,8 @@ export const PortalComplaintsPage: React.FC = () => {
             </button>
           ))}
         </div>
-      )}
+
+      </QueryState>
 
       {creating && <CreateComplaintDialog onClose={() => setCreating(false)} />}
       {selectedId && detail && (

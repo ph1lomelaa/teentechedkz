@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ClipboardList, ChevronRight, CheckCircle2, Clock } from 'lucide-react'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
+import { QueryState } from '@/components/shared/QueryState'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
 import { EmptyState } from '@/components/ui'
@@ -10,7 +11,7 @@ import { EmptyState } from '@/components/ui'
 export const PortalQuestionnairesPage: React.FC = () => {
   const [selectedId, setSelectedId] = useLocalState<string | null>('portal:questionnaires:selected', null)
 
-  const { data: questionnaires = [], isLoading } = useQuery({
+  const { data: questionnaires = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'questionnaires'],
     queryFn: questionnairesApi.mine,
   })
@@ -34,13 +35,17 @@ export const PortalQuestionnairesPage: React.FC = () => {
         </p>
       </div>
 
-      {isLoading ? (
-        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center text-sm text-p-muted">
-          Загрузка анкет…
-        </div>
-      ) : questionnaires.length === 0 ? (
-        <EmptyState icon={<ClipboardList className="w-6 h-6" />} title="Анкет нет" description="Когда ментор отправит анкету, она появится здесь." colorPrefix="p" />
-      ) : (
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={questionnaires.length === 0}
+        empty={(
+          <EmptyState icon={<ClipboardList className="w-6 h-6" />} title="Анкет нет" description="Когда ментор отправит анкету, она появится здесь." colorPrefix="p" />
+        )}
+      >
         <div className="space-y-7">
           {new_questionnaires.length > 0 && (
             <Section
@@ -75,7 +80,8 @@ export const PortalQuestionnairesPage: React.FC = () => {
             </Section>
           )}
         </div>
-      )}
+
+      </QueryState>
 
       {selectedId && (
         <PortalQuestionnaireDialog

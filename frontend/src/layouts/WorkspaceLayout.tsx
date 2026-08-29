@@ -37,6 +37,7 @@ import { usersApi, notificationsApi } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import { useWsEvent } from '@/lib/ws'
 import { cn } from '@/lib/utils'
+import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
 
 interface NavItem {
   label: string
@@ -51,9 +52,15 @@ interface NavGroup {
 
 function getNavGroups(
   studentsNavLabel: string,
-  canReturnToCrm: boolean,
   isAdminOrMzk: boolean,
   isMentor: boolean,
+  /**
+   * Один и тот же раздел значит разное: админ выставляет оценки всем
+   * МЗК-менеджерам, а сам менеджер видит только свой помесячный балл.
+   * Пока подпись была общей, «ОКК МЗК» читалось как управленческий раздел
+   * и для того, кому туда идти смотреть на себя.
+   */
+  mzkQualityLabel: string,
 ): NavGroup[] {
   const baseGroups: NavGroup[] = [
     {
@@ -102,8 +109,11 @@ function getNavGroups(
         { label: 'Возвратные кейсы', path: '/workspace/refund-cases', icon: <Banknote className="h-4 w-4" /> },
         { label: 'Инциденты безопасности', path: '/workspace/security-incidents', icon: <ShieldAlert className="h-4 w-4" /> },
         { label: 'Задачи менторов', path: '/workspace/mentor-tasks', icon: <ListTodo className="h-4 w-4" /> },
-        { label: 'Чекины', path: '/workspace/checkins', icon: <CalendarCheck className="h-4 w-4" /> },
-        { label: 'ОКК МЗК', path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" /> },
+        // «Чекины» — сводка по команде, а не своя отметка: личный чекин живёт
+        // баннером CheckinBanner на «Моём дне». Раньше одно слово значило и то,
+        // и другое.
+        { label: 'Чекины команды', path: '/workspace/checkins', icon: <CalendarCheck className="h-4 w-4" /> },
+        { label: mzkQualityLabel, path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" /> },
         { label: 'Вознаграждение менторов', path: '/workspace/mentor-rewards', icon: <Coins className="h-4 w-4" /> },
       ],
     })
@@ -116,15 +126,6 @@ function getNavGroups(
       group: 'МОТИВАЦИЯ',
       items: [
         { label: 'Моё вознаграждение', path: '/workspace/my-rewards', icon: <Coins className="h-4 w-4" /> },
-      ],
-    })
-  }
-
-  if (canReturnToCrm) {
-    baseGroups.push({
-      group: 'СИСТЕМА',
-      items: [
-        { label: 'Вернуться в CRM', path: '/dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
       ],
     })
   }
@@ -142,15 +143,14 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   // Browsing a specific mentor's workspace (mentor_id filter + preview banner)
   // is an admin/mzk-only capability — only they can look at *someone else's* cabinet.
   const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager'
-  // Getting back to the CRM shell, on the other hand, is available to everyone
-  // who has CRM access at all (admin, mzk_manager, and now mentor) — otherwise
-  // a mentor who opens their own workspace cabinet has no way back.
-  const canReturnToCrm = canPreviewMentor || user?.role === 'mentor'
+  // Возврат в CRM больше не живёт в навигации: он в ShellSwitcher в шапке,
+  // одинаковый в обеих оболочках, и доступен всем, у кого есть доступ к CRM.
   const isPreview = Boolean(mentorId)
   const studentsNavLabel = isPreview ? 'Студенты ментора' : 'Мои студенты'
 
   const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager'
-  const navGroups = getNavGroups(studentsNavLabel, canReturnToCrm, isAdminOrMzk, user?.role === 'mentor')
+  const mzkQualityLabel = user?.role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК'
+  const navGroups = getNavGroups(studentsNavLabel, isAdminOrMzk, user?.role === 'mentor', mzkQualityLabel)
 
   const findActiveNavItem = () => {
     for (const group of navGroups) {
@@ -191,7 +191,6 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   )
 
   const workspaceTo = (path: string) => `${path}${location.search}`
-  const brandDestination = canReturnToCrm ? '/dashboard' : '/workspace'
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -219,23 +218,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const sidebar = (
     <aside aria-label="Навигация кабинета ментора" className="flex h-full w-[248px] max-w-[85vw] shrink-0 flex-col gap-1.5 border-r border-w-line bg-black px-4 py-5">
       <div className="relative flex h-full min-h-0 flex-col px-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <Link
-          to={brandDestination}
-          className="flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent"
-          title={canReturnToCrm ? 'Вернуться в CRM' : 'На главную кабинета'}
-        >
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-w-accent">
-            <GraduationCap className="h-[22px] w-[22px] text-black" strokeWidth={2.2} />
-          </div>
-          <div className="min-w-0">
-            <span className="flex items-center gap-2">
-              <span className="font-display text-base font-black uppercase tracking-wider text-white">TEENTECHED</span>
-            </span>
-            <span className="mt-px block text-[10px] uppercase tracking-[0.22em] text-white/50">
-              Education Hub
-            </span>
-          </div>
-        </Link>
+        <ShellSwitcher current="workspace" accentClass="bg-w-accent" />
 
         <div className="mt-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">КАБИНЕТ</div>
         <nav aria-label="Разделы кабинета" className="flex flex-1 flex-col gap-1 overflow-y-auto">
@@ -320,7 +303,11 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         </>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-w-line bg-w-bg/85 px-3 py-2.5 backdrop-blur-md sm:gap-3 sm:px-5 md:px-8 md:py-4">
+        {/* Шапка и полоса preview липнут вместе: раньше предупреждение о чужом
+            кабинете жило внутри <main> и уезжало вверх при первой прокрутке —
+            дальше человек работал в чужом кабинете без единого напоминания. */}
+        <div className="sticky top-0 z-30">
+        <header className="flex min-h-14 items-center gap-2 border-b border-w-line bg-w-bg/85 px-3 py-2.5 backdrop-blur-md sm:gap-3 sm:px-5 md:px-8 md:py-4">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
@@ -348,31 +335,35 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </div>
         </header>
+        {isPreview && canPreviewMentor && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-w-accentDim/40 bg-w-accent/15 px-3 py-2 backdrop-blur-md sm:px-5 md:px-8">
+            <span className="font-display text-[10px] font-black uppercase tracking-[0.2em] text-w-accentText">
+              Чужой кабинет
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-bold text-w-ink">
+              {selectedMentor?.name || 'выбранный ментор'} · правки сохраняются от вашего аккаунта
+            </span>
+            <button
+              type="button"
+              onClick={() => setMentorFilter('')}
+              className="shrink-0 rounded-ctl border border-w-line bg-w-bg/60 px-2.5 py-1 text-[11px] font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
+            >
+              Выйти
+            </button>
+          </div>
+        )}
+        </div>
 
         <main id="workspace-main" tabIndex={-1} className="mx-auto w-full max-w-[1180px] min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 md:px-8 md:py-7">
+          {/* Кто это и как выйти — уже в липкой полосе над контентом. Здесь
+              остаётся только то, чего в одну строку не сказать: что именно
+              происходит с правками в чужом кабинете. */}
           {isPreview && canPreviewMentor && (
-            <div className="mb-5 rounded-card border border-w-accentDim/40 bg-w-accent/10 p-4">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="font-display text-[11px] font-black uppercase tracking-[0.22em] text-w-accentText">
-                    Preview mode
-                  </div>
-                  <div className="mt-1 text-sm font-bold text-w-ink">
-                    Вы смотрите кабинет ментора: {selectedMentor?.name || 'выбранный ментор'}
-                  </div>
-                  <div className="mt-1 max-w-3xl text-xs leading-5 text-w-muted">
-                    Данные отфильтрованы по этому ментору. Изменения в задачах, встречах и документах выполняются от вашего аккаунта и сохраняются в общей базе. Чат выбранного ментора открыт только для просмотра, если backend помечает диалог как read-only.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setMentorFilter('')}
-                  className="w-fit rounded-ctl border border-w-line px-3 py-2 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
-                >
-                  Сбросить preview
-                </button>
-              </div>
-            </div>
+            <p className="mb-5 max-w-3xl border-l-2 border-w-accentDim/50 pl-3 text-xs leading-5 text-w-muted">
+              Данные отфильтрованы по выбранному ментору. Изменения в задачах, встречах и
+              документах выполняются от вашего аккаунта и сохраняются в общей базе. Чат
+              открыт только для просмотра.
+            </p>
           )}
           <React.Suspense
             fallback={(

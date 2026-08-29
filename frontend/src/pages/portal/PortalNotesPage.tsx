@@ -4,6 +4,7 @@ import { ScrollText, ChevronLeft, Search, X, Download } from 'lucide-react'
 import { portalNotesApi, PortalNote } from '@/api/portalNotes'
 import { portalApi } from '@/api/portal'
 import { Markdown } from '@/components/shared/Markdown'
+import { QueryState } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
@@ -48,7 +49,7 @@ export const PortalNotesPage: React.FC = () => {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
 
-  const { data: notes = [], isLoading } = useQuery({
+  const { data: notes = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'notes'],
     queryFn: portalNotesApi.list,
   })
@@ -192,16 +193,23 @@ export const PortalNotesPage: React.FC = () => {
         )}
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : notes.length === 0 ? (
-        <EmptyState icon={<ScrollText className="w-5 h-5" />} title="Конспектов пока нет" description="После встреч ментор публикует конспекты — они появятся здесь." colorPrefix="p" />
-      ) : (
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={notes.length === 0}
+        empty={(
+          <EmptyState icon={<ScrollText className="w-5 h-5" />} title="Конспектов пока нет" description="После встреч ментор публикует конспекты — они появятся здесь." colorPrefix="p" />
+        )}
+      >
         <div className="lg:grid lg:grid-cols-[360px_1fr] lg:items-start lg:gap-6">
           <div className={cn(selectedId ? 'hidden lg:block' : 'block')}>{list}</div>
           <div className={cn(selectedId ? 'block' : 'hidden lg:block')}>{detailView}</div>
         </div>
-      )}
+
+      </QueryState>
     </PageShell>
   )
 }

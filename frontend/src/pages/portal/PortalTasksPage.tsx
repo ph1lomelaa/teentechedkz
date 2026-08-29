@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryState } from '@/components/shared/QueryState'
 import { useLocalState } from '@/lib/use-local-state'
 import { SegmentedTabs, EmptyState, PriorityPill, StatusPill, UrgencyBadge } from '@/components/ui'
 import { taskUrgency } from '@/lib/taskUrgency'
@@ -43,7 +44,7 @@ const EMPTY_TAB_TEXT: Record<TaskTab, string> = {
 }
 
 export const PortalTasksPage: React.FC = () => {
-  const { data: tasks = [], isLoading } = useQuery({
+  const { data: tasks = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'tasks'],
     queryFn: roadmapApi.myTasks,
   })
@@ -129,17 +130,23 @@ export const PortalTasksPage: React.FC = () => {
         </div>
       )}
 
-      {isLoading ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : tasks.length === 0 ? (
-        <EmptyState
-          icon={<CheckSquare className="w-5 h-5" />}
-          title="Задач пока нет"
-          description="Задачи появятся, когда ментор назначит вам дорожную карту."
-          colorPrefix="p"
-          className="anim-view-in"
-        />
-      ) : (
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={tasks.length === 0}
+        empty={(
+          <EmptyState
+            icon={<CheckSquare className="w-5 h-5" />}
+            title="Задач пока нет"
+            description="Задачи появятся, когда ментор назначит вам дорожную карту."
+            colorPrefix="p"
+            className="anim-view-in"
+          />
+        )}
+      >
         <>
           <SegmentedTabs
             className="mb-5"
@@ -185,7 +192,7 @@ export const PortalTasksPage: React.FC = () => {
             </div>
           )}
         </>
-      )}
+      </QueryState>
 
       {openQ && (
         <PortalQuestionnaireDialog questionnaireId={openQ} open onClose={() => setOpenQ(null)} />

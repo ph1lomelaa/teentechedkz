@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { authApi } from '@/api/auth'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { getDefaultPath } from '@/lib/authRouting'
 
 /**
  * Смена пароля. Обязательна при первом входе (must_change_password) —
@@ -34,12 +35,10 @@ export const ChangePasswordPage: React.FC = () => {
     try {
       await authApi.changePassword(current, next)
       await refreshUser()
-      const destination = user?.role === 'student'
-        ? '/portal'
-        : user?.role === 'admin' || user?.role === 'mzk_manager'
-          ? '/dashboard'
-          : '/workspace'
-      navigate(destination, { replace: true })
+      // Куда вести после смены пароля решает getDefaultPath, а не эта страница:
+      // раньше здесь лежала своя копия правила, и она расходилась с логином —
+      // ментор попадал то в CRM, то в кабинет, в зависимости от способа входа.
+      navigate(getDefaultPath(user!.role), { replace: true })
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
       setError(detail || 'Не удалось сменить пароль')

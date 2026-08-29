@@ -1,13 +1,29 @@
 import { UserRole } from '@/types'
 
-/** Single source of truth for "where does this role land by default". */
+/**
+ * Единственная правда о том, куда роль попадает по умолчанию.
+ *
+ * Правило границы двух оболочек: кабинет отвечает на вопрос «что мне сегодня
+ * делать?», CRM — на вопрос «что происходит в компании?». Поэтому исполнители
+ * (ментор, МЗК-менеджер) приземляются в кабинет на «Мой день», а админ — в CRM,
+ * где его работа и начинается: канбан пайплайна.
+ *
+ * Раньше у ментора было три разных «дома» в зависимости от того, как он вошёл:
+ * обычный логин вёл в CRM на /my-students, смена временного пароля — на
+ * /workspace, подпись регламента — на /workspace/my-day. Три пути в одну роль
+ * читались как «интерфейс поменялся сам».
+ */
 export function getDefaultPath(role: UserRole): string {
   switch (role) {
     case 'admin':
-    case 'mzk_manager':
       return '/dashboard'
+    case 'mzk_manager':
     case 'mentor':
-      return '/my-students'
+      // «Мой день» собирает просрочки, горящий SLA, встречи и неподписанные
+      // регламенты. Эндпоинт /workspace/my-day отдаёт данные обеим ролям:
+      // он скоуплен через own_only=True, а тот учитывает и назначения ментором,
+      // и договоры, где человек указан МЗК-менеджером.
+      return '/workspace/my-day'
     case 'student':
       return '/portal'
     default:
@@ -19,11 +35,11 @@ export function getDefaultPath(role: UserRole): string {
  * Куда вернуть человека после экрана-«ворот» (подпись регламента), когда
  * неизвестно, откуда он пришёл.
  *
- * Отличается от getDefaultPath только для ментора: подпись регламента — часть
- * его рабочего дня, и после неё он должен оказаться в воркспейсе, а не в
- * CRM-разделе «Мои студенты».
+ * Сейчас совпадает с getDefaultPath для всех ролей — отдельное имя оставлено
+ * потому, что это другой вопрос: не «где твой дом», а «куда тебя вернуть после
+ * принудительного экрана». Если однажды они разойдутся, разойдутся здесь.
  */
 export function workspaceHomeFor(role: UserRole | undefined): string {
   if (!role) return '/'
-  return role === 'mentor' ? '/workspace/my-day' : getDefaultPath(role)
+  return getDefaultPath(role)
 }

@@ -62,6 +62,9 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const [newTaskStage, setNewTaskStage] = useState<RoadmapStage | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
+  const [subtaskParent, setSubtaskParent] = useState<RoadmapTask | null>(null)
+  const [subtaskTitle, setSubtaskTitle] = useState('')
+  const [deleteTask, setDeleteTask] = useState<RoadmapTask | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     const current =
@@ -85,15 +88,31 @@ export const WorkspaceRoadmapEditor: React.FC<{
       } })?.response
       const detail = response?.data?.detail
       const missingRoles = typeof detail === 'object' ? detail.missing_roles : undefined
+      // 404 — почти всегда устаревший экран: этап или задачу уже удалили в
+      // другой вкладке. Сырое «Not found» от API пользователю ничего не
+      // объясняет, поэтому пишем причину и перечитываем roadmap.
+      const isStale = response?.status === 404
       toast({
         title: response?.headers?.['x-error-code'] === 'STAGE_REQUIRED_TEAM_INCOMPLETE'
           ? 'Этап ещё нельзя начать'
-          : 'Не удалось обновить этап',
-        description: missingRoles?.length
-          ? `Не допущены роли: ${missingRoles.join(', ')}`
-          : typeof detail === 'object' ? detail.message : detail,
+          : isStale
+            ? 'Данные устарели'
+            : 'Не удалось обновить этап',
+        description: isStale
+          ? 'Этап или задача уже изменены. Обновляем список.'
+          : missingRoles?.length
+            ? `Не допущены роли: ${missingRoles.join(', ')}`
+            : typeof detail === 'object' ? detail.message : detail,
         variant: 'destructive',
       })
+      if (isStale) {
+        try {
+          const fresh = await roadmapApi.getRoadmap(roadmap.id)
+          withViewTransition(() => onChanged(fresh))
+        } catch {
+          /* следующий рефетч восстановит состояние */
+        }
+      }
     } finally {
       setBusy(false)
     }
@@ -184,20 +203,25 @@ export const WorkspaceRoadmapEditor: React.FC<{
       due_date: newTaskDueDate || null,
     }))
   }
-  const addSubtask = (t: RoadmapTask) => {
-    const title = window.prompt('Название подзадачи')?.trim()
-    if (title) run(() => roadmapApi.createSubtask(t.id, title))
+  const openAddSubtask = (t: RoadmapTask) => {
+    setSubtaskParent(t)
+    setSubtaskTitle('')
+  }
+  const submitAddSubtask = () => {
+    const title = subtaskTitle.trim()
+    const parent = subtaskParent
+    if (!title || !parent) return
+    setSubtaskParent(null)
+    run(() => roadmapApi.createSubtask(parent.id, title))
   }
   const removeTask = async (t: RoadmapTask) => {
-    if (busy || !window.confirm('Удалить задачу?')) return
-    setBusy(true)
-    try {
+    setDeleteTask(null)
+    // Через общий run: раньше свой try/finally глотал ошибку, и удаление уже
+    // удалённой задачи всплывало сырым «Not found» из соседнего обработчика.
+    run(async () => {
       await roadmapApi.deleteTask(t.id)
-      const rm = await roadmapApi.getRoadmap(roadmap.id)
-      if (rm) withViewTransition(() => onChanged(rm))
-    } finally {
-      setBusy(false)
-    }
+      return roadmapApi.getRoadmap(roadmap.id)
+    })
   }
   const removeSubtask = async (subId: string) => {
     if (busy) return
@@ -302,8 +326,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
                         onToggle={() => toggleTask(t)}
                         onToggleVisibility={() => toggleTaskVisibility(t)}
                         onToggleSub={toggleSubtask}
-                        onAddSub={() => addSubtask(t)}
-                        onRemove={() => removeTask(t)}
+                        onAddSub={() => openAddSubtask(t)}
+                        onRemove={() => setDeleteTask(t)}
                         onRemoveSub={removeSubtask}
                         onOpenQuestionnaire={() => setQTask({ id: t.id, title: t.title })}
                         onApproveReview={() => reviewTask(t, 'approve')}
@@ -439,6 +463,72 @@ export const WorkspaceRoadmapEditor: React.FC<{
             onClick={submitAddTask}
           >
             Создать задачу
+          </AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Подзадача и удаление — свои диалоги вместо window.prompt/confirm:
+        системные окна игнорируют тему платформы и выпадают из вёрстки. */}
+    <Dialog open={Boolean(subtaskParent)} onOpenChange={(o) => !o && setSubtaskParent(null)}>
+      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Новая подзадача</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            Внутри задачи «{subtaskParent?.title}».
+          </DialogDescription>
+        </DialogHeader>
+        <div>
+          <Label className="text-w-muted">Название</Label>
+          <Input
+            value={subtaskTitle}
+            onChange={(e) => setSubtaskTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && subtaskTitle.trim()) submitAddSubtask()
+            }}
+            placeholder="Что нужно сделать"
+            className="mt-1 border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+            autoFocus
+          />
+        </div>
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setSubtaskParent(null)}>
+            Отмена
+          </AppButton>
+          <AppButton
+            colorPrefix="w"
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={!subtaskTitle.trim() || busy}
+            onClick={submitAddSubtask}
+          >
+            Добавить
+          </AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={Boolean(deleteTask)} onOpenChange={(o) => !o && setDeleteTask(null)}>
+      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Удалить задачу?</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            «{deleteTask?.title}» и её подзадачи будут удалены безвозвратно.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setDeleteTask(null)}>
+            Отмена
+          </AppButton>
+          <AppButton
+            colorPrefix="w"
+            variant="danger"
+            size="sm"
+            className="active:scale-[0.98]"
+            disabled={busy}
+            onClick={() => deleteTask && removeTask(deleteTask)}
+          >
+            Удалить
           </AppButton>
         </DialogFooter>
       </DialogContent>

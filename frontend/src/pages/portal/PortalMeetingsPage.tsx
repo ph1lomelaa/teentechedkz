@@ -4,6 +4,7 @@ import { CalendarDays, Video, FileText, PlayCircle, Download, Clock3 } from 'luc
 import { meetingsApi, Meeting } from '@/api/meetings'
 import { portalApi } from '@/api/portal'
 import { PortalMonthCalendar } from '@/components/portal/PortalMonthCalendar'
+import { QueryState } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
@@ -45,7 +46,7 @@ function statusTone(status: Meeting['status']) {
 export const PortalMeetingsPage: React.FC = () => {
   const [view, setView] = useLocalState<'list' | 'calendar'>('portal:meetings:view', 'list')
 
-  const { data: meetings = [], isLoading } = useQuery({
+  const { data: meetings = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'meetings'],
     queryFn: meetingsApi.myMeetings,
   })
@@ -98,17 +99,23 @@ export const PortalMeetingsPage: React.FC = () => {
         )}
       </div>
 
-      {isLoading && meetings.length === 0 ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : active.length === 0 ? (
-        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={active.length === 0}
+        empty={(
+          <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
           <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
             <CalendarDays className="h-5 w-5 text-brand" />
           </div>
           <h2 className="mt-4 text-base font-extrabold text-p-text">Встреч пока нет</h2>
           <p className="mt-1.5 text-sm text-p-muted">Ментор назначит встречи — они появятся здесь.</p>
         </div>
-      ) : (
+        )}
+      >
         <>
           {view === 'calendar' ? (
             <PortalMonthCalendar meetings={active} />
@@ -148,7 +155,8 @@ export const PortalMeetingsPage: React.FC = () => {
             </div>
           )}
         </>
-      )}
+      
+      </QueryState>
     </PageShell>
   )
 }

@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryError } from '@/components/shared/QueryState'
 import { StatCard, EmptyState } from '@/components/ui'
 import {
   ClaimCheckbox,
@@ -50,10 +51,20 @@ export const PortalHomePage: React.FC = () => {
   const { user } = useAuth()
   const firstName = user?.name?.split(' ')[0] || 'студент'
 
-  const { data: roadmaps } = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
-  const { data: tasks = [] } = useQuery({ queryKey: ['portal', 'tasks'], queryFn: roadmapApi.myTasks })
-  const { data: meetings = [] } = useQuery({ queryKey: ['portal', 'meetings'], queryFn: meetingsApi.myMeetings })
+  const roadmapsQuery = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
+  const tasksQuery = useQuery({ queryKey: ['portal', 'tasks'], queryFn: roadmapApi.myTasks })
+  const meetingsQuery = useQuery({ queryKey: ['portal', 'meetings'], queryFn: meetingsApi.myMeetings })
   const { data: profile } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
+
+  const roadmaps = roadmapsQuery.data
+  const tasks = tasksQuery.data ?? []
+  const meetings = meetingsQuery.data ?? []
+
+  // Главная собрана из четырёх запросов, и у каждой карточки своё пустое
+  // состояние. Если данные не пришли, экран выглядел как «мне ничего не
+  // назначили» — а это ровно противоположный вывод. Разбирать главную на
+  // четыре независимых блока избыточно: достаточно честно сказать один раз.
+  const failed = [roadmapsQuery, tasksQuery, meetingsQuery].find((q) => q.isError)
 
   // Заявки о выполнении прямо с главной + live-вердикты ментора
   const { claim, unclaim } = useTaskClaim()
@@ -92,6 +103,19 @@ export const PortalHomePage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {failed && (
+        <QueryError
+          colorPrefix="p"
+          error={failed.error}
+          className="mb-6"
+          onRetry={() => {
+            roadmapsQuery.refetch()
+            tasksQuery.refetch()
+            meetingsQuery.refetch()
+          }}
+        />
+      )}
 
       {/* Статистика */}
       <div className="mb-6 grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-4">

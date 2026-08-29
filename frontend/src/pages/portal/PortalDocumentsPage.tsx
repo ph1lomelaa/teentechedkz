@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Download, FileSignature, FileText, Plus, Trash2, X } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryState } from '@/components/shared/QueryState'
+import { toast } from '@/hooks/use-toast'
 import { documentsApi } from '@/api/documents'
 import { DOC_TYPE_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
@@ -14,6 +16,11 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
 }
 
+/** Одна правда об ограничениях загрузки: подпись под кнопкой, текст ошибки и
+ *  сам `accept` должны совпадать — раньше они жили в трёх разных строках. */
+const UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp'
+const UPLOAD_LIMITS_HINT = 'PDF, JPG, PNG или WebP · до 25 МБ'
+
 export const PortalDocumentsPage: React.FC = () => {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -24,7 +31,7 @@ export const PortalDocumentsPage: React.FC = () => {
   const [fullName, setFullName] = useState('')
   const { user } = useAuth()
 
-  const { data: docs = [], isLoading } = useQuery({
+  const { data: docs = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'documents'],
     queryFn: documentsApi.myDocuments,
   })
@@ -32,13 +39,19 @@ export const PortalDocumentsPage: React.FC = () => {
   const uploadMutation = useMutation({
     mutationFn: (file: File) => documentsApi.portalUpload(file),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] }),
-    onError: () => alert('Не удалось загрузить файл (разрешены PDF, JPG, PNG, WebP до 25 МБ)'),
+    onError: () =>
+      toast({
+        title: 'Файл не загрузился',
+        description: UPLOAD_LIMITS_HINT,
+        variant: 'destructive',
+      }),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => documentsApi.portalDelete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] }),
-    onError: () => alert('Не удалось удалить документ'),
+    onError: () =>
+      toast({ title: 'Документ не удалился', description: 'Попробуйте ещё раз.', variant: 'destructive' }),
   })
 
   const signMutation = useMutation({
@@ -101,7 +114,7 @@ export const PortalDocumentsPage: React.FC = () => {
         ref={fileRef}
         type="file"
         className="hidden"
-        accept=".pdf,.jpg,.jpeg,.png,.webp"
+        accept={UPLOAD_ACCEPT}
         onChange={(e) => {
           const f = e.target.files?.[0]
           if (f) uploadMutation.mutate(f)
@@ -115,11 +128,17 @@ export const PortalDocumentsPage: React.FC = () => {
           Документы
         </h4>
 
-        {isLoading ? (
-          <p className="text-sm text-p-muted">Загрузка…</p>
-        ) : docs.length === 0 ? (
-          <EmptyState icon={<FileText className="w-5 h-5" />} title="Документов пока нет" description="Загрузите свои документы или дождитесь, пока ментор поделится ими." colorPrefix="p" />
-        ) : (
+        <QueryState
+          colorPrefix="p"
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={docs.length === 0}
+          empty={(
+            <EmptyState icon={<FileText className="w-5 h-5" />} title="Документов пока нет" description="Загрузите свои документы или дождитесь, пока ментор поделится ими." colorPrefix="p" />
+          )}
+        >
           <div className="space-y-2">
             {docs.map((d, i) => (
               <div key={d.id} className={cn('flex flex-wrap items-center gap-3.5 rounded-panel border border-p-line bg-transparent p-3.5 transition hover:border-p-accent-dim hover:bg-p-panel2', d.signature_status === 'pending' ? 'border-l-4 border-l-p-accent' : '', i < docs.length - 1 ? 'mb-2.5' : '')}>
@@ -161,7 +180,8 @@ export const PortalDocumentsPage: React.FC = () => {
               </div>
             ))}
           </div>
-        )}
+
+        </QueryState>
 
         <button
           type="button"
@@ -171,6 +191,10 @@ export const PortalDocumentsPage: React.FC = () => {
         >
           <Plus className="h-3.5 w-3.5" /> {uploadMutation.isPending ? 'Загрузка…' : 'Добавить документ'}
         </button>
+        {/* Ограничения — до попытки, а не в сообщении об ошибке после неё. */}
+        <p className="mt-2 text-center text-[11px] text-p-muted2">
+          {UPLOAD_LIMITS_HINT}
+        </p>
       </div>
 
       {signatureDoc && (

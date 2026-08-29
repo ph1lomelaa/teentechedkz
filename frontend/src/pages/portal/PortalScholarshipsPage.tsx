@@ -2,6 +2,7 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Award } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryState } from '@/components/shared/QueryState'
 import { EmptyState } from '@/components/ui'
 
 interface Scholarship {
@@ -22,7 +23,7 @@ async function fetchScholarships(countryId?: string): Promise<Scholarship[]> {
 }
 
 export const PortalScholarshipsPage: React.FC = () => {
-  const { data: scholarships = [], isLoading } = useQuery({
+  const { data: scholarships = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'scholarships'],
     queryFn: () => fetchScholarships(),
   })
@@ -32,11 +33,17 @@ export const PortalScholarshipsPage: React.FC = () => {
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Стипендии</h1>
 
-      {isLoading ? (
-        <div className="text-center py-12 text-p-muted">Загрузка...</div>
-      ) : scholarships.length === 0 ? (
-        <EmptyState icon={<Award className="w-5 h-5" />} title="Стипендии пока не добавлены" description="Проверьте позже или обратитесь к менторам для получения информации." colorPrefix="p" />
-      ) : (
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={scholarships.length === 0}
+        empty={(
+          <EmptyState icon={<Award className="w-5 h-5" />} title="Стипендии пока не добавлены" description="Проверьте позже или обратитесь к менторам для получения информации." colorPrefix="p" />
+        )}
+      >
         <div className="space-y-4">
           {scholarships.map((scholarship) => (
             <div key={scholarship.id} className="rounded-card border border-p-line bg-p-panel p-6">
@@ -70,7 +77,8 @@ export const PortalScholarshipsPage: React.FC = () => {
             </div>
           ))}
         </div>
-      )}
+
+      </QueryState>
     </PageShell>
   )
 }

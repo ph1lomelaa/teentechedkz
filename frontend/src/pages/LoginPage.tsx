@@ -11,6 +11,7 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [showRecovery, setShowRecovery] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -105,11 +106,31 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
+          {/* Самостоятельного сброса пароля пока нет: единственный путь — сотрудник
+              жмёт «сбросить» в карточке студента. Раньше человек об этом нигде не
+              узнавал — на форме была только заявка на новый доступ, а настоящий
+              ответ лежал в FAQ лендинга. */}
           <div className="mt-7 border-t border-white/10 pt-5 text-center text-sm text-white/45">
-            Нет доступа?{' '}
-            <Link to="/apply" className="font-bold text-[#FFD400] underline decoration-[#FFD400]/40 underline-offset-4 hover:decoration-[#FFD400]">
-              Оставить заявку
-            </Link>
+            <button
+              type="button"
+              onClick={() => setShowRecovery((v) => !v)}
+              aria-expanded={showRecovery}
+              className="font-bold text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-white hover:decoration-white/60"
+            >
+              Забыли пароль?
+            </button>
+            {showRecovery && (
+              <p className="mx-auto mt-3 max-w-[320px] text-[13px] leading-relaxed text-white/55">
+                Напишите своему ментору или МЗК-менеджеру — они сбросят пароль, и вы
+                зададите новый при следующем входе.
+              </p>
+            )}
+            <div className="mt-4">
+              Нет доступа?{' '}
+              <Link to="/apply" className="font-bold text-[#FFD400] underline decoration-[#FFD400]/40 underline-offset-4 hover:decoration-[#FFD400]">
+                Оставить заявку
+              </Link>
+            </div>
           </div>
     </AuthShell>
   )

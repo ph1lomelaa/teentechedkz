@@ -2,6 +2,7 @@ import React, { useMemo, useState, useDeferredValue } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { StickyNote, Search, X } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryState } from '@/components/shared/QueryState'
 import { portalImportantNotesApi } from '@/api/portalImportantNotes'
 import { EmptyState } from '@/components/ui'
 
@@ -17,7 +18,7 @@ export const PortalImportantNotesPage: React.FC = () => {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
 
-  const { data: notes = [], isLoading } = useQuery({
+  const { data: notes = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'important-notes'],
     queryFn: portalImportantNotesApi.list,
   })
@@ -34,11 +35,17 @@ export const PortalImportantNotesPage: React.FC = () => {
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Заметки</h1>
 
-      {isLoading ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : notes.length === 0 ? (
-        <EmptyState icon={<StickyNote className="h-5 w-5" />} title="Заметок пока нет" description="Здесь появятся важные заметки, которыми с вами поделится ваш ментор." colorPrefix="p" />
-      ) : (
+      <QueryState
+        colorPrefix="p"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={notes.length === 0}
+        empty={(
+          <EmptyState icon={<StickyNote className="h-5 w-5" />} title="Заметок пока нет" description="Здесь появятся важные заметки, которыми с вами поделится ваш ментор." colorPrefix="p" />
+        )}
+      >
         <div className="space-y-4">
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
@@ -73,7 +80,8 @@ export const PortalImportantNotesPage: React.FC = () => {
             </div>
           )}
         </div>
-      )}
+
+      </QueryState>
       </div>
     </PageShell>
   )

@@ -14,7 +14,6 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,
   Globe,
   BarChart3,
   BookMarked,
@@ -31,6 +30,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -100,13 +100,22 @@ const ADMIN_ONLY_ITEMS: NavItem[] = [
 // a mentor following it would land on a page that 403s immediately.
 // То же и у двух разделов ниже: ОКК показывает МЗК только его собственный балл,
 // вознаграждения ведут админ и МЗК.
-const STAFF_ONLY_ITEMS: NavItem[] = [
-  { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" /> },
-  { label: 'Чекины', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" /> },
-  { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" /> },
-  { label: 'ОКК МЗК', path: '/mzk-quality', icon: <Gauge className="w-4 h-4" /> },
-  { label: 'Вознаграждения', path: '/mentor-rewards', icon: <Award className="w-4 h-4" /> },
-]
+// Подписи двух разделов зависят от роли: «Чекины» — это сводка по команде, а не
+// своя отметка (личный чекин живёт баннером в кабинете), а «ОКК МЗК» для админа
+// раздел управления, для самого МЗК-менеджера — его собственный балл.
+function staffOnlyItems(role: string): NavItem[] {
+  return [
+    { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" /> },
+    { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" /> },
+    { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" /> },
+    {
+      label: role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
+      path: '/mzk-quality',
+      icon: <Gauge className="w-4 h-4" />,
+    },
+    { label: 'Вознаграждения менторов', path: '/mentor-rewards', icon: <Award className="w-4 h-4" /> },
+  ]
+}
 
 function getNavGroups(role: string): NavGroup[] {
   if (role !== 'admin' && role !== 'mzk_manager' && role !== 'mentor') return []
@@ -117,14 +126,16 @@ function getNavGroups(role: string): NavGroup[] {
       ...group,
       items: [
         ...group.items,
-        ...(isStaff ? STAFF_ONLY_ITEMS : []),
+        ...(isStaff ? staffOnlyItems(role) : []),
         ...(role === 'admin' ? ADMIN_ONLY_ITEMS : []),
       ],
     }
   })
 }
 
-function getBreadcrumb(pathname: string): string {
+// Роль нужна ровно затем, чтобы крошка и пункт меню назывались одинаково:
+// у «ОКК МЗК» подпись зависит от того, кто смотрит.
+function getBreadcrumb(pathname: string, role: string): string {
   const map: Record<string, string> = {
     '/dashboard': 'Обзор',
     '/students': 'Общая база студентов',
@@ -144,11 +155,11 @@ function getBreadcrumb(pathname: string): string {
     '/status-inbox': 'Статусы студентов',
     '/complaints': 'Обращения',
     '/mentor-tasks': 'Задачи менторов',
-    '/checkins': 'Чекины',
+    '/checkins': 'Чекины команды',
     '/my-tasks': 'Мои задачи',
     '/refund-cases': 'Возвратные кейсы',
     '/agreements': 'Регламенты',
-    '/mzk-quality': 'ОКК МЗК',
+    '/mzk-quality': role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
     '/mentor-rewards': 'Вознаграждения менторов',
   }
   if (pathname.match(/^\/universities\/[^/]+$/)) return 'Университет'
@@ -164,16 +175,14 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const { user, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [modeOpen, setModeOpen] = useState(false)
   const { theme } = useTheme()
 
   const navGroups = user ? getNavGroups(user.role) : []
-  const breadcrumb = getBreadcrumb(location.pathname)
+  const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
 
   // Закрываем мобильное меню при переходе на другую страницу
   useEffect(() => {
     setMobileOpen(false)
-    setModeOpen(false)
   }, [location.pathname])
 
   // Блокируем прокрутку фона, пока открыт drawer
@@ -206,45 +215,9 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           'lg:static lg:z-auto lg:w-[248px] lg:min-w-[248px] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:transition-none'
         )}
       >
-        {/* Logo / mode switcher */}
+        {/* Логотип + переключатель оболочек (общий с кабинетом) */}
         <div className="relative flex items-center justify-between px-4 py-5 border-b border-white/10">
-          <button
-            type="button"
-            onClick={() => setModeOpen((v) => !v)}
-            className="group flex items-center gap-2.5 text-left flex-1 min-w-0 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-            aria-expanded={modeOpen}
-          >
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-brand">
-              <GraduationCap className="w-[22px] h-[22px] text-black" strokeWidth={2.2} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-white font-display text-sm font-black uppercase tracking-wider block leading-none">
-                TEENTECHED
-              </span>
-              <span className="block mt-1 text-[9px] uppercase tracking-[0.22em] text-white/50">
-                CRM
-              </span>
-            </div>
-            <ChevronDown className="h-4 w-4 text-white/45 transition group-hover:text-white/70 shrink-0" />
-          </button>
-          {modeOpen && (
-            <div className="absolute left-4 right-4 top-[68px] z-20 overflow-hidden rounded-ctl border border-white/10 bg-[#1C1C1C] shadow-xl">
-              <Link
-                to="/dashboard"
-                onClick={() => setModeOpen(false)}
-                className="block border-b border-white/10 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-white/[0.06]"
-              >
-                Общие данные / CRM
-              </Link>
-              <Link
-                to="/workspace"
-                onClick={() => setModeOpen(false)}
-                className="block px-3 py-2.5 text-xs font-bold text-brand transition hover:bg-white/[0.06]"
-              >
-                Кабинет ментора
-              </Link>
-            </div>
-          )}
+          <ShellSwitcher current="crm" accentClass="bg-brand" />
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
