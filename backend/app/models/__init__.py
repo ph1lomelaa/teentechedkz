@@ -8,6 +8,8 @@ from .contract import Contract
 from .contract_addendum import ContractAddendum, AddendumStatus
 from .application import Application
 from .mentor_assignment import MentorAssignment
+from .student_responsibility import ResponsibilityArea, StudentResponsibility
+from .permission_override import PermissionOverride
 from .service import Service
 from .portfolio_progress import PortfolioProgress
 from .country_reference import CountryReference
@@ -74,6 +76,7 @@ __all__ = [
     "StudentInvite",
     "Student", "Guardian", "Contract", "ContractAddendum", "AddendumStatus", "Application",
     "MentorAssignment", "Service", "PortfolioProgress",
+    "StudentResponsibility", "ResponsibilityArea", "PermissionOverride",
     "CountryReference", "ConfidentialNote", "StudentTask", "TaskEvidence",
     "Payment", "Document", "CommunicationLog",
     "PendingInsight", "StatusHistory", "SyncStatus",

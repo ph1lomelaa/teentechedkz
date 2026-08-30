@@ -66,6 +66,7 @@ class Student(Base):
     contracts: Mapped[list["Contract"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     applications: Mapped[list["Application"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     mentor_assignments: Mapped[list["MentorAssignment"]] = relationship(back_populates="student", cascade="all, delete-orphan")
+    responsibilities: Mapped[list["StudentResponsibility"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     services: Mapped[list["Service"]] = relationship(back_populates="student", cascade="all, delete-orphan")
     portfolio_progress: Mapped["PortfolioProgress | None"] = relationship(back_populates="student", uselist=False, cascade="all, delete-orphan")
     confidential_notes: Mapped[list["ConfidentialNote"]] = relationship(back_populates="student", cascade="all, delete-orphan")

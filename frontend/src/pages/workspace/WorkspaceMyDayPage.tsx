@@ -1,8 +1,9 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, MessageSquareWarning, Video } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, FileWarning, MessageSquareWarning, UserCheck, Video } from 'lucide-react'
 import { workspaceApi, WorkspaceMyDayTask } from '@/api/workspace'
+import { AREA_LABELS, responsibilitiesApi } from '@/api/responsibilities'
 import { AppCard, EmptyState, PageHeader } from '@/components/ui'
 import { formatDate } from '@/lib/utils'
 import { CheckinBanner } from '@/components/workspace/CheckinBanner'
@@ -38,6 +39,48 @@ function TaskGroup({ urgency, tasks }: { urgency: keyof typeof URGENCY_META; tas
   )
 }
 
+/**
+ * «Ваши участки» — за что человек отвечает у своих учеников.
+ *
+ * Раньше ментор не мог узнать этого нигде: роль говорила «ментор», а какие
+ * именно участки за ним закреплены у какого ученика — не говорил никто.
+ *
+ * Блок ничего не ограничивает: он отвечает на вопрос «что моё», а не «что мне
+ * можно». Пустой блок не рисуем — если участков нет, строка «участков нет»
+ * только зашумляет экран.
+ */
+function MyResponsibilitiesCard() {
+  const { data } = useQuery({
+    queryKey: ['responsibilities', 'mine'],
+    queryFn: responsibilitiesApi.mine,
+    staleTime: 60_000,
+  })
+
+  if (!data || data.areas.length === 0) return null
+
+  return (
+    <AppCard colorPrefix="w" className="mb-5 p-5">
+      <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink">
+        <UserCheck className="h-4 w-4 text-w-accentText" />
+        Ваши участки · {data.total_students}{' '}
+        {data.total_students === 1 ? 'ученик' : 'учеников'}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {data.areas.map((entry) => (
+          <span
+            key={entry.area}
+            className="rounded-pill border border-w-line bg-w-panel px-3 py-1.5 text-xs font-bold text-w-ink"
+            title={entry.students.map((s) => s.student_name).filter(Boolean).join(', ')}
+          >
+            {AREA_LABELS[entry.area]} · {entry.students.length}
+          </span>
+        ))}
+      </div>
+    </AppCard>
+  )
+}
+
+
 export const WorkspaceMyDayPage: React.FC = () => {
   const { data, isLoading } = useQuery({
     queryKey: ['workspace', 'my-day'],
@@ -63,6 +106,8 @@ export const WorkspaceMyDayPage: React.FC = () => {
       />
 
       <CheckinBanner />
+
+      <MyResponsibilitiesCard />
 
       {isLoading ? (
         <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div>

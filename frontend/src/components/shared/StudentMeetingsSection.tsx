@@ -16,6 +16,7 @@ import { notesApi } from '@/api/notes'
 import { tasksApi } from '@/api/index'
 import { FollowUpReviewDialog } from '@/components/shared/FollowUpReviewDialog'
 import type { MeetingFollowUpDraft } from '@/api/meetings'
+import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Запланирована',
@@ -213,9 +214,10 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
     <>
     <AccordionItem value="meetings" className="border border-gray-200 rounded-card px-4">
       <AccordionTrigger className="text-base font-semibold">
-        <span className="flex items-center gap-2">
+        <span className="flex flex-wrap items-center gap-2">
           <CalendarDays className="w-4 h-4 text-gray-500" />
           Встречи
+          <ResponsibilityBadge studentId={studentId} area="meetings" />
           <Badge variant="outline" className="ml-1 text-[10px] font-medium text-gray-500">
             {meetings.length}
           </Badge>

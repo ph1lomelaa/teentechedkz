@@ -39,6 +39,8 @@ import { syncApi } from '@/api/sync'
 import { notionApi, type NotionComparisonRow } from '@/api/notion'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection'
+import { StudentResponsibilitiesSection } from '@/components/shared/StudentResponsibilitiesSection'
+import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
 import { StudentMeetingsSection } from '@/components/shared/StudentMeetingsSection'
 import { DocVisibilityToggle } from '@/components/shared/DocVisibilityToggle'
 import { StudentChatSection } from '@/components/shared/StudentChatSection'
@@ -558,8 +560,8 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
 export const StudentCardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
-  const { canAccess, hasRole } = useAuth()
-  const canEditContract = hasRole('admin', 'mzk_manager')
+  const { can, hasRole } = useAuth()
+  const canEditContract = can('contracts', 'manage')
 
   const [editOpen, setEditOpen] = useState(false)
   const [editService, setEditService] = useState<Service | null>(null)
@@ -611,31 +613,31 @@ export const StudentCardPage: React.FC = () => {
   const { data: mzkManagers = [] } = useQuery({
     queryKey: ['users', 'mzk_manager'],
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
-    enabled: hasRole('admin', 'mzk_manager'),
+    enabled: can('users', 'view'),
   })
 
   const { data: history = [] } = useQuery({
     queryKey: ['history', 'student', id],
     queryFn: () => historyApi.list({ entity_type: 'student', entity_id: id! }),
-    enabled: !!id && (hasRole('admin', 'mzk_manager', 'mentor')),
+    enabled: !!id && can('status_history', 'view'),
   })
 
   const { data: timelineData } = useQuery({
     queryKey: ['student-timeline', id],
     queryFn: () => studentsApi.timeline(id!, { limit: 80 }),
-    enabled: !!id && (hasRole('admin', 'mzk_manager', 'mentor')),
+    enabled: !!id && can('students', 'view'),
   })
 
   const { data: intake } = useQuery({
     queryKey: ['intake', 'student', id],
     queryFn: () => syncApi.studentIntake(id!),
-    enabled: !!id && hasRole('admin', 'mzk_manager'),
+    enabled: !!id && can('sync', 'manage'),
   })
 
   const { data: notion } = useQuery({
     queryKey: ['notion', 'student', id],
     queryFn: () => notionApi.studentNotion(id!),
-    enabled: !!id && hasRole('admin', 'mzk_manager'),
+    enabled: !!id && can('notion', 'manage'),
   })
 
   const updateContractFieldMutation = useMutation({
@@ -713,7 +715,7 @@ export const StudentCardPage: React.FC = () => {
   const { data: telegramChat } = useQuery({
     queryKey: ['telegram-chat', 'student', id],
     queryFn: () => telegramApi.getForStudent(id!),
-    enabled: !!id && hasRole('admin', 'mzk_manager'),
+    enabled: !!id && can('telegram_chats', 'view'),
   })
 
   const { data: telegramMessages = [] } = useQuery({
@@ -1059,7 +1061,7 @@ export const StudentCardPage: React.FC = () => {
                 Конспекты
               </Link>
             </Button>
-            {canAccess('confidential') && (
+            {can('confidential_notes', 'manage') && (
               <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => document.getElementById('student-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
                 <Shield className="w-4 h-4 mr-2" />
                 Заметки
@@ -1135,9 +1137,11 @@ export const StudentCardPage: React.FC = () => {
       </div>
 
       <Accordion type="multiple" defaultValue={['profile', 'shortlist', 'applications', 'services', 'tasks']} className="space-y-2">
+        {/* Команда: МЗК и менторы по специализациям (IELTS, виза, профориентация).
+            Кто чем занимается ПО ПРЕДМЕТУ. Участки работы — в блоке ниже. */}
         <AccordionItem value="responsibles" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Ответственные
+            Команда ученика
           </AccordionTrigger>
           <AccordionContent>
             <div className="space-y-3">
@@ -1203,7 +1207,7 @@ export const StudentCardPage: React.FC = () => {
               >
                 {student.is_mine ? 'Снять с моих' : 'Добавить себя'}
               </Button>
-              {hasRole('admin', 'mzk_manager') && (
+              {can('mentor_assignments', 'manage') && (
                 <div className="rounded-panel border border-p-line bg-p-bg p-3">
                   <div className="mb-2">
                     <p className="text-sm font-medium text-p-text">Назначить ментора</p>
@@ -1251,6 +1255,18 @@ export const StudentCardPage: React.FC = () => {
                 </div>
               )}
             </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Участки работы: кто ведёт встречи, Telegram, заметки, задачи, roadmap.
+            Отдельно от «Команды ученика» выше — там специализация по предмету,
+            здесь зона работы. Ментор по IELTS может вести встречи, а может нет. */}
+        <AccordionItem value="responsibilities" className="border border-p-line rounded-card px-4">
+          <AccordionTrigger className="text-base font-semibold">
+            Кто за что отвечает
+          </AccordionTrigger>
+          <AccordionContent>
+            <StudentResponsibilitiesSection studentId={id!} />
           </AccordionContent>
         </AccordionItem>
 
@@ -1505,14 +1521,14 @@ export const StudentCardPage: React.FC = () => {
         {/* 0. Portal access (staff cockpit for the student's cabinet) */}
 
         {/* 0b. Roadmap control */}
-        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentRoadmapSection studentId={id!} />}
+        {can('roadmaps', 'edit') && <StudentRoadmapSection studentId={id!} />}
 
         {/* 0c. Meetings */}
-        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentMeetingsSection studentId={id!} />}
+        {can('meetings', 'manage') && <StudentMeetingsSection studentId={id!} />}
 
         {/* 0e. Chat with student */}
-        {hasRole('admin', 'mzk_manager', 'mentor') && <PortalAccessSection studentId={id!} />}
-        {hasRole('admin', 'mzk_manager', 'mentor') && <StudentChatSection studentId={id!} />}
+        {can('student_access', 'manage') && <PortalAccessSection studentId={id!} />}
+        {can('chat', 'manage') && <StudentChatSection studentId={id!} />}
 
         {/* 1. Profile */}
         <AccordionItem value="profile" className="border border-p-line rounded-card px-4">
@@ -1521,7 +1537,7 @@ export const StudentCardPage: React.FC = () => {
           </AccordionTrigger>
           <AccordionContent>
             <div className="flex justify-end gap-2 mb-2">
-              {canAccess('all_students') && (
+              {can('students', 'edit') && (
                 <Button variant="outline" size="sm" className="h-8 px-3 text-xs" onClick={() => setEditOpen(true)}>
                   <Edit2 className="w-3 h-3 mr-2" />
                   Редактировать
@@ -1555,7 +1571,7 @@ export const StudentCardPage: React.FC = () => {
               <InfoRow label="Рабочая папка" value={null} />
             )}
 
-            {canAccess('guardians') && (
+            {can('guardians', 'manage') && (
               <div className="mt-5 pt-4 border-t border-p-line">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <h3 className="text-sm font-semibold text-p-text">Родители / Опекуны</h3>
@@ -1582,6 +1598,11 @@ export const StudentCardPage: React.FC = () => {
                               {revealedIins[g.id] ?? g.iin_masked ?? '***'}
                             </TableCell>
                             <TableCell>
+                              {/* Раскрытие ИИН родителя. Решение 30.08.2026:
+                                  оставлено у admin+МЗК как есть; API отдаёт ИИН
+                                  и ментору, обращение пишется в историю
+                                  изменений. Это принятое решение, а не
+                                  забытое расхождение. */}
                               {!revealedIins[g.id] && hasRole('admin', 'mzk_manager') && (
                                 <Button
                                   variant="outline"
@@ -1604,17 +1625,20 @@ export const StudentCardPage: React.FC = () => {
               </div>
             )}
 
-            {canAccess('guardians') && (
+            {can('emergency_contacts', 'manage') && (
               <EmergencyContactsSection studentId={student.id} />
             )}
           </AccordionContent>
         </AccordionItem>
 
         {/* 3. Contract */}
-        {canAccess('finances') && contract && (
+        {can('contracts', 'view') && contract && (
           <AccordionItem value="contract" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
-              Договор
+              <span className="flex flex-wrap items-center gap-2">
+                Договор
+                <ResponsibilityBadge studentId={id!} area="finance" />
+              </span>
             </AccordionTrigger>
             <AccordionContent>
               <EditableInfoRow label="Дата подписания" display={formatDate(contract.signed_date)}
@@ -1659,10 +1683,13 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {/* 4. Finances */}
-        {canAccess('finances') && contract && (
+        {can('finances', 'view') && contract && (
           <AccordionItem value="finances" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
-              Финансы
+              <span className="flex flex-wrap items-center gap-2">
+                Финансы
+                <ResponsibilityBadge studentId={id!} area="finance" />
+              </span>
             </AccordionTrigger>
             <AccordionContent>
               {contract.payments && contract.payments.length > 0 ? (
@@ -1712,7 +1739,10 @@ export const StudentCardPage: React.FC = () => {
         {/* 5. Applications */}
         <AccordionItem value="applications" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Заявки в вузы
+            <span className="flex flex-wrap items-center gap-2">
+              Заявки в вузы
+              <ResponsibilityBadge studentId={id!} area="applications" />
+            </span>
           </AccordionTrigger>
           <AccordionContent>
             {/* Раньше здесь была таблица, которая не показывала вуз вообще —
@@ -1737,7 +1767,7 @@ export const StudentCardPage: React.FC = () => {
                     <TableHead>Дедлайн</TableHead>
                     <TableHead>Результат</TableHead>
                     <TableHead>Заметки</TableHead>
-                    {canAccess('all_students') && <TableHead />}
+                    {can('services', 'manage') && <TableHead />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1755,7 +1785,7 @@ export const StudentCardPage: React.FC = () => {
                         <TableCell className="whitespace-nowrap text-p-muted">{svc.deadline ? formatDate(svc.deadline) : '—'}</TableCell>
                         <TableCell className="max-w-[180px] truncate">{svc.result || '—'}</TableCell>
                         <TableCell className="max-w-[220px] truncate text-p-muted">{svc.notes || '—'}</TableCell>
-                        {canAccess('all_students') && (
+                        {can('services', 'manage') && (
                           <TableCell className="text-right">
                             <Button variant="outline" size="sm" onClick={() => setEditService(svc)}>
                               <Edit2 className="mr-1.5 h-3 w-3" /> Править
@@ -1776,7 +1806,10 @@ export const StudentCardPage: React.FC = () => {
         {/* 7. Portfolio UP */}
         <AccordionItem value="portfolio" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Portfolio UP
+            <span className="flex flex-wrap items-center gap-2">
+              Portfolio UP
+              <ResponsibilityBadge studentId={id!} area="portfolio" />
+            </span>
           </AccordionTrigger>
           <AccordionContent>
             {portfolio ? (
@@ -1878,7 +1911,10 @@ export const StudentCardPage: React.FC = () => {
         {/* 8. Documents */}
         <AccordionItem value="documents" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Документы
+            <span className="flex flex-wrap items-center gap-2">
+              Документы
+              <ResponsibilityBadge studentId={id!} area="documents" />
+            </span>
           </AccordionTrigger>
           <AccordionContent>
             {student.documents && student.documents.length > 0 ? (
@@ -1915,14 +1951,14 @@ export const StudentCardPage: React.FC = () => {
                         <Eye className="w-3.5 h-3.5 mr-1.5" />
                         {documentOpenId === doc.id ? 'Открытие…' : 'Открыть'}
                       </Button>
-                      {hasRole('admin', 'mzk_manager', 'mentor') && (
+                      {can('documents', 'manage') && (
                         <DocVisibilityToggle
                           docId={doc.id}
                           visible={!!doc.visible_to_student}
                           studentId={id!}
                         />
                       )}
-                      {hasRole('admin', 'mzk_manager', 'mentor') && doc.signature_status !== 'signed' && (
+                      {can('documents', 'manage') && doc.signature_status !== 'signed' && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -1938,7 +1974,7 @@ export const StudentCardPage: React.FC = () => {
                           <Check className="h-3 w-3" /> Подписан
                         </span>
                       )}
-                      {hasRole('admin', 'mzk_manager') && (
+                      {can('documents', 'manage') && (
                         <Button
                           variant="outline"
                           size="icon"
@@ -1959,11 +1995,12 @@ export const StudentCardPage: React.FC = () => {
         </AccordionItem>
 
         {/* 9b. Telegram */}
-        {hasRole('admin', 'mzk_manager') && (
+        {can('telegram_chats', 'view') && (
           <AccordionItem value="telegram" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
-              <span className="flex items-center gap-2.5">
+              <span className="flex flex-wrap items-center gap-2.5">
                 Telegram
+                <ResponsibilityBadge studentId={id!} area="telegram" />
                 {telegramChat && telegramChat.status !== 'closed' ? (
                   <span className="text-2xs px-1.5 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
                     {telegramChat.status === 'active' ? 'подключён' : 'на паузе'}
@@ -2007,7 +2044,10 @@ export const StudentCardPage: React.FC = () => {
         {/* 10. Notes */}
         <AccordionItem value="notes" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Конспекты
+            <span className="flex flex-wrap items-center gap-2">
+              Конспекты
+              <ResponsibilityBadge studentId={id!} area="notes" />
+            </span>
           </AccordionTrigger>
           <AccordionContent>
             {student.notes && student.notes.length > 0 ? (
@@ -2051,7 +2091,7 @@ export const StudentCardPage: React.FC = () => {
         </AccordionItem>
 
         {/* 11. Confidential notes */}
-        {canAccess('confidential') && (
+        {can('confidential_notes', 'manage') && (
           <AccordionItem id="student-notes" value="confidential" className="scroll-mt-6 border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
               <div className="flex items-center gap-2">
@@ -2187,7 +2227,10 @@ export const StudentCardPage: React.FC = () => {
         {/* 12. Tasks */}
         <AccordionItem value="tasks" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
-            Задачи
+            <span className="flex flex-wrap items-center gap-2">
+              Задачи
+              <ResponsibilityBadge studentId={id!} area="tasks" />
+            </span>
           </AccordionTrigger>
           <AccordionContent>
             <div className="space-y-2 mb-3">
@@ -2197,7 +2240,7 @@ export const StudentCardPage: React.FC = () => {
                     <Checkbox
                       checked={task.status === 'done'}
                       onCheckedChange={() => toggleTaskMutation.mutate(task)}
-                      disabled={!canAccess('tasks_create') || !['open', 'done'].includes(task.status)}
+                      disabled={!can('tasks', 'manage') || !['open', 'done'].includes(task.status)}
                     />
                     <div className="flex-1">
                       <p className={`text-sm ${task.status === 'done' ? 'line-through text-p-muted' : 'text-p-text'}`}>
@@ -2211,7 +2254,7 @@ export const StudentCardPage: React.FC = () => {
                         </p>
                         <UrgencyBadge dueDate={task.due_date} status={task.status} />
                       </div>
-                      {hasRole('admin') && task.status === 'open' && (
+                      {can('tasks_deadlines', 'manage') && task.status === 'open' && (
                         <Input
                           type="date"
                           value={task.due_date || ''}
@@ -2227,7 +2270,7 @@ export const StudentCardPage: React.FC = () => {
               )}
             </div>
 
-            {canAccess('tasks_create') && (
+            {can('tasks', 'manage') && (
               !addingTask ? (
                 <Button variant="outline" size="sm" onClick={() => setAddingTask(true)}>
                   <Plus className="w-3 h-3 mr-2" />
@@ -2276,7 +2319,7 @@ export const StudentCardPage: React.FC = () => {
                     onChange={(e) => setNewTaskRequiredDocuments(e.target.value)}
                     rows={2}
                   />
-                  {hasRole('admin', 'mzk_manager') && (
+                  {can('tasks_assign_mentor', 'manage') && (
                     <select
                       value={newTaskAssigneeId}
                       onChange={(e) => setNewTaskAssigneeId(e.target.value)}
@@ -2315,7 +2358,7 @@ export const StudentCardPage: React.FC = () => {
         </AccordionItem>
 
         {/* 12. Unified timeline */}
-        {hasRole('admin', 'mzk_manager', 'mentor') && (
+        {can('students', 'view') && (
           <AccordionItem value="timeline" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
               <span className="flex items-center gap-2">
