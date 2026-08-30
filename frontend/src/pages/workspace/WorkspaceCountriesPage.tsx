@@ -3,12 +3,12 @@ import { CountriesCatalog } from '@/components/shared/CountriesCatalog'
 import { useAuth } from '@/contexts/AuthContext'
 
 export const WorkspaceCountriesPage: React.FC = () => {
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   return (
     <CountriesCatalog
       eyebrow="База знаний"
       basePath="/workspace/countries"
-      canManage={hasRole('admin', 'mzk_manager')}
+      canManage={can('countries', 'edit')}
     />
   )
 }

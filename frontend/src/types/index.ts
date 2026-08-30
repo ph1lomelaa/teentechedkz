@@ -53,6 +53,13 @@ export interface User {
     status: 'not_applicable' | 'pending' | 'signed'
     signed_at?: string | null
   }
+  /**
+   * Права роли, «ресурс:действие» — из реестра app/core/permissions.py.
+   * Приезжают одинаково в /auth/me, в ответ логина и в приём инвайта: всё
+   * собирает services/user_payload.py. Необязательное, потому что тот же тип
+   * описывает и пользователя из списка /users, где прав нет.
+   */
+  permissions?: string[]
 }
 
 export interface StudentListItem {

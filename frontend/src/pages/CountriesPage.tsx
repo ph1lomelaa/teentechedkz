@@ -8,12 +8,12 @@ import { useAuth } from '@/contexts/AuthContext'
  * того же экрана. Теперь тот же каталог, что в воркспейсе и портале.
  */
 export const CountriesPage: React.FC = () => {
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   return (
     <CountriesCatalog
       eyebrow="Справочник"
       basePath="/countries"
-      canManage={hasRole('admin', 'mzk_manager')}
+      canManage={can('countries', 'edit')}
     />
   )
 }

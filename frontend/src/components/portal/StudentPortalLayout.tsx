@@ -23,6 +23,7 @@ import {
   Send,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 import { useTheme } from '@/contexts/ThemeContext'
 import { cn } from '@/lib/utils'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
@@ -33,6 +34,13 @@ interface NavItem {
   label: string
   path: string
   icon: React.ReactNode
+  /**
+   * Право из реестра — тот же ключ, что читает роут. У кабинета почти всё
+   * держится на `portal:view`, поэтому проставлены только те разделы, у
+   * которых в реестре есть собственное правило: если студенту закроют,
+   * например, обращения, пункт исчезнет сам, а не останется висеть.
+   */
+  permission?: NavPermission
 }
 
 interface NavGroup {
@@ -44,14 +52,14 @@ const navGroups: NavGroup[] = [
   {
     group: 'МОЙ ПУТЬ',
     items: [
-      { label: 'Главная', path: '/portal', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
-      { label: 'Мой roadmap', path: '/portal/roadmap', icon: <Map className="w-[18px] h-[18px]" /> },
+      { label: 'Главная', path: '/portal', icon: <LayoutDashboard className="w-[18px] h-[18px]" />, permission: ['portal', 'view'] },
+      { label: 'Мой roadmap', path: '/portal/roadmap', icon: <Map className="w-[18px] h-[18px]" />, permission: ['roadmaps', 'view'] },
       // Не в «МАТЕРИАЛЫ»: заявки — это собственный процесс студента, а не
       // справочник. Рядом с roadmap и задачами по смыслу.
-      { label: 'Мои заявки', path: '/portal/applications', icon: <Send className="w-[18px] h-[18px]" /> },
-      { label: 'Задачи', path: '/portal/tasks', icon: <CheckSquare className="w-[18px] h-[18px]" /> },
-      { label: 'Встречи', path: '/portal/meetings', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
-      { label: 'Анкеты', path: '/portal/questionnaires', icon: <ClipboardList className="w-[18px] h-[18px]" /> },
+      { label: 'Мои заявки', path: '/portal/applications', icon: <Send className="w-[18px] h-[18px]" />, permission: ['applications', 'view'] },
+      { label: 'Задачи', path: '/portal/tasks', icon: <CheckSquare className="w-[18px] h-[18px]" />, permission: ['tasks', 'view'] },
+      { label: 'Встречи', path: '/portal/meetings', icon: <CalendarDays className="w-[18px] h-[18px]" />, permission: ['meetings', 'view'] },
+      { label: 'Анкеты', path: '/portal/questionnaires', icon: <ClipboardList className="w-[18px] h-[18px]" />, permission: ['questionnaires', 'view'] },
     ],
   },
   {
@@ -59,24 +67,24 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Конспекты', path: '/portal/notes', icon: <ScrollText className="w-[18px] h-[18px]" /> },
       { label: 'Заметки', path: '/portal/important-notes', icon: <StickyNote className="w-[18px] h-[18px]" /> },
-      { label: 'Документы', path: '/portal/documents', icon: <FileText className="w-[18px] h-[18px]" /> },
-      { label: 'Университеты', path: '/portal/universities', icon: <GraduationCap className="w-[18px] h-[18px]" /> },
-      { label: 'Избранные вузы', path: '/portal/shortlist', icon: <Star className="w-[18px] h-[18px]" /> },
-      { label: 'Страны', path: '/portal/countries', icon: <Globe className="w-[18px] h-[18px]" /> },
+      { label: 'Документы', path: '/portal/documents', icon: <FileText className="w-[18px] h-[18px]" />, permission: ['documents', 'view'] },
+      { label: 'Университеты', path: '/portal/universities', icon: <GraduationCap className="w-[18px] h-[18px]" />, permission: ['universities', 'view'] },
+      { label: 'Избранные вузы', path: '/portal/shortlist', icon: <Star className="w-[18px] h-[18px]" />, permission: ['student_universities', 'manage'] },
+      { label: 'Страны', path: '/portal/countries', icon: <Globe className="w-[18px] h-[18px]" />, permission: ['countries', 'view'] },
     ],
   },
   {
     group: 'КОММУНИКАЦИЯ',
     items: [
-      { label: 'Чат', path: '/portal/chat', icon: <MessageCircle className="w-[18px] h-[18px]" /> },
-      { label: 'Обращения', path: '/portal/complaints', icon: <MessageSquareWarning className="w-[18px] h-[18px]" /> },
+      { label: 'Чат', path: '/portal/chat', icon: <MessageCircle className="w-[18px] h-[18px]" />, permission: ['chat', 'view'] },
+      { label: 'Обращения', path: '/portal/complaints', icon: <MessageSquareWarning className="w-[18px] h-[18px]" />, permission: ['complaints', 'view'] },
       { label: 'Уведомления', path: '/portal/notifications', icon: <Bell className="w-[18px] h-[18px]" /> },
     ],
   },
   {
     group: 'АККАУНТ',
     items: [
-      { label: 'Профиль', path: '/portal/profile', icon: <User className="w-[18px] h-[18px]" /> },
+      { label: 'Профиль', path: '/portal/profile', icon: <User className="w-[18px] h-[18px]" />, permission: ['portal', 'view'] },
     ],
   },
 ]
@@ -100,7 +108,10 @@ function breadcrumbFor(path: string): string {
 }
 
 export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout } = useAuth()
+  const { user, logout, can } = useAuth()
+  // Фильтр добавочный: кабинет и так открыт только студенту, поэтому пункт
+  // может лишь исчезнуть, но не появиться у того, кому он не положен.
+  const visibleGroups = filterNavByPermission(navGroups, can)
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
@@ -146,7 +157,7 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
 
       <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">МЕНЮ СТУДЕНТА</div>
       <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto">
-        {navGroups.flatMap((group) => group.items).map((item) => {
+        {visibleGroups.flatMap((group) => group.items).map((item) => {
           const active = isActivePath(location.pathname, item.path)
           const badge = item.path === '/portal/notifications' ? unreadCount : 0
           return (

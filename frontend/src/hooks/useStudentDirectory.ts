@@ -14,8 +14,10 @@ import { StudentListItem } from '@/types'
  * по student_id и фильтровать на клиенте так же, как в «Общей базе».
  */
 export function useStudentDirectory() {
-  const { hasRole } = useAuth()
-  const isManager = hasRole('admin', 'mzk_manager')
+  const { can } = useAuth()
+  // Решение 30.08.2026: фильтр по ответственному открыт и ментору — это
+  // фильтр выдачи, а не доступ к данным.
+  const isManager = can('users', 'view')
 
   const { data: students = [], isLoading: studentsLoading } = useQuery({
     queryKey: ['student-directory', 'students'],

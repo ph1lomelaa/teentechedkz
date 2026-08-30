@@ -7,7 +7,7 @@ import { MentorRewardsManager } from '@/components/admin/MentorRewardsManager'
  * его строки, — и может подать возражение по санкции (п.6.8).
  */
 export const WorkspaceMentorRewardsPage: React.FC = () => {
-  const { hasRole } = useAuth()
-  const canManage = hasRole('admin') || hasRole('mzk_manager')
+  const { can } = useAuth()
+  const canManage = can('mentor_rewards', 'manage')
   return <MentorRewardsManager colorPrefix="w" canManage={canManage} />
 }

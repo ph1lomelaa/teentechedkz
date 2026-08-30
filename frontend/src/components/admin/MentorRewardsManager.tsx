@@ -60,8 +60,8 @@ export const MentorRewardsManager: React.FC<Props> = ({
   const [note, setNote] = useState('')
   const queryClient = useQueryClient()
   // Ставки — это деньги и регламент: править может только админ.
-  const { hasRole } = useAuth()
-  const isAdmin = hasRole('admin')
+  const { can } = useAuth()
+  const isAdmin = can('reward_rules', 'manage')
   // Подпись собираем из действующих ставок: раньше проценты были вписаны в
   // текст руками и оставались старыми после правки регламента.
   const { stagePct } = useRewardRules()

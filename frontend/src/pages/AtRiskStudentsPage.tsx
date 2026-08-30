@@ -44,9 +44,10 @@ type DuplicatePair = {
 }
 
 export const AtRiskStudentsPage: React.FC = () => {
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   const navigate = useNavigate()
-  const isManager = hasRole('admin', 'mzk_manager')
+  // Слияние дублей и разбор рисков — students:manage, те же admin+МЗК.
+  const isManager = can('students', 'manage')
   const qc = useQueryClient()
 
   const [mergePair, setMergePair] = useState<DuplicatePair | null>(null)

@@ -59,8 +59,8 @@ export const TemplatesPage: React.FC = () => {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const { hasRole } = useAuth()
-  const canImport = hasRole('admin')
+  const { can } = useAuth()
+  const canImport = can('roadmap_templates', 'create')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [only, setOnly] = useState('')
   const {

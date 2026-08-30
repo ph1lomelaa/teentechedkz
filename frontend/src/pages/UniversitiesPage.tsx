@@ -6,13 +6,13 @@ import { useAuth } from '@/contexts/AuthContext'
 // the management affordances only the CRM exposes. Catalog writes are
 // admin/mzk only (a mentor deleting a row removes it for every student).
 export const UniversitiesPage: React.FC = () => {
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   return (
     <UniversitiesCatalog
       eyebrow="Справочник"
       basePath="/universities"
-      canManage={hasRole('admin', 'mzk_manager')}
-      canImport={hasRole('admin')}
+      canManage={can('universities', 'manage')}
+      canImport={can('universities', 'create')}
     />
   )
 }

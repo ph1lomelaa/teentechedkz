@@ -34,8 +34,8 @@ function fmt(iso: string): string {
 }
 
 export const WorkspaceComplaintsPage: React.FC = () => {
-  const { hasRole } = useAuth()
-  const isManager = hasRole('admin', 'mzk_manager')
+  const { can } = useAuth()
+  const isManager = can('complaints', 'manage')
   const [statusFilter, setStatusFilter] = useState<ComplaintStatus | 'all'>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 

@@ -126,6 +126,13 @@ class Rule:
     #: не меняет — она делает расхождение видимым, решение принимается отдельно.
     review: str | None = None
 
+    #: Правило нельзя переопределить из интерфейса. Это не «важное» правило, а
+    #: такое, снятие которого ломает саму возможность управлять системой: право
+    #: админа на настройку прав и пользователей (иначе первый же клик отрезает
+    #: вход в настройки) и кабинет ученика (он принадлежит владельцу, а не
+    #: настраивается). Конструктор не рисует для них переключатель.
+    locked: bool = False
+
     @property
     def key(self) -> tuple[str, Action]:
         return (self.resource, self.action)
@@ -145,12 +152,30 @@ RULES: tuple[Rule, ...] = (
     # ---------------------------------------------------------------- студенты
     Rule("students", _V, STAFF_AND_OWNER, scope=_OWNER_SCOPED,
          extra_rules=(
+             "Таймлайн открыт и ментору — в пределах его студентов, иначе 404 "
+             "по политике нераскрытия — students.py:1081",
              "Архивные студенты скрыты от ментора — students.py:1522",
              "Опекуны и конфиденциальные заметки вырезаются из карточки по роли — students.py:1391",
              "Алерты о выплатах ментору фильтруются по роли — students.py:1469",
          )),
     Rule("students", _M, MANAGERS,
-         extra_rules=("Архивация, слияние дублей и таймлайн — только admin+МЗК — students.py:192,275,1073",)),
+         extra_rules=("Архивация и слияние дублей — только admin+МЗК — students.py:192,275",)),
+
+    # Заведение и правка карточки. Обе ручки не проверяли РОВНО НИЧЕГО — ни
+    # роли, ни принадлежности: портальный аккаунт студента мог править чужую
+    # карточку (ФИО, телефон, GPA, бюджет) прямым вызовом API. Дыра старше
+    # миграции: слепок Этапа 1 сверял «до» и «после», а не «правильно ли».
+    #
+    # Решение 30.08.2026: заводит и правит персонал; ментор — только своих
+    # студентов, студенту закрыто.
+    Rule("students", Action.create, STAFF,
+         extra_rules=("Дубль по телефону отбивается 409 с X-Existing-Id — students.py:975",)),
+    Rule("students", Action.edit, STAFF, scope=_MENTOR_SCOPED,
+         extra_rules=(
+             "Ментор правит только своих: require_student_access отдаёт 404 на "
+             "чужого — students.py:1489",
+             "Правка полей пишется в историю изменений — students.py:1505",
+         )),
 
     Rule("guardians", _M, STAFF, scope=_MENTOR_SCOPED,
          review=_NAME_LIED + ". Ресурс содержит ПДн родителей, включая ИИН",
@@ -158,6 +183,20 @@ RULES: tuple[Rule, ...] = (
 
     Rule("emergency_contacts", _M, STAFF, scope=_MENTOR_SCOPED,
          basis="Регламент МЗК п.3.2, п.3.4"),
+
+    # Зоны ответственности: кто ведёт встречи, Telegram, заметки, задачи и т.д.
+    # у конкретного ученика. Видят все сотрудники — в этом весь смысл: раздел
+    # заведён ровно затем, чтобы перестать гадать, чей это участок. Раздаёт
+    # админ и МЗК-менеджер.
+    #
+    # Ответственность НЕ ограничивает доступ: она не решает, кому можно, — это
+    # дело правил выше. См. докстринг models/student_responsibility.py.
+    Rule("responsibilities", _V, STAFF, scope=_MENTOR_SCOPED),
+    Rule("responsibilities", _M, MANAGERS,
+         extra_rules=(
+             "Один ответственный на зону — уникальность в схеме: "
+             "student_responsibility.py:62",
+         )),
 
     Rule("confidential_notes", _M, STAFF, scope=_MENTOR_SCOPED,
          review="Ментор допущен к конфиденциальным заметкам — проверить, так ли задумано",
@@ -169,7 +208,10 @@ RULES: tuple[Rule, ...] = (
     Rule("student_access", _M, STAFF, scope=_MENTOR_SCOPED,
          extra_rules=("Сброс пароля завершает все сессии студента — student_access.py:285",)),
 
-    Rule("mentor_assignments", _M, STAFF, review=_NAME_LIED,
+    # Решение 30.08.2026: ментор подтягивает коллег на своего ученика сам.
+    # Имя старой функции обещало admin+МЗК, но код пускал ментора; теперь это
+    # осознанный доступ, а не расхождение.
+    Rule("mentor_assignments", _M, STAFF,
          extra_rules=(
              "Назначить можно только ментора или МЗК-менеджера — mentor_assignments.py:156",
              "Замена специалиста требует указания причины — mentor_assignments.py:169",
@@ -182,7 +224,11 @@ RULES: tuple[Rule, ...] = (
          review="Ментор видит финансы целиком — решение продукта, зафиксировано в payments.py:28"),
     Rule("finances", _M, MANAGERS),
 
-    Rule("contracts", _M, STAFF, review=_NAME_LIED),
+    # Решение 30.08.2026: раздел «Договор» ментор видит (он ведёт ученика и
+    # должен знать условия), а суммы и даты правит только управление. До этого
+    # одно право отвечало за оба вопроса, и API пускал ментора на правку.
+    Rule("contracts", _V, STAFF),
+    Rule("contracts", _M, MANAGERS),
     Rule("contract_addenda", _V, STAFF_AND_OWNER,
          extra_rules=("Студент видит только свои допсоглашения — contract_addenda.py:76",)),
     Rule("contract_addenda", _M, MANAGERS,
@@ -231,6 +277,22 @@ RULES: tuple[Rule, ...] = (
              "Свой результат исполнитель правит и без этого права — tasks.py:395",
          )),
 
+    # Операционные права: не «доступ к разделу», а «позволено ли само действие
+    # внутри задач». Жили отдельной системой в deps.PERMISSIONS — во фронт не
+    # ехали, в матрице не показывались, из-за чего два места в карточке ученика
+    # невозможно было перевести на can(). Роли перенесены один в один из
+    # ROLE_PERMISSIONS; error_code сохранён, чтобы не менять контракт ответа.
+    Rule("tasks_assign_mentor", _M, MANAGERS, error_code="PERMISSION_REQUIRED",
+         denied_detail="Недостаточно прав для операции",
+         extra_rules=("Право выбирается по роли НАЗНАЧАЕМОГО, а не вызывающего — tasks.py:191",)),
+    Rule("tasks_assign_mzk", _M, MANAGERS, error_code="PERMISSION_REQUIRED",
+         denied_detail="Недостаточно прав для операции"),
+    Rule("tasks_accept_result", _M, MANAGERS, error_code="PERMISSION_REQUIRED",
+         denied_detail="Недостаточно прав для операции",
+         extra_rules=("Принять собственный результат нельзя никому — tasks.py:43",)),
+    Rule("tasks_deadlines", _M, STAFF, error_code="PERMISSION_REQUIRED",
+         denied_detail="Недостаточно прав для операции"),
+
     Rule("checkins", _V, MANAGERS,
          extra_rules=("Отмечаться обязаны только ментор и МЗК — services/checkins.py:16",)),
 
@@ -268,8 +330,10 @@ RULES: tuple[Rule, ...] = (
              "Студент отмечает свою задачу сам, но только пока роадмап active — roadmaps.py:891",
              "Ревью задачи возможно только из статуса pending — roadmaps.py:608",
          )),
-    Rule("roadmap_templates", _M, STAFF,
-         review="Константа названа TEMPLATE_ADMIN, но включает ментора — roadmaps.py:56"),
+    # Решение 30.08.2026: ментор ведёт roadmap ученика и меняет шаблоны сам.
+    # Константа названа TEMPLATE_ADMIN, но всегда включала ментора — расхождение
+    # разрешено в пользу текущего поведения.
+    Rule("roadmap_templates", _M, STAFF),
     Rule("roadmap_templates", Action.create, ADMIN,
          extra_rules=("Импорт шаблонов из Notion — только admin — roadmaps.py:104",)),
 
@@ -334,7 +398,9 @@ RULES: tuple[Rule, ...] = (
     Rule("universities", Action.create, ADMIN),
     Rule("countries", _V, STAFF_AND_OWNER,
          review="Чтение не проверяет роль вообще — countries.py:35"),
-    Rule("countries", _E, STAFF),
+    # Решение 30.08.2026: справочник общий для всех учеников, случайная правка
+    # задевает всех — редактирует только управление. API пускал и ментора.
+    Rule("countries", _E, MANAGERS),
     Rule("scholarships", _M, STAFF,
          review="Докстринг обещает «Admin/mzk_manager only», код пускает ментора "
                 "— scholarships.py:18,59"),
@@ -363,8 +429,14 @@ RULES: tuple[Rule, ...] = (
 
     # ---------------------------------------------------------------- админское
     Rule("users", _V, STAFF),
-    Rule("users", _M, ADMIN),
+    Rule("users", _M, ADMIN, locked=True),
     Rule("audit", _V, ADMIN),
+
+    # Матрица прав и её редактирование. Заперты оба: сняв это право, админ
+    # отрезал бы себе вход в настройки — и вернуть его было бы уже нечем.
+    Rule("permissions", _V, ADMIN, locked=True),
+    Rule("permissions", _M, ADMIN, locked=True,
+         extra_rules=("Запертые правила переключать нельзя — permissions.py:452",)),
     Rule("agreements", _V, STAFF_AND_OWNER,
          extra_rules=(
              "Скачать можно только опубликованный регламент своей аудитории; "
@@ -375,7 +447,7 @@ RULES: tuple[Rule, ...] = (
 
     # Разделы личного кабинета: только студент. Проверка была продублирована
     # четырнадцать раз в десяти файлах — теперь одно правило.
-    Rule("portal", _V, OWNER),
+    Rule("portal", _V, OWNER, locked=True),
 
     # ---------------------------------------------------------------- рабочий стол
     Rule("workspace", _V, STAFF, scope=_MENTOR_SCOPED,
@@ -400,6 +472,49 @@ CONDITIONAL_RESOURCES = frozenset({
 
 _BY_KEY: dict[tuple[str, Action], Rule] = {r.key: r for r in RULES}
 
+# Переопределения состава ролей, заданные админом в конструкторе.
+#
+# Реестр выше остаётся ДЕФОЛТОМ и списком допустимого: база может изменить
+# только набор ролей у уже описанного правила. Пары, которой здесь нет, из базы
+# не появится — иначе переименование ресурса оставляло бы висеть правило-призрак,
+# который никто не проверяет.
+#
+# Модуль по-прежнему не знает про БД: словарь заполняет
+# `app/services/permission_overrides.py`, который его сюда и приносит. Это то же
+# разделение, что у `agreement_gate_applies`: решение — чистое, поход в базу —
+# снаружи.
+_OVERRIDES: dict[tuple[str, Action], frozenset[UserRole]] = {}
+
+
+def set_overrides(overrides: Mapping[tuple[str, Action], frozenset[UserRole]]) -> None:
+    """Заменить все переопределения разом.
+
+    Именно заменить, а не дополнить: частичное обновление оставляло бы снятое
+    в базе правило действовать в памяти до перезапуска.
+
+    Запертые правила (`Rule.locked`) игнорируются молча — они защищают саму
+    возможность управлять системой, и обойти их через слой данных нельзя.
+    """
+    _OVERRIDES.clear()
+    for key, roles in overrides.items():
+        rule = _BY_KEY.get(key)
+        if rule is None or rule.locked:
+            continue
+        _OVERRIDES[key] = frozenset(roles)
+
+
+def overrides() -> Mapping[tuple[str, Action], frozenset[UserRole]]:
+    """Что сейчас переопределено — для матрицы и диагностики."""
+    return dict(_OVERRIDES)
+
+
+def _roles_for(key: tuple[str, Action]) -> frozenset[UserRole] | None:
+    """Действующий состав ролей: переопределение, иначе значение из кода."""
+    if key in _OVERRIDES:
+        return _OVERRIDES[key]
+    rule = _BY_KEY.get(key)
+    return rule.roles if rule else None
+
 
 def rule_for(resource: str, action: Action) -> Rule | None:
     """Правило или None, если пара (ресурс, действие) не описана."""
@@ -412,8 +527,8 @@ def allows(*, resource: str, action: Action, role: UserRole) -> bool:
     Неописанная пара (ресурс, действие) — это отказ, а не разрешение: реестр,
     молчаливо пропускающий незнакомое, бесполезен как гарантия.
     """
-    rule = _BY_KEY.get((resource, action))
-    return bool(rule and role in rule.roles)
+    roles = _roles_for((resource, action))
+    return bool(roles is not None and role in roles)
 
 
 def scope_for(*, resource: str, action: Action, role: UserRole) -> Scope:
@@ -437,7 +552,7 @@ def require_access(user: User, resource: str, action: Action) -> None:
             detail="Доступ не описан в реестре прав",
             headers={"X-Error-Code": "PERMISSION_UNDEFINED"},
         )
-    if user.role in rule.roles:
+    if user.role in (_roles_for((resource, action)) or frozenset()):
         return
     # Код по умолчанию FORBIDDEN, а не PERMISSION_REQUIRED: это общая конвенция
     # отказа по роли (deps.require_roles, universities._FORBIDDEN и др.), и на неё
@@ -451,9 +566,35 @@ def require_access(user: User, resource: str, action: Action) -> None:
     )
 
 
+def allowed_roles(resource: str, action: Action) -> frozenset[UserRole] | None:
+    """Действующий состав ролей: с учётом переопределения из конструктора.
+
+    `Rule.roles` — это значение из кода, то есть дефолт. Для показа и для
+    записи в историю нужно то, что действует сейчас.
+    """
+    return _roles_for((resource, action))
+
+
 def all_rules() -> tuple[Rule, ...]:
     """Весь реестр — для эндпоинта матрицы."""
     return RULES
+
+
+def granted_for(role: UserRole) -> tuple[str, ...]:
+    """Права роли в виде «ресурс:действие» — то, что уезжает во фронт.
+
+    Плоский список строк, а не дерево: на той стороне вопрос всегда один и тот
+    же — «можно ли roleX сделать action с resource», и `Set.has()` отвечает на
+    него без обхода структуры.
+
+    Скоуп сюда НЕ попадает намеренно. Фронт, умеющий фильтровать по скоупу,
+    стал бы вторым местом, где решается объём выдачи, — а фильтрация живёт в
+    `app/services/mentor_scope.py` и обязана оставаться одна. Права здесь нужны
+    для меню и роутов: показать раздел или нет.
+    """
+    return tuple(
+        f"{rule.resource}:{rule.action.value}" for rule in RULES if role in rule.roles
+    )
 
 
 def resources() -> tuple[str, ...]:

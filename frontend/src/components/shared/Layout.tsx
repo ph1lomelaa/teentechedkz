@@ -25,8 +25,11 @@ import {
   ScrollText,
   Gauge,
   Award,
+  ShieldCheck,
+  UserCheck,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 import { useTheme } from '@/contexts/ThemeContext'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -37,6 +40,15 @@ interface NavItem {
   label: string
   path: string
   icon: React.ReactNode
+  /**
+   * Право из реестра, без которого пункт не показывается: тот же ключ, что
+   * читает `ProtectedRoute` в `App.tsx`. До этого меню и роуты знали о правах
+   * по-разному — пункт прятали, а прямая ссылка продолжала работать.
+   *
+   * Фильтр добавочный: он стоит поверх уже существующего деления на группы и
+   * может только сузить показ, но не расширить.
+   */
+  permission?: NavPermission
 }
 
 interface NavGroup {
@@ -51,49 +63,52 @@ const baseNavGroups: NavGroup[] = [
   {
     group: 'МОИ ДАННЫЕ',
     items: [
-      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" /> },
+      { label: 'Обзор', path: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, permission: ['students', 'view'] },
+      { label: 'Мои студенты', path: '/my-students', icon: <BookOpen className="w-4 h-4" />, permission: ['students', 'view'] },
     ],
   },
   {
     group: 'БАЗА ДАННЫХ',
     items: [
-      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" /> },
-      { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" /> },
+      { label: 'Общая база', path: '/students', icon: <Users className="w-4 h-4" />, permission: ['students', 'view'] },
+      { label: 'Риски', path: '/at-risk', icon: <AlertTriangle className="w-4 h-4" />, permission: ['students', 'view'] },
     ],
   },
   {
     group: 'РАБОТА',
     items: [
-      { label: 'Мои задачи', path: '/my-tasks', icon: <ListTodo className="w-4 h-4" /> },
-      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" /> },
-      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" /> },
-      { label: 'Статусы', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" /> },
-      { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" /> },
+      { label: 'Мои задачи', path: '/my-tasks', icon: <ListTodo className="w-4 h-4" />, permission: ['tasks', 'view'] },
+      { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" />, permission: ['notes', 'manage'] },
+      { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" />, permission: ['telegram_chats', 'view'] },
+      { label: 'Статусы', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
+      { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" />, permission: ['complaints', 'view'] },
     ],
   },
   {
     group: 'СПРАВОЧНИКИ',
     items: [
-      { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" /> },
-      { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" /> },
-      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" /> },
+      { label: 'Университеты', path: '/universities', icon: <GraduationCap className="w-4 h-4" />, permission: ['universities', 'view'] },
+      { label: 'Страны', path: '/countries', icon: <Globe className="w-4 h-4" />, permission: ['countries', 'view'] },
+      { label: 'База знаний', path: '/knowledge-base', icon: <BookMarked className="w-4 h-4" />, permission: ['knowledge', 'view'] },
     ],
   },
   {
     group: 'АДМИНИСТРАЦИЯ',
     items: [
-      { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" /> },
-      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" /> },
+      { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" />, permission: ['finances', 'view'] },
+      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" />, permission: ['roadmap_templates', 'manage'] },
+      { label: 'Кто за что отвечает', path: '/settings/responsibilities', icon: <UserCheck className="w-4 h-4" />, permission: ['responsibilities', 'view'] },
     ],
   },
 ]
 
 const ADMIN_ONLY_ITEMS: NavItem[] = [
   // Все write-эндпоинты регламентов — AdminOnly, поэтому и пункт админский.
-  { label: 'Регламенты', path: '/agreements', icon: <ScrollText className="w-4 h-4" /> },
+  { label: 'Регламенты', path: '/agreements', icon: <ScrollText className="w-4 h-4" />, permission: ['agreements', 'manage'] },
   { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
-  { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" /> },
+  { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" />, permission: ['users', 'manage'] },
+  // Матрица прав: GET /permissions/matrix отдаётся только админу.
+  { label: 'Права доступа', path: '/settings/permissions', icon: <ShieldCheck className="w-4 h-4" />, permission: ['users', 'manage'] },
 ]
 
 // Refund-case endpoints are admin/mzk only, so the nav entry must be too —
@@ -105,15 +120,16 @@ const ADMIN_ONLY_ITEMS: NavItem[] = [
 // раздел управления, для самого МЗК-менеджера — его собственный балл.
 function staffOnlyItems(role: string): NavItem[] {
   return [
-    { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" /> },
-    { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" /> },
-    { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" /> },
+    { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" />, permission: ['tasks', 'manage'] },
+    { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" />, permission: ['checkins', 'view'] },
+    { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" />, permission: ['refund_cases', 'manage'] },
     {
       label: role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
       path: '/mzk-quality',
       icon: <Gauge className="w-4 h-4" />,
+      permission: ['mzk_quality', 'view'],
     },
-    { label: 'Вознаграждения менторов', path: '/mentor-rewards', icon: <Award className="w-4 h-4" /> },
+    { label: 'Вознаграждения менторов', path: '/mentor-rewards', icon: <Award className="w-4 h-4" />, permission: ['mentor_rewards', 'view'] },
   ]
 }
 
@@ -146,6 +162,8 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/statistics': 'Статистика',
     '/finances': 'Финансы',
     '/settings/users': 'Пользователи',
+    '/settings/permissions': 'Права доступа',
+    '/settings/responsibilities': 'Кто за что отвечает',
     '/roadmap-templates': 'Roadmap-шаблоны',
     '/knowledge-base': 'База знаний',
     '/universities': 'Университеты',
@@ -172,12 +190,12 @@ function getBreadcrumb(pathname: string, role: string): string {
 }
 
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout } = useAuth()
+  const { user, logout, can } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
 
-  const navGroups = user ? getNavGroups(user.role) : []
+  const navGroups = user ? filterNavByPermission(getNavGroups(user.role), can) : []
   const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
 
   // Закрываем мобильное меню при переходе на другую страницу

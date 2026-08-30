@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import type { PermissionAction } from '@/api/permissions'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ImportJobsProvider } from '@/contexts/ImportJobsContext'
 import { AppLayout } from '@/components/shared/Layout'
@@ -16,6 +17,7 @@ import { JoinMentorPage } from '@/pages/JoinMentorPage'
 import { StudentWelcomePage } from '@/pages/StudentWelcomePage'
 import { InvitePage } from '@/pages/InvitePage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
+import { PendingApprovalPage } from '@/pages/PendingApprovalPage'
 import { AgreementSignPage } from '@/pages/AgreementSignPage'
 import { StudentPortalLayout } from '@/components/portal/StudentPortalLayout'
 import { WorkspaceLayout } from '@/layouts/WorkspaceLayout'
@@ -95,6 +97,12 @@ const FinancesPage = React.lazy(() =>
 )
 const SettingsUsersPage = React.lazy(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
+)
+const SettingsPermissionsPage = React.lazy(() =>
+  import('@/pages/SettingsPermissionsPage').then((m) => ({ default: m.SettingsPermissionsPage }))
+)
+const SettingsResponsibilitiesPage = React.lazy(() =>
+  import('@/pages/SettingsResponsibilitiesPage').then((m) => ({ default: m.SettingsResponsibilitiesPage }))
 )
 const StatisticsPage = React.lazy(() =>
   import('@/pages/StatisticsPage').then((m) => ({ default: m.StatisticsPage }))
@@ -188,6 +196,10 @@ function useBaseAuthGuard(): React.ReactElement | null {
   const location = useLocation()
   if (isLoading) return <AppLoadingScreen />
   if (!user) return <Navigate to="/login" replace />
+  // Первым из трёх: пока аккаунт не открыт администратором, ни временный
+  // пароль, ни подпись регламента не имеют смысла. Тот же порядок на бэкенде
+  // (core/deps.py) — гейты обязаны совпадать, иначе экран и API разойдутся.
+  if (user.is_active === false) return <Navigate to="/pending" replace />
   if (user.must_change_password) return <Navigate to="/change-password" replace />
   // Куда человек шёл до гейта — туда и вернём после подписи: ментор работает в
   // воркспейсе, и дефолтный путь роли увёл бы его в CRM.
@@ -211,19 +223,31 @@ function HomeRoute() {
   return <RootRedirect />
 }
 
+/**
+ * Право из реестра — тот же ключ, что стоит на пункте меню (Этап 2.5).
+ *
+ * До этого меню и роут знали о доступе по-разному: пункт прятали, а прямая
+ * ссылка продолжала работать. `/workspace/security-incidents` был именно таким —
+ * скрыт от ментора в навигации и открыт по URL.
+ */
+type RoutePermission = [resource: string, action: PermissionAction]
+
 function ProtectedRoute({
   children,
   roles,
+  permission,
 }: {
   children: React.ReactNode
   roles?: string[]
+  permission?: RoutePermission
 }) {
   const guard = useBaseAuthGuard()
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   if (guard) return guard
   // Students live in the portal, never the CRM back-office.
   if (user!.role === 'student') return <Navigate to="/portal" replace />
   if (roles && !roles.includes(user!.role)) return <Navigate to="/app" replace />
+  if (permission && !can(permission[0], permission[1])) return <Navigate to="/app" replace />
   return <>{children}</>
 }
 
@@ -236,12 +260,32 @@ function StudentRoute({ children }: { children: React.ReactNode }) {
   return <StudentPortalLayout>{children}</StudentPortalLayout>
 }
 
-function WorkspaceRoute({ children }: { children: React.ReactNode }) {
+function WorkspaceRoute({
+  children,
+  permission,
+}: {
+  children: React.ReactNode
+  permission?: RoutePermission
+}) {
   const guard = useBaseAuthGuard()
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   if (guard) return guard
   if (!['admin', 'mzk_manager', 'mentor'].includes(user!.role)) return <Navigate to="/app" replace />
+  // Роль пускает в оболочку, право — в конкретный раздел. Без второй проверки
+  // спрятанный из меню пункт остаётся доступен по прямой ссылке.
+  if (permission && !can(permission[0], permission[1])) return <Navigate to="/workspace" replace />
   return <WorkspaceLayout>{children}</WorkspaceLayout>
+}
+
+// Тупиковый экран ожидания: сюда уводит гейт, и отсюда нет пути вглубь.
+// Через ProtectedRoute идти не может — тот сам отправит обратно сюда.
+function PendingApprovalRoute() {
+  const { user, isLoading } = useAuth()
+  if (isLoading) return <AppLoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  // Доступ уже открыли, пока человек сидел на этой вкладке — уводим в систему.
+  if (user.is_active !== false) return <Navigate to="/" replace />
+  return <PendingApprovalPage />
 }
 
 // Standalone (no layout): reachable by any authenticated user; the forced
@@ -428,10 +472,38 @@ function AppRoutes() {
       <Route
         path="/settings/users"
         element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute permission={['users', 'manage']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <SettingsUsersPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Кто за что отвечает: раздают админ и МЗК, видят все сотрудники. */}
+      <Route
+        path="/settings/responsibilities"
+        element={
+          <ProtectedRoute permission={['responsibilities', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <SettingsResponsibilitiesPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Матрица прав: реестр отдаётся только админу, поэтому и роут админский. */}
+      <Route
+        path="/settings/permissions"
+        element={
+          <ProtectedRoute roles={['admin']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <SettingsPermissionsPage />
               </React.Suspense>
             </AppLayout>
           </ProtectedRoute>
@@ -578,7 +650,7 @@ function AppRoutes() {
       <Route
         path="/agreements"
         element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute permission={['agreements', 'manage']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <AgreementsPage />
@@ -649,6 +721,7 @@ function AppRoutes() {
       />
 
       {/* Forced/optional password change (no layout) */}
+      <Route path="/pending" element={<PendingApprovalRoute />} />
       <Route path="/change-password" element={<ChangePasswordRoute />} />
       <Route path="/agreements/sign" element={<AgreementSignRoute />} />
 
@@ -681,7 +754,7 @@ function AppRoutes() {
       <Route path="/workspace/review" element={<WorkspaceRoute><WorkspaceReviewPage /></WorkspaceRoute>} />
       <Route path="/workspace/mentor-tasks" element={<WorkspaceRoute><WorkspaceMentorTasksPage /></WorkspaceRoute>} />
       <Route path="/workspace/my-tasks" element={<WorkspaceRoute><WorkspaceMyTasksPage /></WorkspaceRoute>} />
-      <Route path="/workspace/checkins" element={<WorkspaceRoute><WorkspaceCheckinsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/checkins" element={<WorkspaceRoute permission={['checkins', 'view']}><WorkspaceCheckinsPage /></WorkspaceRoute>} />
       <Route path="/workspace/questionnaires" element={<WorkspaceRoute><WorkspaceQuestionnairesPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings" element={<WorkspaceRoute><WorkspaceMeetingsPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings/session/:id" element={<WorkspaceRoute><NoteSessionPage /></WorkspaceRoute>} />
@@ -696,8 +769,8 @@ function AppRoutes() {
       <Route path="/workspace/countries/:id" element={<WorkspaceRoute><WorkspaceCountryDetailPage /></WorkspaceRoute>} />
       <Route path="/workspace/agreements" element={<WorkspaceRoute><WorkspaceAgreementsPage /></WorkspaceRoute>} />
       <Route path="/workspace/complaints" element={<WorkspaceRoute><WorkspaceComplaintsPage /></WorkspaceRoute>} />
-      <Route path="/workspace/refund-cases" element={<WorkspaceRoute><WorkspaceRefundCasesPage /></WorkspaceRoute>} />
-      <Route path="/workspace/security-incidents" element={<WorkspaceRoute><WorkspaceSecurityIncidentsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/refund-cases" element={<WorkspaceRoute permission={['refund_cases', 'manage']}><WorkspaceRefundCasesPage /></WorkspaceRoute>} />
+      <Route path="/workspace/security-incidents" element={<WorkspaceRoute permission={['security_incidents', 'manage']}><WorkspaceSecurityIncidentsPage /></WorkspaceRoute>} />
       <Route path="/workspace/mzk-quality" element={<WorkspaceRoute><WorkspaceMzkQualityPage /></WorkspaceRoute>} />
       <Route path="/workspace/mentor-rewards" element={<WorkspaceRoute><WorkspaceMentorRewardsPage /></WorkspaceRoute>} />
       <Route path="/workspace/my-rewards" element={<WorkspaceRoute><WorkspaceMyRewardsPage /></WorkspaceRoute>} />

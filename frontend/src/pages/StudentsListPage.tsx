@@ -776,10 +776,12 @@ function NotionInbox() {
 export const StudentsListPage: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { canAccess, hasRole } = useAuth()
-  const isManager = hasRole('admin', 'mzk_manager', 'mentor')
+  const { can } = useAuth()
+  // Панели сверки с интейком и Notion: sync:manage и notion:manage — те же
+  // три роли, что стояли здесь по hasRole.
+  const isManager = can('sync', 'manage')
   // Sync/import stays admin-only even though the rest of the CRM is now shared.
-  const canRunSync = hasRole('admin')
+  const canRunSync = can('sync', 'create')
   const [searchParams, setSearchParams] = useSearchParams()
   const initialScope = searchParams.get('scope')
   const [search, setSearch] = useState('')
@@ -1178,7 +1180,7 @@ export const StudentsListPage: React.FC = () => {
             <Download className="w-3.5 h-3.5 mr-1.5" />
             Экспорт
           </Button>
-          {canAccess('all_students') && (
+          {can('students', 'create') && (
             <button
               onClick={() => navigate('/students/new')}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold uppercase tracking-caps

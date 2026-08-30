@@ -11,7 +11,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentUser, require_permission
+from app.core.deps import CurrentUser
 from app.core.permissions import Action, allows, require_access
 from app.core.body import optional_uuid, required_uuid
 from app.models.student_task import StudentTask, TaskStatus
@@ -42,7 +42,7 @@ EVIDENCE_MAX_FILE_SIZE = 25 * 1024 * 1024
 
 def _validate_task_acceptance(current_user: User, assignee_id: uuid.UUID | None) -> None:
     try:
-        require_permission(current_user, "accept_mentor_results")
+        require_access(current_user, "tasks_accept_result", Action.manage)
     except HTTPException:
         raise HTTPException(
             status_code=403,
@@ -188,9 +188,10 @@ async def create_task(
             raise HTTPException(status_code=404, detail="Исполнитель не найден или неактивен")
         if assignee.role not in (UserRole.mentor, UserRole.mzk_manager):
             raise HTTPException(status_code=422, detail="Исполнителем может быть ментор или МЗК")
-        require_permission(
+        require_access(
             current_user,
-            "assign_mentor_tasks" if assignee.role == UserRole.mentor else "assign_mzk_tasks",
+            "tasks_assign_mentor" if assignee.role == UserRole.mentor else "tasks_assign_mzk",
+            Action.manage,
         )
         # Проверка назначения применима только к задаче по студенту: у общей
         # задачи нет студента, на которого ментора можно было бы назначить.
@@ -214,7 +215,7 @@ async def create_task(
         raise HTTPException(status_code=422, detail="required_documents должен быть списком")
     due_date = None
     if body.get("due_date"):
-        require_permission(current_user, "manage_deadlines")
+        require_access(current_user, "tasks_deadlines", Action.manage)
         due_date = date.fromisoformat(body["due_date"])
 
     # SLA: по умолчанию 24 часа на задачу с исполнителем (регламент менторов,
@@ -407,9 +408,10 @@ async def update_task(
                 raise HTTPException(status_code=404, detail="Исполнитель не найден или неактивен")
             if assignee.role not in (UserRole.mentor, UserRole.mzk_manager):
                 raise HTTPException(status_code=422, detail="Исполнителем может быть ментор или МЗК")
-            require_permission(
+            require_access(
                 current_user,
-                "assign_mentor_tasks" if assignee.role == UserRole.mentor else "assign_mzk_tasks",
+                "tasks_assign_mentor" if assignee.role == UserRole.mentor else "tasks_assign_mzk",
+                Action.manage,
             )
             # У общей задачи нет студента, на которого ментора можно было бы
             # назначить — проверка скоупа к ней неприменима.
@@ -420,7 +422,7 @@ async def update_task(
             task.status = TaskStatus.awaiting_signature
 
     if "due_date" in body:
-        require_permission(current_user, "manage_deadlines")
+        require_access(current_user, "tasks_deadlines", Action.manage)
         task.due_date = date.fromisoformat(body["due_date"]) if body["due_date"] else None
         if task.original_due_date is None and task.due_date is not None:
             task.original_due_date = task.due_date

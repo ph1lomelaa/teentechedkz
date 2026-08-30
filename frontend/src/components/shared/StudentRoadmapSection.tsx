@@ -13,12 +13,13 @@ import { useAuth } from '@/contexts/AuthContext'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { RoadmapTimeline } from '@/components/shared/RoadmapTimeline'
 import { SegmentedTabs } from '@/components/ui'
+import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
 
 export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ studentId }) => {
   const { toast } = useToast()
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   const queryClient = useQueryClient()
-  const canManageTemplates = hasRole('admin', 'mzk_manager')
+  const canManageTemplates = can('roadmap_templates', 'manage')
 
   const { data, isLoading } = useQuery({
     queryKey: ['student-roadmap', studentId],
@@ -118,9 +119,10 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
   return (
     <AccordionItem value="roadmap" className="border border-gray-200 rounded-card px-4">
       <AccordionTrigger className="text-base font-semibold">
-        <span className="flex items-center gap-2">
+        <span className="flex flex-wrap items-center gap-2">
           <Route className="w-4 h-4 text-gray-500" />
           Roadmap поступления
+          <ResponsibilityBadge studentId={studentId} area="roadmap" />
           {roadmaps.length > 0 ? (
             <Badge variant="outline" className="ml-1 text-2xs font-medium">
               {roadmaps.length > 1 ? `${roadmaps.length} активных` : `${roadmaps[0].stages.length} этапов`}

@@ -28,8 +28,10 @@ const VISIBILITY_LABEL: Record<NoteVisibility, string> = {
  */
 export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
-  const canPickVisibility = hasRole('admin', 'mzk_manager')
+  const { can } = useAuth()
+  // Решение 30.08.2026: уровень видимости выбирает автор заметки, включая
+  // ментора. Право на сам раздел и так было у всех троих.
+  const canPickVisibility = can('confidential_notes', 'manage')
   const [adding, setAdding] = useState(false)
   const [text, setText] = useState('')
   const [role, setRole] = useState<NoteVisibility>('admin_and_mzk')

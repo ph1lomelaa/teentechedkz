@@ -159,7 +159,7 @@ class ScopeTests(unittest.TestCase):
 class ConditionalRulesTests(unittest.TestCase):
     """Правила, не влезающие в матрицу, обязаны быть названы.
 
-    Их 22, они остаются кодом — но матрица без пометки «+N доп. правил»
+    Их 50 в 29 правилах, они остаются кодом — но матрица без пометки «+N доп. правил»
     обещала бы полноту, которой у неё нет.
     """
 
@@ -202,10 +202,11 @@ class ReviewFlagTests(unittest.TestCase):
     def test_known_divergences_are_flagged_for_review(self) -> None:
         # Эти места переносятся как есть, но обязаны быть видны в матрице как
         # «требует решения» — иначе разбор потеряется.
+        # contracts, mentor_assignments и roadmap_templates ушли отсюда
+        # 30.08.2026: по ним приняты решения, и пометка «требует решения»
+        # стала бы вечной просьбой сделать уже сделанное.
         for resource, action in (
             ("guardians", Action.manage),
-            ("contracts", Action.manage),
-            ("mentor_assignments", Action.manage),
             ("universities", Action.manage),
             ("scholarships", Action.manage),
         ):

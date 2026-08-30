@@ -31,8 +31,8 @@ interface Props {
 
 export const AgreementsManager: React.FC<Props> = ({ colorPrefix = 'w' }) => {
   const t = ADMIN_TOKENS[colorPrefix]
-  const { hasRole } = useAuth()
-  const isAdmin = hasRole('admin')
+  const { can } = useAuth()
+  const isAdmin = can('agreements', 'manage')
   const [creating, setCreating] = useState(false)
   const [previewAgreement, setPreviewAgreement] = useState<Agreement | null>(null)
 

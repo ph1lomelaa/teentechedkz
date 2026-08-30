@@ -4,10 +4,12 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { User, UserRole } from '../types'
+import { PermissionAction } from '../api/permissions'
 import { authApi } from '../api/auth'
 import { setAccessToken, setForbiddenHandler } from '../api/client'
 import { ws } from '../lib/ws'
@@ -26,7 +28,18 @@ interface AuthContextValue extends AuthState {
   refreshUser: () => Promise<void>
   setSession: (user: User, accessToken: string) => void
   hasRole: (...roles: UserRole[]) => boolean
-  canAccess: (resource: 'finances' | 'guardians' | 'confidential' | 'users' | 'tasks_create' | 'all_students') => boolean
+  /**
+   * Право из реестра: `can('guardians', 'manage')`.
+   *
+   * Заменила `canAccess`, у которой четыре ветки из шести возвращали `true`
+   * кому угодно — включая опекунов (ИИН родителей) и конфиденциальные заметки.
+   * Права приходят с сервера (`user.permissions`) и совпадают с тем, что
+   * решает бэкенд: второго расклада на фронте больше нет.
+   *
+   * `hasRole` остаётся только там, где вопрос действительно про личность роли
+   * («я студент?»), а не про доступ.
+   */
+  can: (resource: string, action: PermissionAction) => boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -143,40 +156,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     [state.user]
   )
 
-  const canAccess = useCallback(
-    (
-      resource:
-        | 'finances'
-        | 'guardians'
-        | 'confidential'
-        | 'users'
-        | 'tasks_create'
-        | 'all_students'
-    ): boolean => {
-      if (!state.user) return false
-      const role = state.user.role
-      switch (resource) {
-        case 'finances':
-          return role === 'admin' || role === 'mzk_manager' || role === 'mentor'
-        case 'guardians':
-          return true
-        case 'confidential':
-          return true
-        case 'users':
-          return role === 'admin'
-        case 'tasks_create':
-          return true
-        case 'all_students':
-          return true
-        default:
-          return false
-      }
-    },
+  // Плоский Set вместо перебора массива: can() зовётся из ~70 мест на каждый
+  // рендер страницы.
+  const granted = useMemo(
+    () => new Set(state.user?.permissions ?? []),
     [state.user]
   )
 
+  const can = useCallback(
+    (resource: string, action: PermissionAction): boolean => granted.has(`${resource}:${action}`),
+    [granted]
+  )
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, setSession, hasRole, canAccess }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, setSession, hasRole, can }}>
       {children}
     </AuthContext.Provider>
   )

@@ -94,7 +94,7 @@ export const NoteDetailPage: React.FC = () => {
   const inWorkspace = location.pathname.startsWith('/workspace/')
   const notesHome = inWorkspace ? '/workspace/meetings?tab=notes' : '/notes'
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
+  const { can } = useAuth()
   const [editedSummary, setEditedSummary] = React.useState('')
   const [editedStudentSummary, setEditedStudentSummary] = React.useState('')
   const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
@@ -299,7 +299,7 @@ export const NoteDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {note.student_id && note.status === 'draft' && hasRole('admin', 'mzk_manager', 'mentor') && canControl && (
+        {note.student_id && note.status === 'draft' && can('notes', 'manage') && canControl && (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

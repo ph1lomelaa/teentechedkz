@@ -12,38 +12,6 @@ from app.models.student import Student
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
-PERMISSIONS = frozenset({
-    "assign_mentor_tasks",
-    "assign_mzk_tasks",
-    "accept_mentor_results",
-    "manage_deadlines",
-    "manage_users",
-    "manage_regulations",
-})
-
-ROLE_PERMISSIONS = {
-    UserRole.admin: PERMISSIONS,
-    UserRole.mzk_manager: frozenset({
-        "assign_mentor_tasks", "assign_mzk_tasks", "accept_mentor_results", "manage_deadlines",
-    }),
-    UserRole.mentor: frozenset({"manage_deadlines"}),
-    UserRole.student: frozenset(),
-}
-
-
-def has_permission(user: User, permission: str) -> bool:
-    """Return operational permission without granting admin access to work itself."""
-    return permission in ROLE_PERMISSIONS.get(user.role, frozenset())
-
-
-def require_permission(user: User, permission: str) -> None:
-    if permission not in PERMISSIONS or not has_permission(user, permission):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав для операции",
-            headers={"X-Error-Code": "PERMISSION_REQUIRED"},
-        )
-
 # While a password is still temporary (must_change_password), only these paths
 # are reachable — the user has to set a real password before doing anything else
 # (Этап 0.5). login/refresh don't pass through this dependency, so they stay open.
@@ -51,6 +19,21 @@ _TEMP_PASSWORD_ALLOWED_PATHS = frozenset(
     {
         "/api/v1/auth/me",
         "/api/v1/auth/change-password",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/logout-all",
+    }
+)
+
+# Аккаунт заведён, но администратор его ещё не открыл (самозапись ментора,
+# app/api/v1/endpoints/public.py:155, или первый вход через Google). Раньше такой
+# человек получал 401 на логине и не видел вообще ничего — только ошибку входа.
+# Теперь он входит и попадает на экран ожидания; дальше этих путей не проходит.
+#
+# Список намеренно короче остальных: pending-аккаунт не подтверждён никем, и ни
+# одного чужого объекта он касаться не должен. Профиль и выход — всё.
+_PENDING_APPROVAL_ALLOWED_PATHS = frozenset(
+    {
+        "/api/v1/auth/me",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
     }
@@ -69,6 +52,19 @@ _AGREEMENT_ALLOWED_PATHS = frozenset(
         "/api/v1/portal/profile",
     }
 )
+
+
+def pending_approval_gate_applies(*, is_active: bool, path: str) -> bool:
+    """Держать ли этот запрос на экране ожидания?
+
+    Чистая и без БД — по той же причине, что и `agreement_gate_applies` ниже:
+    это поверхность, где неверное условие либо запирает всех, либо пускает
+    неподтверждённый аккаунт в чужие данные. Оба исхода дорогие, а покрыть их
+    тестами можно только если решение отделено от похода в базу.
+    """
+    if is_active:
+        return False
+    return path not in _PENDING_APPROVAL_ALLOWED_PATHS
 
 
 _AGREEMENT_PRE_SIGNATURE_ACTIONS = frozenset({"sign", "preview", "download"})
@@ -129,8 +125,17 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user or not user.is_active:
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Первым из трёх гейтов: пока аккаунт не открыт администратором, остальные
+    # вопросы (временный пароль, подпись регламента) не имеют смысла.
+    if pending_approval_gate_applies(is_active=user.is_active, path=request.url.path):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Заявка ещё не одобрена администратором",
+            headers={"X-Error-Code": "ACCOUNT_PENDING_APPROVAL"},
+        )
 
     if user.must_change_password and request.url.path not in _TEMP_PASSWORD_ALLOWED_PATHS:
         raise HTTPException(
@@ -172,12 +177,10 @@ def require_roles(*roles: UserRole):
     return Depends(_check)
 
 
-AdminOrMZK = require_roles(UserRole.admin, UserRole.mzk_manager)
 AdminOnly = require_roles(UserRole.admin)
 # Any back-office employee (student portal accounts are excluded).
 StaffOnly = require_roles(UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
 AllStaff = StaffOnly  # backwards-compatible alias
-StudentOnly = require_roles(UserRole.student)
 
 
 async def get_current_student(

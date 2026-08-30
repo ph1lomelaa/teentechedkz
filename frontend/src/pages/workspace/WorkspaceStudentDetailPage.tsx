@@ -86,8 +86,9 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
-  const canReconcile = hasRole('admin', 'mzk_manager')
+  const { can } = useAuth()
+  // Решение 30.08.2026: сверку с интейком и Notion видит и ментор.
+  const canReconcile = can('sync', 'manage')
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromHash(location.hash))
   const [newMeetingTitle, setNewMeetingTitle] = useState('')
   const [newMeetingStartsAt, setNewMeetingStartsAt] = useState('')
@@ -1010,9 +1011,9 @@ function RoadmapTab({
   recommendedTemplateId?: string
 }) {
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
-  const canManageTemplates = hasRole('admin', 'mzk_manager')
-  const canAssign = hasRole('admin', 'mzk_manager', 'mentor')
+  const { can } = useAuth()
+  const canManageTemplates = can('roadmap_templates', 'manage')
+  const canAssign = can('mentor_assignments', 'manage')
   const [templateId, setTemplateId] = useState(recommendedTemplateId || '')
   const [selectedId, setSelectedId] = useState<string | null>(roadmaps[0]?.id ?? null)
   const [showAssignForm, setShowAssignForm] = useState(false)

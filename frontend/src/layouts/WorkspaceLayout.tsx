@@ -38,11 +38,14 @@ import { workspaceApi } from '@/api/workspace'
 import { useWsEvent } from '@/lib/ws'
 import { cn } from '@/lib/utils'
 import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
+import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 
 interface NavItem {
   label: string
   path: string
   icon: React.ReactNode
+  /** Право из реестра — тот же ключ, что читает роут в `App.tsx`. */
+  permission?: NavPermission
 }
 
 interface NavGroup {
@@ -66,37 +69,37 @@ function getNavGroups(
     {
       group: 'МОИ ДАННЫЕ',
       items: [
-        { label: 'Мой день', path: '/workspace/my-day', icon: <Sun className="h-4 w-4" /> },
-        { label: 'Главная', path: '/workspace', icon: <LayoutDashboard className="h-4 w-4" /> },
-        { label: studentsNavLabel, path: '/workspace/students', icon: <Users className="h-4 w-4" /> },
+        { label: 'Мой день', path: '/workspace/my-day', icon: <Sun className="h-4 w-4" />, permission: ['workspace', 'view'] },
+        { label: 'Главная', path: '/workspace', icon: <LayoutDashboard className="h-4 w-4" />, permission: ['workspace', 'view'] },
+        { label: studentsNavLabel, path: '/workspace/students', icon: <Users className="h-4 w-4" />, permission: ['workspace', 'view'] },
       ],
     },
     {
       group: 'ПЛАНИРОВАНИЕ',
       items: [
-        { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" /> },
-        { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" /> },
-        { label: 'Мои задачи', path: '/workspace/my-tasks', icon: <ListTodo className="h-4 w-4" /> },
-        { label: 'Проверка', path: '/workspace/review', icon: <ClipboardCheck className="h-4 w-4" /> },
-        { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" /> },
-        { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" /> },
-        { label: 'Статус', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" /> },
+        { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" />, permission: ['roadmaps', 'view'] },
+        { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" />, permission: ['tasks', 'view'] },
+        { label: 'Мои задачи', path: '/workspace/my-tasks', icon: <ListTodo className="h-4 w-4" />, permission: ['tasks', 'view'] },
+        { label: 'Проверка', path: '/workspace/review', icon: <ClipboardCheck className="h-4 w-4" />, permission: ['tasks', 'view'] },
+        { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" />, permission: ['meetings', 'view'] },
+        { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" />, permission: ['questionnaires', 'view'] },
+        { label: 'Статус', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" />, permission: ['status_history', 'view'] },
       ],
     },
     {
       group: 'МАТЕРИАЛЫ',
       items: [
-        { label: 'Документы', path: '/workspace/documents', icon: <FileText className="h-4 w-4" /> },
-        { label: 'Университеты', path: '/workspace/universities', icon: <GraduationCap className="h-4 w-4" /> },
-        { label: 'Страны', path: '/workspace/countries', icon: <Globe className="h-4 w-4" /> },
-        { label: 'Регламенты', path: '/workspace/agreements', icon: <ScrollText className="h-4 w-4" /> },
+        { label: 'Документы', path: '/workspace/documents', icon: <FileText className="h-4 w-4" />, permission: ['documents', 'view'] },
+        { label: 'Университеты', path: '/workspace/universities', icon: <GraduationCap className="h-4 w-4" />, permission: ['universities', 'view'] },
+        { label: 'Страны', path: '/workspace/countries', icon: <Globe className="h-4 w-4" />, permission: ['countries', 'view'] },
+        { label: 'Регламенты', path: '/workspace/agreements', icon: <ScrollText className="h-4 w-4" />, permission: ['agreements', 'view'] },
       ],
     },
     {
       group: 'КОММУНИКАЦИЯ',
       items: [
-        { label: 'Чат', path: '/workspace/chat', icon: <MessageCircle className="h-4 w-4" /> },
-        { label: 'Обращения', path: '/workspace/complaints', icon: <MessageSquareWarning className="h-4 w-4" /> },
+        { label: 'Чат', path: '/workspace/chat', icon: <MessageCircle className="h-4 w-4" />, permission: ['chat', 'view'] },
+        { label: 'Обращения', path: '/workspace/complaints', icon: <MessageSquareWarning className="h-4 w-4" />, permission: ['complaints', 'view'] },
         { label: 'Уведомления', path: '/workspace/notifications', icon: <Bell className="h-4 w-4" /> },
       ],
     },
@@ -106,15 +109,15 @@ function getNavGroups(
     baseGroups.push({
       group: 'МОТИВАЦИЯ',
       items: [
-        { label: 'Возвратные кейсы', path: '/workspace/refund-cases', icon: <Banknote className="h-4 w-4" /> },
-        { label: 'Инциденты безопасности', path: '/workspace/security-incidents', icon: <ShieldAlert className="h-4 w-4" /> },
-        { label: 'Задачи менторов', path: '/workspace/mentor-tasks', icon: <ListTodo className="h-4 w-4" /> },
+        { label: 'Возвратные кейсы', path: '/workspace/refund-cases', icon: <Banknote className="h-4 w-4" />, permission: ['refund_cases', 'manage'] },
+        { label: 'Инциденты безопасности', path: '/workspace/security-incidents', icon: <ShieldAlert className="h-4 w-4" />, permission: ['security_incidents', 'manage'] },
+        { label: 'Задачи менторов', path: '/workspace/mentor-tasks', icon: <ListTodo className="h-4 w-4" />, permission: ['tasks', 'manage'] },
         // «Чекины» — сводка по команде, а не своя отметка: личный чекин живёт
         // баннером CheckinBanner на «Моём дне». Раньше одно слово значило и то,
         // и другое.
-        { label: 'Чекины команды', path: '/workspace/checkins', icon: <CalendarCheck className="h-4 w-4" /> },
-        { label: mzkQualityLabel, path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" /> },
-        { label: 'Вознаграждение менторов', path: '/workspace/mentor-rewards', icon: <Coins className="h-4 w-4" /> },
+        { label: 'Чекины команды', path: '/workspace/checkins', icon: <CalendarCheck className="h-4 w-4" />, permission: ['checkins', 'view'] },
+        { label: mzkQualityLabel, path: '/workspace/mzk-quality', icon: <Gauge className="h-4 w-4" />, permission: ['mzk_quality', 'view'] },
+        { label: 'Вознаграждение менторов', path: '/workspace/mentor-rewards', icon: <Coins className="h-4 w-4" />, permission: ['mentor_rewards', 'view'] },
       ],
     })
   }
@@ -125,7 +128,7 @@ function getNavGroups(
     baseGroups.push({
       group: 'МОТИВАЦИЯ',
       items: [
-        { label: 'Моё вознаграждение', path: '/workspace/my-rewards', icon: <Coins className="h-4 w-4" /> },
+        { label: 'Моё вознаграждение', path: '/workspace/my-rewards', icon: <Coins className="h-4 w-4" />, permission: ['mentor_rewards', 'view'] },
       ],
     })
   }
@@ -134,7 +137,7 @@ function getNavGroups(
 }
 
 export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout } = useAuth()
+  const { user, logout, can } = useAuth()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -150,7 +153,10 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager'
   const mzkQualityLabel = user?.role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК'
-  const navGroups = getNavGroups(studentsNavLabel, isAdminOrMzk, user?.role === 'mentor', mzkQualityLabel)
+  const navGroups = filterNavByPermission(
+    getNavGroups(studentsNavLabel, isAdminOrMzk, user?.role === 'mentor', mzkQualityLabel),
+    can,
+  )
 
   const findActiveNavItem = () => {
     for (const group of navGroups) {

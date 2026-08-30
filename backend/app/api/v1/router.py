@@ -13,6 +13,8 @@ from app.api.v1.endpoints import (
     services,
     guardians,
     payments,
+    permissions,
+    responsibilities,
     documents,
     portfolio,
     confidential_notes,
@@ -67,6 +69,8 @@ api_router.include_router(applications.router)
 api_router.include_router(services.router)
 api_router.include_router(guardians.router)
 api_router.include_router(payments.router)
+api_router.include_router(permissions.router)
+api_router.include_router(responsibilities.router)
 api_router.include_router(documents.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(confidential_notes.router)

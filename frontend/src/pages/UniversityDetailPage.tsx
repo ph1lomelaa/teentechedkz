@@ -3,6 +3,6 @@ import { UniversityDetail } from '@/components/portal/UniversityDetail'
 import { useAuth } from '@/contexts/AuthContext'
 
 export const UniversityDetailPage: React.FC = () => {
-  const { hasRole } = useAuth()
-  return <UniversityDetail basePath="/universities" canManage={hasRole('admin', 'mzk_manager')} />
+  const { can } = useAuth()
+  return <UniversityDetail basePath="/universities" canManage={can('universities', 'manage')} />
 }

@@ -41,9 +41,12 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("confidential_notes", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("contract_addenda", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("contract_addenda", Action.manage): ("admin", "mzk_manager"),
-    # review: функция называлась _require_admin_mzk, но пускает ментора
-    ("contracts", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("countries", Action.edit): ("admin", "mzk_manager", "mentor"),
+    # Решение 30.08.2026: смотреть договор может весь персонал, править —
+    # только управление. Раньше одно право отвечало за оба вопроса.
+    ("contracts", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("contracts", Action.manage): ("admin", "mzk_manager"),
+    # Решение 30.08.2026: справочник правит только управление.
+    ("countries", Action.edit): ("admin", "mzk_manager"),
     # review: чтение справочника не проверяет роль вообще
     ("countries", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("credentials", Action.manage): ("admin", "mzk_manager", "mentor", "student"),
@@ -73,9 +76,13 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("notion", Action.manage): ("admin", "mzk_manager", "mentor"),
     # review: _check_access принимает student_id и не проверяет его
     ("portfolio", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("permissions", Action.view): ("admin",),
+    ("permissions", Action.manage): ("admin",),
     ("portal", Action.view): ("student",),
     ("questionnaires", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("questionnaires", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("responsibilities", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("responsibilities", Action.manage): ("admin", "mzk_manager"),
     ("refund_approval", Action.manage): ("admin",),
     ("refund_cases", Action.manage): ("admin", "mzk_manager"),
     ("reward_rules", Action.manage): ("admin",),
@@ -92,6 +99,10 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("student_access", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("student_universities", Action.manage): ("admin", "mzk_manager", "mentor", "student"),
     ("status_history", Action.view): ("admin", "mzk_manager", "mentor"),
+    # Решение 30.08.2026: карточку заводит и правит персонал, ментор — только
+    # своих. До этого обе ручки не проверяли ничего, включая роль студента.
+    ("students", Action.create): ("admin", "mzk_manager", "mentor"),
+    ("students", Action.edit): ("admin", "mzk_manager", "mentor"),
     ("students", Action.manage): ("admin", "mzk_manager"),
     ("students", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("sync", Action.create): ("admin",),
@@ -102,6 +113,11 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("tasks_bulk", Action.manage): ("admin", "mzk_manager"),
     ("tasks_review", Action.manage): ("admin", "mzk_manager"),
     ("tasks", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    # Перенесены из deps.ROLE_PERMISSIONS один в один (30.08.2026).
+    ("tasks_assign_mentor", Action.manage): ("admin", "mzk_manager"),
+    ("tasks_assign_mzk", Action.manage): ("admin", "mzk_manager"),
+    ("tasks_accept_result", Action.manage): ("admin", "mzk_manager"),
+    ("tasks_deadlines", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("telegram_chats", Action.manage): ("admin", "mzk_manager"),
     ("telegram_chats", Action.view): ("admin", "mzk_manager", "mentor"),
     # review: константа названа ADMIN, но включает МЗК

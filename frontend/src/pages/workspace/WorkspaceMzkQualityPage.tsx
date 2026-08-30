@@ -8,6 +8,6 @@ import { MzkQualityManager } from '@/components/admin/MzkQualityManager'
  * запроса отдавали 403.
  */
 export const WorkspaceMzkQualityPage: React.FC = () => {
-  const { hasRole } = useAuth()
-  return <MzkQualityManager colorPrefix="w" canManage={hasRole('admin')} />
+  const { can } = useAuth()
+  return <MzkQualityManager colorPrefix="w" canManage={can('mzk_quality', 'manage')} />
 }
