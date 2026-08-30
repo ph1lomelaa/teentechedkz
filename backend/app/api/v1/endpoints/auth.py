@@ -25,6 +25,7 @@ from app.services.sessions import (
 )
 from app.services import rate_limit
 from app.services.user_emails import resolve_user_by_email
+from app.services.user_payload import resolve_user_payload
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -69,23 +70,9 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
         )
-    if not user.is_active:
-        record_audit(
-            db,
-            action=AuditAction.login_failed,
-            actor=user,
-            target_user_id=user.id,
-            request=request,
-            meta={"reason": "inactive"},
-        )
-        await db.commit()
-        # 401, а не 403: глобальный handler маскирует 403 в «Access denied»,
-        # а ждущий одобрения ментор должен увидеть причину.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Аккаунт неактивен. Если вы недавно оставили заявку — дождитесь одобрения администратора.",
-        )
-
+    # Неактивный аккаунт больше не отбивается здесь: он входит и попадает на
+    # экран ожидания. Дальше /auth/me и выхода его не пускает гейт
+    # _PENDING_APPROVAL_ALLOWED_PATHS в core/deps.py.
     user.last_login_at = datetime.now(timezone.utc)
 
     session = await issue_session(db, response, user)
@@ -150,7 +137,10 @@ async def refresh(
 
     user_result = await db.execute(select(User).where(User.id == rt.user_id))
     user = user_result.scalar_one_or_none()
-    if not user or not user.is_active:
+    # is_active здесь не проверяется намеренно: ждущий одобрения должен досидеть
+    # на экране ожидания, а не вылетать на логин каждые 15 минут. Куда его
+    # пускать, решает гейт в core/deps.py, а не срок жизни токена.
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # Rotate refresh token
@@ -228,21 +218,8 @@ async def logout_all(
 
 @router.get("/me")
 async def me(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    from app.services.agreements import has_pending_agreement_signature
-
-    return {
-        "id": str(current_user.id),
-        "name": current_user.name,
-        "email": current_user.email,
-        "role": current_user.role.value,
-        "telegram_username": current_user.telegram_username,
-        "phone": current_user.phone,
-        "is_active": current_user.is_active,
-        "must_change_password": current_user.must_change_password,
-        "agreement_signature_required": (
-            settings.ENABLE_AGREEMENT_GATE and await has_pending_agreement_signature(db, current_user)
-        ),
-    }
+    # Шейп общий с ответом логина и приёма инвайта — см. services/user_payload.
+    return await resolve_user_payload(db, current_user)
 
 
 @router.post("/change-password")

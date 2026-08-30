@@ -46,7 +46,7 @@ async def issue_session(db: AsyncSession, response: Response, user: User) -> dic
 
     Does not commit — the caller owns the transaction.
     """
-    from app.services.agreements import has_pending_agreement_signature
+    from app.services.user_payload import resolve_user_payload
 
     access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
     refresh_token_raw = create_refresh_token()
@@ -56,21 +56,13 @@ async def issue_session(db: AsyncSession, response: Response, user: User) -> dic
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     ))
     set_refresh_cookie(response, refresh_token_raw)
-    agreement_signature_required = (
-        settings.ENABLE_AGREEMENT_GATE and await has_pending_agreement_signature(db, user)
-    )
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        "user": {
-            "id": str(user.id),
-            "name": user.name,
-            "email": user.email,
-            "role": user.role.value,
-            "must_change_password": user.must_change_password,
-            "agreement_signature_required": agreement_signature_required,
-        },
+        # Один шейп на все ответы с пользователем: раньше здесь лежал свой
+        # литерал, и он уже разъехался с /auth/me на трёх полях.
+        "user": await resolve_user_payload(db, user),
     }
 
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthShell } from '@/components/auth/AuthShell'
-import { getDefaultPath } from '@/lib/authRouting'
+import { postLoginPath } from '@/lib/authRouting'
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth()
@@ -19,11 +19,7 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true)
     try {
       const user = await login(email, password)
-      if (user.must_change_password) {
-        navigate('/change-password', { replace: true })
-      } else {
-        navigate(getDefaultPath(user.role), { replace: true })
-      }
+      navigate(postLoginPath(user), { replace: true })
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
       // Backend already distinguishes "wrong password" from "account pending

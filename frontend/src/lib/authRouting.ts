@@ -1,4 +1,4 @@
-import { UserRole } from '@/types'
+import { User, UserRole } from '@/types'
 
 /**
  * Единственная правда о том, куда роль попадает по умолчанию.
@@ -29,6 +29,31 @@ export function getDefaultPath(role: UserRole): string {
     default:
       return '/dashboard'
   }
+}
+
+/**
+ * Куда вести сразу после успешного входа.
+ *
+ * Порядок «ворот» тот же, что в `useBaseAuthGuard` и в `core/deps.py`: сначала
+ * неоткрытый аккаунт, потом временный пароль, потом дом роли. Отдельная функция
+ * — чтобы правило не расползлось по экранам входа: ровно на этом уже обжигались
+ * (см. докстринг `getDefaultPath`), и логин без неё уводил бы ждущего одобрения
+ * в рабочий раздел, откуда его тут же разворачивает гейт.
+ *
+ * Подпись регламента сюда не входит: она зависит от того, откуда человек шёл,
+ * и решается в `useBaseAuthGuard`, где есть текущий маршрут.
+ */
+export function postLoginPath(
+  user: Pick<User, 'role' | 'must_change_password'> & { is_active?: boolean },
+): string {
+  // Строго `=== false`, а не `!user.is_active`. Отсутствующее поле не должно
+  // считаться «аккаунт закрыт»: сбой формы payload запер бы на экране ожидания
+  // всех сразу. Настоящая защита стоит на бэкенде (core/deps.py) — здесь
+  // решается только удобство маршрута, и ошибка в сторону «пустить» стоит
+  // максимум одного 403, а ошибка в сторону «запереть» кладёт вход целиком.
+  if (user.is_active === false) return '/pending'
+  if (user.must_change_password) return '/change-password'
+  return getDefaultPath(user.role)
 }
 
 /**
