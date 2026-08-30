@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, Scope, require_access, scope_for
+from app.services.mentor_scope import require_student_access
 from app.core.audit import log_change
 from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
@@ -969,6 +970,8 @@ async def create_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    # Скоупа здесь нет и быть не может: студента ещё не существует.
+    require_access(current_user, "students", Action.create)
     phone = body.phone.strip()
     existing = await db.execute(select(Student).where(Student.phone == phone))
     existing_student = existing.scalar_one_or_none()
@@ -1485,6 +1488,11 @@ async def update_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "students", Action.edit)
+    # Роль пускает к правке карточек вообще, скоуп — к этой конкретной. Без
+    # второй строки ментор правит любого студента по прямому id: до 30.08.2026
+    # эта ручка не проверяла ни того, ни другого.
+    await require_student_access(db, student_id, current_user)
     result = await db.execute(select(Student).where(Student.id == student_id))
     student = result.scalar_one_or_none()
     if not student:
