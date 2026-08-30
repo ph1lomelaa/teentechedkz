@@ -8,6 +8,7 @@ removes every record and MinIO object it creates.
 """
 from __future__ import annotations
 
+import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,10 @@ import httpx
 from app.core.config import settings
 
 
-BASE = "http://127.0.0.1:8000/api/v1"
+# Адрес — из окружения, а не из argv: первый позиционный аргумент здесь уже
+# занят путём к аудиофайлу. Раньше был вписан порт 8000, которого нет ни в CI
+# (8001), ни в docker-compose, — поэтому скрипт не запускался ни разу.
+BASE = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8001") + "/api/v1"
 AUDIO_PATH = sys.argv[1] if len(sys.argv) > 1 else "/tmp/tte-meeting-smoke.webm"
 
 

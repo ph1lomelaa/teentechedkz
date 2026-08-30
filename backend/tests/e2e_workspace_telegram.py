@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import sys
 import uuid
 
 import httpx
@@ -19,7 +20,7 @@ from app.models.telegram_participant_identity import TelegramParticipantIdentity
 from app.services.telegram_bot import consume_pairing_code
 
 
-BASE = "http://127.0.0.1:8000/api/v1"
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8001") + "/api/v1"
 
 
 def require(condition: bool, label: str) -> None:

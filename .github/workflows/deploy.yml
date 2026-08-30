@@ -58,9 +58,11 @@ jobs:
 
       # Неблокирующий: 8 legacy react-hooks/exhaustive-deps предупреждений
       # (см. TODO_PROD.md, блок 3). Ошибки eslint при этом уже блокируют — их нет.
+      # continue-on-error снят 30.08.2026: до этого линт падал всегда (один
+      # давний warning при --max-warnings 0), поэтому красный результат был
+      # нормой и настоящий дефект в нём утонул бы.
       - name: Lint frontend
         working-directory: frontend
-        continue-on-error: true
         run: npm run lint
 
       - name: Test frontend (vitest)
@@ -109,7 +111,7 @@ jobs:
           heads=$(alembic heads | grep -c '(head)')
           test "$heads" -eq 1 || { echo "Ожидался ровно 1 alembic head, найдено: $heads"; alembic heads; exit 1; }
 
-      - name: Lead-to-account auth E2E
+      - name: Live E2E (auth + role access matrix)
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://tte:tte@localhost:5432/tte_db
@@ -131,6 +133,10 @@ jobs:
             sleep 1
           done
           python tests/e2e_auth_intake.py
+          # Матрица доступа по четырём ролям. Лежала готовой, но не гонялась:
+          # pytest.ini собирает только test_*.py, а в workflow шага не было.
+          # Приложение уже поднято выше — переиспользуем тот же uvicorn.
+          python tests/e2e_workspace_roles.py http://127.0.0.1:8001
 
       # ---------- Compose ----------
       - name: Validate docker compose

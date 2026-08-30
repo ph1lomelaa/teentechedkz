@@ -89,7 +89,11 @@ export const MentorTasksBoard: React.FC<Props> = ({
       }),
   })
 
-  const items = data?.items ?? []
+  // `data?.items ?? []` создаёт новый массив на каждый рендер, поэтому зависимость
+  // useMemo ниже менялась всегда и подсчёт выполнялся вхолостую. Оборачиваем сам
+  // список — тогда и ссылка стабильна, и предупреждение линтера уходит по делу,
+  // а не подавлением.
+  const items = useMemo(() => data?.items ?? [], [data?.items])
   const overdueCount = useMemo(() => items.filter((i) => i.sla_overdue).length, [items])
 
   const chip = (active: boolean) =>
