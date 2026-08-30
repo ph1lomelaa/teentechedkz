@@ -40,6 +40,8 @@ class AuditAction(str, enum.Enum):
     google_unlinked = "google_unlinked"
     agreement_published = "agreement_published"
     agreement_signed = "agreement_signed"
+    # Правка прав в конструкторе: кто, когда, что было и что стало.
+    permission_changed = "permission_changed"
 
 
 class AuditLog(Base):

@@ -84,6 +84,22 @@ async def lifespan(app: FastAPI):
     from app.services.ws_hub import manager as ws_manager
     await ws_manager.start()
 
+    # Переопределения прав из конструктора. Загружаются в каждом воркере: реестр
+    # спрашивают на каждом запросе, поэтому он держится в памяти процесса, а не
+    # читается из базы. Ошибка здесь не должна ронять запуск — без
+    # переопределений система работает по значениям из кода, то есть строго не
+    # шире задуманного.
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.services.permission_overrides import reload_overrides
+
+        async with AsyncSessionLocal() as db:
+            applied = await reload_overrides(db)
+        if applied:
+            logger.info("Загружено переопределений прав: %s", applied)
+    except Exception:
+        logger.exception("Не удалось загрузить переопределения прав — работаем по коду")
+
     # Singleton background loops (Telegram webhook registration/health,
     # Sheets/Notion sync, payment notifier) deliberately do NOT run here.
     # With multiple uvicorn workers, a per-worker lifespan would start each
