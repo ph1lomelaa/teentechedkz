@@ -1,6 +1,6 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import type { PermissionAction } from '@/api/permissions'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -21,6 +21,7 @@ import { PendingApprovalPage } from '@/pages/PendingApprovalPage'
 import { AgreementSignPage } from '@/pages/AgreementSignPage'
 import { StudentPortalLayout } from '@/components/portal/StudentPortalLayout'
 import { WorkspaceLayout } from '@/layouts/WorkspaceLayout'
+import { createQueryClient } from '@/lib/queryClient'
 
 // Lazy-loaded pages (less critical path)
 const DashboardPage = React.lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
@@ -47,7 +48,6 @@ const MzkQualityPage = React.lazy(() => import('@/pages/MzkQualityPage').then((m
 const MentorRewardsPage = React.lazy(() => import('@/pages/MentorRewardsPage').then((m) => ({ default: m.MentorRewardsPage })))
 const MentorTasksPage = React.lazy(() => import('@/pages/MentorTasksPage').then((m) => ({ default: m.MentorTasksPage })))
 const CheckinsPage = React.lazy(() => import('@/pages/CheckinsPage').then((m) => ({ default: m.CheckinsPage })))
-const MyTasksPage = React.lazy(() => import('@/pages/MyTasksPage').then((m) => ({ default: m.MyTasksPage })))
 const PortalImportantNotesPage = React.lazy(() => import('@/pages/portal/PortalImportantNotesPage').then((m) => ({ default: m.PortalImportantNotesPage })))
 const PortalUniversitiesPage = React.lazy(() => import('@/pages/portal/PortalUniversitiesPage').then((m) => ({ default: m.PortalUniversitiesPage })))
 const PortalUniversityDetailPage = React.lazy(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
@@ -126,15 +126,7 @@ const TelegramInboxPage = React.lazy(() => import('@/pages/TelegramInboxPage'))
 const TelegramChatDetailPage = React.lazy(() => import('@/pages/TelegramChatDetailPage'))
 const StatusInboxPage = React.lazy(() => import('@/pages/StatusInboxPage'))
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
-    },
-  },
-})
+const queryClient = createQueryClient()
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -232,6 +224,24 @@ function HomeRoute() {
  */
 type RoutePermission = [resource: string, action: PermissionAction]
 
+/**
+ * Роут CRM-оболочки.
+ *
+ * `permission` — основная форма: тот же ключ реестра, что и у пункта меню, и
+ * что спрашивает эндпоинт. Один переключатель в конструкторе прав убирает
+ * пункт, закрывает прямую ссылку и отдаёт 403 — все три сразу.
+ *
+ * `roles` остался ровно у одного роута — `/statistics`. Своего ресурса у него
+ * нет: страница собрана на ручках воркспейса, и правило `statistics` в реестре
+ * было бы строкой, которую ни один эндпоинт не спрашивает (это ловит
+ * `test_no_resource_is_dead`). Появится своя ручка — появится и право.
+ *
+ * /mentor-tasks, /mzk-quality и /mentor-rewards сведены к ключу меню
+ * 30.08.2026 по решению владельца. Ментор эти пункты в меню и так видел, а по
+ * ссылке получал редирект; теперь пускает. Страницы сами ветвятся по
+ * `can(…, 'manage')`, поэтому ментор получает их в режиме чтения — как и
+ * задумано правилами `mzk_quality:view` / `mentor_rewards:view`.
+ */
 function ProtectedRoute({
   children,
   roles,
@@ -407,7 +417,7 @@ function AppRoutes() {
       <Route
         path="/my-students"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['students', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <MyStudentsPage />
@@ -456,6 +466,7 @@ function AppRoutes() {
         }
       />
 
+      {/* Роль, а не право: правила `statistics` в реестре нет. */}
       <Route
         path="/statistics"
         element={
@@ -500,7 +511,7 @@ function AppRoutes() {
       <Route
         path="/settings/permissions"
         element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute permission={['permissions', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <SettingsPermissionsPage />
@@ -530,7 +541,7 @@ function AppRoutes() {
       <Route
         path="/telegram-inbox"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['telegram_chats', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TelegramInboxPage />
@@ -543,7 +554,7 @@ function AppRoutes() {
       <Route
         path="/telegram-inbox/:chatId"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['telegram_chats', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TelegramChatDetailPage />
@@ -556,7 +567,7 @@ function AppRoutes() {
       <Route
         path="/status-inbox"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['status_history', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <StatusInboxPage />
@@ -569,7 +580,7 @@ function AppRoutes() {
       <Route
         path="/roadmap-templates"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['roadmap_templates', 'manage']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <TemplatesPage />
@@ -582,7 +593,7 @@ function AppRoutes() {
       <Route
         path="/knowledge-base"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['knowledge', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <KnowledgeBasePage />
@@ -595,7 +606,7 @@ function AppRoutes() {
       <Route
         path="/universities"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['universities', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <UniversitiesPage />
@@ -608,7 +619,7 @@ function AppRoutes() {
       <Route
         path="/universities/:id"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['universities', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <UniversityDetailPage />
@@ -623,7 +634,7 @@ function AppRoutes() {
       <Route
         path="/complaints"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
+          <ProtectedRoute permission={['complaints', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <WorkspaceComplaintsPage />
@@ -637,7 +648,7 @@ function AppRoutes() {
       <Route
         path="/refund-cases"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute permission={['refund_cases', 'manage']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <WorkspaceRefundCasesPage />
@@ -662,7 +673,7 @@ function AppRoutes() {
       <Route
         path="/mentor-tasks"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute permission={['tasks', 'manage']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <MentorTasksPage />
@@ -674,7 +685,7 @@ function AppRoutes() {
       <Route
         path="/checkins"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute permission={['checkins', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <CheckinsPage />
@@ -683,22 +694,16 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/my-tasks"
-        element={
-          <ProtectedRoute roles={['admin', 'mzk_manager', 'mentor']}>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <MyTasksPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* «Мои задачи» существовали по двум адресам одной и той же страницей:
+          обёртки в семь строк вокруг общего MyTasksList, вся разница — цвет.
+          Личная работа по границе самих оболочек принадлежит кабинету («что мне
+          сегодня делать»), туда же ведёт уведомление о санкции SLA. Командный
+          разрез остался в CRM отдельным разделом «Задачи менторов». */}
+      <Route path="/my-tasks" element={<Navigate to="/workspace/my-tasks" replace />} />
       <Route
         path="/mzk-quality"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute permission={['mzk_quality', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <MzkQualityPage />
@@ -710,7 +715,7 @@ function AppRoutes() {
       <Route
         path="/mentor-rewards"
         element={
-          <ProtectedRoute roles={['admin', 'mzk_manager']}>
+          <ProtectedRoute permission={['mentor_rewards', 'view']}>
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <MentorRewardsPage />

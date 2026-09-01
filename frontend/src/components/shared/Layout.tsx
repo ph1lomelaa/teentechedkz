@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -35,6 +35,7 @@ import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
 import { cn } from '@/lib/utils'
+import { useScrollRestoration } from '@/lib/use-scroll-restoration'
 
 interface NavItem {
   label: string
@@ -77,10 +78,9 @@ const baseNavGroups: NavGroup[] = [
   {
     group: 'РАБОТА',
     items: [
-      { label: 'Мои задачи', path: '/my-tasks', icon: <ListTodo className="w-4 h-4" />, permission: ['tasks', 'view'] },
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" />, permission: ['notes', 'manage'] },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" />, permission: ['telegram_chats', 'view'] },
-      { label: 'Статусы', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
+      { label: 'Статус', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
       { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" />, permission: ['complaints', 'view'] },
     ],
   },
@@ -96,7 +96,7 @@ const baseNavGroups: NavGroup[] = [
     group: 'АДМИНИСТРАЦИЯ',
     items: [
       { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" />, permission: ['finances', 'view'] },
-      { label: 'Roadmap', path: '/roadmap-templates', icon: <Route className="w-4 h-4" />, permission: ['roadmap_templates', 'manage'] },
+      { label: 'Шаблоны дорожных карт', path: '/roadmap-templates', icon: <Route className="w-4 h-4" />, permission: ['roadmap_templates', 'manage'] },
       { label: 'Кто за что отвечает', path: '/settings/responsibilities', icon: <UserCheck className="w-4 h-4" />, permission: ['responsibilities', 'view'] },
     ],
   },
@@ -108,7 +108,7 @@ const ADMIN_ONLY_ITEMS: NavItem[] = [
   { label: 'Статистика', path: '/statistics', icon: <BarChart3 className="w-4 h-4" /> },
   { label: 'Настройки', path: '/settings/users', icon: <Settings className="w-4 h-4" />, permission: ['users', 'manage'] },
   // Матрица прав: GET /permissions/matrix отдаётся только админу.
-  { label: 'Права доступа', path: '/settings/permissions', icon: <ShieldCheck className="w-4 h-4" />, permission: ['users', 'manage'] },
+  { label: 'Права доступа', path: '/settings/permissions', icon: <ShieldCheck className="w-4 h-4" />, permission: ['permissions', 'view'] },
 ]
 
 // Refund-case endpoints are admin/mzk only, so the nav entry must be too —
@@ -122,21 +122,35 @@ function staffOnlyItems(role: string): NavItem[] {
   return [
     { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" />, permission: ['tasks', 'manage'] },
     { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" />, permission: ['checkins', 'view'] },
-    { label: 'Возвраты', path: '/refund-cases', icon: <Banknote className="w-4 h-4" />, permission: ['refund_cases', 'manage'] },
+    { label: 'Возвратные кейсы', path: '/refund-cases', icon: <Banknote className="w-4 h-4" />, permission: ['refund_cases', 'manage'] },
     {
       label: role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
       path: '/mzk-quality',
       icon: <Gauge className="w-4 h-4" />,
       permission: ['mzk_quality', 'view'],
     },
-    { label: 'Вознаграждения менторов', path: '/mentor-rewards', icon: <Award className="w-4 h-4" />, permission: ['mentor_rewards', 'view'] },
+    { label: 'Вознаграждение менторов', path: '/mentor-rewards', icon: <Award className="w-4 h-4" />, permission: ['mentor_rewards', 'view'] },
   ]
 }
 
-function getNavGroups(role: string): NavGroup[] {
+// Те же самые страницы уже стоят в меню кабинета — «Статус» и «Обращения» это
+// буквально один компонент на двух адресах. У ментора из-за таких дублей меню
+// разрасталось до 15 пунктов в CRM против 19 в кабинете, шесть названий
+// пересекались, и он работал в двух параллельных интерфейсах.
+//
+// У админа и МЗК они остаются: CRM для них надмножество и основное место
+// работы (см. комментарий у роутов), выселять их в другую оболочку — обмен
+// одного неудобства на другое.
+const MENTOR_DUPLICATE_PATHS = new Set(['/status-inbox', '/complaints'])
+
+// Экспортируется ради теста на дубли разделов: состав меню — это поведение,
+// и проверять его регуляркой по исходнику было бы слабее, чем вызовом.
+export function getNavGroups(role: string): NavGroup[] {
   if (role !== 'admin' && role !== 'mzk_manager' && role !== 'mentor') return []
   const isStaff = role === 'admin' || role === 'mzk_manager'
-  return baseNavGroups.map((group) => {
+  const withoutDuplicates = (items: NavItem[]) =>
+    role === 'mentor' ? items.filter((item) => !MENTOR_DUPLICATE_PATHS.has(item.path)) : items
+  return baseNavGroups.map((group) => ({ ...group, items: withoutDuplicates(group.items) })).map((group) => {
     if (group.group !== 'АДМИНИСТРАЦИЯ') return group
     return {
       ...group,
@@ -174,7 +188,6 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/complaints': 'Обращения',
     '/mentor-tasks': 'Задачи менторов',
     '/checkins': 'Чекины команды',
-    '/my-tasks': 'Мои задачи',
     '/refund-cases': 'Возвратные кейсы',
     '/agreements': 'Регламенты',
     '/mzk-quality': role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
@@ -194,6 +207,10 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
+  // main здесь — собственный скролл-контейнер, поэтому прокрутку приходится
+  // восстанавливать руками: см. use-scroll-restoration.
+  const mainRef = useRef<HTMLElement>(null)
+  useScrollRestoration(mainRef)
 
   const navGroups = user ? filterNavByPermission(getNavGroups(user.role), can) : []
   const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
@@ -223,7 +240,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           aria-hidden="true"
         />
       )}
-
       {/* Sidebar: drawer на мобильных/планшете-портрете, статичный от lg */}
       <aside
         className={cn(
@@ -245,7 +261,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             <X className="w-5 h-5" />
           </button>
         </div>
-
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-4">
           {navGroups.map((group, groupIndex) => (
@@ -285,7 +300,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             </div>
           ))}
         </nav>
-
         <div className="mt-auto border-t border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
           <button
             onClick={() => logout()}
@@ -296,7 +310,6 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           </button>
         </div>
       </aside>
-
       {/* Main */}
       <div className="crm-content flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Header */}
@@ -323,9 +336,8 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             <NotificationsBell />
           </div>
         </header>
-
         {/* Content */}
-        <main className="app-main flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6">
+        <main ref={mainRef} className="app-main flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6">
           <div className="mx-auto w-full max-w-[1180px]">
             <React.Suspense
               fallback={(
