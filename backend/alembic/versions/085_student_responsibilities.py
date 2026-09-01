@@ -6,6 +6,7 @@ Create Date: 2026-08-30
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "085"
 down_revision = "084"
@@ -28,8 +29,11 @@ AREAS = (
 
 
 def upgrade() -> None:
-    area = sa.Enum(*AREAS, name="responsibility_area")
-    area.create(op.get_bind(), checkfirst=True)
+    sa.Enum(*AREAS, name="responsibility_area").create(op.get_bind(), checkfirst=True)
+    # Тип уже создан строкой выше, поэтому в колонке он только упоминается:
+    # sa.Enum в create_table повторно шлёт CREATE TYPE в той же транзакции и
+    # роняет миграцию на «type already exists».
+    area = postgresql.ENUM(*AREAS, name="responsibility_area", create_type=False)
 
     op.create_table(
         "student_responsibilities",
