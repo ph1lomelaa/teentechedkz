@@ -19,6 +19,7 @@ from app.models.student_task import StudentTask, TaskStatus
 from app.models.mentor_task_penalty import MentorTaskPenalty, PenaltyColor
 from app.models.user import User, UserRole
 from app.services.notify import has_unread, notify, push_notification
+from app.services.task_sla import SLA_TRACKED_STATUSES
 from app.services.task_urgency import task_urgency
 
 logger = logging.getLogger(__name__)
@@ -38,13 +39,20 @@ async def check_critical_overdue_tasks() -> None:
             select(StudentTask, Student)
             .join(Student, Student.id == StudentTask.student_id)
             .where(
-                StudentTask.status.notin_((TaskStatus.accepted, TaskStatus.done, TaskStatus.cancelled)),
+                StudentTask.status.in_(SLA_TRACKED_STATUSES),
                 StudentTask.due_date.is_not(None),
             )
         )
         rows = result.all()
 
-        critical = [(task, student) for task, student in rows if task_urgency(task.due_date, "open") == "critical"]
+        # Статус настоящий, а не зашитый "open": здесь пишется живая санкция
+        # (MentorTaskPenalty), и задача, ждущая подписи регламента, штрафовалась
+        # бы вопреки паузе SLA — за то, к чему исполнителя ещё не допустили.
+        critical = [
+            (task, student)
+            for task, student in rows
+            if task_urgency(task.due_date, task.status.value) == "critical"
+        ]
         if not critical:
             return
 

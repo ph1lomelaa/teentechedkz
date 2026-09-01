@@ -7,12 +7,25 @@
 Пороги (Прил. № 3, п. 3.4): 🟡 < 24ч · 🟠 24–48ч · 🔴 48–72ч · ⚫ > 72ч (critical,
 существенное нарушение — основание расторгнуть договор).
 """
-from datetime import date, timedelta
+from datetime import date
 from typing import Literal
+
+from app.services.task_sla import PAUSED_STATUSES, TERMINAL_STATUSES
 
 Urgency = Literal["none", "yellow", "orange", "red", "critical"]
 
-DONE_STATUSES = {"done"}
+# Статусы, в которых срочности нет вовсе. Раньше здесь стоял один "done", и
+# отменённая или принятая задача считалась горящей — не было видно только
+# потому, что эндпоинты фильтровали по status == open и до сюда её не пускали.
+#
+# Набор берётся из task_sla, а не переписывается литералами: срочность на
+# экране обязана совпадать с тем, за что реально штрафуют. Отсюда же и пауза —
+# ждущая подписи регламента задача не вина исполнителя, часы SLA на неё не
+# капают, и красным её красить не за что.
+#
+# Значения, а не enum: сюда приходят и RoadmapTask (planned/in_progress/done),
+# и StudentTask — общий знаменатель у них только строка.
+NO_URGENCY_STATUSES = {status.value for status in TERMINAL_STATUSES | PAUSED_STATUSES}
 
 
 def task_urgency(due_date: date | None, status: str, *, today: date | None = None) -> Urgency:
@@ -21,7 +34,7 @@ def task_urgency(due_date: date | None, status: str, *, today: date | None = Non
     due_date — дата, а не datetime: просрочка отсчитывается от полуночи после
     дедлайна, то есть due_date == today ещё не просрочка (0 полных дней просрочки).
     """
-    if due_date is None or status in DONE_STATUSES:
+    if due_date is None or status in NO_URGENCY_STATUSES:
         return "none"
 
     reference = today or date.today()

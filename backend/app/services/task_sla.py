@@ -41,6 +41,13 @@ def is_sla_tracked(status: TaskStatus) -> bool:
     return status not in TERMINAL_STATUSES and status not in PAUSED_STATUSES
 
 
+# То же правило набором — для фильтров в SQL, где функцию по строке не позвать.
+# Собирается из is_sla_tracked, а не перечислением: новый статус в TaskStatus
+# иначе разошёлся бы со счётчиками молча, а именно так и появился дефект, из-за
+# которого «Мой день» прятал задачи в статусе overdue.
+SLA_TRACKED_STATUSES = frozenset(status for status in TaskStatus if is_sla_tracked(status))
+
+
 def is_overdue(
     *, sla_due_at: datetime | None, status: TaskStatus, now: datetime
 ) -> bool:

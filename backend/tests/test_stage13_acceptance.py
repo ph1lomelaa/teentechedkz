@@ -17,6 +17,7 @@ from app.api.v1.endpoints.mzk_quality import validate_period, validate_review_so
 from app.api.v1.endpoints.refund_cases import _require_approved_change_basis
 from app.api.v1.endpoints.tasks import _validate_task_acceptance
 from app.models.mentor_task_penalty import MentorTaskPenalty, PenaltyColor
+from app.models.student_task import TaskStatus
 from app.models.user import User, UserRole
 from app.services.agreements import signature_covers_version
 from app.services.task_urgency import task_urgency
@@ -123,7 +124,7 @@ class Stage13OverdueWorkflowTests(unittest.IsolatedAsyncioTestCase):
             assignee_id=mentor_id,
             task_text="Сдать результат",
             due_date=date(2026, 8, 1),
-            status="open",
+            status=TaskStatus.open,
         )
         db = _NotifierDb(task, student, admin_id, mzk_id, mentor_id)
         notes = []
@@ -149,6 +150,36 @@ class Stage13OverdueWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(penalties[0].color, PenaltyColor.red)
         self.assertEqual({note.user_id for note in notes}, {admin_id, mzk_id})
         self.assertEqual(db.commits, 1)
+
+    async def test_task_awaiting_signature_is_not_fined(self):
+        """Гейт регламента держит исполнителя, а не наоборот.
+
+        task_sla ставит SLA на паузу, пока задача ждёт подписи, — но цикл
+        санкций брал все нетерминальные статусы и считал срочность с зашитым
+        "open". Ментор получал красный штраф за работу, к которой его ещё не
+        допустили.
+        """
+        student = SimpleNamespace(id=uuid.uuid4(), full_name="Тестовый студент")
+        task = SimpleNamespace(
+            id=uuid.uuid4(),
+            student_id=student.id,
+            assignee_id=uuid.uuid4(),
+            task_text="Сдать результат",
+            due_date=date(2026, 8, 1),
+            status=TaskStatus.awaiting_signature,
+        )
+        db = _NotifierDb(task, student, uuid.uuid4(), uuid.uuid4(), task.assignee_id)
+
+        with patch.object(task_urgency_notifier, "AsyncSessionLocal", return_value=db), \
+             patch.object(task_urgency_notifier, "has_unread", return_value=False), \
+             patch.object(task_urgency_notifier, "notify"), \
+             patch.object(task_urgency_notifier, "push_notification"):
+            await task_urgency_notifier.check_critical_overdue_tasks()
+
+        self.assertEqual(
+            [item for item in db.added if isinstance(item, MentorTaskPenalty)], []
+        )
+        self.assertEqual(db.commits, 0)
 
 
 if __name__ == "__main__":

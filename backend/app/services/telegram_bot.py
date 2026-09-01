@@ -459,7 +459,8 @@ async def cmd_new(message: Message):
 async def cmd_tasks(message: Message):
     from app.core.database import AsyncSessionLocal
     from app.models.user import User
-    from app.models.student_task import StudentTask, TaskStatus
+    from app.models.student_task import StudentTask
+    from app.services.task_sla import SLA_TRACKED_STATUSES
     from app.models.student import Student
     from app.models.mentor_assignment import MentorAssignment
     from sqlalchemy import select
@@ -491,7 +492,7 @@ async def cmd_tasks(message: Message):
             .join(Student, Student.id == StudentTask.student_id)
             .where(
                 StudentTask.student_id.in_(student_ids),
-                StudentTask.status == TaskStatus.open,
+                StudentTask.status.in_(SLA_TRACKED_STATUSES),
             )
             .order_by(StudentTask.created_at)
             .limit(20)
@@ -499,10 +500,10 @@ async def cmd_tasks(message: Message):
         rows = tasks_result.all()
 
     if not rows:
-        await message.answer("✅ Открытых задач нет!")
+        await message.answer("✅ Незакрытых задач нет!")
         return
 
-    lines = ["📋 *Открытые задачи:*\n"]
+    lines = ["📋 *Незакрытые задачи:*\n"]
     for task, student_name in rows:
         lines.append(f"• [{student_name}] {task.task_text}")
 

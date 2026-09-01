@@ -12,7 +12,31 @@
 
 export type Urgency = 'none' | 'yellow' | 'orange' | 'red' | 'critical'
 
-const DONE_STATUSES = new Set(['done'])
+// Зеркало NO_URGENCY_STATUSES из backend/app/services/task_urgency.py, а тот
+// собран из TERMINAL_STATUSES | PAUSED_STATUSES в task_sla.py. Раньше здесь
+// стоял один 'done': отменённая и принятая задачи считались горящими.
+// Ждущая подписи регламента задача тоже не горит — часы SLA на неё не капают,
+// штрафа за неё нет, и цвет на экране не должен обещать обратное.
+// Тест на бэке пришпилен к точному составу набора: разойдётся — упадёт там.
+const NO_URGENCY_STATUSES = new Set([
+  'done',
+  'accepted',
+  'cancelled',
+  'awaiting_signature',
+  'blocked_by_agreement',
+])
+
+/**
+ * Задача ещё требует работы. Дополнение к NO_URGENCY_STATUSES, поэтому «живая»
+ * и «горит» считаются от одного набора и разойтись не могут.
+ *
+ * Нужна там, где список фильтруется на клиенте: фильтр status === 'open' прятал
+ * ровно то, за что штрафуют, — просроченную (её фоновый цикл переводит в
+ * overdue) и взятую в работу (in_progress).
+ */
+export function isTaskLive(status: string): boolean {
+  return !NO_URGENCY_STATUSES.has(status)
+}
 
 function parseDateOnly(value: string): Date {
   const [year, month, day] = value.split('-').map(Number)
@@ -20,7 +44,7 @@ function parseDateOnly(value: string): Date {
 }
 
 export function taskUrgency(dueDate: string | null | undefined, status: string, today: Date = new Date()): Urgency {
-  if (!dueDate || DONE_STATUSES.has(status)) return 'none'
+  if (!dueDate || NO_URGENCY_STATUSES.has(status)) return 'none'
 
   const due = parseDateOnly(dueDate)
   const reference = new Date(today.getFullYear(), today.getMonth(), today.getDate())
