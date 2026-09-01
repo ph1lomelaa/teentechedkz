@@ -19,3 +19,25 @@ if (!window.matchMedia) {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia
 }
+
+// jsdom отдаёт localStorage не всегда: в прогоне из нескольких файлов его на
+// window просто нет, и тест падал на localStorage.clear() — при том что в
+// одиночку тот же файл проходил. Продукт от этого не страдает (useLocalState
+// заворачивает каждое обращение в try/catch и молча живёт без хранилища), но
+// проверять сохранение фильтров без хранилища нечем.
+if (typeof window.localStorage?.setItem !== 'function') {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, String(value)),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size
+      },
+    },
+  })
+}
