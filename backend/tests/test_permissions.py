@@ -25,12 +25,11 @@ ENDPOINTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", 
 # Функции реестра, вызов которых считается «ресурс используется».
 _REGISTRY_CALLS = frozenset({"require_access", "allows", "scope_for", "rule_for"})
 
-# Ресурсы, закрытые не вызовом, а зависимостью на роутере. Список именной,
-# чтобы под этим предлогом нельзя было оставить в реестре мёртвую строку.
-ROUTER_GUARDED = {
-    # audit.py:15 — APIRouter(..., dependencies=[AdminOnly]) на весь модуль.
-    "audit",
-}
+# Ресурсы, закрытые не вызовом, а зависимостью на роутере. Пусто с 30.08.2026:
+# `audit` был последним и переведён на require_access. Само исключение оставлено
+# на случай возврата такой формы — но именным списком, чтобы под этим предлогом
+# нельзя было оставить в реестре мёртвую строку.
+ROUTER_GUARDED: set[str] = set()
 
 
 def _resources_used_by_endpoints() -> set[str]:
@@ -76,6 +75,11 @@ class EveryRuleIsEnforcedTests(unittest.TestCase):
     def test_router_guarded_list_stays_short(self) -> None:
         # Исключение — это дыра в проверке. Их должно быть видно по пальцам.
         self.assertLessEqual(len(ROUTER_GUARDED), 3)
+
+    def test_router_guarded_stays_empty(self) -> None:
+        # Держим на нуле осознанно: зависимость на роутере отменяет реестр для
+        # всего модуля, и именно так конструктор прав однажды перестал работать.
+        self.assertEqual(ROUTER_GUARDED, set())
 
     def test_router_guarded_resources_really_exist(self) -> None:
         # Устаревшее исключение молча ослабляет тест.

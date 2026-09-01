@@ -375,7 +375,12 @@ RULES: tuple[Rule, ...] = (
              "— mentor_rewards.py:64,326",
          )),
     Rule("mentor_rewards", _M, MANAGERS, basis="п.6.2, п.6.7-6.9"),
-    Rule("mzk_quality", _V, STAFF, basis="п.7.4, п.7.5",
+    # 30.08.2026: было STAFF. Ментора здесь не было никогда — `resolve_score_scope`
+    # отдаёт ему 403 с самого начала, и это осознанно: баллы ОКК — оценка работы
+    # сотрудника. Правило обещало доступ, которого в коде нет, и это вскрылось,
+    # когда роут `/mzk-quality` перевели на ключ меню: ментор доходил до
+    # страницы и получал пустой экран с 403 в консоли.
+    Rule("mzk_quality", _V, MANAGERS, basis="п.7.4, п.7.5",
          scope={UserRole.mzk_manager: Scope.own},
          extra_rules=(
              "Запрошенный manager_id у МЗК молча подменяется своим, а не отвергается "
@@ -592,8 +597,14 @@ def granted_for(role: UserRole) -> tuple[str, ...]:
     `app/services/mentor_scope.py` и обязана оставаться одна. Права здесь нужны
     для меню и роутов: показать раздел или нет.
     """
+    # Через `_roles_for`, а не `rule.roles`: состав ролей может быть переопределён
+    # конструктором прав. Читая статический реестр напрямую, payload разошёлся бы
+    # с ответом `allows()` — меню показывало бы раздел, который эндпоинт закрыл,
+    # и прятало бы тот, который открыт.
     return tuple(
-        f"{rule.resource}:{rule.action.value}" for rule in RULES if role in rule.roles
+        f"{rule.resource}:{rule.action.value}"
+        for rule in RULES
+        if role in (_roles_for(rule.key) or frozenset())
     )
 
 

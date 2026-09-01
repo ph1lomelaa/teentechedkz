@@ -68,7 +68,9 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("mentor_rewards", Action.manage): ("admin", "mzk_manager"),
     ("mentor_rewards", Action.view): ("admin", "mzk_manager", "mentor"),
     ("mzk_quality", Action.manage): ("admin",),
-    ("mzk_quality", Action.view): ("admin", "mzk_manager", "mentor"),
+    # 30.08.2026: ментор убран. Он и не проходил — `resolve_score_scope` отдавал
+    # ему 403 с самого начала; правило обещало доступ, которого в коде нет.
+    ("mzk_quality", Action.view): ("admin", "mzk_manager"),
     ("note_sessions", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("notes", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("integrations", Action.manage): ("admin", "mzk_manager", "mentor"),

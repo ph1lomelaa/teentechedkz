@@ -17,6 +17,16 @@
 (класс `GateWiringTests`): читаем исходник и требуем, чтобы гейт стоял на
 маршруте. По мере переезда модулей список `MIGRATED` растёт, а счётчик
 самодельных гейтов в `test_ad_hoc_gate_count_only_goes_down` — падает.
+
+Слепая зона, найденная 30.08.2026
+---------------------------------
+Тест искал проверки роли только внутри *функций-гейтов в модулях эндпоинтов* —
+и не видел третьей формы: константу ролей, повешенную на сам маршрут
+(`dependencies=[AdminOnly]`) или подставленную типом текущего пользователя
+(`StaffUser = Annotated[User, AllStaff]`). Сравнение с набором ролей лежало в
+`deps.py`, куда тест не заглядывал. Из-за этого конструктор прав записывал
+переопределение, матрица его показывала, а эндпоинт продолжал отвечать 403.
+Класс `RoutesHaveNoHardcodedRoleDeps` закрывает именно эту форму.
 """
 import ast
 import inspect
@@ -26,7 +36,9 @@ import unittest
 
 from app.core import permissions
 
-ENDPOINTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "api", "v1", "endpoints")
+APP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app")
+ENDPOINTS_DIR = os.path.join(APP_DIR, "api", "v1", "endpoints")
+DEPS_FILE = os.path.join(APP_DIR, "core", "deps.py")
 
 # Паттерн локального гейта: то, что реестр обязан заменить.
 _GATE_NAME = re.compile(
@@ -51,6 +63,8 @@ SCOPE_ONLY_HELPERS = frozenset({
 _ROLE_SET_CHECK = re.compile(r"\.role\s+(?:not\s+)?in\s")
 _ROLE_EQ_CHECK = re.compile(r"\.role\s*==")
 _REGISTRY_CALL = re.compile(r"\b(require_access|allows)\(")
+# Константы ролей из deps.py: третья форма проверки — на маршруте, а не в гейте.
+ROLE_CONSTANTS = frozenset({"AdminOnly", "StaffOnly", "AllStaff", "require_roles"})
 
 
 def _gate_sources() -> list[tuple[str, str, str]]:
@@ -113,6 +127,44 @@ class GatesDelegateToRegistryTests(unittest.TestCase):
 
     def test_the_exception_list_stays_small(self) -> None:
         self.assertLessEqual(len(SCOPE_ONLY_HELPERS), 5)
+
+
+class RoutesHaveNoHardcodedRoleDeps(unittest.TestCase):
+    """Роль не решает на маршруте — ни в `dependencies=`, ни типом параметра.
+
+    Эта форма опаснее самодельного гейта: гейт видно в теле функции, а
+    `dependencies=[AdminOnly]` выглядит как аккуратная декларация — и молча
+    отменяет реестр для всего маршрута.
+    """
+
+    def test_deps_module_defines_no_role_constant_dependency(self) -> None:
+        source = open(DEPS_FILE, encoding="utf-8").read()
+        for name in ("def require_roles", "AdminOnly =", "StaffOnly =", "AllStaff ="):
+            with self.subTest(symbol=name):
+                self.assertNotIn(
+                    name,
+                    source,
+                    "константа ролей в deps.py — вторая система прав; "
+                    "состав ролей задаёт только app/core/permissions.py",
+                )
+
+    def test_no_endpoint_uses_a_role_constant(self) -> None:
+        # Через ast, а не регуляркой: имя константы встречается в комментариях,
+        # объясняющих, почему её больше нет, и текст объяснения не должен
+        # считаться нарушением.
+        offenders = []
+        for filename in sorted(os.listdir(ENDPOINTS_DIR)):
+            if not filename.endswith(".py"):
+                continue
+            src = open(os.path.join(ENDPOINTS_DIR, filename), encoding="utf-8").read()
+            for node in ast.walk(ast.parse(src)):
+                if isinstance(node, ast.Name) and node.id in ROLE_CONSTANTS:
+                    offenders.append(f"{filename}:{node.lineno}")
+        self.assertEqual(
+            offenders,
+            [],
+            "Маршрут решает по роли константой, мимо реестра: " + ", ".join(offenders),
+        )
 
 
 class RegistryApiTests(unittest.TestCase):

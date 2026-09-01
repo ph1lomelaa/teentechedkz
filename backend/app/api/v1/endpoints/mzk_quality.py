@@ -307,6 +307,11 @@ async def list_scores(
     current_user: CurrentUser,
     mzk_manager_id: str | None = None,
 ):
+    # «Кому можно» — реестр; «чьи баллы» — resolve_score_scope ниже. До этой
+    # строки решение о доступе принимал сам резолвер, мимо реестра, и правило
+    # `mzk_quality:view` разошлось с поведением незамеченным.
+    require_access(current_user, "mzk_quality", Action.view)
+
     scoped = resolve_score_scope(
         viewer_role=current_user.role,
         viewer_id=current_user.id,

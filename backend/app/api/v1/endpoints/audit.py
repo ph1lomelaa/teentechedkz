@@ -1,4 +1,8 @@
-"""Read-only view over the security audit log (Этап 0.1). Admin only."""
+"""Read-only view over the security audit log (Этап 0.1).
+
+Состав ролей задаёт реестр (`audit:view`), а не константа в коде: иначе
+переключатель в конструкторе прав менял бы матрицу, но не этот эндпоинт.
+"""
 from __future__ import annotations
 
 import uuid
@@ -9,20 +13,24 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import AdminOnly
+from app.core.deps import CurrentUser
+from app.core.permissions import Action, require_access
 from app.models.audit_log import AuditAction, AuditLog
 
-router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[AdminOnly])
+router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 @router.get("")
 async def list_audit(
     db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
     action: AuditAction | None = None,
     target_user_id: uuid.UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    require_access(current_user, "audit", Action.view)
+
     conditions = []
     if action is not None:
         conditions.append(AuditLog.action == action)

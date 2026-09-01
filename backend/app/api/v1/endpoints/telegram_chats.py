@@ -19,7 +19,7 @@ from starlette.responses import StreamingResponse
 from app.core.audit import log_change
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import AllStaff, CurrentUser
+from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.encryption import decrypt, encrypt
 from app.models.ai_analysis_run import AiAnalysisRun
@@ -63,7 +63,20 @@ IMPORTANT_CONTEXT_RE = re.compile(
 
 MAX_TELEGRAM_EXPORT_BYTES = 30 * 1024 * 1024
 
-StaffUser = Annotated[User, AllStaff]
+async def _chat_reader(current_user: CurrentUser) -> User:
+    """Порог модуля: кому вообще открыта переписка.
+
+    Раньше здесь стояла константа ролей (`AllStaff`) — тот же состав, что и в
+    правиле `telegram_chats:view`, но записанный вторым местом. Из-за этого
+    переключатель в конструкторе прав менял матрицу и меню, а модуль продолжал
+    решать по-своему. Решает реестр; `_require_chat_access` ниже остаётся
+    скоупом — «чей это чат», а не «кому можно».
+    """
+    require_access(current_user, "telegram_chats", Action.view)
+    return current_user
+
+
+StaffUser = Annotated[User, Depends(_chat_reader)]
 
 
 async def _current_student_id(db: AsyncSession, chat_id: uuid.UUID) -> uuid.UUID | None:

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_change
 from app.core.database import get_db
-from app.core.deps import AdminOnly, CurrentUser
+from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.reward_rule import RewardRule, RewardRuleKind
 from app.models.user import UserRole
@@ -42,7 +42,7 @@ async def list_reward_rules(
     return RewardRulesResponse(**grouped, stage_pct_sum=stage_sum)
 
 
-@router.put("/{kind}/{rule_key}", response_model=RewardRuleOut, dependencies=[AdminOnly])
+@router.put("/{kind}/{rule_key}", response_model=RewardRuleOut)
 async def update_reward_rule(
     kind: RewardRuleKind,
     rule_key: str,
@@ -50,6 +50,8 @@ async def update_reward_rule(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "reward_rules", Action.manage)
+
     payload = body.payload
     if payload.kind != kind.value:
         raise HTTPException(status_code=422, detail="Вид ставки в payload не совпадает с путём")
@@ -88,13 +90,17 @@ async def update_reward_rule(
     return fresh
 
 
-@router.get("/{kind}/{rule_key}/history", response_model=list[RewardRuleOut], dependencies=[AdminOnly])
+@router.get("/{kind}/{rule_key}/history", response_model=list[RewardRuleOut])
 async def rule_history(
     kind: RewardRuleKind,
     rule_key: str,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    # История правок ставки — «manage», а не «view»: смотреть текущую ставку
+    # можно всей команде, а кто и когда её менял — вопрос управления.
+    require_access(current_user, "reward_rules", Action.manage)
+
     rows = await db.execute(
         select(RewardRule)
         .where(RewardRule.kind == kind, RewardRule.rule_key == rule_key)

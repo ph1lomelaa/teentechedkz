@@ -23,7 +23,7 @@ from xml.etree import ElementTree
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentUser, AdminOnly
+from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.uploads import read_upload_capped
 from app.models.agreement import Agreement, AgreementSignature, AgreementAudience, AgreementStatus
@@ -156,7 +156,7 @@ async def list_agreements(
     return {"items": items}
 
 
-@router.post("", dependencies=[AdminOnly])
+@router.post("")
 async def create_agreement(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -166,6 +166,8 @@ async def create_agreement(
     country_name: str | None = Form(None),
     file: UploadFile | None = File(None),
 ):
+    require_access(current_user, "agreements", Action.manage)
+
     try:
         aud = AgreementAudience(audience)
     except ValueError:
@@ -203,7 +205,7 @@ async def create_agreement(
     return _agreement_to_dict(agreement)
 
 
-@router.patch("/{agreement_id}", dependencies=[AdminOnly])
+@router.patch("/{agreement_id}")
 async def update_agreement(
     agreement_id: uuid.UUID,
     current_user: CurrentUser,
@@ -221,6 +223,8 @@ async def update_agreement(
     `s.agreement_version != agreement.version` не срабатывала никогда, и
     опубликовать новую редакцию было некому.
     """
+    require_access(current_user, "agreements", Action.manage)
+
     agreement = await db.get(Agreement, agreement_id)
     if not agreement:
         raise HTTPException(status_code=404, detail="Регламент не найден")
@@ -266,12 +270,14 @@ async def update_agreement(
     return _agreement_to_dict(agreement)
 
 
-@router.patch("/{agreement_id}/publish", dependencies=[AdminOnly])
+@router.patch("/{agreement_id}/publish")
 async def publish_agreement(
     agreement_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    require_access(current_user, "agreements", Action.manage)
+
     from datetime import datetime, timezone
 
     agreement = await db.get(Agreement, agreement_id)
@@ -309,12 +315,14 @@ async def publish_agreement(
     return _agreement_to_dict(agreement)
 
 
-@router.patch("/{agreement_id}/archive", dependencies=[AdminOnly])
+@router.patch("/{agreement_id}/archive")
 async def archive_agreement(
     agreement_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    require_access(current_user, "agreements", Action.manage)
+
     agreement = await db.get(Agreement, agreement_id)
     if not agreement:
         raise HTTPException(status_code=404, detail="Регламент не найден")
@@ -325,9 +333,10 @@ async def archive_agreement(
     return _agreement_to_dict(agreement)
 
 
-@router.get("/{agreement_id}/signatures", dependencies=[AdminOnly])
+@router.get("/{agreement_id}/signatures")
 async def list_agreement_signatures(
     agreement_id: uuid.UUID,
+    current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Кто подписал регламент и кто ещё нет.
@@ -339,6 +348,8 @@ async def list_agreement_signatures(
     Обязанными считаем только активных пользователей соответствующей роли:
     иначе список «не подписали» бесконечно растёт за счёт уволенных.
     """
+    require_access(current_user, "agreements", Action.manage)
+
     agreement = await db.get(Agreement, agreement_id)
     if not agreement:
         raise HTTPException(status_code=404, detail="Регламент не найден")

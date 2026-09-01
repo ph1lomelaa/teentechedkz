@@ -165,22 +165,10 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_roles(*roles: UserRole):
-    async def _check(current_user: CurrentUser) -> User:
-        if current_user.role not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied",
-                headers={"X-Error-Code": "FORBIDDEN"},
-            )
-        return current_user
-    return Depends(_check)
-
-
-AdminOnly = require_roles(UserRole.admin)
-# Any back-office employee (student portal accounts are excluded).
-StaffOnly = require_roles(UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
-AllStaff = StaffOnly  # backwards-compatible alias
+# `require_roles` / `AdminOnly` / `StaffOnly` удалены 30.08.2026. Это был
+# последний остаток второй системы прав: константа ролей на маршруте решала
+# мимо реестра, поэтому переключатель в конструкторе прав менял матрицу и меню,
+# но не эндпоинт. Состав ролей задаёт только `app/core/permissions.py`.
 
 
 async def get_current_student(
