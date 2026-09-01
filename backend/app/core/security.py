@@ -4,6 +4,7 @@ import uuid
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 from fastapi import HTTPException, status
 
 from app.core.config import settings
@@ -15,8 +16,20 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+# Заглушка вместо хеша: аккаунт, у которого пароля нет и не предполагается
+# (заведён через Google). Любое значение, не похожее на bcrypt, ведёт себя так же.
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    """Совпадает ли пароль. Непригодный хеш — это «нет», а не ошибка.
+
+    У аккаунта, заведённого через Google, вместо хеша стоит заглушка. Без этой
+    ветки попытка войти в него по паролю роняла `UnknownHashError` наружу — то
+    есть отдавала 500 вместо «неверный email или пароль», да ещё и сообщала
+    подбирающему, что такой аккаунт существует.
+    """
+    try:
+        return pwd_context.verify(plain, hashed)
+    except UnknownHashError:
+        return False
 
 
 def create_access_token(data: dict[str, Any]) -> str:

@@ -436,6 +436,17 @@ export const usersApi = {
     )
     return response.data
   },
+  /** Одноразовая ссылка для входа тому, кто уже зарегистрирован (Часть 1.3). */
+  createLoginLink: async (
+    id: string,
+  ): Promise<{ invite_url: string; invite_code: string; invite_expires_at: string }> => {
+    const response = await apiClient.post<{
+      invite_url: string
+      invite_code: string
+      invite_expires_at: string
+    }>(`/users/${id}/login-link`)
+    return response.data
+  },
   update: async (
     id: string,
     data: Partial<User> & { password?: string }

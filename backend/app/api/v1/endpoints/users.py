@@ -1,18 +1,20 @@
 from __future__ import annotations
 import secrets
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
 
 from app.core.database import get_db
 from app.core.security import hash_password
-from app.core.deps import CurrentUser, AdminOnly
+from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
+from app.models.audit_log import AuditAction
 from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
+from app.services.audit import record_audit
 from app.services.invites import issue_invite, invite_url
 from app.services.sessions import revoke_all_sessions
 
@@ -105,12 +107,14 @@ async def list_users(
     return [_user_to_dict(u, agreement_status=agreement_statuses.get(u.id)) for u in users]
 
 
-@router.post("", dependencies=[AdminOnly])
+@router.post("")
 async def create_user(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "users", Action.manage)
+
     email = body.get("email", "").strip().lower()
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
@@ -140,7 +144,7 @@ async def create_user(
     return _user_to_dict(user)
 
 
-@router.post("/invite", dependencies=[AdminOnly])
+@router.post("/invite")
 async def create_user_invite(
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -149,6 +153,8 @@ async def create_user_invite(
     """Create a staff account (mentor/manager/admin) without a password and hand
     back a single-use invite link — the invitee sets their own password, exactly
     like a student (п.7). The account stays inactive until the invite is accepted."""
+    require_access(current_user, "users", Action.manage)
+
     email = body.get("email", "").strip().lower()
     if not email:
         raise HTTPException(status_code=422, detail="Email обязателен")
@@ -193,6 +199,66 @@ async def create_user_invite(
     }
 
 
+@router.post("/{user_id}/login-link")
+async def create_login_link(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Одноразовая ссылка для входа тому, кто уже зарегистрирован.
+
+    Зачем
+    -----
+    Самостоятельного восстановления пароля в системе нет, и почты тоже нет —
+    ни SMTP, ни сервиса. Забывший пароль сегодня зависит от того, что кто-то
+    вручную впишет ему новый и передаст. Эта ручка отдаёт админу ту же
+    одноразовую ссылку, что уходит новому сотруднику, — человек задаёт пароль
+    сам, и админ его не видит.
+
+    Это переходное решение до Google-входа: оно не масштабируется (ссылку
+    всё равно передаёт человек), но снимает передачу пароля из рук в руки.
+
+    Почему только активным
+    ----------------------
+    `accept_invite` попутно ставит `is_active=True`. Выдай мы ссылку
+    неактивному — переход по ней активировал бы аккаунт мимо решения админа,
+    то есть кнопка «выслать ссылку» тихо стала бы кнопкой «одобрить заявку».
+    Одобрение остаётся отдельным осознанным действием.
+    """
+    require_access(current_user, "users", Action.manage)
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if not user.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала активируйте аккаунт — ссылка для входа не заменяет одобрение заявки",
+        )
+
+    invite, raw_token, raw_code = await issue_invite(
+        db, user_id=user.id, student_id=None, created_by=current_user.id
+    )
+    # Выдача ссылки — это возможность сменить чужой пароль. След обязателен:
+    # без него подмена доступа к аккаунту коллеги ничем не отличается от
+    # обычной работы админа.
+    record_audit(
+        db,
+        action=AuditAction.invite_created,
+        actor=current_user,
+        target_user_id=user.id,
+        request=request,
+        meta={"kind": "login_link", "email": user.email},
+    )
+    await db.commit()
+    return {
+        "invite_url": invite_url(raw_token),
+        "invite_code": raw_code,
+        "invite_expires_at": invite.expires_at.isoformat(),
+    }
+
+
 @router.get("/{user_id}")
 async def get_user(
     user_id: uuid.UUID,
@@ -208,13 +274,15 @@ async def get_user(
     return _user_to_dict(user)
 
 
-@router.patch("/{user_id}", dependencies=[AdminOnly])
+@router.patch("/{user_id}")
 async def update_user(
     user_id: uuid.UUID,
     body: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "users", Action.manage)
+
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -265,12 +333,14 @@ async def update_user(
     return _user_to_dict(user)
 
 
-@router.delete("/{user_id}", dependencies=[AdminOnly])
+@router.delete("/{user_id}")
 async def deactivate_user(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "users", Action.manage)
+
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
     result = await db.execute(select(User).where(User.id == user_id))

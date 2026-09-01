@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     CHECKIN_CHECK_INTERVAL_SECONDS: int = 600  # 10 минут
 
     # First admin seed
+    # Вход через Google. Пустая строка = способ выключен: /auth/google отвечает
+    # 503, кнопка на экране входа не рисуется. Восстановления пароля в системе
+    # нет и почты тоже, поэтому Google — основной путь для тех, кто забыл пароль.
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+
     FIRST_ADMIN_EMAIL: str = "admin@teenteched.kz"
     FIRST_ADMIN_PASSWORD: str = "Admin1234!"
 

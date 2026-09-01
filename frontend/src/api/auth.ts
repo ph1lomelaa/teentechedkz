@@ -23,6 +23,20 @@ export const authApi = {
     return response.data
   },
 
+  /** Настроен ли вход через Google. Спрашивается до входа, поэтому публично. */
+  googleConfig: async (): Promise<{ enabled: boolean; client_id: string | null }> => {
+    const response = await apiClient.get<{ enabled: boolean; client_id: string | null }>(
+      '/auth/google/config',
+    )
+    return response.data
+  },
+
+  /** Обмен google id_token на нашу сессию. Ответ той же формы, что и у login. */
+  loginWithGoogle: async (credential: string): Promise<LoginResponse> => {
+    const response = await apiClient.post<LoginResponse>('/auth/google', { credential })
+    return response.data
+  },
+
   refresh: async (): Promise<RefreshResponse> => {
     const response = await apiClient.post<RefreshResponse>('/auth/refresh')
     return response.data

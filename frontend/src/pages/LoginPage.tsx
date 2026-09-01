@@ -2,16 +2,36 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthShell } from '@/components/auth/AuthShell'
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
+import { authApi } from '@/api/auth'
 import { postLoginPath } from '@/lib/authRouting'
 
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth()
+  const { login, setSession } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
+
+  const handleGoogle = async (credential: string) => {
+    setError('')
+    setIsLoading(true)
+    try {
+      const data = await authApi.loginWithGoogle(credential)
+      setSession(data.user, data.access_token)
+      navigate(postLoginPath(data.user), { replace: true })
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      // Здесь текст сервера важнее обычного: «Google не подтвердил этот адрес»
+      // и «неверный пароль» — разные проблемы с разными действиями.
+      if (axiosErr.response?.data?.detail) setError(axiosErr.response.data.detail)
+      else setError('Не удалось войти через Google. Попробуйте пароль.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -101,6 +121,8 @@ export const LoginPage: React.FC = () => {
               )}
             </button>
           </form>
+
+          <GoogleSignInButton onCredential={handleGoogle} onError={setError} />
 
           {/* Самостоятельного сброса пароля пока нет: единственный путь — сотрудник
               жмёт «сбросить» в карточке студента. Раньше человек об этом нигде не

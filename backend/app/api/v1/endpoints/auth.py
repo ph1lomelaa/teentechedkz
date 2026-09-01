@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
 from app.core.deps import get_current_user, CurrentUser
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.user import RefreshToken
 from app.models.audit_log import AuditAction
 from app.services.audit import record_audit
@@ -24,6 +24,13 @@ from app.services.sessions import (
     set_refresh_cookie as _set_refresh_cookie,
 )
 from app.services import rate_limit
+from app.services.google_auth import (
+    GoogleAuthError,
+    GoogleAuthNotConfigured,
+    is_configured as google_is_configured,
+    verify_id_token as verify_google_id_token,
+)
+from app.services.notify import notify
 from app.services.user_emails import resolve_user_by_email
 from app.services.user_payload import resolve_user_payload
 
@@ -88,6 +95,117 @@ async def login(
     # Successful auth clears the per-email throttle so a legit user who fat-
     # fingered a few times isn't held back on the next login.
     await rate_limit.reset(bucket="login_email", subject=email)
+
+    return session
+
+
+@router.get("/google/config")
+async def google_config():
+    """Настроен ли вход через Google. Публично — экран входа спрашивает до входа.
+
+    Отдаём client ID, а не прячем его: он и так уезжает в браузер при любом
+    сценарии OAuth и секретом не является. Секрет — client secret, и его здесь
+    нет: поток id_token его не использует.
+    """
+    return {
+        "enabled": google_is_configured(),
+        "client_id": settings.GOOGLE_OAUTH_CLIENT_ID or None,
+    }
+
+
+@router.post("/google")
+async def login_with_google(
+    body: dict,
+    request: Request,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Вход по Google id_token.
+
+    Адрес известен — входим в существующий аккаунт. Неизвестен — заводим
+    неактивный и отправляем на экран ожидания: тот же путь, что у самозаписи
+    (`public.mentor_signup`), чтобы у админа не появилось второй очереди заявок.
+
+    Связывание **только при `email_verified`** — см. `services/google_auth`.
+    """
+    await rate_limit.enforce(request, bucket="login_ip", limit=30, window_seconds=300)
+
+    try:
+        identity = verify_google_id_token(body.get("credential") or body.get("id_token") or "")
+    except GoogleAuthNotConfigured as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except GoogleAuthError as exc:
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            request=request,
+            meta={"reason": "google_token_rejected", "method": "google"},
+        )
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+    if not identity.email_verified:
+        # Не «не пустили пользователя», а «не поверили адресу». Без этой ветки
+        # чужой аккаунт с тем же адресом захватывает нашего пользователя.
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            actor_email=identity.email,
+            request=request,
+            meta={"reason": "google_email_unverified", "method": "google"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google не подтвердил этот адрес почты. Войдите по паролю.",
+        )
+
+    await rate_limit.enforce(
+        request, bucket="login_email", limit=8, window_seconds=300, subject=identity.email
+    )
+
+    user = await resolve_user_by_email(db, identity.email)
+    created = user is None
+
+    if created:
+        # Пароля нет и не будет: вход в такой аккаунт только через Google.
+        # `hashed_password` непустой строкой-заглушкой, которую `verify_password`
+        # не примет ни к какому вводу, — чтобы вход по паролю не открылся сам.
+        user = User(
+            name=identity.name or identity.email.split("@")[0],
+            email=identity.email,
+            hashed_password="!google",
+            role=UserRole.mentor,
+            is_active=False,
+        )
+        db.add(user)
+        await db.flush()
+        admins = await db.execute(
+            select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager]))
+        )
+        for admin in admins.scalars():
+            notify(
+                db,
+                admin.id,
+                kind="mentor_signup",
+                title="Новая заявка через Google",
+                body=f"{user.name} · {user.email} — ждёт активации и назначения роли",
+                link="/settings/users",
+                priority="high",
+            )
+
+    user.last_login_at = datetime.now(timezone.utc)
+    session = await issue_session(db, response, user)
+    record_audit(
+        db,
+        action=AuditAction.google_linked if created else AuditAction.login_success,
+        actor=user,
+        target_user_id=user.id,
+        request=request,
+        meta={"method": "google", "created": created},
+    )
+    await db.commit()
+    await rate_limit.reset(bucket="login_email", subject=identity.email)
 
     return session
 
