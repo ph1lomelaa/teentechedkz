@@ -111,7 +111,7 @@ jobs:
           heads=$(alembic heads | grep -c '(head)')
           test "$heads" -eq 1 || { echo "Ожидался ровно 1 alembic head, найдено: $heads"; alembic heads; exit 1; }
 
-      - name: Live E2E (auth + role access matrix)
+      - name: Live E2E (auth + role access matrix + telegram)
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://tte:tte@localhost:5432/tte_db
@@ -137,6 +137,16 @@ jobs:
           # pytest.ini собирает только test_*.py, а в workflow шага не было.
           # Приложение уже поднято выше — переиспользуем тот же uvicorn.
           python tests/e2e_workspace_roles.py http://127.0.0.1:8001
+          # Telegram: привязка группы, участники, переназначение, сессии.
+          # Тоже лежал ненужным — был вписан порт 8000, которого здесь нет.
+          # Внешних сервисов не требует: работает с БД и API, к Telegram не
+          # ходит (`consume_pairing_code` — та же продовая функция, локально).
+          #
+          # `e2e_workspace_meeting.py` сюда НЕ добавлен намеренно: ему нужен
+          # MinIO (загрузка аудио) и настоящий ключ Deepgram — фолбэка нет,
+          # `deepgram_rest` падает без ключа. Это отдельный сервис в CI и
+          # платные запросы на каждый прогон, то есть решение, а не мелочь.
+          python tests/e2e_workspace_telegram.py http://127.0.0.1:8001
 
       # ---------- Compose ----------
       - name: Validate docker compose
