@@ -9,6 +9,7 @@ import { DOC_TYPE_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`
@@ -63,6 +64,13 @@ export const PortalDocumentsPage: React.FC = () => {
       setSignatureUrl(null)
       setSignatureViewed(false)
     },
+    // Подпись — юридически значимое действие: ученик обязан понять, что она
+    // не прошла, а не решить, что документ подписан.
+    onError: (err) => toast({
+      title: 'Документ не подписан',
+      description: getErrorMessage(err, 'Подпись не сохранилась. Повторите.'),
+      variant: 'destructive',
+    }),
   })
 
   const handleDownload = async (id: string, name: string) => {

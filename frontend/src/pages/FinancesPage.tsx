@@ -31,6 +31,9 @@ import { formatCurrency } from '@/lib/utils'
 import type { NotionFinanceSummary } from '@/api/notion'
 import { PageHeader, StatCard, SegmentedTabs } from '@/components/ui'
 import { FileText, Wallet, CheckCircle2, AlertCircle } from 'lucide-react'
+import { getErrorMessage } from '@/lib/errorMessage'
+import { toast } from '@/hooks/use-toast'
+import { QueryError } from '@/components/shared/QueryState'
 
 const moneyCurrency = 'KZT'
 const toNumber = (value?: string) => Number.parseFloat(value ?? '0') || 0
@@ -500,7 +503,7 @@ export const FinancesPage: React.FC = () => {
     [scope, myLeadStudentIds]
   )
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, isError: summaryFailed, error: summaryError, refetch: refetchSummary } = useQuery({
     queryKey: ['finance-summary'],
     queryFn: paymentsApi.financeSummary,
   })
@@ -563,6 +566,13 @@ export const FinancesPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment-docs', docsModalPayment?.id] })
     },
+    // Индикатор загрузки гаснет в onSettled одинаково при успехе и провале:
+    // без сообщения обрыв выглядел как «загрузилось», и чек считали приложенным.
+    onError: (err) => toast({
+      title: 'Чек не загружен',
+      description: getErrorMessage(err),
+      variant: 'destructive',
+    }),
     onSettled: () => setUploading(false),
   })
 
@@ -895,6 +905,11 @@ export const FinancesPage: React.FC = () => {
           />
         )}
       />
+
+      {/* Плитки при ошибке показывали «Договоров 0» и нулевые суммы. Здесь это
+          дороже обычного: ноль в финансовой сводке читается как факт, и на
+          него принимают решения. */}
+      {summaryFailed && <QueryError colorPrefix="p" error={summaryError} onRetry={refetchSummary} className="mb-6" />}
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
