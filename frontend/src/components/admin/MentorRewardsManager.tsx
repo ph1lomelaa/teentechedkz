@@ -15,6 +15,7 @@ import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
 import { useRewardRules } from '@/hooks/useRewardRules'
 import { useAuth } from '@/contexts/AuthContext'
 import { RewardRulesConstructor } from './RewardRulesConstructor'
+import { QueryError } from '@/components/shared/QueryState'
 
 // Только названия: ставки приходят из конструктора (useRewardRules).
 // Раньше проценты и суммы были захардкожены здесь и расходились с расчётом,
@@ -70,7 +71,7 @@ export const MentorRewardsManager: React.FC<Props> = ({
     .join(' / ')
 
   // Бэкенд сам скоупит ментора на его строки — отдельный mentor_id не нужен.
-  const { data: rewardsData, isLoading: rewardsLoading } = useQuery({
+  const { data: rewardsData, isLoading: rewardsLoading, isError: rewardsFailed, error: rewardsError, refetch: refetchRewards } = useQuery({
     queryKey: ['mentor-stage-rewards'],
     queryFn: () => mentorRewardsApi.listStageRewards(),
     enabled: tab === 'rewards',
@@ -78,7 +79,7 @@ export const MentorRewardsManager: React.FC<Props> = ({
   const rewards = rewardsData?.items ?? []
   const isPilot = rewardsData?.pilot ?? true
 
-  const { data: penaltiesData, isLoading: penaltiesLoading } = useQuery({
+  const { data: penaltiesData, isLoading: penaltiesLoading, isError: penaltiesFailed, error: penaltiesError, refetch: refetchPenalties } = useQuery({
     queryKey: ['mentor-task-penalties'],
     queryFn: () => mentorRewardsApi.listTaskPenalties(),
     enabled: tab === 'penalties',
@@ -153,7 +154,11 @@ export const MentorRewardsManager: React.FC<Props> = ({
       {tab === 'rules' ? (
         <RewardRulesConstructor colorPrefix={colorPrefix} />
       ) : tab === 'rewards' ? (
-        rewardsLoading ? (
+        rewardsFailed ? (
+          /* «Расчётов ещё нет» — про деньги, и ошибку от пустоты здесь надо
+             различать особенно: ментор решит, что ему ничего не начислено. */
+          <QueryError colorPrefix={colorPrefix} error={rewardsError} onRetry={refetchRewards} />
+        ) : rewardsLoading ? (
           <div className={cn('p-5 text-sm', t.card, t.muted)}>Загрузка...</div>
         ) : rewards.length === 0 ? (
           <EmptyState colorPrefix={colorPrefix} icon={<Banknote className="h-5 w-5" />} title="Расчётов ещё нет" />
@@ -196,6 +201,8 @@ export const MentorRewardsManager: React.FC<Props> = ({
             ))}
           </div>
         )
+      ) : penaltiesFailed ? (
+        <QueryError colorPrefix={colorPrefix} error={penaltiesError} onRetry={refetchPenalties} />
       ) : penaltiesLoading ? (
         <div className={cn('p-5 text-sm', t.card, t.muted)}>Загрузка...</div>
       ) : penalties.length === 0 ? (

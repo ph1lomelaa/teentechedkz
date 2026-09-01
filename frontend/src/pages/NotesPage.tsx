@@ -17,6 +17,7 @@ import { DEGREE_LEVEL_LABELS } from '@/types'
 import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
+import { QueryState } from '@/components/shared/QueryState'
 
 const sessionStatusOptions: Array<{ value: NoteSessionStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все сессии' },
@@ -67,7 +68,7 @@ export const NotesPage: React.FC = () => {
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
 
-  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
+  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsFailed, error: sessionsError, refetch: refetchSessions } = useQuery({
     queryKey: ['note-sessions', sessionStatus],
     queryFn: () =>
       notesApi.listSessions({
@@ -75,7 +76,7 @@ export const NotesPage: React.FC = () => {
       }),
   })
 
-  const { data: notes = [], isLoading: notesLoading } = useQuery({
+  const { data: notes = [], isLoading: notesLoading, isError: notesFailed, error: notesError, refetch: refetchNotes } = useQuery({
     queryKey: ['notes', noteStatus],
     queryFn: () =>
       notesApi.list({
@@ -186,6 +187,11 @@ export const NotesPage: React.FC = () => {
     })
 
   const listLoading = sessionsLoading || notesLoading
+  // Список склеен из сессий и конспектов: упади любой запрос — «Ничего не
+  // найдено по текущим фильтрам» отправит человека крутить фильтры впустую.
+  const listFailed = sessionsFailed || notesFailed
+  const listError = sessionsError ?? notesError
+  const retryList = () => { refetchSessions(); refetchNotes() }
 
   const activeFiltersCount =
     (directoryFilters.year ? 1 : 0) +
@@ -346,15 +352,21 @@ export const NotesPage: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {listLoading ? (
-            <div className="py-12 text-center text-p-muted2">Загрузка...</div>
-          ) : groups.length === 0 ? (
-            <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
-              {sessions.length === 0 && notes.length === 0
-                ? 'Сессий пока нет. Создайте первую и начните запись.'
-                : 'Ничего не найдено по текущим фильтрам.'}
-            </div>
-          ) : (
+          <QueryState
+            colorPrefix="ds"
+            isLoading={listLoading}
+            isError={listFailed || directory.isError}
+            error={listError}
+            onRetry={retryList}
+            isEmpty={groups.length === 0}
+            empty={(
+              <div className="rounded-panel border border-p-line bg-p-bg p-5 text-sm text-p-muted">
+                {sessions.length === 0 && notes.length === 0
+                  ? 'Сессий пока нет. Создайте первую и начните запись.'
+                  : 'Ничего не найдено по текущим фильтрам.'}
+              </div>
+            )}
+          >
             <div className="grid gap-2">
               {groups.map((group) => {
                 const open = expanded.has(group.key)
@@ -456,7 +468,7 @@ export const NotesPage: React.FC = () => {
                 )
               })}
             </div>
-          )}
+          </QueryState>
         </CardContent>
       </Card>
 

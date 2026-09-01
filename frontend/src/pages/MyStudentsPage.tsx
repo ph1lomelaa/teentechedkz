@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/primitives/select'
 import { debounce } from '@/lib/utils'
 import { PageHeader } from '@/components/ui'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 export const MyStudentsPage: React.FC = () => {
   const [search, setSearch] = useState('')
@@ -47,7 +48,7 @@ export const MyStudentsPage: React.FC = () => {
     setPage(1)
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['my-students', debouncedSearch, statusFilter, page],
     queryFn: () =>
       studentsApi.list({
@@ -125,7 +126,20 @@ export const MyStudentsPage: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isError ? (
+              /* Строкой, а не карточкой: карточка внутри tbody сломала бы таблицу. */
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center" role="alert">
+                  <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
+                  <p className="mt-1 text-sm text-p-muted">
+                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                    Повторить
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-p-muted">
                   Загрузка...

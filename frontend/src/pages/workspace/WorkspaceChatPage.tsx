@@ -15,6 +15,7 @@ import { compactContextDraft } from '@/lib/contextDraft'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { AppButton, AppCard, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
+import { QueryError } from '@/components/shared/QueryState'
 
 // Roles that render on the staff side of the dialog (right, accented). Everyone
 // else — student/client/unknown — renders on the client side (left). Keyed off
@@ -97,11 +98,11 @@ export const WorkspaceChatPage: React.FC = () => {
   const [createInternalOpen, setCreateInternalOpen] = useState(false)
   const [createInternalStudentId, setCreateInternalStudentId] = useState<string>(requestedStudentId || '')
 
-  const { data: conversations = [], isLoading: internalLoading } = useQuery({
+  const { data: conversations = [], isLoading: internalLoading, isError: internalFailed, error: internalError, refetch: refetchInternal } = useQuery({
     queryKey: ['workspace', 'chat', 'conversations', mentorId],
     queryFn: () => chatApi.conversations(mentorId ? { mentor_id: mentorId } : undefined),
   })
-  const { data: telegramChats = [], isLoading: telegramLoading } = useQuery({
+  const { data: telegramChats = [], isLoading: telegramLoading, isError: telegramFailed, error: telegramError, refetch: refetchTelegram } = useQuery({
     queryKey: ['workspace', 'chat', 'telegram', mentorId, isManager ? 'all' : 'mine'],
     queryFn: () => telegramApi.listAll(undefined, mentorId || isManager ? 'all' : 'mine', mentorId),
   })
@@ -233,6 +234,11 @@ export const WorkspaceChatPage: React.FC = () => {
   }, [channel, isPreview, queryClient, selected?.studentId])
 
   const loading = internalLoading || telegramLoading
+  // Список склеен из внутренних диалогов и Telegram: упади любой — «Ничего не
+  // найдено» отправит крутить фильтр вместо повтора запроса.
+  const listFailed = internalFailed || telegramFailed
+  const listError = internalError ?? telegramError
+  const retryList = () => { refetchInternal(); refetchTelegram() }
   const connectStudent = assignedStudents.find((item) => item.student.id === connectStudentId)?.student
   const connectChat = telegramChats.find((chat) => chat.student_id === connectStudentId && chat.status !== 'closed') || null
   const createInternalStudent = assignedStudents.find((item) => item.student.id === createInternalStudentId)?.student
@@ -436,7 +442,9 @@ export const WorkspaceChatPage: React.FC = () => {
               </button>
             </div>
           </div>
-          {loading ? (
+          {listFailed ? (
+            <QueryError colorPrefix="w" error={listError} onRetry={retryList} />
+          ) : loading ? (
             <p className="p-3 text-sm text-w-muted">Загрузка диалогов...</p>
           ) : visibleItems.length === 0 ? (
             <p className="p-3 text-sm text-w-muted">

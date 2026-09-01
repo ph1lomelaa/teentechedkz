@@ -5,6 +5,7 @@ import { securityIncidentsApi, SecurityIncident, SecurityIncidentKind, SecurityI
 import { AppButton, EmptyState, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { toast } from '@/hooks/use-toast'
+import { QueryError } from '@/components/shared/QueryState'
 
 const KIND_LABELS: Record<SecurityIncidentKind, string> = {
   wrong_document: 'Ошибочная отправка документа', data_leak: 'Утечка данных', compromised_password: 'Компрометация пароля',
@@ -16,12 +17,12 @@ export const WorkspaceSecurityIncidentsPage: React.FC = () => {
   const [status, setStatus] = useState<SecurityIncidentStatus | 'all'>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [selected, setSelected] = useState<SecurityIncident | null>(null)
-  const { data, isLoading } = useQuery({ queryKey: ['security-incidents', status], queryFn: () => securityIncidentsApi.list(status === 'all' ? undefined : status) })
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ['security-incidents', status], queryFn: () => securityIncidentsApi.list(status === 'all' ? undefined : status) })
   const items = data?.items ?? []
   return <div className="animate-fade-in">
     <div className="mb-6 flex items-start justify-between gap-4"><div><p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-w-accentText">Безопасность</p><h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-w-ink">Инциденты</h1><p className="mt-2 max-w-[560px] text-sm text-w-muted">Доказательства, меры устранения и подтверждение закрытия критичных событий.</p></div><AppButton colorPrefix="w" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Новый инцидент</AppButton></div>
     <div className="mb-5"><SegmentedTabs colorPrefix="w" value={status} onChange={(value) => setStatus(value as SecurityIncidentStatus | 'all')} tabs={[{ value: 'all', label: 'Все' }, { value: 'open', label: 'Открытые' }, { value: 'investigating', label: 'Расследуются' }, { value: 'resolved', label: 'Устранены' }, { value: 'closed', label: 'Закрыты' }]} /></div>
-    {isLoading ? <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div> : items.length === 0 ? <EmptyState colorPrefix="w" icon={<ShieldAlert className="h-5 w-5" />} title="Инцидентов нет" /> : <div className="grid gap-3 md:grid-cols-2">{items.map((item) => <button key={item.id} type="button" onClick={() => setSelected(item)} className="rounded-card border border-w-line bg-w-panel p-4 text-left hover:border-w-accentDim"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-w-ink">{item.title}</h3><p className="mt-1 text-xs text-w-muted">{KIND_LABELS[item.kind]}</p></div><span className="rounded-pill bg-w-line px-2 py-1 text-2xs font-bold text-w-muted">{STATUS_LABELS[item.status]}</span></div><p className="mt-2 line-clamp-2 text-sm text-w-muted">{item.description}</p></button>)}</div>}
+    {isError ? <QueryError colorPrefix="w" error={error} onRetry={refetch} /> : isLoading ? <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div> : items.length === 0 ? <EmptyState colorPrefix="w" icon={<ShieldAlert className="h-5 w-5" />} title="Инцидентов нет" /> : <div className="grid gap-3 md:grid-cols-2">{items.map((item) => <button key={item.id} type="button" onClick={() => setSelected(item)} className="rounded-card border border-w-line bg-w-panel p-4 text-left hover:border-w-accentDim"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-w-ink">{item.title}</h3><p className="mt-1 text-xs text-w-muted">{KIND_LABELS[item.kind]}</p></div><span className="rounded-pill bg-w-line px-2 py-1 text-2xs font-bold text-w-muted">{STATUS_LABELS[item.status]}</span></div><p className="mt-2 line-clamp-2 text-sm text-w-muted">{item.description}</p></button>)}</div>}
     {createOpen && <CreateIncidentDialog onClose={() => setCreateOpen(false)} />}
     {selected && <IncidentDialog incident={selected} onClose={() => setSelected(null)} />}
   </div>

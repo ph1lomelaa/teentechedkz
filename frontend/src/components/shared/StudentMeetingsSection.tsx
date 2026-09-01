@@ -17,6 +17,7 @@ import { tasksApi } from '@/api/index'
 import { FollowUpReviewDialog } from '@/components/shared/FollowUpReviewDialog'
 import type { MeetingFollowUpDraft } from '@/api/meetings'
 import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
+import { QueryState } from '@/components/shared/QueryState'
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Запланирована',
@@ -51,7 +52,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
   const queryClient = useQueryClient()
   const key = ['student-meetings', studentId]
 
-  const { data: meetings = [], isLoading } = useQuery({
+  const { data: meetings = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: key,
     queryFn: () => meetingsApi.studentMeetings(studentId),
   })
@@ -269,11 +270,19 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
         </div>
 
         {/* list */}
-        {isLoading ? (
-          <p className="text-sm text-gray-500 py-2">Загрузка…</p>
-        ) : meetings.length === 0 ? (
-          <p className="text-sm text-gray-400 py-1">Встреч пока нет</p>
-        ) : (
+        {/* «Встреч пока нет» — самое обычное состояние карточки, и потому
+            подделать его ошибкой проще всего. */}
+        <QueryState
+          colorPrefix="ds"
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={meetings.length === 0}
+          empty={(
+            <p className="text-sm text-gray-400 py-1">Встреч пока нет</p>
+          )}
+        >
           <div className="space-y-2">
             {meetings.map((m) => (
               <div key={m.id} className="border border-gray-100 rounded-panel p-3">
@@ -375,7 +384,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
               </div>
             ))}
           </div>
-        )}
+        </QueryState>
       </AccordionContent>
     </AccordionItem>
     <FollowUpReviewDialog

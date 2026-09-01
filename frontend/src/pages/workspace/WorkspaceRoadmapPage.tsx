@@ -7,6 +7,7 @@ import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapE
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn } from '@/lib/utils'
 import { AppCard, AppInput, EmptyState, PageHeader, Pill } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 export const WorkspaceRoadmapPage: React.FC = () => {
   const { params } = useWorkspaceScope()
@@ -15,7 +16,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
   const [studentListOpen, setStudentListOpen] = useState(false)
   const [updatedRoadmaps, setUpdatedRoadmaps] = useState<Record<string, Roadmap>>({})
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'roadmaps', 'full', params],
     queryFn: () => workspaceApi.fullRoadmaps(params),
   })
@@ -43,11 +44,17 @@ export const WorkspaceRoadmapPage: React.FC = () => {
         </div>
       )}
 
-      {isLoading ? (
-        <AppCard colorPrefix="w" className="p-5 text-sm text-w-muted">Загрузка roadmap...</AppCard>
-      ) : rows.length === 0 ? (
-        <EmptyState colorPrefix="w" title="Студентов нет" description="После назначения студенты появятся здесь." />
-      ) : (
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={rows.length === 0}
+        empty={(
+          <EmptyState colorPrefix="w" title="Студентов нет" description="После назначения студенты появятся здесь." />
+        )}
+      >
         <div className="space-y-5">
           <AppCard colorPrefix="w" className="p-3">
             <div className="relative">
@@ -168,7 +175,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
             </div>
           )}
         </div>
-      )}
+      </QueryState>
     </div>
   )
 }

@@ -6,11 +6,12 @@ import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui'
+import { QueryError } from '@/components/shared/QueryState'
 
 export const WorkspaceDashboardPage: React.FC = () => {
   const navigate = useNavigate()
   const { params, isPreview } = useWorkspaceScope()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'dashboard', params],
     queryFn: () => workspaceApi.dashboard(params),
   })
@@ -37,6 +38,11 @@ export const WorkspaceDashboardPage: React.FC = () => {
         title="Обзор"
         description="Здесь собраны ваши студенты, ближайшие roadmap-задачи, встречи и точки внимания."
       />
+
+      {/* Плитки при ошибке показывали «0» по каждому показателю: «Студенты 0»,
+          «Встречи 0», «Инциденты 0». Ноль — это утверждение, и оно успокаивает
+          сильнее пустого экрана. */}
+      {isError && <QueryError colorPrefix="w" error={error} onRetry={refetch} className="mb-4" />}
 
       <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard colorPrefix="w" label="Студенты" value={isLoading ? '…' : String(stats?.students_total ?? 0)} sub="в работе" icon={<Users className="h-5 w-5" />} />

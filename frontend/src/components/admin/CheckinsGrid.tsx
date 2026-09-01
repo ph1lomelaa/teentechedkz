@@ -5,6 +5,7 @@ import { checkinsApi, type CheckinStatus } from '@/api/checkins'
 import { EmptyState, PageHeader } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
+import { QueryState } from '@/components/shared/QueryState'
 
 const DAY_OPTIONS = [7, 14, 30] as const
 
@@ -30,7 +31,7 @@ export const CheckinsGrid: React.FC<Props> = ({ colorPrefix = 'w' }) => {
   const t = ADMIN_TOKENS[colorPrefix]
   const [days, setDays] = useState<number>(14)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['checkins', 'list', days],
     queryFn: () => checkinsApi.list({ days }),
   })
@@ -91,11 +92,17 @@ export const CheckinsGrid: React.FC<Props> = ({ colorPrefix = 'w' }) => {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className={cn('p-5 text-sm', t.card, t.muted)}>Загрузка...</div>
-      ) : staff.length === 0 ? (
-        <EmptyState colorPrefix={colorPrefix} icon={<CalendarCheck className="h-5 w-5" />} title="Нет сотрудников с чекином" />
-      ) : (
+      <QueryState
+        isLoading={isLoading}
+        colorPrefix={colorPrefix}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={staff.length === 0}
+        empty={(
+          <EmptyState colorPrefix={colorPrefix} icon={<CalendarCheck className="h-5 w-5" />} title="Нет сотрудников с чекином" />
+        )}
+      >
         <div className={cn('overflow-x-auto rounded-card border', t.borderLine)}>
           <table className="w-full text-sm">
             <thead>
@@ -148,7 +155,7 @@ export const CheckinsGrid: React.FC<Props> = ({ colorPrefix = 'w' }) => {
             </tbody>
           </table>
         </div>
-      )}
+      </QueryState>
     </div>
   )
 }

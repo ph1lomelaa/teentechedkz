@@ -6,6 +6,7 @@ import { shortlistApi, ShortlistItem } from '@/api/studentUniversities'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { UniversityPicker } from './UniversityPicker'
+import { QueryError } from '@/components/shared/QueryState'
 
 /** Shortlist of universities shared by a student and their mentor.
  *
@@ -22,7 +23,7 @@ export const ShortlistSection: React.FC<{
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const queryKey = mode === 'self' ? ['shortlist', 'mine'] : ['shortlist', studentId]
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = [], isLoading, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () => (mode === 'self' ? shortlistApi.listMine() : shortlistApi.listForStudent(studentId!)),
     enabled: mode === 'self' || Boolean(studentId),
@@ -70,7 +71,9 @@ export const ShortlistSection: React.FC<{
         </button>
       </div>
 
-      {items.length === 0 && !isLoading ? (
+      {isError ? (
+        <QueryError colorPrefix="p" error={error} onRetry={refetch} />
+      ) : items.length === 0 && !isLoading ? (
         <div className="rounded-card border border-dashed border-p-line p-5 text-center">
           <Star className="mx-auto h-5 w-5 text-p-muted2" />
           <p className="mt-2 text-sm text-p-muted">

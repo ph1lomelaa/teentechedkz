@@ -7,6 +7,7 @@ import { AREA_LABELS, responsibilitiesApi } from '@/api/responsibilities'
 import { AppCard, EmptyState, PageHeader } from '@/components/ui'
 import { formatDate } from '@/lib/utils'
 import { CheckinBanner } from '@/components/workspace/CheckinBanner'
+import { QueryState } from '@/components/shared/QueryState'
 
 const URGENCY_META = {
   critical: { label: 'Критично · >72ч', className: 'border-black bg-black text-white' },
@@ -82,7 +83,12 @@ function MyResponsibilitiesCard() {
 
 
 export const WorkspaceMyDayPage: React.FC = () => {
-  const { data, isLoading } = useQuery({
+  // isError/refetch обязательны именно здесь: экран открывают в 10:00 по
+  // регламенту, и без них упавший запрос давал data === undefined при
+  // isLoading === false — то есть «Просроченных задач нет», «Нет обращений с
+  // горящим сроком ответа», «Встреч на сегодня нет». Экран уверял ментора,
+  // что всё чисто, ровно тогда, когда не знал ничего.
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'my-day'],
     queryFn: workspaceApi.myDay,
   })
@@ -90,7 +96,9 @@ export const WorkspaceMyDayPage: React.FC = () => {
   const totalOverdueTasks = data
     ? data.tasks.yellow.length + data.tasks.orange.length + data.tasks.red.length + data.tasks.critical.length
     : 0
-  const nothingToDo = !isLoading && data
+  // «Всё чисто» теперь говорится только про пришедшие данные: загрузку и
+  // ошибку разбирает QueryState до того, как дело дойдёт до этой строки.
+  const nothingToDo = !!data
     && totalOverdueTasks === 0
     && data.burning_complaints.length === 0
     && data.today_meetings.length === 0
@@ -109,16 +117,22 @@ export const WorkspaceMyDayPage: React.FC = () => {
 
       <MyResponsibilitiesCard />
 
-      {isLoading ? (
-        <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div>
-      ) : nothingToDo ? (
-        <EmptyState
-          colorPrefix="w"
-          icon={<CheckCircle2 className="h-5 w-5" />}
-          title="Всё чисто"
-          description="Просроченных задач, горящих обращений и незакрытых регламентов нет."
-        />
-      ) : (
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={nothingToDo}
+        empty={(
+          <EmptyState
+            colorPrefix="w"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            title="Всё чисто"
+            description="Просроченных задач, горящих обращений и незакрытых регламентов нет."
+          />
+        )}
+      >
         <div className="grid gap-5 lg:grid-cols-2">
           {data && data.unsigned_agreements.length > 0 && (
             <AppCard colorPrefix="w" className="p-5 lg:col-span-2">
@@ -220,7 +234,7 @@ export const WorkspaceMyDayPage: React.FC = () => {
             )}
           </AppCard>
         </div>
-      )}
+      </QueryState>
     </div>
   )
 }

@@ -276,7 +276,7 @@ export const SettingsUsersPage: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['users', 'all'],
     queryFn: () => usersApi.list(),
   })
@@ -422,7 +422,20 @@ export const SettingsUsersPage: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isError ? (
+              /* Строкой, а не карточкой: карточка внутри tbody сломала бы таблицу. */
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center" role="alert">
+                  <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
+                  <p className="mt-1 text-sm text-p-muted">
+                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                    Повторить
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Загрузка...

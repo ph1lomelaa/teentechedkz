@@ -57,7 +57,7 @@ export const AtRiskStudentsPage: React.FC = () => {
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
 
-  const { data: students = [], isLoading } = useQuery({
+  const { data: students = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['students', 'all'],
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
@@ -255,7 +255,21 @@ export const AtRiskStudentsPage: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isError || directory.isError ? (
+              /* «В зоне риска никого нет» — самый обнадёживающий из возможных
+                 ответов, и именно его экран давал при упавшем запросе. */
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center" role="alert">
+                  <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
+                  <p className="mt-1 text-sm text-p-muted">
+                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                    Повторить
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Загрузка...

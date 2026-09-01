@@ -19,3 +19,16 @@ export function getErrorMessage(error: unknown, fallback = 'Попробуйте
   if (message === 'Network Error') return 'Нет связи с сервером. Проверьте интернет и повторите действие.'
   return fallback
 }
+
+/**
+ * HTTP-код ответа, если ошибка пришла от сервера.
+ *
+ * Нужен там, где разные коды означают для человека разное. Карточка студента
+ * показывала «Студент не найден» на любую ошибку — и на 500, и на обрыв связи;
+ * сотрудник шёл искать несуществующую проблему в данных вместо того, чтобы
+ * повторить запрос. Отличить «нет такого» от «не смогли спросить» можно только
+ * по коду.
+ */
+export function getErrorStatus(error: unknown): number | undefined {
+  return (error as { response?: { status?: number } } | undefined)?.response?.status
+}

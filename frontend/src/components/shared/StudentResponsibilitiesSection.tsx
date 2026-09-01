@@ -10,6 +10,7 @@ import { usersApi } from '@/api/index'
 import { ROLE_LABELS, User } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
+import { QueryError } from '@/components/shared/QueryState'
 
 /**
  * «Кто за что отвечает» у одного ученика.
@@ -27,7 +28,7 @@ export const StudentResponsibilitiesSection: React.FC<{ studentId: string }> = (
   const queryClient = useQueryClient()
   const canManage = can('responsibilities', 'manage')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['responsibilities', studentId],
     queryFn: () => responsibilitiesApi.forStudent(studentId),
   })
@@ -55,6 +56,9 @@ export const StudentResponsibilitiesSection: React.FC<{ studentId: string }> = (
   })
 
   if (isLoading) return <p className="text-sm text-p-muted">Загрузка…</p>
+  // `!data` возвращал null — блок «кто за что отвечает» просто исчезал с
+  // карточки, и отличить «участков нет» от «не загрузилось» было нельзя.
+  if (isError) return <QueryError error={error} onRetry={refetch} />
   if (!data) return null
 
   const { coverage } = data

@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { AppButton, EmptyState, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
+import { QueryState } from '@/components/shared/QueryState'
 
 const LEVEL_LABELS: Record<RefundLevel, string> = {
   yellow: 'Жёлтый · 10 000₸',
@@ -38,7 +39,7 @@ export const WorkspaceRefundCasesPage: React.FC = () => {
   const [selected, setSelected] = useState<RefundCase | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['refund-cases', statusFilter],
     queryFn: () => refundCasesApi.list(statusFilter === 'all' ? undefined : statusFilter),
   })
@@ -74,11 +75,17 @@ export const WorkspaceRefundCasesPage: React.FC = () => {
         />
       </div>
 
-      {isLoading ? (
-        <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div>
-      ) : cases.length === 0 ? (
-        <EmptyState colorPrefix="w" icon={<Banknote className="h-5 w-5" />} title="Возвратных кейсов нет" />
-      ) : (
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={cases.length === 0}
+        empty={(
+          <EmptyState colorPrefix="w" icon={<Banknote className="h-5 w-5" />} title="Возвратных кейсов нет" />
+        )}
+      >
         <div className="grid gap-3 md:grid-cols-2">
           {cases.map((c) => (
             <button
@@ -109,7 +116,7 @@ export const WorkspaceRefundCasesPage: React.FC = () => {
             </button>
           ))}
         </div>
-      )}
+      </QueryState>
 
       {createOpen && <CreateRefundCaseDialog onClose={() => setCreateOpen(false)} />}
       {selected && <RefundCaseDialog refundCase={selected} onClose={() => setSelected(null)} />}

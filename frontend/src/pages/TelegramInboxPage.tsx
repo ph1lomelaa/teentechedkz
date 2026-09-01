@@ -21,6 +21,7 @@ import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, 
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 const TABS: { value: TelegramChatStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -73,7 +74,7 @@ export default function TelegramInboxPage() {
 
   const directory = useStudentDirectory()
 
-  const { data: chats = [], isLoading } = useQuery({
+  const { data: chats = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['telegram-chats', 'all', scope],
     queryFn: () => telegramApi.listAll(undefined, scope),
   })
@@ -297,16 +298,24 @@ export default function TelegramInboxPage() {
         ))}
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-p-muted">Загрузка…</p>
-      ) : filtered.length === 0 ? (
-        <div className="py-10 text-center">
-          <p className="text-sm font-medium text-p-text">Чатов по этому фильтру нет</p>
-          <p className="mt-1 text-sm text-p-muted">
-            Начните с фильтра «Требуют внимания» или «Новые без студента», если обрабатываете входящие сообщения.
-          </p>
-        </div>
-      ) : (
+      {/* «Чатов по этому фильтру нет» — правдоподобно и потому опасно: человек
+          шёл менять фильтр вместо того, чтобы повторить запрос. */}
+      <QueryState
+        colorPrefix="ds"
+        isLoading={isLoading}
+        isError={isError || directory.isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={filtered.length === 0}
+        empty={(
+          <div className="py-10 text-center">
+            <p className="text-sm font-medium text-p-text">Чатов по этому фильтру нет</p>
+            <p className="mt-1 text-sm text-p-muted">
+              Начните с фильтра «Требуют внимания» или «Новые без студента», если обрабатываете входящие сообщения.
+            </p>
+          </div>
+        )}
+      >
         <div className="space-y-2">
           {filtered.map((chat) => {
             const name = chat.student_name || chat.title || `Чат ${chat.chat_id}`
@@ -370,7 +379,7 @@ export default function TelegramInboxPage() {
             )
           })}
         </div>
-      )}
+      </QueryState>
 
       <StudentPickerDialog
         open={!!attachTarget}

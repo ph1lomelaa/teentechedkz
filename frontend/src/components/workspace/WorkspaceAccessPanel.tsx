@@ -5,6 +5,7 @@ import { portalAccessApi } from '@/api/portalAccess'
 import { toast } from '@/hooks/use-toast'
 import { AppButton } from '@/components/ui'
 import { cn, formatDate } from '@/lib/utils'
+import { QueryError } from '@/components/shared/QueryState'
 
 type Props = {
   studentId: string
@@ -28,7 +29,7 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
   const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null)
   const [copied, setCopied] = useState<'pw' | 'invite' | null>(null)
 
-  const { data: access, isLoading } = useQuery({
+  const { data: access, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal-access', studentId],
     queryFn: () => portalAccessApi.get(studentId),
   })
@@ -94,6 +95,12 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
     } catch {
       toast({ title: 'Не удалось скопировать', variant: 'destructive' })
     }
+  }
+
+  // Ниже панель читает access?.has_access: при ошибке это undefined, и экран
+  // уверенно сообщал бы, что доступа у ученика нет.
+  if (isError) {
+    return <QueryError colorPrefix="w" error={error} onRetry={refetch} />
   }
 
   if (isLoading) {

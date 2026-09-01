@@ -10,6 +10,7 @@ import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 const SOURCE_LABELS: Record<string, string> = {
   telegram: 'Telegram',
@@ -27,7 +28,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
   const [docType, setDocType] = useState<DocType>('other')
   const [file, setFile] = useState<File | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'documents', params],
     queryFn: () => workspaceApi.documents(params),
   })
@@ -148,11 +149,18 @@ export const WorkspaceDocumentsPage: React.FC = () => {
       </AppCard>
 
       <AppCard colorPrefix="w" className="p-5">
-        {isLoading ? (
-          <p className="text-sm text-w-muted">Загрузка документов...</p>
-        ) : visibleDocuments.length === 0 ? (
-          <EmptyState colorPrefix="w" title="Документов пока нет" description="Загрузите файл или измените выбранные фильтры." />
-        ) : (
+        {/* «Документов пока нет» на упавшем запросе отправляло искать файл, который на месте. */}
+        <QueryState
+          colorPrefix="w"
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={visibleDocuments.length === 0}
+          empty={(
+            <EmptyState colorPrefix="w" title="Документов пока нет" description="Загрузите файл или измените выбранные фильтры." />
+          )}
+        >
           <div className="grid gap-3 md:grid-cols-2">
             {visibleDocuments.map((doc) => (
               <article key={doc.id} className="rounded-card border border-w-line bg-w-panel2 p-4">
@@ -208,7 +216,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
               </article>
             ))}
           </div>
-        )}
+        </QueryState>
       </AppCard>
     </div>
   )

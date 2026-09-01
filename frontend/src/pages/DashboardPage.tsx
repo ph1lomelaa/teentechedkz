@@ -43,6 +43,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { Button } from '@/components/ui/primitives/button'
 import { Check, UserPlus, X } from 'lucide-react'
+import { QueryError } from '@/components/shared/QueryState'
 
 // Флаг по названию страны (данные в базе преимущественно на русском,
 // встречаются английские и составные значения — берём первый сегмент).
@@ -293,7 +294,9 @@ export const DashboardPage: React.FC = () => {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   )
 
-  const { data: students = [], isLoading } = useQuery({
+  // data: students = [] прятало ошибку полностью: канбан рисовался пустым, и
+  // отличить «никого нет» от «не загрузилось» было нельзя.
+  const { data: students = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['students', 'all', mentorFilter, mzkFilter, countryFilter, intakeYearFilter],
     queryFn: () =>
       studentsApi.getAll({
@@ -451,6 +454,8 @@ export const DashboardPage: React.FC = () => {
       }
     }
   }
+
+  if (isError) return <QueryError error={error} onRetry={refetch} />
 
   if (isLoading) {
     return (
@@ -632,7 +637,7 @@ function StudentPeekPanel({ student, onClose }: { student: StudentListItem; onCl
           {isLoading && <p className="text-sm text-p-muted">Загрузка полного профиля…</p>}
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Notion</h3>{notion?.snapshot?.notion_url && <a href={notion.snapshot.notion_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand hover:underline">Открыть в Notion</a>}</div>{notionLoading ? <p className="mt-3 text-sm text-p-muted">Загрузка данных…</p> : notion?.snapshot ? <><div className="mt-2 space-y-1 text-xs text-p-muted"><p>Синхронизировано: {notion.snapshot.synced_at ? new Date(notion.snapshot.synced_at).toLocaleString('ru-RU') : '—'}</p><p>Изменено в Notion: {notion.snapshot.notion_last_edited_at ? new Date(notion.snapshot.notion_last_edited_at).toLocaleDateString('ru-RU') : '—'}</p></div><div className="mt-3 rounded-panel border border-p-line bg-p-bg px-3">{notionRows.map((row) => <Property key={row.field} label={row.label} value={row.notion ?? '—'} />)}</div></> : <p className="mt-3 text-sm text-p-muted">Студент не привязан к записи Notion</p>}</section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Основные данные</h3><Property label="Этап" value={PIPELINE_STATUS_LABELS[profile.pipeline_status ?? 'no_status']} /><Property label="Страна" value={profile.country ? `${countryFlag(profile.country)} ${profile.country}` : undefined} /><Property label="Город" value={profile.city} /><Property label="Телефон" value={profile.phone} /><Property label="Специальность" value={full?.specialty} /><Property label="GPA" value={full?.gpa} /></section>
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Менторы" value={(profile.mentors ?? []).join(', ') || 'Не назначены'} /><Property label="МЗК" value={profile.mzk_manager_name} /><Property label="Roadmap" value={profile.roadmap?.name ? `${profile.roadmap.name} · ${profile.roadmap.progress ?? 0}%` : 'Не назначен'} /><Property label="Открытые задачи" value={profile.open_tasks_count ?? 0} /><Property label="Открытые обращения" value={profile.has_open_complaints ? 'Есть' : 'Нет'} /></section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Менторы" value={(profile.mentors ?? []).join(', ') || 'Не назначены'} /><Property label="МЗК" value={profile.mzk_manager_name} /><Property label="Roadmap" value={profile.roadmap?.name ? `${profile.roadmap.name} · ${profile.roadmap.progress ?? 0}%` : 'Не назначен'} /><Property label="Незакрытые задачи" value={profile.open_tasks_count ?? 0} /><Property label="Открытые обращения" value={profile.has_open_complaints ? 'Есть' : 'Нет'} /></section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Услуги и документы</h3><Property label="Услуги" value={full?.services?.length ?? profile.services_summary?.total ?? 0} /><Property label="Документы" value={full?.documents?.length ?? 0} /><Property label="Заявки" value={full?.applications?.length ?? 0} /><Property label="Платежей" value={contract?.payments?.length ?? 0} /></section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Договор и финансы</h3><Property label="Дата договора" value={contract?.signed_date} /><Property label="Client fee" value={contract?.amount ? `${contract.amount} ${contract.currency}` : undefined} /><Property label="Остаток клиента" value={contract?.client_remaining_amount ? `${contract.client_remaining_amount} ${contract.currency}` : undefined} /><Property label="Сумма англ." value={contract?.english_sum} /><Property label="Ментору итого" value={contract?.mentor_total_owed} /></section>
         </div>

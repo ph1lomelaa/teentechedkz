@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
 import { DEGREE_LEVEL_LABELS, DegreeLevel } from '@/types'
+import { QueryError } from '@/components/shared/QueryState'
 
 export default function StatusInboxPage() {
   const qc = useQueryClient()
@@ -20,7 +21,7 @@ export default function StatusInboxPage() {
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
 
-  const { data: insights = [], isLoading } = useQuery({
+  const { data: insights = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['pending-insights', 'all', scope],
     queryFn: () => pendingInsightsApi.listAll(undefined, scope),
   })
@@ -187,7 +188,11 @@ export default function StatusInboxPage() {
         </div>
       )}
 
-      {isLoading || notesLoading ? (
+      {/* Пустые состояния здесь у каждой секции свои («Ничего не ждёт разбора»),
+          поэтому isEmpty не передаём — иначе они подменились бы одним общим. */}
+      {isError || directory.isError ? (
+        <QueryError colorPrefix="w" error={error} onRetry={refetch} />
+      ) : isLoading || notesLoading ? (
         <p className="text-sm text-w-muted">Загрузка…</p>
       ) : (
         <AppCard colorPrefix="w" className="space-y-6 p-5">

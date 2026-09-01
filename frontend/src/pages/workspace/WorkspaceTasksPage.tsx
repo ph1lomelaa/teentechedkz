@@ -13,6 +13,7 @@ import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
 import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs, UrgencyBadge } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 const PRIORITY_LABEL: Record<string, string> = {
   required: 'Обязательно',
@@ -50,7 +51,7 @@ export const WorkspaceTasksPage: React.FC = () => {
   const [reviewNote, setReviewNote] = useState('')
 
   // ---- roadmap tasks (student-facing) ----
-  const { data: roadmapData, isLoading: roadmapLoading } = useQuery({
+  const { data: roadmapData, isLoading: roadmapLoading, isError: roadmapFailed, error: roadmapError, refetch: refetchRoadmap } = useQuery({
     queryKey: ['workspace', 'roadmap-tasks', status, params],
     queryFn: () => workspaceApi.roadmapTasks({ ...params, status }),
   })
@@ -155,15 +156,21 @@ export const WorkspaceTasksPage: React.FC = () => {
 
       {/* key={status}: контент вкладки перемонтируется и мягко въезжает. */}
       <AppCard colorPrefix="w" key={status} className="anim-view-in p-5">
-          {roadmapLoading ? (
-            <p className="text-sm text-w-muted">Загрузка задач...</p>
-          ) : filteredRoadmapTasks.length === 0 ? (
-            <EmptyState colorPrefix="w"
-              className="anim-view-in"
-              title={status === 'open' ? 'Открытых roadmap-задач нет' : 'Закрытых roadmap-задач нет'}
-              description="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
-            />
-          ) : (
+          <QueryState
+            colorPrefix="w"
+            isLoading={roadmapLoading}
+            isError={roadmapFailed}
+            error={roadmapError}
+            onRetry={refetchRoadmap}
+            isEmpty={filteredRoadmapTasks.length === 0}
+            empty={(
+              <EmptyState colorPrefix="w"
+                className="anim-view-in"
+                title={status === 'open' ? 'Открытых roadmap-задач нет' : 'Закрытых roadmap-задач нет'}
+                description="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
+              />
+            )}
+          >
             <div className="anim-view-in space-y-3">
               {Object.entries(groupByStudent(filteredRoadmapTasks)).map(([groupStudentId, groupTasks]) => {
                 const groupKey = `roadmap-${groupStudentId}`
@@ -191,7 +198,7 @@ export const WorkspaceTasksPage: React.FC = () => {
                 )
               })}
             </div>
-          )}
+          </QueryState>
       </AppCard>
       {questionnaireTask && (
         <WorkspaceQuestionnaireDialog

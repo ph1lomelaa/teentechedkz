@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/primitives/input'
 import { Badge } from '@/components/ui/primitives/badge'
 import { useToast } from '@/hooks/use-toast'
 import { portalAccessApi } from '@/api/portalAccess'
+import { QueryState } from '@/components/shared/QueryState'
 
 function fmtDate(value?: string | null): string {
   if (!value) return 'ещё не входил(а)'
@@ -40,7 +41,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
   const [inviteCopied, setInviteCopied] = useState(false)
   const [secondEmail, setSecondEmail] = useState('')
 
-  const { data: access, isLoading } = useQuery({
+  const { data: access, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal-access', studentId],
     queryFn: () => portalAccessApi.get(studentId),
   })
@@ -162,108 +163,114 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
         </span>
       </AccordionTrigger>
       <AccordionContent>
-        {isLoading ? (
-          <p className="text-sm text-gray-500 py-2">Загрузка…</p>
-        ) : hasAccess ? (
-          <div className="space-y-4 py-1">
-            {!access?.primary_mentor_id && (
-              <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                У студента нет активного МЗК. Назначьте МЗК в карточке, чтобы roadmap, встречи и чат были связаны с ответственным.
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
-              <Row label="Основной email" value={access?.email} />
-              <Row label="МЗК" value={access?.primary_mentor_name} />
-              <Row label="Статус" value={access?.is_active ? 'Активен' : 'Отключён'} />
-              <Row label="Последний вход" value={fmtDate(access?.last_login_at)} />
-              <Row
-                label="Пароль"
-                value={access?.must_change_password ? 'временный (не сменён)' : 'задан студентом'}
-              />
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <p className="label-caps text-gray-600 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5" /> Дополнительный email для входа
-              </p>
-              {extraEmails.length > 0 ? (
-                <div className="space-y-1.5">
-                  {extraEmails.map((e) => (
-                    <div
-                      key={e.id}
-                      className="flex items-center justify-between gap-3 rounded-panel border border-gray-200 px-3 py-1.5 text-sm"
-                    >
-                      <span className="text-gray-900 truncate">{e.email}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-1.5 text-gray-500 hover:text-red-600"
-                        onClick={() => e.id && removeEmailMutation.mutate(e.id)}
-                        disabled={removeEmailMutation.isPending}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  ))}
+        <QueryState
+          colorPrefix="ds"
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={hasAccess}
+          empty={(
+            <div className="space-y-4 py-1">
+              {!access?.primary_mentor_id && (
+                <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  У студента нет активного МЗК. Назначьте МЗК в карточке, чтобы roadmap, встречи и чат были связаны с ответственным.
                 </div>
-              ) : canAddEmail ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="email"
-                    placeholder="личный email студента"
-                    value={secondEmail}
-                    onChange={(ev) => setSecondEmail(ev.target.value)}
-                    className="h-8 text-sm"
-                  />
-                  <Button
-                    size="sm"
-                    className="h-8 px-3 text-xs shrink-0"
-                    onClick={() => addEmailMutation.mutate()}
-                    disabled={addEmailMutation.isPending || !secondEmail.trim()}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1.5" />
-                    Добавить
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400">Достигнут лимит в два email на аккаунт.</p>
               )}
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                <Row label="Основной email" value={access?.email} />
+                <Row label="МЗК" value={access?.primary_mentor_name} />
+                <Row label="Статус" value={access?.is_active ? 'Активен' : 'Отключён'} />
+                <Row label="Последний вход" value={fmtDate(access?.last_login_at)} />
+                <Row
+                  label="Пароль"
+                  value={access?.must_change_password ? 'временный (не сменён)' : 'задан студентом'}
+                />
+              </div>
 
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
-                onClick={() => inviteMutation.mutate()}
-                disabled={inviteMutation.isPending}
-              >
-                <Link2 className="w-3 h-3 mr-2" />
-                Ссылка-приглашение
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
-                onClick={() => resetMutation.mutate()}
-                disabled={resetMutation.isPending}
-              >
-                <RotateCcw className="w-3 h-3 mr-2" />
-                Сбросить пароль
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
-                onClick={() => toggleMutation.mutate(!access?.is_active)}
-                disabled={toggleMutation.isPending}
-              >
-                <Power className="w-3 h-3 mr-2" />
-                {access?.is_active ? 'Отключить доступ' : 'Включить доступ'}
-              </Button>
+              <div className="space-y-2 pt-1">
+                <p className="label-caps text-gray-600 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Дополнительный email для входа
+                </p>
+                {extraEmails.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {extraEmails.map((e) => (
+                      <div
+                        key={e.id}
+                        className="flex items-center justify-between gap-3 rounded-panel border border-gray-200 px-3 py-1.5 text-sm"
+                      >
+                        <span className="text-gray-900 truncate">{e.email}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-gray-500 hover:text-red-600"
+                          onClick={() => e.id && removeEmailMutation.mutate(e.id)}
+                          disabled={removeEmailMutation.isPending}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : canAddEmail ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="email"
+                      placeholder="личный email студента"
+                      value={secondEmail}
+                      onChange={(ev) => setSecondEmail(ev.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-8 px-3 text-xs shrink-0"
+                      onClick={() => addEmailMutation.mutate()}
+                      disabled={addEmailMutation.isPending || !secondEmail.trim()}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1.5" />
+                      Добавить
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">Достигнут лимит в два email на аккаунт.</p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => inviteMutation.mutate()}
+                  disabled={inviteMutation.isPending}
+                >
+                  <Link2 className="w-3 h-3 mr-2" />
+                  Ссылка-приглашение
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => resetMutation.mutate()}
+                  disabled={resetMutation.isPending}
+                >
+                  <RotateCcw className="w-3 h-3 mr-2" />
+                  Сбросить пароль
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => toggleMutation.mutate(!access?.is_active)}
+                  disabled={toggleMutation.isPending}
+                >
+                  <Power className="w-3 h-3 mr-2" />
+                  {access?.is_active ? 'Отключить доступ' : 'Включить доступ'}
+                </Button>
+              </div>
             </div>
-          </div>
-        ) : (
+          )}
+        >
           <div className="space-y-4 py-1">
             {!access?.primary_mentor_id && (
               <div className="rounded-panel border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -309,7 +316,7 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
               Выдать доступ
             </Button>
           </div>
-        )}
+        </QueryState>
 
         {tempPassword && (
           <div className="mt-4 rounded-panel border border-brand/40 bg-brand/10 p-4">

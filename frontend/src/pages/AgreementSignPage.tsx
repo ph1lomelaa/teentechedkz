@@ -10,6 +10,7 @@ import { AuthShell } from '@/components/auth/AuthShell'
 import { workspaceHomeFor } from '@/lib/authRouting'
 import { useDocumentPreview } from '@/hooks/useDocumentPreview'
 import { DocumentViewer } from '@/components/shared/DocumentViewer'
+import { QueryError } from '@/components/shared/QueryState'
 
 /**
  * Подписание регламента. Обязательно для менторов, если у их аудитории есть
@@ -27,7 +28,9 @@ export const AgreementSignPage: React.FC = () => {
   const from = (location.state as { from?: string } | null)?.from
   const returnTo = from && from !== '/agreements/sign' ? from : workspaceHomeFor(user?.role)
 
-  const { data, isLoading, refetch } = useQuery({
+  // loadError — про загрузку списка, error ниже — про заполнение формы. Имена
+  // разные намеренно: это разные беды с разным выходом для человека.
+  const { data, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['agreements', 'pending'],
     queryFn: agreementsApi.pending,
   })
@@ -72,11 +75,15 @@ export const AgreementSignPage: React.FC = () => {
     }
   }, [previewOpen])
 
+  // isError обязателен в условии: при упавшем запросе pending пуст не потому,
+  // что подписывать нечего, а потому, что список не пришёл. Без этой проверки
+  // человека уводило на returnTo, гейт возвращал его обратно сюда, запрос
+  // падал снова — и получался цикл редиректов вместо сообщения об ошибке.
   useEffect(() => {
-    if (!isLoading && pending.length === 0) {
+    if (!isLoading && !isError && pending.length === 0) {
       refreshUser().then(() => navigate(returnTo, { replace: true }))
     }
-  }, [isLoading, navigate, pending.length, refreshUser, returnTo])
+  }, [isLoading, isError, navigate, pending.length, refreshUser, returnTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -123,6 +130,17 @@ export const AgreementSignPage: React.FC = () => {
   const openPreview = () => {
     if (!current) return
     setPreviewOpen(true)
+  }
+
+  // Самое дорогое место во всём фронте: страница — жёсткий гейт, и «вечная
+  // загрузка» здесь означала бы, что человек потерял доступ к системе целиком,
+  // без единой кнопки. Поэтому у ошибки обязана быть кнопка «Повторить».
+  if (isError) {
+    return (
+      <AuthShell eyebrow="Регламент" title="Не удалось проверить" wide hideHomeLink>
+        <QueryError error={loadError} onRetry={refetch} colorPrefix="p" />
+      </AuthShell>
+    )
   }
 
   if (isLoading || !current) {

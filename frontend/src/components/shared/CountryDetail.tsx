@@ -5,6 +5,7 @@ import { ArrowLeft, Building2, CalendarClock, Globe, Route } from 'lucide-react'
 import { countriesApi } from '@/api/index'
 import { universitiesApi } from '@/api/universities'
 import { roadmapApi, RoadmapTemplate, TemplateListItem } from '@/api/roadmap'
+import { QueryError } from '@/components/shared/QueryState'
 
 type Degree = 'undergraduate' | 'graduate'
 
@@ -31,7 +32,7 @@ export const CountryDetail: React.FC<{
 
   // Отдельного GET /countries/{id} нет, а список небольшой и уже закэширован —
   // берём страну из него, а не заводим ручку ради одной строки.
-  const { data: countries = [], isLoading } = useQuery({
+  const { data: countries = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['countries'],
     queryFn: countriesApi.list,
   })
@@ -65,6 +66,12 @@ export const CountryDetail: React.FC<{
         item.degree === expected
     )
   }, [templates, country, degree])
+
+  // Без этой ветки любая ошибка показывала «roadmap-шаблон пока не добавлен» —
+  // утверждение о содержимом справочника вместо признания, что он не пришёл.
+  if (isError) {
+    return <QueryError error={error} onRetry={refetch} />
+  }
 
   if (isLoading) {
     return <div className="rounded-card border border-p-line bg-p-panel p-5 text-sm text-p-muted">Загрузка…</div>
@@ -210,7 +217,7 @@ export const CountryDetail: React.FC<{
 /** Шаблон roadmap страны. Вынесен из модалок обоих каталогов — там он был
  *  продублирован дословно. */
 export const RoadmapSection: React.FC<{ template?: TemplateListItem }> = ({ template }) => {
-  const { data: full, isLoading } = useQuery({
+  const { data: full, isLoading, isError: fullFailed, error: fullError, refetch: refetchFull } = useQuery({
     queryKey: ['roadmap-template', template?.id],
     queryFn: () => roadmapApi.getTemplate(template!.id),
     enabled: Boolean(template),
@@ -223,6 +230,10 @@ export const RoadmapSection: React.FC<{ template?: TemplateListItem }> = ({ temp
       </div>
     )
   }
+  if (fullFailed) {
+    return <QueryError error={fullError} onRetry={refetchFull} />
+  }
+
   if (isLoading || !full) {
     return <div className="rounded-card border border-p-line bg-p-panel p-6 text-sm text-p-muted">Загрузка roadmap…</div>
   }

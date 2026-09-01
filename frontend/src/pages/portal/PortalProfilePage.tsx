@@ -5,9 +5,10 @@ import { authApi } from '@/api/auth'
 import { DEGREE_LEVEL_LABELS } from '@/types'
 import { AppButton, AppInput, AppCard } from '@/components/ui'
 import { PageShell } from '@/components/shared/PageShell'
+import { QueryError } from '@/components/shared/QueryState'
 
 export const PortalProfilePage: React.FC = () => {
-  const { data, isLoading } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -42,7 +43,11 @@ export const PortalProfilePage: React.FC = () => {
       <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Профиль</h1>
 
-      {isLoading ? (
+      {/* Профиль без пустого состояния: поля просто оказывались бы пустыми, и
+          ученик решал бы, что данных о нём в системе нет. */}
+      {isError ? (
+        <QueryError colorPrefix="p" error={error} onRetry={refetch} />
+      ) : isLoading ? (
         <p className="text-sm text-p-muted">Загрузка…</p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[300px_1fr]">

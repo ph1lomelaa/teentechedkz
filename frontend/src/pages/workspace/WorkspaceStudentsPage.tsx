@@ -6,6 +6,7 @@ import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { debounce } from '@/lib/utils'
 import { Avatar, AppCard, AppInput, EmptyState, PageHeader, ProgressBar, Pill } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 export const WorkspaceStudentsPage: React.FC = () => {
   const { params, isPreview } = useWorkspaceScope()
@@ -21,7 +22,7 @@ export const WorkspaceStudentsPage: React.FC = () => {
     []
   )
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'students', 'summary', params],
     queryFn: () => workspaceApi.students(params),
   })
@@ -74,11 +75,21 @@ export const WorkspaceStudentsPage: React.FC = () => {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => <AppCard colorPrefix="w" key={i} className="h-52 animate-pulse" />)}
-        </div>
-      ) : students.length === 0 ? (
+      {/* «Студентов пока нет» при обрыве связи — прямая ложь: у ментора они
+          есть, просто не пришли. */}
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        skeleton={(
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => <AppCard colorPrefix="w" key={i} className="h-52 animate-pulse" />)}
+          </div>
+        )}
+        isEmpty={students.length === 0}
+        empty={(
         <EmptyState colorPrefix="w"
           icon={<Users className="h-5 w-5" />}
           title={debouncedSearch ? 'Ничего не найдено' : 'Студентов пока нет'}
@@ -90,7 +101,8 @@ export const WorkspaceStudentsPage: React.FC = () => {
               : 'У вас пока нет активных назначений.'
           }
         />
-      ) : (
+        )}
+      >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {students.map((item) => (
             <AppCard colorPrefix="w" key={item.student.id} className="flex flex-col p-5 hover:border-w-accentDim">
@@ -142,7 +154,7 @@ export const WorkspaceStudentsPage: React.FC = () => {
             </AppCard>
           ))}
         </div>
-      )}
+      </QueryState>
     </div>
   )
 }

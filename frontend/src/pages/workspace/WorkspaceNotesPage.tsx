@@ -10,6 +10,7 @@ import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { NoteSession, NoteSessionStatus, StudentNote, StudentNoteStatus } from '@/types'
 import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs, StatCard } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 const SESSION_STATUS_LABELS: Record<NoteSessionStatus, string> = {
   active: 'Идёт запись',
@@ -58,7 +59,7 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
     queryFn: () => workspaceApi.students(params),
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'notes', mentorId],
     queryFn: () => workspaceApi.notes(params),
   })
@@ -177,11 +178,17 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
           <h2 className="font-display text-xl font-black text-w-ink">Конспекты</h2>
           <span className="text-xs font-bold text-w-muted">{items.length}</span>
         </div>
-        {loading ? (
-          <p className="text-sm text-w-muted">Загрузка...</p>
-        ) : items.length === 0 ? (
-          <EmptyState colorPrefix="w" title="Конспектов нет" description="Создайте конспект из карточки студента." />
-        ) : (
+        <QueryState
+          colorPrefix="w"
+          isLoading={loading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={items.length === 0}
+          empty={(
+            <EmptyState colorPrefix="w" title="Конспектов нет" description="Создайте конспект из карточки студента." />
+          )}
+        >
           <div className="space-y-2">
             {items.map((item) => item.kind === 'session' ? (
               <Link key={item.id} to={`/workspace/meetings/session/${item.session.id}`} className="block rounded-panel border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
@@ -218,7 +225,7 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
               </Link>
             ))}
           </div>
-        )}
+        </QueryState>
       </AppCard>
     </div>
   )

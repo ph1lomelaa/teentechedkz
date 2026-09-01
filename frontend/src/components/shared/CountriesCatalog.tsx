@@ -9,6 +9,7 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { AppButton } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { useLocalState } from '@/lib/use-local-state'
+import { QueryState } from '@/components/shared/QueryState'
 
 /** Каталог стран — общий для CRM, воркспейса и портала.
  *
@@ -32,7 +33,7 @@ export const CountriesCatalog: React.FC<{
   // undefined — диалог закрыт; null — создание; страна — редактирование
   const [editing, setEditing] = useState<Country | null | undefined>(undefined)
 
-  const { data: countries = [], isLoading } = useQuery({
+  const { data: countries = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['countries'],
     queryFn: countriesApi.list,
   })
@@ -116,23 +117,32 @@ export const CountriesCatalog: React.FC<{
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-48 animate-pulse rounded-card border border-p-line bg-p-panel" />
-          ))}
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
-            <Globe className="h-5 w-5 text-brand" />
+      <QueryState
+        colorPrefix="ds"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={visible.length === 0}
+        skeleton={(
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-48 animate-pulse rounded-card border border-p-line bg-p-panel" />
+            ))}
           </div>
-          <h2 className="mt-4 text-base font-extrabold text-p-text">Страны не найдены</h2>
-          <p className="mt-1.5 text-sm text-p-muted">
-            Попробуйте изменить поисковый запрос или фильтр.
-          </p>
-        </div>
-      ) : (
+        )}
+        empty={(
+          <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
+            <div className="mx-auto grid h-11 w-11 place-items-center rounded-panel bg-brand/15">
+              <Globe className="h-5 w-5 text-brand" />
+            </div>
+            <h2 className="mt-4 text-base font-extrabold text-p-text">Страны не найдены</h2>
+            <p className="mt-1.5 text-sm text-p-muted">
+              Попробуйте изменить поисковый запрос или фильтр.
+            </p>
+          </div>
+        )}
+      >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {visible.map((country) => (
             <CountryCard
@@ -144,7 +154,7 @@ export const CountriesCatalog: React.FC<{
             />
           ))}
         </div>
-      )}
+      </QueryState>
 
       {editing !== undefined && (
         <CountryDialog country={editing || undefined} onClose={() => setEditing(undefined)} />

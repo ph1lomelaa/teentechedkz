@@ -13,7 +13,14 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
 import { slaLabel } from './MentorTasksBoard'
+import { QueryState } from '@/components/shared/QueryState'
 
+// Намеренно не SLA_TRACKED_STATUSES с бэка: там вопрос «капают ли часы», здесь —
+// «что исполнителю сейчас показывать». Отсюда два расхождения, оба осознанные:
+// awaiting_signature входит, хотя SLA на паузе (ниже рисуется как blocked —
+// человек должен видеть, почему не может взяться), а submitted не входит —
+// сдано, ход не за ним. Общее с бэком одно: overdue входит обязательно, иначе
+// уведомление о санкции вело бы на экран без этой задачи.
 const ACTIVE_STATUSES = new Set([
   'open',
   'in_progress',
@@ -35,7 +42,7 @@ export const MyTasksList: React.FC<Props> = ({
   const t = ADMIN_TOKENS[colorPrefix]
   const queryClient = useQueryClient()
   const [submitTask, setSubmitTask] = useState<StudentTask | null>(null)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['tasks', 'mine'],
     queryFn: () => tasksApi.listAll({ scope: 'mine', size: 200 }),
   })
@@ -69,11 +76,18 @@ export const MyTasksList: React.FC<Props> = ({
         description="Задачи от МЗК: сначала те, у которых горит срок."
       />
 
-      {isLoading ? (
-        <div className={cn('p-5 text-sm', t.card, t.muted)}>Загрузка...</div>
-      ) : items.length === 0 ? (
-        <EmptyState colorPrefix={colorPrefix} icon={<CheckCircle2 className="h-5 w-5" />} title="Активных задач нет" />
-      ) : (
+      {/* «Активных задач нет» на упавшем запросе читалось как «свободен»: сюда
+          же ведёт уведомление о санкции SLA, и цена ошибки — пропущенная
+          просрочка, за которую уже начислен штраф. */}
+      <QueryState
+        colorPrefix={colorPrefix}
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={items.length === 0}
+        empty={<EmptyState colorPrefix={colorPrefix} icon={<CheckCircle2 className="h-5 w-5" />} title="Активных задач нет" />}
+      >
         <div className="space-y-2">
           {items.map((task) => {
             const sla = slaLabel(task)
@@ -145,7 +159,7 @@ export const MyTasksList: React.FC<Props> = ({
             )
           })}
         </div>
-      )}
+      </QueryState>
 
       {submitTask && (
         <SubmitTaskDialog

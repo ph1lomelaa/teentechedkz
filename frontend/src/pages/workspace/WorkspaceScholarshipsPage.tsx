@@ -2,6 +2,7 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Award } from 'lucide-react'
 import { PageHeader, AppCard, EmptyState } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 interface Scholarship {
   id: string
@@ -21,7 +22,7 @@ async function fetchScholarships(countryId?: string): Promise<Scholarship[]> {
 }
 
 export const WorkspaceScholarshipsPage: React.FC = () => {
-  const { data: scholarships = [], isLoading } = useQuery({
+  const { data: scholarships = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'scholarships'],
     queryFn: () => fetchScholarships(),
   })
@@ -35,15 +36,21 @@ export const WorkspaceScholarshipsPage: React.FC = () => {
         colorPrefix="w"
       />
 
-      {isLoading ? (
-        <div className="py-12 text-center text-sm text-w-muted">Загрузка...</div>
-      ) : scholarships.length === 0 ? (
-        <EmptyState
-          icon={<Award className="h-5 w-5" />}
-          title="Стипендии пока не добавлены"
-          colorPrefix="w"
-        />
-      ) : (
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={scholarships.length === 0}
+        empty={(
+          <EmptyState
+            icon={<Award className="h-5 w-5" />}
+            title="Стипендии пока не добавлены"
+            colorPrefix="w"
+          />
+        )}
+      >
         <div className="space-y-3">
           {scholarships.map((scholarship) => (
             <AppCard key={scholarship.id} colorPrefix="w" className="p-5">
@@ -70,7 +77,7 @@ export const WorkspaceScholarshipsPage: React.FC = () => {
             </AppCard>
           ))}
         </div>
-      )}
+      </QueryState>
     </div>
   )
 }

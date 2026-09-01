@@ -14,6 +14,7 @@ import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { RoadmapTimeline } from '@/components/shared/RoadmapTimeline'
 import { SegmentedTabs } from '@/components/ui'
 import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
+import { QueryError } from '@/components/shared/QueryState'
 
 export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ studentId }) => {
   const { toast } = useToast()
@@ -21,7 +22,7 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
   const queryClient = useQueryClient()
   const canManageTemplates = can('roadmap_templates', 'manage')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['student-roadmap', studentId],
     queryFn: () => roadmapApi.studentRoadmaps(studentId),
   })
@@ -135,7 +136,9 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
         </span>
       </AccordionTrigger>
       <AccordionContent>
-        {isLoading ? (
+        {isError ? (
+          <QueryError error={error} onRetry={refetch} />
+        ) : isLoading ? (
           <p className="text-sm text-gray-500 py-2">Загрузка…</p>
         ) : roadmaps.length > 0 ? (
           <div className="py-1 space-y-3">

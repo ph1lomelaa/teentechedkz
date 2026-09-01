@@ -13,6 +13,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
+import { QueryState } from '@/components/shared/QueryState'
 
 type KindFilter = 'all' | 'student' | 'general'
 type DueFilter = 'all' | 'overdue' | 'on_track'
@@ -78,7 +79,7 @@ export const MentorTasksBoard: React.FC<Props> = ({
     },
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['tasks', 'board', assigneeId, kind, due],
     queryFn: () =>
       tasksApi.listAll({
@@ -157,11 +158,18 @@ export const MentorTasksBoard: React.FC<Props> = ({
         )}
       </div>
 
-      {isLoading ? (
-        <div className={cn('p-5 text-sm', t.card, t.muted)}>Загрузка...</div>
-      ) : items.length === 0 ? (
-        <EmptyState colorPrefix={colorPrefix} icon={<AlertTriangle className="h-5 w-5" />} title="Задач по этим фильтрам нет" />
-      ) : (
+      {/* «Задач по этим фильтрам нет» на упавшем запросе гнало крутить фильтры. */}
+      <QueryState
+        isLoading={isLoading}
+        colorPrefix={colorPrefix}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={items.length === 0}
+        empty={(
+          <EmptyState colorPrefix={colorPrefix} icon={<AlertTriangle className="h-5 w-5" />} title="Задач по этим фильтрам нет" />
+        )}
+      >
         <div className={cn('overflow-x-auto rounded-card border', t.borderLine)}>
           <table className="w-full text-sm">
             <thead>
@@ -219,7 +227,7 @@ export const MentorTasksBoard: React.FC<Props> = ({
             </tbody>
           </table>
         </div>
-      )}
+      </QueryState>
 
       {creating && (
         <CreateMentorTaskDialog

@@ -9,6 +9,7 @@ import { toast } from '@/hooks/use-toast'
 import { AppButton, EmptyState, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { CreateComplaintDialog } from '@/components/shared/CreateComplaintDialog'
+import { QueryState } from '@/components/shared/QueryState'
 
 const STATUS_LABELS: Record<ComplaintStatus, string> = {
   new: 'Новое',
@@ -42,7 +43,7 @@ export const WorkspaceComplaintsPage: React.FC = () => {
   const [mineOnly, setMineOnly] = useState(false)
   const [creating, setCreating] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'complaints', statusFilter, mineOnly],
     queryFn: () =>
       complaintsApi.list({
@@ -120,11 +121,17 @@ export const WorkspaceComplaintsPage: React.FC = () => {
         </button>
       </div>
 
-      {isLoading ? (
-        <div className="rounded-card border border-w-line bg-w-panel p-5 text-sm text-w-muted">Загрузка...</div>
-      ) : complaints.length === 0 ? (
-        <EmptyState colorPrefix="w" icon={<MessageSquareWarning className="h-5 w-5" />} title="Обращений нет" />
-      ) : (
+      {/* У обращений SLA 24 часа: «Обращений нет» вместо ошибки означает, что
+          человек спокойно закрыл вкладку, пока срок горел. */}
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={complaints.length === 0}
+        empty={<EmptyState colorPrefix="w" icon={<MessageSquareWarning className="h-5 w-5" />} title="Обращений нет" />}
+      >
         <div className="grid gap-3 xl:grid-cols-2">
           {complaints.map((c) => (
             <button
@@ -171,7 +178,7 @@ export const WorkspaceComplaintsPage: React.FC = () => {
             </button>
           ))}
         </div>
-      )}
+      </QueryState>
 
       {selectedId && detail && (
         <ComplaintDialog complaint={detail} isManager={isManager} onClose={() => setSelectedId(null)} />

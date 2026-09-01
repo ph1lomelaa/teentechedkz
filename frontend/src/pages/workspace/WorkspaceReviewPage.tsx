@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from '@/components/ui/primitives/dialog'
 import { Textarea } from '@/components/ui/primitives/textarea'
+import { QueryError } from '@/components/shared/QueryState'
 
 // Очередь ревью заявок студентов — клон анатомии StatusInboxPage (очередь с
 // действиями + разобранный хвост), но отдельной страницей: StatusInboxPage
@@ -49,7 +50,7 @@ export const WorkspaceReviewPage: React.FC = () => {
   const [returnTarget, setReturnTarget] = useState<WorkspaceRoadmapTask | null>(null)
   const [comment, setComment] = useState('')
 
-  const { data: queueData, isLoading } = useQuery({
+  const { data: queueData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'review-queue', params],
     queryFn: () => workspaceApi.roadmapTasks({ review_status: 'pending', ...params }),
   })
@@ -134,7 +135,12 @@ export const WorkspaceReviewPage: React.FC = () => {
         }
       />
 
-      {isLoading ? (
+      {/* Пустое состояние здесь живёт глубже, внутри секции («Всё проверено»),
+          поэтому isEmpty не передаём: QueryState отвечает только за загрузку и
+          ошибку, а «пусто» экран говорит сам и по-своему. */}
+      {isError ? (
+        <QueryError colorPrefix="w" error={error} onRetry={refetch} />
+      ) : isLoading ? (
         <p className="text-sm text-w-muted">Загрузка…</p>
       ) : (
         <div key={mentorId ?? 'mine'} className="anim-view-in space-y-6">

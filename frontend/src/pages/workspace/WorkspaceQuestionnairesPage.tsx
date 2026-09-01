@@ -8,6 +8,7 @@ import { useLocalState } from '@/lib/use-local-state'
 import { cn, formatDate } from '@/lib/utils'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
 import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 type FilterTab = 'all' | QuestionnaireStatus
 
@@ -25,7 +26,7 @@ export const WorkspaceQuestionnairesPage: React.FC = () => {
   const [studentFilter, setStudentFilter] = useLocalState('workspace:questionnaires:studentFilter', '')
   const [openItem, setOpenItem] = useState<WorkspaceQuestionnaireItem | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'questionnaires', tab, params],
     queryFn: () => workspaceApi.questionnaires({ ...params, status: tab === 'all' ? undefined : tab }),
   })
@@ -64,22 +65,28 @@ export const WorkspaceQuestionnairesPage: React.FC = () => {
       </div>
 
       <AppCard colorPrefix="w" className="p-5">
-        {isLoading ? (
-          <p className="text-sm text-w-muted">Загрузка…</p>
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={<ClipboardList className="h-5 w-5" />}
-            title="Анкет нет"
-            description="Анкеты появляются, когда вы добавляете их к задачам roadmap студента (вкладка «Задачи» → «Открыть анкету»)."
-            colorPrefix="w"
-          />
-        ) : (
+        <QueryState
+          colorPrefix="w"
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetch}
+          isEmpty={filtered.length === 0}
+          empty={(
+            <EmptyState
+              icon={<ClipboardList className="h-5 w-5" />}
+              title="Анкет нет"
+              description="Анкеты появляются, когда вы добавляете их к задачам roadmap студента (вкладка «Задачи» → «Открыть анкету»)."
+              colorPrefix="w"
+            />
+          )}
+        >
           <div className="space-y-2">
             {filtered.map((item) => (
               <QuestionnaireRow key={item.id} item={item} onOpen={() => setOpenItem(item)} />
             ))}
           </div>
-        )}
+        </QueryState>
       </AppCard>
 
       {openItem && openItem.roadmap_task_id && (

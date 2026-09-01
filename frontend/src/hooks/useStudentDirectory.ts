@@ -19,13 +19,13 @@ export function useStudentDirectory() {
   // фильтр выдачи, а не доступ к данным.
   const isManager = can('users', 'view')
 
-  const { data: students = [], isLoading: studentsLoading } = useQuery({
+  const { data: students = [], isLoading: studentsLoading, isError: studentsFailed, error: studentsError, refetch: refetchStudents } = useQuery({
     queryKey: ['student-directory', 'students'],
     queryFn: () => studentsApi.getAll({ size: 2000 }),
     staleTime: 60_000,
   })
 
-  const { data: facets, isLoading: facetsLoading } = useQuery({
+  const { data: facets, isLoading: facetsLoading, isError: facetsFailed, error: facetsError, refetch: refetchFacets } = useQuery({
     queryKey: ['student-directory', 'facets'],
     queryFn: () => studentsApi.facets(),
     staleTime: 60_000,
@@ -65,6 +65,14 @@ export function useStudentDirectory() {
     responsibleUsers,
     canFilterByResponsible: isManager,
     isLoading: studentsLoading || facetsLoading,
+    // Ошибку справочник обязан отдавать наружу: пять страниц строят от него всю
+    // выдачу, и без этого признака упавший запрос везде выглядел как «данных нет».
+    isError: studentsFailed || facetsFailed,
+    error: studentsError ?? facetsError,
+    refetch: () => {
+      refetchStudents()
+      refetchFacets()
+    },
   }
 }
 

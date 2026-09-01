@@ -14,6 +14,7 @@ import { useLocalState } from '@/lib/use-local-state'
 import { FollowUpReviewDialog } from '@/components/shared/FollowUpReviewDialog'
 import { WorkspaceNotesPage } from '@/pages/workspace/WorkspaceNotesPage'
 import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
+import { QueryState } from '@/components/shared/QueryState'
 
 const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   scheduled: 'Запланирована',
@@ -60,13 +61,13 @@ export const WorkspaceMeetingsPage: React.FC = () => {
     if (section === 'ielts') setMeetingType('ielts_lesson')
   }, [section])
 
-  const { data: studentsData, isLoading: studentsLoading } = useQuery({
+  const { data: studentsData, isLoading: studentsLoading, isError: studentsFailed, error: studentsError, refetch: refetchStudents } = useQuery({
     queryKey: ['workspace', 'meetings', 'students', mentorId],
     queryFn: () => workspaceApi.students(params),
   })
 
   const students = (studentsData?.items ?? []).map((item) => item.student)
-  const { data: meetingsData, isLoading: meetingsLoading } = useQuery({
+  const { data: meetingsData, isLoading: meetingsLoading, isError: meetingsFailed, error: meetingsError, refetch: refetchMeetings } = useQuery({
     queryKey: ['workspace', 'meetings', mentorId],
     queryFn: () => workspaceApi.meetings(params),
   })
@@ -189,6 +190,11 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   }
 
   const loading = studentsLoading || meetingsLoading
+  // Экран собран из двух запросов: упади любой — список неполон. Повтор дёргает
+  // оба: разбираться, какой именно не дошёл, человеку ни к чему.
+  const failed = studentsFailed || meetingsFailed
+  const loadError = meetingsError ?? studentsError
+  const retry = () => { refetchStudents(); refetchMeetings() }
 
   return (
     <>
@@ -305,11 +311,17 @@ export const WorkspaceMeetingsPage: React.FC = () => {
       </AppCard>
 
       <AppCard colorPrefix="w" className="p-5">
-        {loading ? (
-          <p className="text-sm text-w-muted">Загрузка встреч...</p>
-        ) : meetings.length === 0 ? (
-          <EmptyState colorPrefix="w" title="Встреч нет" description="Создайте первую встречу." />
-        ) : (
+        <QueryState
+          colorPrefix="w"
+          isLoading={loading}
+          isError={failed}
+          error={loadError}
+          onRetry={retry}
+          isEmpty={meetings.length === 0}
+          empty={(
+            <EmptyState colorPrefix="w" title="Встреч нет" description="Создайте первую встречу." />
+          )}
+        >
           <div className="space-y-2">
             {meetings.map((meeting) => (
               <div key={meeting.id} className="flex flex-col gap-3 rounded-panel border border-w-line bg-w-panel2 p-4 md:flex-row md:items-start">
@@ -406,7 +418,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
               </div>
             ))}
           </div>
-        )}
+        </QueryState>
       </AppCard>
         </>
       )}

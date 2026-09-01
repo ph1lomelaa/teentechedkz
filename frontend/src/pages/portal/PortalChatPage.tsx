@@ -8,6 +8,7 @@ import { useWsEvent } from '@/lib/ws'
 import { ChatThread } from '@/components/shared/ChatThread'
 import { cn, formatDate } from '@/lib/utils'
 import { PageHeader, AppCard, EmptyState, SegmentedTabs } from '@/components/ui'
+import { QueryError } from '@/components/shared/QueryState'
 
 type Channel = 'internal' | 'telegram'
 
@@ -35,7 +36,7 @@ export const PortalChatPage: React.FC = () => {
   const [telegramSearch, setTelegramSearch] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { data: conversations = [], isLoading } = useQuery({
+  const { data: conversations = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'conversations'],
     queryFn: () => chatApi.conversations(),
   })
@@ -208,7 +209,11 @@ export const PortalChatPage: React.FC = () => {
                 />
               </div>
             </div>
-            {isLoading ? (
+            {/* «Когда ментор будет назначен, здесь появится внутренний чат» —
+                ученику это читается как «ментора у меня нет». */}
+            {isError ? (
+              <QueryError colorPrefix="p" error={error} onRetry={refetch} />
+            ) : isLoading ? (
               <p className="p-3 text-sm text-p-muted">Загрузка диалогов...</p>
             ) : visibleConversations.length === 0 && newContacts.length === 0 ? (
               <EmptyState
