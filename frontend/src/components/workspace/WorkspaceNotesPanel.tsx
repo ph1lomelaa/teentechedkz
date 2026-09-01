@@ -8,6 +8,7 @@ import { AppButton } from '@/components/ui'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 import { formatDate } from '@/lib/utils'
 import type { ConfidentialNote, NoteVisibility } from '@/types'
+import { invalidateStudent } from '@/lib/queryKeys'
 
 type Props = {
   studentId: string
@@ -39,7 +40,7 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
   const [editingText, setEditingText] = useState('')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+  const invalidate = () => invalidateStudent(queryClient, studentId)
 
   const addMutation = useMutation({
     mutationFn: () =>

@@ -13,6 +13,9 @@ import { splitNoteMarkdown, countListItems } from '@/lib/noteBlocks'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { QueryError } from '@/components/shared/QueryState'
+import { getErrorStatus } from '@/lib/errorMessage'
+import { invalidateStudent } from '@/lib/queryKeys'
 
 function humanizeKey(key: string): string {
   const labels: Record<string, string> = {
@@ -103,7 +106,7 @@ export const NoteDetailPage: React.FC = () => {
   const [hiddenBlocks, setHiddenBlocks] = React.useState<Set<string>>(new Set())
   const [enabledChangeKeys, setEnabledChangeKeys] = React.useState<Set<string>>(new Set())
 
-  const { data: note, isLoading } = useQuery({
+  const { data: note, isLoading, error, refetch } = useQuery({
     queryKey: ['note', id],
     queryFn: () => notesApi.get(id!),
     enabled: Boolean(id),
@@ -136,8 +139,10 @@ export const NoteDetailPage: React.FC = () => {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['notes'] })
       queryClient.invalidateQueries({ queryKey: ['note', id] })
+      // Ревью конспекта — событие таймлайна («Конспект»/«AI-черновик»),
+      // а раньше сбрасывался только профиль студента.
       if (updated.student_id) {
-        queryClient.invalidateQueries({ queryKey: ['student', updated.student_id] })
+        invalidateStudent(queryClient, updated.student_id)
       }
       toast({ title: 'Сохранено' })
     },
@@ -184,6 +189,12 @@ export const NoteDetailPage: React.FC = () => {
 
   if (isLoading) {
     return <div className={cn('py-12 text-center', inWorkspace ? 'text-slate-400' : 'text-p-muted2')}>Загрузка...</div>
+  }
+
+  // «Конспект не найден» — правда только при 404. Та же подмена, что была в
+  // карточке студента: 500 и обрыв связи отправляли искать пропавшую запись.
+  if (error && getErrorStatus(error) !== 404) {
+    return <QueryError colorPrefix={inWorkspace ? 'w' : 'ds'} error={error} onRetry={refetch} />
   }
 
   if (!note) {

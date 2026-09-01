@@ -4,6 +4,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/primitives/button'
 import { useToast } from '@/hooks/use-toast'
 import { documentsApi } from '@/api/documents'
+import { invalidateStudent } from '@/lib/queryKeys'
 
 /** Toggle whether a document is shared to the student's portal. */
 export const DocVisibilityToggle: React.FC<{
@@ -17,7 +18,7 @@ export const DocVisibilityToggle: React.FC<{
   const mutation = useMutation({
     mutationFn: () => documentsApi.setVisibility(docId, !visible),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+      invalidateStudent(queryClient, studentId)
       toast({ title: visible ? 'Скрыто от студента' : 'Видно студенту' })
     },
     onError: () => toast({ title: 'Не удалось изменить', variant: 'destructive' }),

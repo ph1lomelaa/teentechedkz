@@ -40,6 +40,8 @@ import { downloadBlob } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { compactContextDraft } from '@/lib/contextDraft'
 import type { TelegramAttachment, TelegramContextDraft } from '@/types'
+import { QueryError } from '@/components/shared/QueryState'
+import { invalidateStudent } from '@/lib/queryKeys'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -64,7 +66,7 @@ export default function TelegramChatDetailPage() {
   const [onboardingContacts, setOnboardingContacts] = useState('')
   const [onboardingResponseTime, setOnboardingResponseTime] = useState('в течение 1 рабочего дня')
 
-  const { data: chat } = useQuery({
+  const { data: chat, isError, error: chatError, refetch: refetchChat } = useQuery({
     queryKey: ['telegram-chat', chatId],
     queryFn: () => telegramApi.getById(chatId!),
     enabled: !!chatId,
@@ -187,8 +189,10 @@ export default function TelegramChatDetailPage() {
     onSuccess: () => {
       setSaveAsDocTarget(null)
       setSaveAsDocType('')
+      // Сохранённый файл — событие таймлайна («Документ»), а раньше
+      // сбрасывался только профиль студента.
       if (chat?.student_id) {
-        qc.invalidateQueries({ queryKey: ['student', chat.student_id] })
+        invalidateStudent(qc, chat.student_id)
       }
       toast({ title: 'Файл добавлен в документы студента' })
     },
@@ -245,6 +249,10 @@ export default function TelegramChatDetailPage() {
       toast({ title: 'Не удалось скачать файл', description: getErrorMessage(err), variant: 'destructive' })
     }
   }
+
+  // Без этой ветки упавший запрос оставлял «Загрузка…» навсегда: ни причины,
+  // ни выхода — только перезагрузить страницу и надеяться.
+  if (isError) return <QueryError error={chatError} onRetry={refetchChat} />
 
   if (!chat) {
     return <p className="text-sm text-p-muted">Загрузка…</p>

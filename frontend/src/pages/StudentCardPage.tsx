@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useLocation, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft,
@@ -21,7 +21,10 @@ import { documentsApi } from '@/api/documents'
 import { emergencyContactsApi } from '@/api/emergencyContacts'
 import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
-import { getErrorMessage } from '@/lib/errorMessage'
+import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
+import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
+import { isTaskLive } from '@/lib/taskUrgency'
+import { QueryError } from '@/components/shared/QueryState'
 import { studentsApi } from '@/api/students'
 import {
   guardiansApi,
@@ -279,7 +282,7 @@ function EditStudentModal({
     mutationFn: (data: Partial<StudentFull>) =>
       studentsApi.update(student.id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', student.id] })
+      invalidateStudent(queryClient, student.id)
       toast({ title: 'Сохранено', description: 'Данные студента обновлены' })
       onClose()
     },
@@ -348,7 +351,7 @@ function EmergencyContactsSection({ studentId }: { studentId: string }) {
   const [form, setForm] = useState({ full_name: '', relation: '', phone: '' })
 
   const { data: contacts = [] } = useQuery({
-    queryKey: ['emergency-contacts', studentId],
+    queryKey: studentKeys.emergencyContacts(studentId),
     queryFn: () => emergencyContactsApi.list(studentId),
   })
 
@@ -359,7 +362,7 @@ function EmergencyContactsSection({ studentId }: { studentId: string }) {
       phone: form.phone.trim(),
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['emergency-contacts', studentId] })
+      queryClient.invalidateQueries({ queryKey: studentKeys.emergencyContacts(studentId) })
       setForm({ full_name: '', relation: '', phone: '' })
       toast({ title: 'Контакт добавлен' })
     },
@@ -368,7 +371,7 @@ function EmergencyContactsSection({ studentId }: { studentId: string }) {
 
   const removeMutation = useMutation({
     mutationFn: (id: string) => emergencyContactsApi.remove(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['emergency-contacts', studentId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: studentKeys.emergencyContacts(studentId) }),
     onError: () => toast({ title: 'Не удалось удалить контакт', variant: 'destructive' }),
   })
 
@@ -447,7 +450,7 @@ function ServiceEditModal({
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+      invalidateStudent(queryClient, studentId)
       toast({ title: 'Сохранено' })
       onClose()
     },
@@ -559,7 +562,26 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
 
 export const StudentCardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+
+  /**
+   * «Назад» возвращает туда, откуда пришли, — со всеми фильтрами списка, его
+   * адресом (scope, inbox, notion) и позицией прокрутки. Жёсткий
+   * <Link to="/students"> терял всё это разом: человек, отобравший пять
+   * фильтров и долиставший до сорокового студента, попадал в начало полного
+   * списка. Карточку открывают из полудюжины мест (кабинет, дашборд,
+   * уведомления), и «назад» обязано вести в то из них, а не всегда в базу.
+   *
+   * location.key === 'default' означает, что карточка — первая запись в этой
+   * истории: открыта по прямой ссылке из письма или уведомления. Тогда шаг
+   * назад увёл бы из приложения, и остаётся общая база.
+   */
+  const goBack = () => {
+    if (location.key === 'default') navigate('/students')
+    else navigate(-1)
+  }
   const { can, hasRole } = useAuth()
   const canEditContract = can('contracts', 'manage')
 
@@ -593,8 +615,8 @@ export const StudentCardPage: React.FC = () => {
   const [assignmentCountry, setAssignmentCountry] = useState('')
   const [assignmentDueDate, setAssignmentDueDate] = useState('')
 
-  const { data: student, isLoading, error } = useQuery<StudentFull>({
-    queryKey: ['student', id],
+  const { data: student, isLoading, error, refetch } = useQuery<StudentFull>({
+    queryKey: studentKeys.detail(id),
     queryFn: () => studentsApi.get(id!),
     enabled: !!id,
   })
@@ -617,25 +639,25 @@ export const StudentCardPage: React.FC = () => {
   })
 
   const { data: history = [] } = useQuery({
-    queryKey: ['history', 'student', id],
+    queryKey: studentKeys.history(id),
     queryFn: () => historyApi.list({ entity_type: 'student', entity_id: id! }),
     enabled: !!id && can('status_history', 'view'),
   })
 
   const { data: timelineData } = useQuery({
-    queryKey: ['student-timeline', id],
+    queryKey: studentKeys.timeline(id),
     queryFn: () => studentsApi.timeline(id!, { limit: 80 }),
     enabled: !!id && can('students', 'view'),
   })
 
   const { data: intake } = useQuery({
-    queryKey: ['intake', 'student', id],
+    queryKey: studentKeys.intake(id),
     queryFn: () => syncApi.studentIntake(id!),
     enabled: !!id && can('sync', 'manage'),
   })
 
   const { data: notion } = useQuery({
-    queryKey: ['notion', 'student', id],
+    queryKey: studentKeys.notion(id),
     queryFn: () => notionApi.studentNotion(id!),
     enabled: !!id && can('notion', 'manage'),
   })
@@ -644,8 +666,13 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: (patch: Record<string, unknown>) =>
       contractsApi.update(student!.contracts![0].id, patch),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
-      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
+      invalidateStudent(queryClient, id)
+      queryClient.invalidateQueries({ queryKey: studentKeys.notion(id) })
+      // amount/currency/client_remaining_amount — три из полей, которые эта
+      // мутация умеет писать, — считаются прямо в финансовую сводку
+      // (payments.py:135-144). Без этого правка договора до /finances не
+      // доезжала никогда: сводка не сбрасывалась ни при одном вызове.
+      invalidateFinances(queryClient)
       toast({ title: 'Сохранено' })
       // Если поле пишется в Notion и запись привязана — предлагаем записать туда же.
       const key = Object.keys(variables)[0]
@@ -680,9 +707,9 @@ export const StudentCardPage: React.FC = () => {
   const applyNotionFieldMutation = useMutation({
     mutationFn: (field: string) => notionApi.applyField(id!, field),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
-      queryClient.invalidateQueries({ queryKey: ['history', 'student', id] })
+      queryClient.invalidateQueries({ queryKey: studentKeys.notion(id) })
+      invalidateStudent(queryClient, id)
+      queryClient.invalidateQueries({ queryKey: studentKeys.history(id) })
       toast({ title: 'Значение принято из Notion' })
     },
     onError: (err: unknown) => {
@@ -694,8 +721,8 @@ export const StudentCardPage: React.FC = () => {
   const pushNotionFieldMutation = useMutation({
     mutationFn: ({ field, force }: { field: string; force?: boolean }) => notionApi.pushField(id!, field, force),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notion', 'student', id] })
-      queryClient.invalidateQueries({ queryKey: ['history', 'student', id] })
+      queryClient.invalidateQueries({ queryKey: studentKeys.notion(id) })
+      queryClient.invalidateQueries({ queryKey: studentKeys.history(id) })
       setPushNotionConfirm(null)
       toast({ title: 'Записано в Notion' })
     },
@@ -713,7 +740,7 @@ export const StudentCardPage: React.FC = () => {
   })
 
   const { data: telegramChat } = useQuery({
-    queryKey: ['telegram-chat', 'student', id],
+    queryKey: studentKeys.telegramChat(id),
     queryFn: () => telegramApi.getForStudent(id!),
     enabled: !!id && can('telegram_chats', 'view'),
   })
@@ -727,7 +754,7 @@ export const StudentCardPage: React.FC = () => {
   const assignSelfMutation = useMutation({
     mutationFn: () => mentorAssignmentsApi.assignSelf(id!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       toast({ title: 'Студент добавлен в ваши' })
@@ -746,7 +773,7 @@ export const StudentCardPage: React.FC = () => {
         is_active: true,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       setMentorToAssign('')
@@ -770,7 +797,7 @@ export const StudentCardPage: React.FC = () => {
   const unassignSelfMutation = useMutation({
     mutationFn: () => mentorAssignmentsApi.setSelfActive(id!, false),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       toast({ title: 'Студент снят с ваших' })
@@ -778,19 +805,30 @@ export const StudentCardPage: React.FC = () => {
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось снять студента', variant: 'destructive' }),
   })
 
+  // Считаем от 'done', а не от 'open'. Раньше в списке были только открытые
+  // задачи, и разницы не было; теперь сюда попадают in_progress и overdue —
+  // по старому условию галочка на просроченной задаче возвращала её в open
+  // вместо того, чтобы закрыть.
   const toggleTaskMutation = useMutation({
     mutationFn: (task: StudentTask) =>
       tasksApi.update(task.id, {
-        status: task.status === 'open' ? 'done' : 'open',
-        done_at: task.status === 'open' ? new Date().toISOString() : undefined,
+        status: task.status === 'done' ? 'open' : 'done',
+        done_at: task.status === 'done' ? undefined : new Date().toISOString(),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', id] }),
+    onSuccess: () => invalidateStudent(queryClient, id),
+    // Галочка откатывается на глазах — без объяснения это выглядит так, будто
+    // интерфейс просто не слушается.
+    onError: (err) => toast({
+      title: 'Задача не отмечена',
+      description: getErrorMessage(err),
+      variant: 'destructive',
+    }),
   })
 
   const setTaskDueDateMutation = useMutation({
     mutationFn: (task: { id: string; due_date: string | null }) =>
       tasksApi.update(task.id, { due_date: task.due_date }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['student', id] }),
+    onSuccess: () => invalidateStudent(queryClient, id),
   })
 
   const addTaskMutation = useMutation({
@@ -805,7 +843,7 @@ export const StudentCardPage: React.FC = () => {
         ...(newTaskAssigneeId ? { assignee_id: newTaskAssigneeId } : {}),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       setNewTaskText('')
       setNewTaskAssigneeId('')
       setNewTaskExpectedResult('')
@@ -823,7 +861,7 @@ export const StudentCardPage: React.FC = () => {
         visible_to_role: noteRole,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       setNewNote('')
       setAddingNote(false)
     },
@@ -833,7 +871,7 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: ({ noteId, visible }: { noteId: string; visible: boolean }) =>
       confidentialNotesApi.setStudentVisibility(noteId, visible),
     onSuccess: (_res, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       toast({ title: vars.visible ? 'Заметка видна ученику' : 'Заметка скрыта от ученика' })
     },
     onError: () => toast({ title: 'Не удалось изменить видимость', variant: 'destructive' }),
@@ -843,7 +881,7 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: ({ noteId, text }: { noteId: string; text: string }) =>
       confidentialNotesApi.update(noteId, { note_text: text }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       setEditingNoteId(null)
     },
     onError: () => toast({ title: 'Не удалось сохранить заметку', variant: 'destructive' }),
@@ -852,7 +890,7 @@ export const StudentCardPage: React.FC = () => {
   const deleteNoteMutation = useMutation({
     mutationFn: (noteId: string) => confidentialNotesApi.delete(noteId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       toast({ title: 'Заметка удалена' })
     },
     onError: () => toast({ title: 'Не удалось удалить заметку', variant: 'destructive' }),
@@ -901,7 +939,7 @@ export const StudentCardPage: React.FC = () => {
     setDocumentDeletePending(true)
     try {
       await documentsApi.delete(documentDeleteTarget.id)
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       toast({ title: 'Удалено', description: 'Документ удалён из карточки' })
       setDocumentDeleteTarget(null)
     } catch {
@@ -914,7 +952,7 @@ export const StudentCardPage: React.FC = () => {
   const handleRequestDocumentSignature = async (doc: Document) => {
     try {
       await documentsApi.requestSignature(doc.id)
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      invalidateStudent(queryClient, id)
       toast({ title: 'Документ отправлен', description: 'Ученик увидит его в кабинете и сможет подписать после просмотра.' })
     } catch (err) {
       toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось отправить документ на подпись'), variant: 'destructive' })
@@ -929,7 +967,14 @@ export const StudentCardPage: React.FC = () => {
     )
   }
 
-  if (error || !student) {
+  // «Студент не найден» — правда только при 404. Раньше эту фразу получали и
+  // 500, и обрыв связи, и 403: сотрудник шёл искать несуществующую проблему в
+  // данных, хотя нужно было просто повторить запрос.
+  if (error && getErrorStatus(error) !== 404) {
+    return <QueryError error={error} onRetry={refetch} />
+  }
+
+  if (!student) {
     return (
       <div className="text-center py-12">
         <p className="text-red-500">Студент не найден</p>
@@ -943,7 +988,7 @@ export const StudentCardPage: React.FC = () => {
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
   const openTasks = (student.student_tasks || [])
-    .filter((task) => task.status === 'open')
+    .filter((task) => isTaskLive(task.status))
     .sort((a, b) => {
       if (!a.due_date && !b.due_date) return 0
       if (!a.due_date) return 1
@@ -1014,10 +1059,14 @@ export const StudentCardPage: React.FC = () => {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-6 border-b border-p-line pb-6">
-        <Link to="/students" className="mb-3 inline-flex items-center text-p-muted hover:text-black text-sm transition-colors">
+        <button
+          type="button"
+          onClick={goBack}
+          className="mb-3 inline-flex items-center text-p-muted hover:text-black text-sm transition-colors"
+        >
           <ChevronLeft className="w-4 h-4 mr-1" />
           Назад
-        </Link>
+        </button>
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
             <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Карточка студента</div>
@@ -1103,7 +1152,7 @@ export const StudentCardPage: React.FC = () => {
         <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
           <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
           <p className="mt-1 text-sm font-semibold text-p-text">
-            {openTasks[0]?.task_text || (student.is_mine ? 'Открытых задач нет' : 'Назначьте ответственного')}
+            {openTasks[0]?.task_text || (student.is_mine ? 'Незакрытых задач нет' : 'Назначьте ответственного')}
           </p>
           {openTasks[0] && (
             <div className="mt-1 flex items-center gap-2">
@@ -1832,7 +1881,7 @@ export const StudentCardPage: React.FC = () => {
                         await portfolioApi.update(portfolio.id, {
                           achievements_count: Math.max(0, portfolio.achievements_count - 1),
                         })
-                        queryClient.invalidateQueries({ queryKey: ['student', id] })
+                        invalidateStudent(queryClient, id)
                       }}
                     >
                       <Minus className="w-3 h-3" />
@@ -1848,7 +1897,7 @@ export const StudentCardPage: React.FC = () => {
                         await portfolioApi.update(portfolio.id, {
                           achievements_count: portfolio.achievements_count + 1,
                         })
-                        queryClient.invalidateQueries({ queryKey: ['student', id] })
+                        invalidateStudent(queryClient, id)
                       }}
                     >
                       <Plus className="w-3 h-3" />
@@ -1866,7 +1915,7 @@ export const StudentCardPage: React.FC = () => {
                         await portfolioApi.update(portfolio.id, {
                           calls_count: Math.max(0, portfolio.calls_count - 1),
                         })
-                        queryClient.invalidateQueries({ queryKey: ['student', id] })
+                        invalidateStudent(queryClient, id)
                       }}
                     >
                       <Minus className="w-3 h-3" />
@@ -1882,7 +1931,7 @@ export const StudentCardPage: React.FC = () => {
                         await portfolioApi.update(portfolio.id, {
                           calls_count: portfolio.calls_count + 1,
                         })
-                        queryClient.invalidateQueries({ queryKey: ['student', id] })
+                        invalidateStudent(queryClient, id)
                       }}
                     >
                       <Plus className="w-3 h-3" />

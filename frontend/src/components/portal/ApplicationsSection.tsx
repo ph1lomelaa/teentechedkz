@@ -9,6 +9,8 @@ import { formatDate } from '@/lib/utils'
 import { Application, SUBMISSION_STATUS_LABELS, VISA_STATUS_LABELS } from '@/types'
 import { UniversityPicker } from './UniversityPicker'
 import { ApplicationFormDialog, ApplicationFormValues } from './ApplicationFormDialog'
+import { QueryError } from '@/components/shared/QueryState'
+import { invalidateStudent } from '@/lib/queryKeys'
 
 /** Заявки студента на поступление — общий блок для CRM, воркспейса и портала.
  *
@@ -33,7 +35,7 @@ export const ApplicationsSection: React.FC<{
   const [editing, setEditing] = useState<Application | null | undefined>(null)
 
   const queryKey = mode === 'self' ? ['applications', 'mine'] : ['applications', studentId]
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = [], isLoading, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () =>
       mode === 'self' ? applicationsApi.listMine() : applicationsApi.listForStudent(studentId!),
@@ -43,7 +45,7 @@ export const ApplicationsSection: React.FC<{
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey })
     // Карточка студента читает заявки ещё и внутри объекта студента.
-    queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+    invalidateStudent(queryClient, studentId)
   }
 
   const saveMutation = useMutation({
@@ -112,6 +114,10 @@ export const ApplicationsSection: React.FC<{
       />
     </>
   )
+
+  if (isError) {
+    return <QueryError colorPrefix="p" error={error} onRetry={refetch} />
+  }
 
   if (isLoading) {
     return <p className="text-sm text-p-muted">Загрузка…</p>
