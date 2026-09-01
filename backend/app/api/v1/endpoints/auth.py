@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
-from app.core.deps import get_current_user, CurrentUser
+from app.core.deps import account_revoked_after_activation, get_current_user, CurrentUser
 from app.models.user import User, UserRole
 from app.models.user import RefreshToken
 from app.models.audit_log import AuditAction
@@ -77,9 +77,32 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
         )
-    # Неактивный аккаунт больше не отбивается здесь: он входит и попадает на
-    # экран ожидания. Дальше /auth/me и выхода его не пускает гейт
-    # _PENDING_APPROVAL_ALLOWED_PATHS в core/deps.py.
+    # Аккаунт, который был активен и его явно отключили (PATCH .../access,
+    # student_access.py), обязан получить жёсткий отказ — тот же, что был до
+    # появления экрана ожидания. Без этой проверки revoke_all_sessions при
+    # отключении был бы бессмысленным: отключённый тут же логинился бы
+    # заново паролем и получал новый токен.
+    if account_revoked_after_activation(
+        is_active=user.is_active, has_logged_in_before=user.last_login_at is not None
+    ):
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            actor=user,
+            target_user_id=user.id,
+            request=request,
+            meta={"reason": "account_deactivated"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Аккаунт отключён администратором.",
+        )
+
+    # Неактивный, но ни разу не логинившийся, аккаунт (новая заявка) больше не
+    # отбивается здесь: он входит и попадает на экран ожидания. Дальше
+    # /auth/me и выхода его не пускает гейт _PENDING_APPROVAL_ALLOWED_PATHS
+    # в core/deps.py.
     user.last_login_at = datetime.now(timezone.utc)
 
     session = await issue_session(db, response, user)
@@ -193,6 +216,29 @@ async def login_with_google(
                 link="/settings/users",
                 priority="high",
             )
+
+    # Тот же разбор, что в /auth/login: существующий аккаунт, которого явно
+    # отключили после того, как он уже работал, обязан получить жёсткий
+    # отказ, а не войти заново через Google в обход revoke_all_sessions.
+    # created=True сюда не попадает: свежий Google-аккаунт создаётся строкой
+    # выше уже с is_active=False и last_login_at=None — это «ждёт первого
+    # одобрения», а не отключение, и его пропускаем на экран ожидания.
+    if not created and account_revoked_after_activation(
+        is_active=user.is_active, has_logged_in_before=user.last_login_at is not None
+    ):
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            actor=user,
+            target_user_id=user.id,
+            request=request,
+            meta={"reason": "account_deactivated", "method": "google"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Аккаунт отключён администратором.",
+        )
 
     user.last_login_at = datetime.now(timezone.utc)
     session = await issue_session(db, response, user)

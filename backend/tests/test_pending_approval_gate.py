@@ -26,6 +26,7 @@ from app.core.deps import (
     _AGREEMENT_ALLOWED_PATHS,
     _PENDING_APPROVAL_ALLOWED_PATHS,
     _TEMP_PASSWORD_ALLOWED_PATHS,
+    account_revoked_after_activation,
     pending_approval_gate_applies,
 )
 
@@ -79,6 +80,38 @@ class PendingAccountIsHeldTests(unittest.TestCase):
         self.assertTrue(pending_approval_gate_applies(is_active=False, path="/api/v1/auth/me/students"))
 
 
+class AccountRevokedAfterActivationTests(unittest.TestCase):
+    """is_active=False значит разное для новой заявки и для отключённого.
+
+    Регресс, который поймал живой E2E (e2e_auth_intake.py): PATCH
+    .../access явно рвёт все сессии при отключении (student_access.py,
+    revoke_all_sessions), а login не спрашивал is_active вовсе — отключённый
+    тут же логинился заново паролем и получал новый токен, сводя revoke к
+    нулю. has_logged_in_before — единственный сигнал, отличающий «уже
+    работал и его отключили» от «новая заявка, ещё не одобрена»: оба делят
+    одно поле User.is_active.
+    """
+
+    def test_never_logged_in_is_the_pending_case_not_revoked(self) -> None:
+        self.assertFalse(
+            account_revoked_after_activation(is_active=False, has_logged_in_before=False)
+        )
+
+    def test_previously_active_then_deactivated_is_revoked(self) -> None:
+        self.assertTrue(
+            account_revoked_after_activation(is_active=False, has_logged_in_before=True)
+        )
+
+    def test_active_account_is_never_revoked_regardless_of_history(self) -> None:
+        for has_logged_in_before in (True, False):
+            with self.subTest(has_logged_in_before=has_logged_in_before):
+                self.assertFalse(
+                    account_revoked_after_activation(
+                        is_active=True, has_logged_in_before=has_logged_in_before
+                    )
+                )
+
+
 class AllowListShapeTests(unittest.TestCase):
     def test_pending_list_is_the_narrowest_of_the_three(self) -> None:
         # Три гейта живут рядом и легко расползаются. Ждущий одобрения
@@ -111,12 +144,19 @@ class GateIsActuallyWiredTests(unittest.TestCase):
             source.index("agreement_gate_applies"),
         )
 
-    def test_login_no_longer_rejects_inactive_accounts(self) -> None:
-        # Смысл всей правки: вход неактивного проходит, а держит его гейт.
+    def test_login_calls_the_revoke_guard(self) -> None:
         from app.api.v1.endpoints import auth
 
         source = inspect.getsource(auth.login)
-        self.assertNotIn("is_active", source, "логин снова отбивает неактивного сам")
+        self.assertIn("account_revoked_after_activation", source)
+
+    def test_login_with_google_calls_the_revoke_guard(self) -> None:
+        # Тот же разбор нужен и здесь: существующий деактивированный аккаунт
+        # не должен получать новый токен через Google в обход пароля.
+        from app.api.v1.endpoints import auth
+
+        source = inspect.getsource(auth.login_with_google)
+        self.assertIn("account_revoked_after_activation", source)
 
     def test_refresh_keeps_pending_sessions_alive(self) -> None:
         # Иначе ждущего одобрения выкидывает на логин каждые 15 минут.

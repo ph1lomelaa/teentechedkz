@@ -334,11 +334,26 @@ def main() -> None:
             },
         )
         require(signup.status_code == 201, "mentor application accepted", signup)
+        # Новая заявка — не отключённый аккаунт: ни разу не логинившийся
+        # ментор входит и получает токен, но гейт держит его вне чужих
+        # данных до одобрения (core/deps.py: pending_approval_gate_applies).
         pending_login = mentor.post(
             "/auth/login",
             json={"email": mentor_email, "password": "MentorPass2026!"},
         )
-        require(pending_login.status_code == 401, "pending mentor cannot login", pending_login)
+        require(pending_login.status_code == 200, "pending mentor logs in and lands on wait screen", pending_login)
+        pending_auth = bearer(pending_login.json())
+        require(
+            mentor.get("/auth/me", headers=pending_auth).status_code == 200,
+            "pending mentor can read own profile",
+        )
+        blocked = mentor.get("/workspace/dashboard", headers=pending_auth)
+        require(
+            blocked.status_code == 403
+            and blocked.headers.get("x-error-code") == "ACCOUNT_PENDING_APPROVAL",
+            "pending mentor is held out of staff data",
+            blocked,
+        )
         pending_users = admin.get(
             "/users",
             headers=admin_auth,

@@ -61,10 +61,33 @@ def pending_approval_gate_applies(*, is_active: bool, path: str) -> bool:
     это поверхность, где неверное условие либо запирает всех, либо пускает
     неподтверждённый аккаунт в чужие данные. Оба исхода дорогие, а покрыть их
     тестами можно только если решение отделено от похода в базу.
+
+    Вызывать только после того, как account_revoked_after_activation() внизу
+    исключила случай «был активен и его отключили» — эта функция размечает
+    исключительно «ждёт первого одобрения», а не любой is_active=False.
     """
     if is_active:
         return False
     return path not in _PENDING_APPROVAL_ALLOWED_PATHS
+
+
+def account_revoked_after_activation(*, is_active: bool, has_logged_in_before: bool) -> bool:
+    """Аккаунт был активен и его явно отключили — а не «ждёт первого одобрения».
+
+    is_active=False само по себе не различает два непохожих случая: новый
+    заявитель, которого никто ещё не одобрил, и студент/сотрудник, доступ
+    которому только что отключили. Оба делят одно поле User.is_active.
+    has_logged_in_before (last_login_at is not None) — сигнал, что аккаунт
+    уже работал: если работал и вдруг is_active=False, это осознанное
+    отключение, а не ожидание первого одобрения.
+
+    Кому это касается: PATCH /students/{id}/access при отключении явно рвёт
+    все сессии (student_access.py: revoke_all_sessions). Без этой проверки
+    отключённый тут же логинился бы заново паролем и получал новый токен —
+    revoke сводился бы к нулю. И login(), и get_current_user() обязаны
+    спрашивать это раньше «мягкого» pending_approval_gate_applies.
+    """
+    return not is_active and has_logged_in_before
 
 
 _AGREEMENT_PRE_SIGNATURE_ACTIONS = frozenset({"sign", "preview", "download"})
@@ -126,6 +149,14 @@ async def get_current_user(
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Отключённый после того, как уже был активен, — жёсткий отказ, тот же,
+    # что был до появления экрана ожидания. Проверяется раньше мягкого гейта
+    # ниже: тот размечает только «ждёт первого одобрения».
+    if account_revoked_after_activation(
+        is_active=user.is_active, has_logged_in_before=user.last_login_at is not None
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     # Первым из трёх гейтов: пока аккаунт не открыт администратором, остальные
