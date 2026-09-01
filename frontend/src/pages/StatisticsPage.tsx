@@ -37,6 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/primitives/table'
+import { QueryError } from '@/components/shared/QueryState'
 
 type ListScope = 'all' | 'mine' | 'assigned' | 'unassigned'
 
@@ -102,6 +103,8 @@ type WorkloadRow = {
   roles: string[]
   students_total: number
   open_tasks: number
+  overdue_tasks: number
+  sla_penalties_this_month: number
   telegram_signals: number
   documents_unverified: number
   ai_drafts: number
@@ -110,9 +113,18 @@ type WorkloadRow = {
 
 type WorkloadSortKey = Exclude<keyof WorkloadRow, 'mentor' | 'roles'>
 
+// Просрочки и SLA-нарушения раньше сюда не доезжали — эта же сводка держала
+// только нейтральные сигналы, хотя регламент ведёт цветовые санкции ровно за
+// то, чего в ней не было видно (task_sla.py). "Просрочек" — задачи, которые
+// уже светятся жёлтым/оранжевым/красным/чёрным на «Моём дне» (task_urgency),
+// просуммированные по назначенным студентам. "SLA, месяц" — фактические
+// санкции (backend: MentorTaskPenalty) за календарный месяц, то же окно, в
+// котором сам регламент считает ступень нарушения.
 const WORKLOAD_COLUMNS: { key: WorkloadSortKey; label: string }[] = [
   { key: 'students_total', label: 'Студентов' },
   { key: 'open_tasks', label: 'Задач' },
+  { key: 'overdue_tasks', label: 'Просрочек' },
+  { key: 'sla_penalties_this_month', label: 'SLA, месяц' },
   { key: 'telegram_signals', label: 'Telegram' },
   { key: 'documents_unverified', label: 'Документы' },
   { key: 'ai_drafts', label: 'AI-черновики' },
@@ -159,6 +171,9 @@ export function StatisticsPage() {
   })
 
   const studentsLoading = directory.isLoading
+  // Вся страница считается от этого справочника: при обрыве связи каждый
+  // график и каждая плитка честно рисовали нули по пустому массиву.
+  const studentsFailed = directory.isError
 
   // Все фильтры — на клиенте, поверх уже загруженного общего списка студентов
   // (useStudentDirectory, один кэшируемый фетч на всё приложение). Раньше смена
@@ -458,6 +473,10 @@ export function StatisticsPage() {
         <div className="mb-8">
           <FilterChips chips={filterChips} onResetAll={resetFilters} />
         </div>
+      )}
+
+      {studentsFailed && (
+        <QueryError colorPrefix="p" error={directory.error} onRetry={directory.refetch} className="mb-6" />
       )}
 
       {section === 'overview' && (
@@ -817,11 +836,11 @@ export function StatisticsPage() {
               <TableBody>
                 {dashboardLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
+                    <TableCell colSpan={10} className="text-center text-sm text-p-muted">Загрузка…</TableCell>
                   </TableRow>
                 ) : sortedWorkload.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-sm text-p-muted">Нет назначенных менторов</TableCell>
+                    <TableCell colSpan={10} className="text-center text-sm text-p-muted">Нет назначенных менторов</TableCell>
                   </TableRow>
                 ) : (
                   sortedWorkload.map((row) => {
@@ -841,6 +860,22 @@ export function StatisticsPage() {
                         <TableCell className="text-p-muted">{row.roles.join(', ')}</TableCell>
                         <TableCell className="text-right">{row.students_total}</TableCell>
                         <TableCell className="text-right">{row.open_tasks}</TableCell>
+                        <TableCell className="text-right">
+                          {row.overdue_tasks > 0 ? (
+                            <span className="font-semibold text-red-600">{row.overdue_tasks}</span>
+                          ) : (
+                            <span className="text-p-muted2">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.sla_penalties_this_month > 0 ? (
+                            <span className="inline-flex rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-xs font-semibold text-red-700">
+                              {row.sla_penalties_this_month}
+                            </span>
+                          ) : (
+                            <span className="text-p-muted2">0</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">{row.telegram_signals}</TableCell>
                         <TableCell className="text-right">{row.documents_unverified}</TableCell>
                         <TableCell className="text-right">{row.ai_drafts}</TableCell>

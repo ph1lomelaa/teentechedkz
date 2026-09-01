@@ -28,9 +28,11 @@ from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.questionnaire import Questionnaire, QuestionnaireStatus
 from app.core.country_flags_data import flag_for
 from app.models.roadmap import Roadmap, RoadmapStatus, RoadmapItemStatus, Stage, RoadmapTask
+from app.models.mentor_task_penalty import MentorTaskPenalty
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.student_task import StudentTask, TaskStatus
+from app.services.task_sla import SLA_TRACKED_STATUSES, month_bounds
 from app.services.task_urgency import task_urgency
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_attachment import TelegramAttachment
@@ -342,11 +344,14 @@ async def _primary_mentors_for_students(
 async def _student_summary(db: AsyncSession, student: Student) -> dict:
     roadmap = await _active_roadmap(db, student.id)
     mentor = await _primary_mentor(db, student.id)
+    # Живые задачи, а не только status == open: просроченная задача переходит
+    # в overdue (task_sla_notifier), взятая в работу — в in_progress, и по
+    # старому фильтру обе исчезали из счётчика ровно тогда, когда важны.
     open_tasks = await _count(
         db,
         select(func.count()).select_from(StudentTask).where(
             StudentTask.student_id == student.id,
-            StudentTask.status == TaskStatus.open,
+            StudentTask.status.in_(SLA_TRACKED_STATUSES),
         ),
     )
     document_count = await _count(
@@ -473,7 +478,7 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
 
     open_tasks = await grouped_counts(
         select(StudentTask.student_id, func.count(StudentTask.id))
-        .where(StudentTask.student_id.in_(student_ids), StudentTask.status == TaskStatus.open)
+        .where(StudentTask.student_id.in_(student_ids), StudentTask.status.in_(SLA_TRACKED_STATUSES))
         .group_by(StudentTask.student_id)
     )
     open_complaints = await grouped_counts(
@@ -485,16 +490,18 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
         .group_by(Complaint.student_id)
     )
     due_tasks_result = await db.execute(
-        select(StudentTask.student_id, StudentTask.due_date)
+        select(StudentTask.student_id, StudentTask.due_date, StudentTask.status)
         .where(
             StudentTask.student_id.in_(student_ids),
-            StudentTask.status == TaskStatus.open,
+            StudentTask.status.in_(SLA_TRACKED_STATUSES),
             StudentTask.due_date.is_not(None),
         )
     )
     task_urgency_counts: dict[uuid.UUID, dict[str, int]] = {}
-    for student_id, due_date in due_tasks_result.all():
-        urgency = task_urgency(due_date, "open")
+    # Статус передаём настоящий: зашитый "open" считал бы срочность так, будто
+    # все задачи открыты, и расширение фильтра выше осталось бы половинчатым.
+    for student_id, due_date, status in due_tasks_result.all():
+        urgency = task_urgency(due_date, status.value)
         if urgency == "none":
             continue
         bucket = task_urgency_counts.setdefault(
@@ -613,6 +620,14 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
 
 
 async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], summaries: list[dict]) -> list[dict]:
+    """Сводка «Работа команды» на /statistics.
+
+    Строилась только из нейтральных сигналов (сколько студентов, задач,
+    непрочитанного телеграма) — ровно того, что не задевает никого лично.
+    Просрочки и SLA-нарушения, ради которых регламент вообще ведёт цветовые
+    санкции (task_sla.py), сюда не доезжали: руководитель не мог увидеть по
+    менторам то же самое, что уже видно по каждому студенту на его карточке.
+    """
     if not student_ids:
         return []
     summary_by_student = {uuid.UUID(item["student"]["id"]): item for item in summaries}
@@ -635,6 +650,7 @@ async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], su
                 "students": set(),
                 "roles": set(),
                 "open_tasks": 0,
+                "overdue_tasks": 0,
                 "upcoming_meetings": 0,
                 "telegram_signals": 0,
                 "documents_unverified": 0,
@@ -645,12 +661,49 @@ async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], su
         item["students"].add(assignment.student_id)
         item["roles"].add(assignment.role.value)
 
+    # SLA-санкции считаются отдельным запросом: MentorTaskPenalty привязан к
+    # ментору напрямую (task_sla_notifier.py), а не к студенту — через
+    # summaries их не протащить. Окно — календарный месяц, то же самое, каким
+    # regla считает «ступени» нарушения (task_sla.py: month_bounds), а не
+    # весь учёт с начала времён, который бы только рос и терял смысл.
+    now = datetime.now(timezone.utc)
+    month_start, month_end = month_bounds(now)
+    penalties_result = await db.execute(
+        select(MentorTaskPenalty.mentor_id, func.count())
+        .where(
+            MentorTaskPenalty.mentor_id.in_(grouped.keys()),
+            MentorTaskPenalty.created_at >= month_start,
+            MentorTaskPenalty.created_at < month_end,
+        )
+        .group_by(MentorTaskPenalty.mentor_id)
+    )
+    sla_penalties_by_mentor = dict(penalties_result.all())
+
+    return _aggregate_mentor_workload(grouped, summary_by_student, sla_penalties_by_mentor)
+
+
+def _aggregate_mentor_workload(
+    grouped: dict[uuid.UUID, dict],
+    summary_by_student: dict[uuid.UUID, dict],
+    sla_penalties_by_mentor: dict[uuid.UUID, int],
+) -> list[dict]:
+    """Сама арифметика сводки — отдельно от похода за данными, ради юнит-теста
+    без БД (тот же приём, что в task_sla.py/task_urgency.py). `grouped` и
+    `summary_by_student` на входе уже обычные dict/set, без ORM-объектов —
+    ORM-запросы остаются в _workspace_workload."""
     for item in grouped.values():
         for student_id in item["students"]:
             summary = summary_by_student.get(student_id)
             if not summary:
                 continue
             item["open_tasks"] += summary["open_internal_tasks"]
+            # Все четыре цвета urgency, а не только critical: тот же список,
+            # что подсвечен на «Моём дне» и в общей базе (task_urgency.py) —
+            # здесь просто сумма по назначенным студентам, а не факт наличия.
+            tasks = summary["tasks"]
+            item["overdue_tasks"] += (
+                tasks["overdue_yellow"] + tasks["overdue_orange"] + tasks["overdue_red"] + tasks["critical"]
+            )
             item["upcoming_meetings"] += 1 if summary["next_meeting"] else 0
             item["telegram_signals"] += summary["telegram"]["pending_signals"]
             item["documents_unverified"] += summary["documents"]["unverified"]
@@ -658,7 +711,7 @@ async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], su
             item["health_warnings"] += len(summary["warnings"])
 
     out = []
-    for item in grouped.values():
+    for mentor_id, item in grouped.items():
         students_count = len(item["students"])
         out.append(
             {
@@ -666,6 +719,8 @@ async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], su
                 "students_total": students_count,
                 "roles": sorted(item["roles"]),
                 "open_tasks": item["open_tasks"],
+                "overdue_tasks": item["overdue_tasks"],
+                "sla_penalties_this_month": sla_penalties_by_mentor.get(mentor_id, 0),
                 "upcoming_meetings": item["upcoming_meetings"],
                 "telegram_signals": item["telegram_signals"],
                 "documents_unverified": item["documents_unverified"],
@@ -1762,12 +1817,12 @@ async def workspace_my_day(
             .join(Student, Student.id == StudentTask.student_id)
             .where(
                 StudentTask.student_id.in_(student_ids),
-                StudentTask.status == TaskStatus.open,
+                StudentTask.status.in_(SLA_TRACKED_STATUSES),
                 StudentTask.due_date.is_not(None),
             )
         )
         for task, student_name in due_tasks_result.all():
-            urgency = task_urgency(task.due_date, "open")
+            urgency = task_urgency(task.due_date, task.status.value)
             if urgency == "none":
                 continue
             tasks_by_urgency[urgency].append({

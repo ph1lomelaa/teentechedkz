@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Download, Search, RefreshCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X } from 'lucide-react'
+import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import { syncApi, IntakeSubmission } from '@/api/sync'
 import { notionApi, NotionSnapshotItem } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
+import { useLocalState } from '@/lib/use-local-state'
 import {
   PipelineStatus,
   PIPELINE_STATUS_LABELS,
@@ -16,6 +17,7 @@ import {
   SERVICE_TYPE_LABELS,
   SERVICE_STATUS_LABELS,
   ServiceType,
+  StudentListItem,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { PageHeader } from '@/components/ui'
@@ -55,7 +57,43 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
-type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints'
+type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
+export type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints' | 'renewal'
+/**
+ * Один сигнал операционного фильтра «Контроль работы» — чистая функция ради
+ * юнит-теста: подмешать сюда что-то новое и забыть проверить границу («0»
+ * не равно «есть», null не равно false) — ровно тот класс ошибок, который
+ * незаметен в JSX и заметен в тесте.
+ */
+export function matchesOperationalFilter(s: StudentListItem, filter: OperationalFilter): boolean {
+  switch (filter) {
+    case 'no_roadmap':
+      return !s.roadmap?.id
+    case 'no_meeting':
+      return !s.next_meeting
+    case 'telegram_unlinked':
+      return !s.telegram?.linked
+    case 'open_tasks':
+      return (s.open_tasks_count ?? 0) > 0
+    case 'overdue_tasks':
+      return !!s.has_overdue_tasks
+    case 'open_complaints':
+      return !!s.has_open_complaints
+    case 'docs_review':
+      return (s.documents_unverified ?? 0) > 0
+    // «Контракт 500»: risk_category уже считается на бэке (students.py,
+    // RENEWAL_THRESHOLD_DAYS = 500) и виден на «Рисках» — здесь его не
+    // было ни разу, хотя это тот же самый список студентов, отобранный
+    // тем же сигналом. Значение то же ('renewal'), что и у AtRiskStudentsPage,
+    // а не отдельная строка 'contract_500' — иначе два места одной и той же
+    // проверки снова разошлись бы по имени.
+    case 'renewal':
+      return s.risk_category === 'renewal'
+    default:
+      return true
+  }
+}
+
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
   'proforientation',
   'ielts_mock',
@@ -783,25 +821,53 @@ export const StudentsListPage: React.FC = () => {
   // Sync/import stays admin-only even though the rest of the CRM is now shared.
   const canRunSync = can('sync', 'create')
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialScope = searchParams.get('scope')
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('')
-  const [scope, setScope] = useState<'all' | 'mine' | 'assigned' | 'unassigned'>(
-    initialScope === 'mine' || initialScope === 'assigned' || initialScope === 'unassigned' ? initialScope : 'all'
-  )
-  const [mentorFilter, setMentorFilter] = useState('')
-  const [leadMentorFilter, setLeadMentorFilter] = useState('')
-  const [mzkManagerFilter, setMzkManagerFilter] = useState('')
-  const [responsibleRole, setResponsibleRole] = useState<ResponsibleRoleFilter>('any')
-  const [intakeYearFilter, setIntakeYearFilter] = useState('')
-  const [countryFilter, setCountryFilter] = useState('')
-  const [countryPrimaryOnly, setCountryPrimaryOnly] = useState(false)
-  const [degreeFilter, setDegreeFilter] = useState('')
-  const [serviceTypeFilter, setServiceTypeFilter] = useState('')
-  const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>('all')
-  const [filtersOpen, setFiltersOpen] = useState(false)
+
+  // Фильтры переживают уход в карточку и перезагрузку. Раньше они жили в
+  // useState: отобрал пять фильтров, долистал до сорокового студента, открыл
+  // карточку, вернулся — пустой список «Все студенты», прокрученный сверху.
+  // Это самый частый цикл работы в CRM, и он ломался каждый раз.
+  //
+  // useLocalState здесь не новый механизм: кабинет держит так свои фильтры
+  // (WorkspaceTasksPage и ещё четыре страницы) с самого начала — из CRM его
+  // просто ни разу не позвали.
+  const [search, setSearch] = useLocalState('students:list:search', '')
+  // Стартует от сохранённого значения, иначе после возврата в поле стояла бы
+  // строка поиска, а список был бы отфильтрован пустой строкой.
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
+  const [statusFilter, setStatusFilter] = useLocalState<string>('students:list:status', '')
+  const [mentorFilter, setMentorFilter] = useLocalState('students:list:mentor', '')
+  const [leadMentorFilter, setLeadMentorFilter] = useLocalState('students:list:leadMentor', '')
+  const [mzkManagerFilter, setMzkManagerFilter] = useLocalState('students:list:mzkManager', '')
+  const [responsibleRole, setResponsibleRole] = useLocalState<ResponsibleRoleFilter>('students:list:responsibleRole', 'any')
+  const [intakeYearFilter, setIntakeYearFilter] = useLocalState('students:list:intakeYear', '')
+  const [countryFilter, setCountryFilter] = useLocalState('students:list:country', '')
+  const [countryPrimaryOnly, setCountryPrimaryOnly] = useLocalState('students:list:countryPrimaryOnly', false)
+  const [degreeFilter, setDegreeFilter] = useLocalState('students:list:degree', '')
+  const [serviceTypeFilter, setServiceTypeFilter] = useLocalState('students:list:serviceType', '')
+  const [operationalFilter, setOperationalFilter] = useLocalState<OperationalFilter>('students:list:operational', 'all')
+  const [filtersOpen, setFiltersOpen] = useLocalState('students:list:filtersOpen', false)
+  // Не сохраняется: это поиск по людям внутри уже открытой панели, а не отбор
+  // студентов — на составе списка он никак не сказывается.
   const [responsibleSearch, setResponsibleSearch] = useState('')
+
+  // scope — единственный фильтр, который остаётся в адресе: на него ведут
+  // ссылки снаружи (MyStudentsPage → /students?scope=unassigned), и адрес
+  // обязан показывать то, что человек видит. Раньше значение отсюда читалось,
+  // но обратно не писалось: переключение scope адрес не меняло, и возврат по
+  // «Назад» приводил к другому набору, чем был на экране.
+  // replace, а не push: иначе каждое переключение клало запись в историю и
+  // «Назад» из карточки уводило к предыдущему scope, а не к списку.
+  const scope: ScopeFilter =
+    searchParams.get('scope') === 'mine' ? 'mine'
+    : searchParams.get('scope') === 'assigned' ? 'assigned'
+    : searchParams.get('scope') === 'unassigned' ? 'unassigned'
+    : 'all'
+  const setScope = (next: ScopeFilter) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('scope')
+    else params.set('scope', next)
+    setSearchParams(params, { replace: true })
+  }
   const showInbox = searchParams.get('inbox') === '1'
   const showNotion = searchParams.get('notion') === '1'
 
@@ -852,7 +918,7 @@ export const StudentsListPage: React.FC = () => {
 
   // Список загружается целиком, поиск — на клиенте: терпит пробелы,
   // опечатки и кириллицу↔латиницу (см. fuzzyStudentMatch)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: [
       'students',
       statusFilter,
@@ -957,26 +1023,7 @@ export const StudentsListPage: React.FC = () => {
     const searched = debouncedSearch.trim()
       ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
       : allStudents
-    return searched.filter((s) => {
-      switch (operationalFilter) {
-        case 'no_roadmap':
-          return !s.roadmap?.id
-        case 'no_meeting':
-          return !s.next_meeting
-        case 'telegram_unlinked':
-          return !s.telegram?.linked
-        case 'open_tasks':
-          return (s.open_tasks_count ?? 0) > 0
-        case 'overdue_tasks':
-          return !!s.has_overdue_tasks
-        case 'open_complaints':
-          return !!s.has_open_complaints
-        case 'docs_review':
-          return (s.documents_unverified ?? 0) > 0
-        default:
-          return true
-      }
-    })
+    return searched.filter((s) => matchesOperationalFilter(s, operationalFilter))
   }, [allStudents, debouncedSearch, operationalFilter])
   const total = students.length
   const newCount = syncStatus?.new_submissions ?? 0
@@ -993,6 +1040,12 @@ export const StudentsListPage: React.FC = () => {
     (operationalFilter !== 'all' ? 1 : 0)
 
   const resetFilters = () => {
+    // Поиск и «основная страна» раньше не сбрасывались: после «Сбросить всё»
+    // список оставался отфильтрованным строкой поиска, а вернувшийся флаг
+    // «основная» молча применялся к следующей выбранной стране.
+    setSearch('')
+    setDebouncedSearch('')
+    setCountryPrimaryOnly(false)
     setScope('all')
     setMentorFilter('')
     setLeadMentorFilter('')
@@ -1082,6 +1135,7 @@ export const StudentsListPage: React.FC = () => {
       overdue_tasks: 'Просроченные задачи',
       open_complaints: 'Открытые обращения',
       docs_review: 'Документы на проверке',
+      renewal: 'Контракт 500',
     }
     activeFilterChips.push({
       key: 'operational',
@@ -1219,7 +1273,7 @@ export const StudentsListPage: React.FC = () => {
             variant={activeFiltersCount > 0 ? 'default' : 'outline'}
             size="sm"
             className="h-9 gap-1.5"
-            onClick={() => setFiltersOpen((next) => !next)}
+            onClick={() => setFiltersOpen(!filtersOpen)}
           >
             <Filter className="w-3.5 h-3.5" />
             Фильтры
@@ -1301,10 +1355,11 @@ export const StudentsListPage: React.FC = () => {
                       <SelectItem value="no_roadmap">Нет roadmap</SelectItem>
                       <SelectItem value="no_meeting">Нет ближайшей встречи</SelectItem>
                       <SelectItem value="telegram_unlinked">Telegram не привязан</SelectItem>
-                      <SelectItem value="open_tasks">Есть открытые задачи</SelectItem>
+                      <SelectItem value="open_tasks">Есть незакрытые задачи</SelectItem>
                       <SelectItem value="overdue_tasks">Просроченные задачи</SelectItem>
                       <SelectItem value="open_complaints">Открытые обращения</SelectItem>
                       <SelectItem value="docs_review">Документы на проверке</SelectItem>
+                      <SelectItem value="renewal">Контракт 500 (перепродление)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1539,7 +1594,24 @@ export const StudentsListPage: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isError ? (
+              /* Строкой, а не карточкой QueryError: карточка внутри tbody
+                 сломала бы таблицу. Раньше упавший запрос выглядел как
+                 «Студенты не найдены» — сотрудник шёл менять фильтры вместо
+                 того, чтобы повторить запрос. */
+              <TableRow>
+                <TableCell colSpan={isManager ? 9 : 8} className="py-12 text-center" role="alert">
+                  <p className="text-sm font-bold text-p-text">Не удалось загрузить список</p>
+                  <p className="mt-1 text-sm text-p-muted">
+                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                    <RotateCw className="mr-1.5 h-3.5 w-3.5" />
+                    Повторить
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
               <TableRow>
                 <TableCell colSpan={isManager ? 9 : 8} className="text-center py-12 text-p-muted text-sm">
                   Загрузка...

@@ -31,6 +31,7 @@ from app.services.default_services import ensure_default_services
 from app.services import contract_finance
 from app.core.config import settings
 from app.services.people_facets import build_people_index
+from app.services.task_sla import SLA_TRACKED_STATUSES
 from app.services.task_urgency import task_urgency
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
@@ -734,20 +735,27 @@ async def list_students(
     if student_ids:
         open_tasks_result = await db.execute(
             select(StudentTask.student_id, func.count())
-            .where(StudentTask.student_id.in_(student_ids), StudentTask.status == TaskStatus.open)
+            .where(
+                StudentTask.student_id.in_(student_ids),
+                StudentTask.status.in_(SLA_TRACKED_STATUSES),
+            )
             .group_by(StudentTask.student_id)
         )
         open_tasks_by_student = dict(open_tasks_result.all())
 
+        # Отсюда растёт has_overdue_tasks и фильтр «Контроль работы →
+        # просроченные задачи». По status == open набор терял ровно худшие
+        # случаи: задачу, которую фоновый цикл уже перевёл в overdue и за
+        # которую уже начислена санкция. МЗК не видел тех, ради кого смотрит.
         due_tasks_result = await db.execute(
-            select(StudentTask.student_id, StudentTask.due_date).where(
+            select(StudentTask.student_id, StudentTask.due_date, StudentTask.status).where(
                 StudentTask.student_id.in_(student_ids),
-                StudentTask.status == TaskStatus.open,
+                StudentTask.status.in_(SLA_TRACKED_STATUSES),
                 StudentTask.due_date.is_not(None),
             )
         )
-        for sid, due_date in due_tasks_result.all():
-            if task_urgency(due_date, "open") != "none":
+        for sid, due_date, status in due_tasks_result.all():
+            if task_urgency(due_date, status.value) != "none":
                 overdue_task_student_ids.add(sid)
 
     open_complaint_student_ids: set[uuid.UUID] = set()
@@ -1056,6 +1064,27 @@ async def create_student(
     return _student_to_dict(result.scalar_one())
 
 
+def _agreement_signature_timeline_items(rows) -> list[dict]:
+    """Строки (AgreementSignature, agreement_title) -> события таймлайна.
+
+    Чистая функция ради юнит-теста без БД — тот же приём, что в
+    task_sla.py/task_urgency.py: форматирование отдельно от похода за данными.
+    """
+    return [
+        _timeline_item(
+            item_id=f"agreement-signature:{signature.id}",
+            at=signature.signed_at,
+            kind="Регламент",
+            title=title,
+            text=f"Подписан, версия {signature.agreement_version}",
+            href="/agreements",
+            source="agreement",
+            meta={"agreement_id": str(signature.agreement_id), "signature_id": str(signature.id)},
+        )
+        for signature, title in rows
+    ]
+
+
 @router.get("/{student_id}/timeline")
 async def get_student_timeline(
     student_id: uuid.UUID,
@@ -1070,13 +1099,15 @@ async def get_student_timeline(
     source tables. Pagination is applied after cross-source sorting.
     """
     student_result = await db.execute(
-        select(Student.id).where(
+        select(Student.id, Student.user_id).where(
             Student.id == student_id,
             Student.is_archived == False,  # noqa: E712
         )
     )
-    if student_result.scalar_one_or_none() is None:
+    student_row = student_result.one_or_none()
+    if student_row is None:
         raise HTTPException(status_code=404, detail="Студент не найден")
+    student_portal_user_id = student_row.user_id
 
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
         mentor_student_ids = await _get_mentor_student_ids(db, current_user.id)
@@ -1300,6 +1331,24 @@ async def get_student_timeline(
         for c in complaints
         if note_visible_to_role(c.visible_to_role, current_user.role) or c.author_user_id == current_user.id
     )
+
+    # Регламент подписывает пользователь, а не студент напрямую (у ментора,
+    # МЗК и админа тоже есть свои регламенты — их подписи к студенту не
+    # относятся вовсе). В таймлайн попадают только подписи самого студента —
+    # через его портальный аккаунт, если он вообще есть.
+    if student_portal_user_id is not None:
+        from app.models.agreement import Agreement, AgreementSignature
+
+        signatures = (
+            await db.execute(
+                select(AgreementSignature, Agreement.title)
+                .join(Agreement, Agreement.id == AgreementSignature.agreement_id)
+                .where(AgreementSignature.user_id == student_portal_user_id)
+                .order_by(AgreementSignature.signed_at.desc())
+                .limit(fetch_limit)
+            )
+        ).all()
+        events.extend(_agreement_signature_timeline_items(signatures))
 
     events = [event for event in events if event["at"]]
     events.sort(key=lambda event: event["at"], reverse=True)

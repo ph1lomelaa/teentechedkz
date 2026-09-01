@@ -86,6 +86,8 @@ export interface WorkspaceDashboard {
     students_total: number
     roles: string[]
     open_tasks: number
+    overdue_tasks: number
+    sla_penalties_this_month: number
     upcoming_meetings: number
     telegram_signals: number
     documents_unverified: number
