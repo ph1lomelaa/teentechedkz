@@ -118,6 +118,14 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           FRONTEND_URL: http://localhost:3000
           ENVIRONMENT: development
+          # Заглушка, а не секрет: из неё собирается только строка ссылки
+          # `https://t.me/<username>?start=<код>`, к Telegram запросов нет.
+          # Без переменной POST /telegram-chats/pairing-code отвечает 503, и
+          # e2e_workspace_roles падает на проверке прав ментора — не потому,
+          # что права сломаны, а потому что в CI нет .env, из которого эта
+          # переменная берётся локально. Токен бота здесь не нужен: ни один
+          # e2e не вызывает get_bot().
+          TELEGRAM_BOT_USERNAME: tte_ci_bot
         run: |
           uvicorn app.main:app --host 127.0.0.1 --port 8001 >/tmp/tte-e2e-api.log 2>&1 &
           api_pid=$!
