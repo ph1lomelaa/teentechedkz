@@ -12,10 +12,26 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 import uuid
 
 import httpx
 from sqlalchemy import delete, select
+
+# `import app` работает только если каталог backend/ есть в sys.path. CI
+# запускает скрипт как `python tests/e2e_*.py` из backend/, и тогда Python
+# кладёт в sys.path[0] сам каталог tests/, а не backend/ — модуль `app` не
+# находится. PYTHONPATH в workflow указывает на корень репозитория (ради
+# пакета `migration`), backend/ туда не входит.
+#
+# Тот же приём, что в e2e_auth_intake.py. Держим внутри скрипта, а не в
+# окружении: скрипт должен запускаться одинаково и из CI, и руками.
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_ROOT.parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.database import AsyncSessionLocal, engine
 from app.core.security import create_access_token
