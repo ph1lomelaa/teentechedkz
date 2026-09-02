@@ -165,7 +165,7 @@ export function LandingPage() {
               to="/join"
               className="inline-flex h-12 items-center justify-center rounded-ctl border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-all hover:-translate-y-0.5 hover:border-[#FFD400] hover:bg-[#FFD400]/10"
             >
-              Оставить заявку
+              Зарегистрироваться
             </Link>
           </div>
 
@@ -299,7 +299,7 @@ export function LandingPage() {
               Ученикам
             </Link>
             <Link to="/join" className="text-xs text-white/40 transition-colors hover:text-white">
-              Оставить заявку
+              Зарегистрироваться
             </Link>
             <Link to="/login" className="text-xs text-white/40 transition-colors hover:text-white">
               Войти

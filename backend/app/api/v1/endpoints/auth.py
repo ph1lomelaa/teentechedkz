@@ -17,7 +17,7 @@ from app.core.deps import (
     mark_logged_in,
     CurrentUser,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.user import RefreshToken
 from app.models.audit_log import AuditAction
 from app.services.audit import record_audit
@@ -35,7 +35,6 @@ from app.services.google_auth import (
     is_configured as google_is_configured,
     verify_id_token as verify_google_id_token,
 )
-from app.services.notify import notify
 from app.services.user_emails import resolve_user_by_email
 from app.services.user_payload import resolve_user_payload
 
@@ -197,42 +196,38 @@ async def login_with_google(
     )
 
     user = await resolve_user_by_email(db, identity.email)
-    created = user is None
 
-    if created:
-        # Пароля нет и не будет: вход в такой аккаунт только через Google.
-        # `hashed_password` непустой строкой-заглушкой, которую `verify_password`
-        # не примет ни к какому вводу, — чтобы вход по паролю не открылся сам.
-        user = User(
-            name=identity.name or identity.email.split("@")[0],
-            email=identity.email,
-            hashed_password="!google",
-            role=UserRole.mentor,
-            is_active=False,
+    if user is None:
+        # Незнакомая почта — это не вход, а регистрация, и здесь её нет.
+        #
+        # Раньше эта ветка заводила аккаунт: `User(role=mentor, is_active=False)`
+        # с одной лишь почтой. Получалась вторая точка создания аккаунта рядом с
+        # /public/join — и куда худшего качества: без ФИО, без телефона и без
+        # строки в очереди заявок. Ученик, нажавший «Войти через Google» вместо
+        # регистрации, оказывался в системе, но сопоставить его с карточкой было
+        # нечем, и в очереди администратора он не появлялся вовсе.
+        #
+        # 404, а не 401: 401 на экране входа читается как «неверный пароль» —
+        # человек будет пробовать снова. 404 означает «такой почты у нас нет», и
+        # фронт ведёт его регистрироваться (LoginPage ловит X-Error-Code).
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            actor_email=identity.email,
+            request=request,
+            meta={"reason": "no_account", "method": "google"},
         )
-        db.add(user)
-        await db.flush()
-        admins = await db.execute(
-            select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager]))
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Этой почты у нас нет. Зарегистрируйтесь — это займёт минуту.",
+            headers={"X-Error-Code": "NO_ACCOUNT"},
         )
-        for admin in admins.scalars():
-            notify(
-                db,
-                admin.id,
-                kind="mentor_signup",
-                title="Новая заявка через Google",
-                body=f"{user.name} · {user.email} — ждёт активации и назначения роли",
-                link="/settings/users",
-                priority="high",
-            )
 
-    # Тот же разбор, что в /auth/login: существующий аккаунт, которого явно
-    # отключили после того, как он уже работал, обязан получить жёсткий
-    # отказ, а не войти заново через Google в обход revoke_all_sessions.
-    # created=True сюда не попадает: свежий Google-аккаунт создаётся строкой
-    # выше уже с is_active=False и last_login_at=None — это «ждёт первого
-    # одобрения», а не отключение, и его пропускаем на экран ожидания.
-    if not created and account_revoked_after_activation(
+    # Тот же разбор, что в /auth/login: аккаунт, который отключили после того,
+    # как он уже работал, обязан получить жёсткий отказ, а не войти заново через
+    # Google в обход revoke_all_sessions.
+    if account_revoked_after_activation(
         is_active=user.is_active, has_logged_in_before=user.last_login_at is not None
     ):
         record_audit(
@@ -253,11 +248,11 @@ async def login_with_google(
     session = await issue_session(db, response, user)
     record_audit(
         db,
-        action=AuditAction.google_linked if created else AuditAction.login_success,
+        action=AuditAction.login_success,
         actor=user,
         target_user_id=user.id,
         request=request,
-        meta={"method": "google", "created": created},
+        meta={"method": "google"},
     )
     await db.commit()
     await rate_limit.reset(bucket="login_email", subject=identity.email)

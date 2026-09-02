@@ -1,31 +1,6 @@
 import apiClient from './client'
 import type { LoginResponse } from './auth'
 
-export interface PublicApplicationInput {
-  full_name: string
-  phone: string
-  email?: string
-  city?: string
-  degree_level?: string
-  intake_year?: number
-  target_country?: string
-  program_interest?: string
-  message?: string
-}
-
-export interface PublicApplicationResult {
-  id: string
-  status: string
-  message: string
-}
-
-export interface MentorSignupInput {
-  name: string
-  email: string
-  phone?: string
-  password: string
-}
-
 export interface JoinInput {
   credential: string
   requested_role: 'student' | 'mentor'
@@ -43,17 +18,17 @@ export interface JoinInput {
  */
 export type JoinResult = LoginResponse & { status: 'active' | 'pending' }
 
+/**
+ * Публичное API — ровно одна ручка.
+ *
+ * Здесь были ещё две: `createApplication` (форма лида, аккаунта не создавала) и
+ * `mentorSignup` (регистрация ментора по паролю). Вместе с /join получалось три
+ * разных способа «оставить заявку», два из которых заводили аккаунт по-разному.
+ * Осталась одна дверь: ФИО, нормализованный телефон, роль — и строка в очереди.
+ */
 export const publicApi = {
   join: async (body: JoinInput): Promise<JoinResult> => {
     const response = await apiClient.post<JoinResult>('/public/join', body)
-    return response.data
-  },
-  createApplication: async (body: PublicApplicationInput): Promise<PublicApplicationResult> => {
-    const response = await apiClient.post<PublicApplicationResult>('/public/applications', body)
-    return response.data
-  },
-  mentorSignup: async (body: MentorSignupInput): Promise<{ message: string }> => {
-    const response = await apiClient.post<{ message: string }>('/public/mentor-signup', body)
     return response.data
   },
 }

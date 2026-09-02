@@ -12,8 +12,6 @@ import { getDefaultPath } from '@/lib/authRouting'
 import { LandingPage } from '@/pages/LandingPage'
 import { StudentLandingPage } from '@/pages/StudentLandingPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { ApplyPage } from '@/pages/ApplyPage'
-import { JoinMentorPage } from '@/pages/JoinMentorPage'
 import { JoinPage } from '@/pages/JoinPage'
 import { StudentWelcomePage } from '@/pages/StudentWelcomePage'
 import { InvitePage } from '@/pages/InvitePage'
@@ -332,20 +330,22 @@ function AppRoutes() {
         <Route key={path} path={path} element={<StudentLandingPage />} />
       ))}
       <Route path="/login" element={<LoginPage />} />
-      {/* Одна ссылка регистрации на всех. /apply вело на форму лида, которая
-          аккаунта НЕ создаёт: человек её отправлял, входить было некуда, и его
-          возвращало на лендинг. Сама ApplyPage осталась только для лендинга
-          (/for-applicants) — там другая аудитория: кто ещё не ученик. */}
+      {/* Регистрация ровно одна — /join. Прежние адреса ведут на неё, а не
+          отдают 404: ссылки на /apply и /register уже разошлись по перепискам
+          и лендингам, и ломать их незачем.
+
+          Что здесь было и почему убрано: /for-applicants показывала форму
+          лида, которая аккаунта НЕ создаёт, — человек её отправлял, входить
+          было некуда, и его возвращало на лендинг. За всё время через неё не
+          пришло ни одной заявки. /join/mentor заводила ментора по паролю —
+          третий способ создать аккаунт, мимо Google и без нормализации
+          телефона. Ментора без Google теперь приглашает админ ссылкой
+          (Настройки → Пользователи → Пригласить). */}
       <Route path="/apply" element={<Navigate to="/join" replace />} />
-      <Route path="/for-applicants" element={<ApplyPage />} />
-      {/* /register — это про «завести аккаунт», а вело на форму лида, которая
-          аккаунта не создаёт. Ведём на регистрацию; /apply остаётся отдельно
-          для абитуриентов с лендинга — там другая аудитория и другая цель. */}
       <Route path="/register" element={<Navigate to="/join" replace />} />
+      <Route path="/for-applicants" element={<Navigate to="/join" replace />} />
+      <Route path="/join/mentor" element={<Navigate to="/join" replace />} />
       <Route path="/join" element={<JoinPage />} />
-      {/* Регистрация ментора по паролю. Осталась рабочей: Google-аккаунт есть
-          не у всех, а /join без него — тупик. */}
-      <Route path="/join/mentor" element={<JoinMentorPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
       <Route path="/welcome/:token" element={<StudentWelcomePage />} />
       <Route path="/app" element={<RootRedirect />} />

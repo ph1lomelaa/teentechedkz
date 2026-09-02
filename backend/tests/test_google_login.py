@@ -172,15 +172,38 @@ class EndpointShapeTests(unittest.TestCase):
         self.assertIn("/auth/google", paths)
         self.assertIn("/auth/google/config", paths)
 
-    def test_new_account_is_created_inactive(self) -> None:
-        # Google подтверждает адрес, а не право на доступ: доступ открывает
-        # админ. Регрессия здесь означала бы вход с улицы.
+    def test_unknown_email_is_refused_instead_of_creating_an_account(self) -> None:
+        """Вход не заводит аккаунтов — это делает только /public/join.
+
+        Раньше здесь была ровно обратная проверка: незнакомая почта создавала
+        `User(role=mentor, is_active=False)`. Получалась вторая точка создания
+        аккаунта, и куда худшего качества — без ФИО, без телефона и без строки
+        в очереди заявок. Ученик, нажавший «Войти через Google» вместо
+        регистрации, попадал в систему, но сопоставить его с карточкой было
+        нечем, а администратор его в очереди не видел.
+
+        Проверка по исходнику, а не по поведению: в проекте нет фикстур с БД, а
+        эндпоинту нужна сессия. Настоящее покрытие — ручной сценарий (план,
+        проверка 1) и то, что создание `User` живёт теперь ровно в одном месте.
+        """
         import inspect
 
         from app.api.v1.endpoints import auth
 
         source = inspect.getsource(auth.login_with_google)
-        self.assertIn("is_active=False", source)
+        # Ищем `db.add(` — сам факт записи строки, а не упоминание модели:
+        # слово `User(` встречается в комментарии, объясняющем эту же правку.
+        self.assertNotIn("db.add(", source, "вход снова начал заводить аккаунты")
+        self.assertIn("NO_ACCOUNT", source)
+
+    def test_account_creation_lives_in_exactly_one_place(self) -> None:
+        # Смысл всей правки одной проверкой: самозапись — только через /join,
+        # и там собираются ФИО с телефоном, без которых заявку не сопоставить.
+        import inspect
+
+        from app.api.v1.endpoints import public
+
+        self.assertIn("db.add(user)", inspect.getsource(public.join))
 
     def test_unverified_email_is_refused_in_the_endpoint(self) -> None:
         import inspect

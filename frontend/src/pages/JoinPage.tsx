@@ -158,6 +158,12 @@ export function JoinPage() {
             />
           )}
           {googleError && <ErrorBox>{googleError}</ErrorBox>}
+          {/* Раньше здесь была ссылка на регистрацию по паролю — третий способ
+              завести аккаунт мимо Google. Теперь такого человека заводит админ
+              приглашением, и об этом надо сказать, а не оставлять в тупике. */}
+          <p className="text-center text-[13px] leading-5 text-white/40">
+            Нет Google-аккаунта? Напишите куратору — он пришлёт ссылку для входа.
+          </p>
           <div className="flex flex-wrap justify-center gap-4 text-sm">
             <button
               type="button"
@@ -166,11 +172,6 @@ export function JoinPage() {
             >
               Назад
             </button>
-            {role === 'mentor' && (
-              <Link to="/join/mentor" className="font-bold text-white/45 transition hover:text-[#FFD400]">
-                Нет Google-аккаунта
-              </Link>
-            )}
             <Link to="/login" className="font-bold text-white/45 transition hover:text-[#FFD400]">
               У меня уже есть доступ
             </Link>
@@ -239,21 +240,26 @@ export function JoinPage() {
 
         {mutation.isError && <ErrorBox>{getErrorMessage(mutation.error)}</ErrorBox>}
 
-        <div className="flex flex-wrap items-center gap-3 pt-1">
+        {/* Тот же ритм, что на экране входа: основная кнопка h-12 во всю
+            ширину, под ней одна вторичная ссылка. Раньше здесь была узкая
+            кнопка в строку с «Назад», и два экрана выглядели из разных мест. */}
+        <div className="space-y-4 pt-1">
           <Button
             type="submit"
             disabled={mutation.isPending}
-            className="auth-primary-button h-11 rounded-ctl border-0 px-6 hover:bg-[#E9C200]"
+            className="auth-primary-button h-12 w-full rounded-ctl border-0 text-[13px] uppercase tracking-[0.14em] hover:bg-[#E9C200]"
           >
-            {mutation.isPending ? 'Отправляем…' : 'Продолжить'}
+            {mutation.isPending ? 'Отправляем…' : 'Продолжить →'}
           </Button>
-          <button
-            type="button"
-            onClick={() => setCredential(null)}
-            className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]"
-          >
-            Назад
-          </button>
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setCredential(null)}
+              className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]"
+            >
+              Назад
+            </button>
+          </div>
         </div>
       </form>
     </AuthShell>

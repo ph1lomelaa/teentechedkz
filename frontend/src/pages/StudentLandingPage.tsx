@@ -166,10 +166,10 @@ export function StudentLandingPage() {
               Войти в кабинет →
             </Link>
             <Link
-              to="/for-applicants"
+              to="/join"
               className="inline-flex h-12 items-center justify-center rounded-ctl border border-[#FFD400]/50 px-7 text-sm font-bold text-[#FFD400] transition-all hover:-translate-y-0.5 hover:border-[#FFD400] hover:bg-[#FFD400]/10"
             >
-              Оставить заявку
+              Зарегистрироваться
             </Link>
           </div>
 
@@ -269,8 +269,8 @@ export function StudentLandingPage() {
             <Link to="/" className="text-xs text-white/40 transition-colors hover:text-white">
               О платформе
             </Link>
-            <Link to="/for-applicants" className="text-xs text-white/40 transition-colors hover:text-white">
-              Оставить заявку
+            <Link to="/join" className="text-xs text-white/40 transition-colors hover:text-white">
+              Зарегистрироваться
             </Link>
             <Link to="/login" className="text-xs text-white/40 transition-colors hover:text-white">
               Войти

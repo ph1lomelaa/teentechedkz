@@ -14,6 +14,7 @@ import asyncio
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -46,7 +47,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, engine
 from app.core.security import hash_password
 from app.models.audit_log import AuditLog
-from app.models.intake_submission import IntakeSubmission
+from app.models.intake_submission import IntakeSource, IntakeStatus, IntakeSubmission
 from app.models.notification import Notification
 from app.models.student import Student
 from app.models.user import User, UserRole
@@ -128,6 +129,70 @@ async def create_test_admin(created: Created) -> tuple[str, str]:
     return email, password
 
 
+async def create_intake_submission(created: Created, body: dict) -> uuid.UUID:
+    """Анкета абитуриента — в том виде, в каком её кладёт синк из Google Sheets.
+
+    Раньше тест отправлял её через `POST /public/applications`. Публичной формы
+    больше нет (за всё время через неё не пришло ни одной заявки, а путалась она
+    с регистрацией), но сам поток «анкета → карточка студента» живой: анкеты
+    приезжают синком, и админ разбирает их в инбоксе. Проверяем именно его.
+    """
+    import hashlib
+
+    now = datetime.now(timezone.utc)
+    raw = {k: ("" if v is None else str(v)) for k, v in body.items()}
+    raw["source"] = "landing_apply"
+    fingerprint = hashlib.sha256(
+        f"e2e|{created.marker}|{body['phone']}".encode("utf-8")
+    ).hexdigest()
+    async with AsyncSessionLocal() as db:
+        submission = IntakeSubmission(
+            source=IntakeSource.cases,
+            submitted_at=now,
+            row_fingerprint=fingerprint,
+            raw_data=raw,
+            full_name=body["full_name"],
+            phone_normalized=body["phone"],
+            status=IntakeStatus.new,
+        )
+        db.add(submission)
+        await db.commit()
+        await db.refresh(submission)
+        created.submission_ids.add(submission.id)
+        submission_id = submission.id
+    await engine.dispose()
+    return submission_id
+
+
+async def create_pending_mentor(created: Created, email: str, password: str) -> None:
+    """Ментор, который зарегистрировался и ждёт одобрения.
+
+    Заводится напрямую в базе, а не через HTTP: самозаписи по паролю больше нет
+    (`/public/mentor-signup` удалён — регистрация теперь только через /join с
+    Google), а Google-токен против живого сервера не подделать. Проверяем при
+    этом не создание аккаунта, а гейт ожидания: он держит человека вне чужих
+    данных и при этом обязан пускать его к собственному профилю.
+
+    `last_login_at=None` — обязательно: именно эта пара с `is_active=False`
+    означает «ждёт первого одобрения», а не «отключили» (core/deps.py).
+    """
+    async with AsyncSessionLocal() as db:
+        user = User(
+            name=f"{created.marker} mentor",
+            email=email,
+            hashed_password=hash_password(password),
+            role=UserRole.mentor,
+            phone="+77001234567",
+            is_active=False,
+            must_change_password=False,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        created.user_ids.add(user.id)
+    await engine.dispose()
+
+
 def main() -> None:
     marker = f"e2e-auth-{uuid.uuid4().hex[:10]}"
     created = Created(marker=marker)
@@ -167,17 +232,8 @@ def main() -> None:
             "program_interest": "Computer Science",
             "message": marker,
         }
-        application = admin.post("/public/applications", json=application_body)
-        require(application.status_code == 201, "public application accepted", application)
-        submission_id = uuid.UUID(application.json()["id"])
-        created.submission_ids.add(submission_id)
-
-        duplicate = admin.post("/public/applications", json=application_body)
-        require(
-            duplicate.status_code == 201 and duplicate.json()["id"] == str(submission_id),
-            "double submit is idempotent",
-            duplicate,
-        )
+        submission_id = asyncio.run(create_intake_submission(created, application_body))
+        require(bool(submission_id), "intake submission created")
 
         inbox = admin.get("/sync/submissions", headers=admin_auth, params={"status": "new"})
         require(
@@ -324,16 +380,7 @@ def main() -> None:
         )
         require(reactivate.status_code == 200, "student access reactivated", reactivate)
 
-        signup = mentor.post(
-            "/public/mentor-signup",
-            json={
-                "name": marker,
-                "email": mentor_email,
-                "phone": "+77001234567",
-                "password": "MentorPass2026!",
-            },
-        )
-        require(signup.status_code == 201, "mentor application accepted", signup)
+        asyncio.run(create_pending_mentor(created, mentor_email, "MentorPass2026!"))
         # Новая заявка — не отключённый аккаунт: ни разу не логинившийся
         # ментор входит и получает токен, но гейт держит его вне чужих
         # данных до одобрения (core/deps.py: pending_approval_gate_applies).
@@ -360,8 +407,8 @@ def main() -> None:
             params={"role": "mentor", "is_active": "false"},
         )
         mentor_row = next(row for row in pending_users.json() if row["email"] == mentor_email)
+        require(True, "pending mentor is visible to admin")
         mentor_user_id = uuid.UUID(mentor_row["id"])
-        created.user_ids.add(mentor_user_id)
         activated = admin.patch(
             f"/users/{mentor_user_id}",
             headers=admin_auth,

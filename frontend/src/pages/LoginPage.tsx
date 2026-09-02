@@ -14,16 +14,29 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
+  // Почты нет в системе. Отдельным состоянием, а не текстом ошибки: здесь
+  // нужна не жалоба, а следующий шаг — кнопка на регистрацию.
+  const [noAccount, setNoAccount] = useState(false)
 
   const handleGoogle = async (credential: string) => {
     setError('')
+    setNoAccount(false)
     setIsLoading(true)
     try {
       const data = await authApi.loginWithGoogle(credential)
       setSession(data.user, data.access_token)
       navigate(postLoginPath(data.user), { replace: true })
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      const axiosErr = err as {
+        response?: { status?: number; headers?: Record<string, string>; data?: { detail?: string } }
+      }
+      // Незнакомая почта — не ошибка входа, а «вы ещё не регистрировались».
+      // Опознаём по заголовку, а не по тексту: текст меняется при первой же
+      // правке формулировки, и проверка по нему тихо перестаёт срабатывать.
+      if (axiosErr.response?.headers?.['x-error-code'] === 'NO_ACCOUNT') {
+        setNoAccount(true)
+        return
+      }
       // Здесь текст сервера важнее обычного: «Google не подтвердил этот адрес»
       // и «неверный пароль» — разные проблемы с разными действиями.
       if (axiosErr.response?.data?.detail) setError(axiosErr.response.data.detail)
@@ -65,6 +78,22 @@ export const LoginPage: React.FC = () => {
       description="Войдите в кабинет студента, ментора или команды TeenTechEd."
     >
           <form onSubmit={handleSubmit} className="space-y-5">
+            {noAccount && (
+              <div className="rounded-ctl border border-[#FFD400]/25 bg-[#FFD400]/[0.08] px-4 py-4 text-sm leading-6 text-white/80">
+                <p className="font-semibold text-white">Этой почты у нас нет</p>
+                <p className="mt-1">
+                  Похоже, вы ещё не регистрировались. Это займёт минуту — понадобятся
+                  только ФИО и телефон.
+                </p>
+                <Link
+                  to="/join"
+                  className="auth-primary-button mt-4 inline-flex h-11 px-5 text-sm"
+                >
+                  Зарегистрироваться
+                </Link>
+              </div>
+            )}
+
             {error && (
               <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
                 {error}
