@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.access_request import (
     STATUS_APPROVED,
     STATUS_AUTO_APPROVED,
+    STATUS_NEW,
     AccessRequest,
 )
 from app.models.audit_log import AuditAction
@@ -50,6 +51,43 @@ def normalize_phone(phone: str) -> str:
     from migration.transformers.normalize import normalize_phone as _impl
 
     return _impl(phone or "")
+
+
+async def backfill_unlinked_student_requests(db: AsyncSession) -> int:
+    """Вернуть в очередь старые кабинеты ученика без карточки.
+
+    До появления /join администратор мог выдать пользователю роль student
+    отдельно от students.user_id. Такой человек активен в списке пользователей,
+    но не может открыть кабинет и не имеет строки для ручной привязки. Создаём
+    заявку лениво при открытии очереди; outer join на AccessRequest гарантирует,
+    что повторное открытие экрана не плодит записи.
+    """
+    users = (
+        await db.execute(
+            select(User)
+            .outerjoin(Student, Student.user_id == User.id)
+            .outerjoin(AccessRequest, AccessRequest.user_id == User.id)
+            .where(
+                User.role == UserRole.student,
+                Student.id.is_(None),
+                AccessRequest.id.is_(None),
+            )
+        )
+    ).scalars().all()
+    for user in users:
+        db.add(
+            AccessRequest(
+                user_id=user.id,
+                requested_role=UserRole.student.value,
+                full_name=user.name,
+                phone_raw=user.phone or "",
+                phone_normalized=normalize_phone(user.phone or ""),
+                status=STATUS_NEW,
+            )
+        )
+    if users:
+        await db.flush()
+    return len(users)
 
 
 async def load_students_index(db: AsyncSession) -> list[dict]:
@@ -182,6 +220,7 @@ __all__ = [
     "STATUS_APPROVED",
     "STATUS_AUTO_APPROVED",
     "Suggestion",
+    "backfill_unlinked_student_requests",
     "decide",
     "link_user_to_student",
     "load_students_index",

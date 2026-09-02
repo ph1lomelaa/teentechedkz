@@ -19,6 +19,14 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 
+type RequestRoleFilter = 'student' | 'mentor' | 'all'
+
+const REQUEST_ROLE_FILTERS: Array<{ value: RequestRoleFilter; label: string }> = [
+  { value: 'student', label: 'Ученики' },
+  { value: 'mentor', label: 'Менторы' },
+  { value: 'all', label: 'Все' },
+]
+
 /**
  * Очередь самозаписи: кто пришёл через /join и ждёт привязки к карточке.
  *
@@ -41,6 +49,7 @@ export function SettingsAccessRequestsPage() {
   const canDecide = can('access_requests', 'manage')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [pickerFor, setPickerFor] = useState<AccessRequestItem | null>(null)
+  const [roleFilter, setRoleFilter] = useState<RequestRoleFilter>('student')
 
   const query = useQuery({
     queryKey: ['access-requests', 'new'],
@@ -50,6 +59,10 @@ export function SettingsAccessRequestsPage() {
   // Через useMemo, а не `?? []`: новый пустой массив на каждый рендер
   // пересчитывал бы всё, что от него зависит.
   const items = useMemo(() => query.data?.items ?? [], [query.data])
+  const visibleItems = useMemo(
+    () => items.filter((item) => roleFilter === 'all' || item.requested_role === roleFilter),
+    [items, roleFilter],
+  )
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['access-requests'] })
@@ -111,14 +124,19 @@ export function SettingsAccessRequestsPage() {
   // настоящее решение всё равно принимается на бэкенде.
   const autoReady = useMemo(
     () =>
-      items.filter(
+      visibleItems.filter(
         (i) =>
           i.requested_role === 'student' &&
           i.method === 'phone_exact' &&
           i.suggested_student?.is_free,
       ),
-    [items],
+    [visibleItems],
   )
+
+  const setRequestRoleFilter = (role: RequestRoleFilter) => {
+    setRoleFilter(role)
+    setSelected(new Set())
+  }
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -143,9 +161,9 @@ export function SettingsAccessRequestsPage() {
           colorPrefix="p"
           icon={<Clock className="h-4 w-4" />}
           label="Ждут решения"
-          value={String(items.length)}
-          valueClassName={items.length > 0 ? 'text-amber-500' : undefined}
-          warn={items.length > 0}
+          value={String(visibleItems.length)}
+          valueClassName={visibleItems.length > 0 ? 'text-amber-500' : undefined}
+          warn={visibleItems.length > 0}
         />
         <StatCard
           colorPrefix="p"
@@ -156,19 +174,32 @@ export function SettingsAccessRequestsPage() {
         <StatCard
           colorPrefix="p"
           label="Нужна проверка"
-          value={String(items.length - autoReady.length)}
+          value={String(visibleItems.length - autoReady.length)}
         />
       </div>
 
-      {items.length > 0 && canDecide && (
+      <div className="mb-3 flex flex-wrap items-center gap-2" aria-label="Фильтр заявок">
+        {REQUEST_ROLE_FILTERS.map((filter) => (
+          <Button
+            key={filter.value}
+            variant={roleFilter === filter.value ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setRequestRoleFilter(filter.value)}
+          >
+            {filter.label}
+          </Button>
+        ))}
+      </div>
+
+      {visibleItems.length > 0 && canDecide && (
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               className="h-4 w-4 accent-amber-500"
-              checked={selected.size > 0 && selected.size === items.length}
+              checked={selected.size > 0 && selected.size === visibleItems.length}
               onChange={(e) =>
-                setSelected(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())
+                setSelected(e.target.checked ? new Set(visibleItems.map((i) => i.id)) : new Set())
               }
             />
             Выбрать все
@@ -193,7 +224,7 @@ export function SettingsAccessRequestsPage() {
         </div>
       )}
 
-      {!canDecide && items.length > 0 && (
+      {!canDecide && visibleItems.length > 0 && (
         <div className="mb-4 rounded-card border border-ds-border bg-ds-surface-muted p-4 text-sm text-ds-text-muted">
           Здесь видно, кто ждёт доступа. Открыть кабинет можно из карточки ученика —
           раздел «Доступ в кабинет». Одобрение прямо отсюда доступно администратору.
@@ -205,7 +236,7 @@ export function SettingsAccessRequestsPage() {
         isError={query.isError}
         error={query.error}
         onRetry={query.refetch}
-        isEmpty={items.length === 0}
+        isEmpty={visibleItems.length === 0}
         empty={
           <EmptyState
             icon={<Check className="h-6 w-6" />}
@@ -215,7 +246,7 @@ export function SettingsAccessRequestsPage() {
         }
       >
         <div className="space-y-3">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <RequestRow
               key={item.id}
               item={item}

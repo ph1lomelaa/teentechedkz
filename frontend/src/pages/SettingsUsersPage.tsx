@@ -35,7 +35,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { PageHeader, StatCard } from '@/components/ui'
 
-const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'admin', 'mzk_manager', 'mentor', 'student']
+const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'student', 'mentor', 'mzk_manager', 'admin']
 const ROLE_FILTER_LABELS: Record<UserRole | 'all', string> = {
   all: 'Все роли',
   ...ROLE_LABELS,
@@ -58,6 +58,12 @@ interface UserForm {
 }
 
 const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
+const USER_ROLE_ORDER: Record<UserRole, number> = {
+  student: 0,
+  mentor: 1,
+  mzk_manager: 2,
+  admin: 3,
+}
 
 function AgreementStatusBadge({ status }: { status?: User['agreement_status'] }) {
   const value = status?.status ?? 'not_applicable'
@@ -289,12 +295,17 @@ export const SettingsUsersPage: React.FC = () => {
   const pendingCount = useMemo(() => users.filter((u) => !u.is_active).length, [users])
 
   const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false
-      if (statusFilter === 'active' && !u.is_active) return false
-      if (statusFilter === 'pending' && u.is_active) return false
-      return true
-    })
+    return users
+      .filter((user) => {
+        if (roleFilter !== 'all' && user.role !== roleFilter) return false
+        if (statusFilter === 'active' && !user.is_active) return false
+        if (statusFilter === 'pending' && user.is_active) return false
+        return true
+      })
+      .sort((first, second) => {
+        const roleOrder = USER_ROLE_ORDER[first.role] - USER_ROLE_ORDER[second.role]
+        return roleOrder || first.name.localeCompare(second.name, 'ru')
+      })
   }, [users, roleFilter, statusFilter])
 
   const toggleActiveMutation = useMutation({
@@ -389,6 +400,16 @@ export const SettingsUsersPage: React.FC = () => {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="label-caps">Пользователи</p>
         <div className="flex flex-wrap items-center gap-2">
+          {(['student', 'mentor', 'mzk_manager'] as const).map((role) => (
+            <Button
+              key={role}
+              variant={roleFilter === role ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setRoleFilter(role)}
+            >
+              {ROLE_LABELS[role]}
+            </Button>
+          ))}
           <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as UserRole | 'all')}>
             <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
