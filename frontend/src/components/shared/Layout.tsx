@@ -26,7 +26,6 @@ import {
   Gauge,
   Award,
   ShieldCheck,
-  UserCheck,
   UserPlus,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -106,7 +105,6 @@ const baseNavGroups: NavGroup[] = [
     items: [
       { label: 'Финансы', path: '/finances', icon: <DollarSign className="w-4 h-4" />, permission: ['finances', 'view'] },
       { label: 'Шаблоны дорожных карт', path: '/roadmap-templates', icon: <Route className="w-4 h-4" />, permission: ['roadmap_templates', 'manage'] },
-      { label: 'Кто за что отвечает', path: '/settings/responsibilities', icon: <UserCheck className="w-4 h-4" />, permission: ['responsibilities', 'view'] },
     ],
   },
 ]
@@ -190,7 +188,6 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/settings/users': 'Пользователи',
     '/settings/access-requests': 'Заявки на доступ',
     '/settings/permissions': 'Права доступа',
-    '/settings/responsibilities': 'Кто за что отвечает',
     '/roadmap-templates': 'Roadmap-шаблоны',
     '/knowledge-base': 'База знаний',
     '/universities': 'Университеты',

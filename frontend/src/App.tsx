@@ -103,9 +103,6 @@ const SettingsAccessRequestsPage = React.lazy(() =>
 const SettingsPermissionsPage = React.lazy(() =>
   import('@/pages/SettingsPermissionsPage').then((m) => ({ default: m.SettingsPermissionsPage }))
 )
-const SettingsResponsibilitiesPage = React.lazy(() =>
-  import('@/pages/SettingsResponsibilitiesPage').then((m) => ({ default: m.SettingsResponsibilitiesPage }))
-)
 const StatisticsPage = React.lazy(() =>
   import('@/pages/StatisticsPage').then((m) => ({ default: m.StatisticsPage }))
 )
@@ -508,19 +505,17 @@ function AppRoutes() {
         }
       />
 
-      {/* Кто за что отвечает: раздают админ и МЗК, видят все сотрудники. */}
-      <Route
-        path="/settings/responsibilities"
-        element={
-          <ProtectedRoute permission={['responsibilities', 'view']}>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <SettingsResponsibilitiesPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* Раздел «Кто за что отвечает» скрыт по решению владельца (02.09.2026):
+          пока не нужен. Скрыт, а не удалён — страница
+          `pages/SettingsResponsibilitiesPage.tsx` и её API на месте, вернуть
+          раздел значит восстановить этот роут и пункт меню в Layout.tsx.
+
+          Секция «Кто за что отвечает» внутри карточки ученика
+          (`StudentResponsibilitiesSection`) — другое и продолжает работать.
+
+          Старый адрес уводим на обзор, а не оставляем в пустоту: он мог осесть
+          в закладках и переписках. */}
+      <Route path="/settings/responsibilities" element={<Navigate to="/dashboard" replace />} />
 
       {/* Очередь самозаписи: смотрят админ и МЗК, решают только админы —
           мутирующие ручки проверяют access_requests:manage отдельно. */}
