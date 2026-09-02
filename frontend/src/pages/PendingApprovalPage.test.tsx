@@ -43,6 +43,12 @@ vi.mock('@/api/accessRequests', () => ({
   accessRequestsApi: { mine: () => mine() },
 }))
 
+// Экран рисуется в оболочке кабинета — ей нужна тема. Настоящий провайдер
+// сюда тащить незачем: проверяется содержимое, а не оформление.
+vi.mock('@/contexts/ThemeContext', () => ({
+  useTheme: () => ({ theme: 'dark' }),
+}))
+
 const { PendingApprovalPage } = await import('./PendingApprovalPage')
 
 function renderPage(ui: ReactElement) {
@@ -80,21 +86,32 @@ describe('postLoginPath', () => {
 })
 
 describe('экран ожидания', () => {
-  it('показывает, кем человек вошёл, и статус словом, а не только цветом', () => {
+  it('говорит «вы внутри», а не «вас не пустили»', async () => {
+    // Разница между отказом и ожиданием — вся в формулировке: от неё зависит,
+    // напишет ли человек куратору в панике.
     renderPage(<PendingApprovalPage />)
-    expect(screen.getByText('d@example.kz')).toBeInTheDocument()
-    expect(screen.getByText('Ожидает подтверждения')).toBeInTheDocument()
+    expect(await screen.findByText('d@example.kz')).toBeInTheDocument()
+    expect(screen.getByText(/Вы в системе, идёт проверка/)).toBeInTheDocument()
+  })
+
+  it('показывает разделы кабинета, но не даёт по ним кликнуть', async () => {
+    // Разделы видны специально — человек должен понимать, куда попал. Ссылками
+    // они быть не должны: за ними 403, и клик в никуда читается как поломка.
+    renderPage(<PendingApprovalPage />)
+    expect(await screen.findByText('Мой roadmap')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Мой roadmap' })).toBeNull()
   })
 
   it('даёт перепроверить статус, не выходя', () => {
     renderPage(<PendingApprovalPage />)
-    fireEvent.click(screen.getByRole('button', { name: /Проверить статус/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Проверить сейчас/ }))
     expect(refreshUser).toHaveBeenCalled()
   })
 
   it('даёт выйти — иначе экран становится ловушкой', () => {
     renderPage(<PendingApprovalPage />)
-    fireEvent.click(screen.getByRole('button', { name: /Выйти/ }))
+    // Кнопок выхода две: в боковом меню и в шапке на узком экране.
+    fireEvent.click(screen.getAllByRole('button', { name: /Выйти/ })[0])
     expect(logout).toHaveBeenCalled()
   })
 

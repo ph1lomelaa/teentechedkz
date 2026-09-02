@@ -332,8 +332,16 @@ function AppRoutes() {
         <Route key={path} path={path} element={<StudentLandingPage />} />
       ))}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/apply" element={<ApplyPage />} />
-      <Route path="/register" element={<ApplyPage />} />
+      {/* Одна ссылка регистрации на всех. /apply вело на форму лида, которая
+          аккаунта НЕ создаёт: человек её отправлял, входить было некуда, и его
+          возвращало на лендинг. Сама ApplyPage осталась только для лендинга
+          (/for-applicants) — там другая аудитория: кто ещё не ученик. */}
+      <Route path="/apply" element={<Navigate to="/join" replace />} />
+      <Route path="/for-applicants" element={<ApplyPage />} />
+      {/* /register — это про «завести аккаунт», а вело на форму лида, которая
+          аккаунта не создаёт. Ведём на регистрацию; /apply остаётся отдельно
+          для абитуриентов с лендинга — там другая аудитория и другая цель. */}
+      <Route path="/register" element={<Navigate to="/join" replace />} />
       <Route path="/join" element={<JoinPage />} />
       {/* Регистрация ментора по паролю. Осталась рабочей: Google-аккаунт есть
           не у всех, а /join без него — тупик. */}

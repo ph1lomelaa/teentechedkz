@@ -143,10 +143,14 @@ export const LoginPage: React.FC = () => {
                 зададите новый при следующем входе.
               </p>
             )}
+            {/* Ведём на /join — регистрацию, а не на /apply. /apply создаёт
+                заявку абитуриента (лид) и НЕ создаёт аккаунт: человек её
+                отправлял и возвращался на лендинг, потому что входить было
+                некуда. С экрана входа стоит тот, у кого доступ должен быть. */}
             <div className="mt-4">
-              Нет доступа?{' '}
-              <Link to="/apply" className="font-bold text-[#FFD400] underline decoration-[#FFD400]/40 underline-offset-4 hover:decoration-[#FFD400]">
-                Оставить заявку
+              Ещё нет доступа?{' '}
+              <Link to="/join" className="font-bold text-[#FFD400] underline decoration-[#FFD400]/40 underline-offset-4 hover:decoration-[#FFD400]">
+                Зарегистрироваться
               </Link>
             </div>
           </div>
