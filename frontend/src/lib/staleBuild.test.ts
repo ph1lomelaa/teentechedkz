@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isStaleBuildError } from '@/App'
+import { isRecoverableAppError, isRecoverableBrowserStateError, isStaleBuildError } from '@/App'
 
 /**
  * Распознавание «вкладка старше выката».
@@ -48,5 +48,30 @@ describe('isStaleBuildError', () => {
     ]) {
       expect(isStaleBuildError(new Error(message))).toBe(false)
     }
+  })
+})
+
+describe('isRecoverableBrowserStateError', () => {
+  it('узнаёт NotFoundError Firefox, возникающий в устаревшей вкладке', () => {
+    const error = new DOMException('The object can not be found here.', 'NotFoundError')
+    expect(isRecoverableBrowserStateError(error)).toBe(true)
+  })
+
+  it('не перезагружает вкладку из-за произвольного NotFoundError', () => {
+    expect(isRecoverableBrowserStateError(new DOMException('Устройство не найдено', 'NotFoundError'))).toBe(false)
+  })
+
+  it('узнаёт варианты DOM-мутаций React', () => {
+    for (const message of [
+      "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+      "Failed to execute 'insertBefore' on 'Node': The node to be inserted is not a child of this node.",
+    ]) {
+      expect(isRecoverableBrowserStateError(new DOMException(message, 'NotFoundError'))).toBe(true)
+    }
+  })
+
+  it('объединяет ошибки устаревшей сборки и DOM в единый путь восстановления', () => {
+    expect(isRecoverableAppError(new Error('Failed to fetch dynamically imported module'))).toBe(true)
+    expect(isRecoverableAppError(new DOMException('The object can not be found here.', 'NotFoundError'))).toBe(true)
   })
 })

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Clock, Link2, Search, UserPlus, X } from 'lucide-react'
 import { accessRequestsApi } from '@/api/accessRequests'
+import { useAuth } from '@/contexts/AuthContext'
 import type { AccessRequestItem } from '@/api/accessRequests'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/primitives/button'
@@ -32,6 +33,12 @@ import { QueryState } from '@/components/shared/QueryState'
  */
 export function SettingsAccessRequestsPage() {
   const queryClient = useQueryClient()
+  // Смотреть очередь может и МЗК-менеджер, а решать — только админ
+  // (access_requests:manage в реестре прав). Без этой проверки кнопки
+  // рисовались всем и отвечали 403 по нажатию — худший вид интерфейса:
+  // обещает действие, которого нет.
+  const { can } = useAuth()
+  const canDecide = can('access_requests', 'manage')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [pickerFor, setPickerFor] = useState<AccessRequestItem | null>(null)
 
@@ -153,7 +160,7 @@ export function SettingsAccessRequestsPage() {
         />
       </div>
 
-      {items.length > 0 && (
+      {items.length > 0 && canDecide && (
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -186,6 +193,13 @@ export function SettingsAccessRequestsPage() {
         </div>
       )}
 
+      {!canDecide && items.length > 0 && (
+        <div className="mb-4 rounded-card border border-ds-border bg-ds-surface-muted p-4 text-sm text-ds-text-muted">
+          Здесь видно, кто ждёт доступа. Открыть кабинет можно из карточки ученика —
+          раздел «Доступ в кабинет». Одобрение прямо отсюда доступно администратору.
+        </div>
+      )}
+
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -205,6 +219,7 @@ export function SettingsAccessRequestsPage() {
             <RequestRow
               key={item.id}
               item={item}
+              canDecide={canDecide}
               checked={selected.has(item.id)}
               busy={busy}
               onToggle={() => toggle(item.id)}
@@ -234,6 +249,7 @@ export function SettingsAccessRequestsPage() {
 
 function RequestRow({
   item,
+  canDecide,
   checked,
   busy,
   onToggle,
@@ -244,6 +260,7 @@ function RequestRow({
   onPickOther,
 }: {
   item: AccessRequestItem
+  canDecide: boolean
   checked: boolean
   busy: boolean
   onToggle: () => void
@@ -259,13 +276,15 @@ function RequestRow({
   return (
     <div className="rounded-card border border-ds-border bg-ds-surface p-4">
       <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
-          checked={checked}
-          onChange={onToggle}
-          aria-label={`Выбрать заявку: ${item.full_name}`}
-        />
+        {canDecide && (
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
+            checked={checked}
+            onChange={onToggle}
+            aria-label={`Выбрать заявку: ${item.full_name}`}
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="font-semibold text-ds-text">{item.full_name}</span>
@@ -308,6 +327,7 @@ function RequestRow({
             </div>
           )}
 
+          {canDecide && (
           <div className="mt-3 flex flex-wrap gap-2">
             {isStudent ? (
               <>
@@ -337,6 +357,7 @@ function RequestRow({
               Отклонить
             </Button>
           </div>
+          )}
         </div>
       </div>
     </div>

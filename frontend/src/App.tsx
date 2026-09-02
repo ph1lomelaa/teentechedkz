@@ -149,9 +149,55 @@ export function isStaleBuildError(error: Error): boolean {
   )
 }
 
+/**
+ * Firefox иногда сворачивает ошибку рассинхронизированного DOM в короткое
+ * `NotFoundError: The object can not be found here.`. Она возникает, в
+ * частности, в давно открытой вкладке при переходе между экранами. Для
+ * человека это тот же восстанавливаемый случай, что и старый JS-чанк: первая
+ * жёсткая перезагрузка возвращает приложение в согласованное состояние.
+ *
+ * Не считаем все NotFoundError восстанавливаемыми: например, ошибка доступа к
+ * микрофону должна остаться видимой на экране записи.
+ */
+export function isRecoverableBrowserStateError(error: Error): boolean {
+  const text = `${error.name} ${error.message}`
+  if (!/NotFoundError/i.test(text)) return false
+
+  return (
+    /object can(?:\s*not|'t) be found here/i.test(text) ||
+    /failed to execute '(?:removeChild|insertBefore|replaceChild)' on 'Node'/i.test(text) ||
+    /node to be (?:removed|inserted|replaced) is not a child of this node/i.test(text)
+  )
+}
+
+/** Ошибки, от которых безопасно восстанавливаться полной перезагрузкой. */
+export function isRecoverableAppError(error: Error): boolean {
+  return isStaleBuildError(error) || isRecoverableBrowserStateError(error)
+}
+
 /** Ключ одноразовой попытки: страховка от петли перезагрузок, если новая
- *  сборка тоже не грузится (например, файл действительно не выложен). */
-const RELOAD_GUARD = 'tte:stale-build-reloaded'
+ * сборка или DOM действительно не могут восстановиться. */
+const RELOAD_GUARD = 'tte:runtime-recovery-reloaded'
+const HEALTHY_APP_DELAY_MS = 10_000
+
+/**
+ * Возвращает `true`, когда перезагрузка уже начата или намеренно подавлена.
+ * Одна функция используется и React boundary, и глобальными обработчиками:
+ * иначе ошибки из Promise проходили мимо boundary и оставляли вкладку в
+ * сломанном состоянии.
+ */
+export function recoverPageOnce(): boolean {
+  try {
+    const alreadyTried = sessionStorage.getItem(RELOAD_GUARD) === '1'
+    sessionStorage.setItem(RELOAD_GUARD, '1')
+    if (!alreadyTried) window.location.reload()
+    return true
+  } catch {
+    // Приватный режим — хранилище недоступно. Тогда лучше не перезагружать
+    // вовсе, чем уйти в бесконечный цикл.
+    return false
+  }
+}
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -164,31 +210,24 @@ class AppErrorBoundary extends React.Component<
   }
 
   componentDidMount() {
-    // Приложение поднялось — значит прошлая перезагрузка помогла. Снимаем
-    // страховку, иначе следующий деплой в этой же сессии уже не перезагрузит
-    // вкладку и человек снова упрётся в экран.
-    try {
-      sessionStorage.removeItem(RELOAD_GUARD)
-    } catch {
-      // Хранилище недоступно — не страшно, страховки тогда и не было.
-    }
+    // Не снимаем флаг сразу: boundary монтируется до lazy-страницы, и при
+    // ошибке её загрузки это превратило бы защиту в бесконечную перезагрузку.
+    // Десять секунд стабильной работы достаточно, чтобы признать вкладку
+    // здоровой и разрешить восстановление после следующего деплоя.
+    window.setTimeout(() => {
+      if (this.state.error) return
+      try {
+        sessionStorage.removeItem(RELOAD_GUARD)
+      } catch {
+        // Хранилище недоступно — не страшно, страховки тогда и не было.
+      }
+    }, HEALTHY_APP_DELAY_MS)
   }
 
   componentDidCatch(error: Error) {
     console.error('App runtime error', error)
 
-    if (isStaleBuildError(error)) {
-      let alreadyTried = false
-      try {
-        alreadyTried = sessionStorage.getItem(RELOAD_GUARD) === '1'
-        sessionStorage.setItem(RELOAD_GUARD, '1')
-      } catch {
-        // Приватный режим — хранилище недоступно. Тогда лучше не перезагружать
-        // вовсе, чем уйти в бесконечный цикл: человек увидит экран с кнопкой.
-        return
-      }
-      if (!alreadyTried) window.location.reload()
-    }
+    if (isRecoverableAppError(error)) recoverPageOnce()
   }
 
   render() {
@@ -201,11 +240,13 @@ class AppErrorBoundary extends React.Component<
             TeenTechEd
           </div>
           <h1 className="mt-3 font-display text-2xl font-black">
-            {isStaleBuildError(this.state.error) ? 'Вышло обновление' : 'Экран не открылся'}
+            {isRecoverableAppError(this.state.error)
+              ? 'Восстанавливаем страницу'
+              : 'Экран не открылся'}
           </h1>
           <p className="mt-2 text-sm leading-6 text-white/65">
-            {isStaleBuildError(this.state.error)
-              ? 'Пока вкладка была открыта, портал обновился, и старые файлы страницы больше не отдаются. Обновите страницу — данные не потеряются.'
+            {isRecoverableAppError(this.state.error)
+              ? 'Вкладка потеряла актуальное состояние. Портал попробует обновиться один раз автоматически; данные на сервере не потеряются.'
               : 'Страница упала в runtime. Теперь вместо белого экрана показываем ошибку, чтобы её можно было быстро исправить.'}
           </p>
           <pre className="mt-4 max-h-52 overflow-auto rounded-panel border border-white/10 bg-black/40 p-3 text-xs text-white/70">
