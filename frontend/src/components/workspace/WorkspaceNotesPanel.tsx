@@ -179,9 +179,15 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
         </div>
       )}
 
+      {!adding && notes.length === 0 && (
+        <div className="rounded-panel border border-dashed border-w-line bg-w-panel2 px-4 py-5 text-sm text-w-muted">
+          У этого ученика пока нет заметок. Добавьте первую заметку, чтобы сохранить важную информацию для команды.
+        </div>
+      )}
+
       {!adding ? (
         <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => setAdding(true)}>
-          <Plus className="h-3.5 w-3.5" /> Добавить заметку
+          <Plus className="h-3.5 w-3.5" /> {notes.length === 0 ? 'Добавить первую заметку' : 'Добавить заметку'}
         </AppButton>
       ) : (
         <div className="space-y-2.5">

@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.access_request import (
@@ -59,35 +59,45 @@ async def backfill_unlinked_student_requests(db: AsyncSession) -> int:
     До появления /join администратор мог выдать пользователю роль student
     отдельно от students.user_id. Такой человек активен в списке пользователей,
     но не может открыть кабинет и не имеет строки для ручной привязки. Создаём
-    заявку лениво при открытии очереди; outer join на AccessRequest гарантирует,
-    что повторное открытие экрана не плодит записи.
+    заявку лениво при открытии очереди. Если старая заявка была помечена
+    одобренной, но карточка всё же не получила user_id, возвращаем её в `new`:
+    «одобрено без привязки» — противоречивое состояние, в котором ученику
+    нельзя открыть кабинет. Отклонённые заявки не переоткрываем.
     """
-    users = (
+    rows = (
         await db.execute(
-            select(User)
+            select(User, AccessRequest)
             .outerjoin(Student, Student.user_id == User.id)
             .outerjoin(AccessRequest, AccessRequest.user_id == User.id)
             .where(
                 User.role == UserRole.student,
                 Student.id.is_(None),
-                AccessRequest.id.is_(None),
+                or_(
+                    AccessRequest.id.is_(None),
+                    AccessRequest.status.in_((STATUS_APPROVED, STATUS_AUTO_APPROVED)),
+                ),
             )
         )
-    ).scalars().all()
-    for user in users:
-        db.add(
-            AccessRequest(
-                user_id=user.id,
-                requested_role=UserRole.student.value,
-                full_name=user.name,
-                phone_raw=user.phone or "",
-                phone_normalized=normalize_phone(user.phone or ""),
-                status=STATUS_NEW,
+    ).all()
+    for user, request in rows:
+        if request is None:
+            db.add(
+                AccessRequest(
+                    user_id=user.id,
+                    requested_role=UserRole.student.value,
+                    full_name=user.name,
+                    phone_raw=user.phone or "",
+                    phone_normalized=normalize_phone(user.phone or ""),
+                    status=STATUS_NEW,
+                )
             )
-        )
-    if users:
+        else:
+            request.status = STATUS_NEW
+            request.decided_by = None
+            request.decided_at = None
+    if rows:
         await db.flush()
-    return len(users)
+    return len(rows)
 
 
 async def load_students_index(db: AsyncSession) -> list[dict]:
