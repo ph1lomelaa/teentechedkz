@@ -11,7 +11,12 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
-from app.core.deps import account_revoked_after_activation, get_current_user, CurrentUser
+from app.core.deps import (
+    account_revoked_after_activation,
+    get_current_user,
+    mark_logged_in,
+    CurrentUser,
+)
 from app.models.user import User, UserRole
 from app.models.user import RefreshToken
 from app.models.audit_log import AuditAction
@@ -103,7 +108,11 @@ async def login(
     # отбивается здесь: он входит и попадает на экран ожидания. Дальше
     # /auth/me и выхода его не пускает гейт _PENDING_APPROVAL_ALLOWED_PATHS
     # в core/deps.py.
-    user.last_login_at = datetime.now(timezone.utc)
+    #
+    # Через mark_logged_in, а не присваиванием: ждущему одобрения отмечать
+    # вход нельзя — проверка выше прочитает штамп как «был активен, отключили»
+    # и запрёт его на первом же следующем запросе.
+    mark_logged_in(user)
 
     session = await issue_session(db, response, user)
     record_audit(
@@ -240,7 +249,7 @@ async def login_with_google(
             detail="Аккаунт отключён администратором.",
         )
 
-    user.last_login_at = datetime.now(timezone.utc)
+    mark_logged_in(user)
     session = await issue_session(db, response, user)
     record_audit(
         db,

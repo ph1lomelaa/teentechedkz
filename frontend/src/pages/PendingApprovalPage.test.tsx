@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { ReactElement } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { postLoginPath } from '@/lib/authRouting'
@@ -24,7 +27,32 @@ vi.mock('@/contexts/AuthContext', () => ({
   }),
 }))
 
+// Своя заявка приезжает отдельным запросом; сеть в юнит-тесте не нужна —
+// проверяется, что экран её показывает, а не как она доехала.
+const mine = vi.fn().mockResolvedValue({
+  id: 'r1',
+  requested_role: 'student',
+  full_name: 'Данияр Сатыбалды',
+  phone: '+7 707 123 45 67',
+  city: 'Алматы',
+  direction: null,
+  status: 'new',
+  created_at: '2026-09-02T10:00:00Z',
+})
+vi.mock('@/api/accessRequests', () => ({
+  accessRequestsApi: { mine: () => mine() },
+}))
+
 const { PendingApprovalPage } = await import('./PendingApprovalPage')
+
+function renderPage(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
 
 describe('postLoginPath', () => {
   const base = { role: 'mentor' as const, is_active: true, must_change_password: false }
@@ -53,21 +81,29 @@ describe('postLoginPath', () => {
 
 describe('экран ожидания', () => {
   it('показывает, кем человек вошёл, и статус словом, а не только цветом', () => {
-    render(<PendingApprovalPage />)
+    renderPage(<PendingApprovalPage />)
     expect(screen.getByText('d@example.kz')).toBeInTheDocument()
     expect(screen.getByText('Ожидает подтверждения')).toBeInTheDocument()
   })
 
   it('даёт перепроверить статус, не выходя', () => {
-    render(<PendingApprovalPage />)
+    renderPage(<PendingApprovalPage />)
     fireEvent.click(screen.getByRole('button', { name: /Проверить статус/ }))
     expect(refreshUser).toHaveBeenCalled()
   })
 
   it('даёт выйти — иначе экран становится ловушкой', () => {
-    render(<PendingApprovalPage />)
+    renderPage(<PendingApprovalPage />)
     fireEvent.click(screen.getByRole('button', { name: /Выйти/ }))
     expect(logout).toHaveBeenCalled()
+  })
+
+  it('показывает данные заявки и даёт их исправить', async () => {
+    // «Ждите» без единого признака, что заявка вообще дошла, читается как
+    // поломка. Человек должен увидеть свой телефон — по нему его и ищут.
+    renderPage(<PendingApprovalPage />)
+    expect(await screen.findByText('+7 707 123 45 67')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Изменить данные/ })).toHaveAttribute('href', '/join')
   })
 })
 

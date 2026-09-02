@@ -14,6 +14,7 @@ import { StudentLandingPage } from '@/pages/StudentLandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ApplyPage } from '@/pages/ApplyPage'
 import { JoinMentorPage } from '@/pages/JoinMentorPage'
+import { JoinPage } from '@/pages/JoinPage'
 import { StudentWelcomePage } from '@/pages/StudentWelcomePage'
 import { InvitePage } from '@/pages/InvitePage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
@@ -97,6 +98,9 @@ const FinancesPage = React.lazy(() =>
 )
 const SettingsUsersPage = React.lazy(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
+)
+const SettingsAccessRequestsPage = React.lazy(() =>
+  import('@/pages/SettingsAccessRequestsPage').then((m) => ({ default: m.SettingsAccessRequestsPage }))
 )
 const SettingsPermissionsPage = React.lazy(() =>
   import('@/pages/SettingsPermissionsPage').then((m) => ({ default: m.SettingsPermissionsPage }))
@@ -330,7 +334,10 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/apply" element={<ApplyPage />} />
       <Route path="/register" element={<ApplyPage />} />
-      <Route path="/join" element={<JoinMentorPage />} />
+      <Route path="/join" element={<JoinPage />} />
+      {/* Регистрация ментора по паролю. Осталась рабочей: Google-аккаунт есть
+          не у всех, а /join без него — тупик. */}
+      <Route path="/join/mentor" element={<JoinMentorPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
       <Route path="/welcome/:token" element={<StudentWelcomePage />} />
       <Route path="/app" element={<RootRedirect />} />
@@ -501,6 +508,21 @@ function AppRoutes() {
             <AppLayout>
               <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
                 <SettingsResponsibilitiesPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Очередь самозаписи: смотрят админ и МЗК, решают только админы —
+          мутирующие ручки проверяют access_requests:manage отдельно. */}
+      <Route
+        path="/settings/access-requests"
+        element={
+          <ProtectedRoute permission={['access_requests', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <SettingsAccessRequestsPage />
               </React.Suspense>
             </AppLayout>
           </ProtectedRoute>

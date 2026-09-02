@@ -27,6 +27,7 @@ from app.core.deps import (
     _PENDING_APPROVAL_ALLOWED_PATHS,
     _TEMP_PASSWORD_ALLOWED_PATHS,
     account_revoked_after_activation,
+    mark_logged_in,
     pending_approval_gate_applies,
 )
 
@@ -109,6 +110,72 @@ class AccountRevokedAfterActivationTests(unittest.TestCase):
                     account_revoked_after_activation(
                         is_active=True, has_logged_in_before=has_logged_in_before
                     )
+                )
+
+
+class LoginStampTests(unittest.TestCase):
+    """Отметка входа и «аккаунт отключили» — две половины одной пары полей.
+
+    Ради чего тест: `account_revoked_after_activation` читает `last_login_at`
+    как признак «аккаунт уже работал». Если отметить вход ждущему одобрения,
+    та же пара (is_active=False, last_login_at≠NULL) начинает читаться как
+    «был активен, отключили» — и человек вылетает с экрана ожидания на первом
+    же запросе, а вторая попытка входа получает «Аккаунт отключён
+    администратором» про аккаунт, которого никто не отключал. Ровно это и
+    происходило, пока обе половины стояли порознь.
+    """
+
+    class _U:
+        def __init__(self, is_active: bool) -> None:
+            self.is_active = is_active
+            self.last_login_at = None
+
+    def test_active_account_gets_stamped(self) -> None:
+        user = self._U(is_active=True)
+        mark_logged_in(user)
+        self.assertIsNotNone(user.last_login_at)
+
+    def test_pending_account_is_not_stamped(self) -> None:
+        user = self._U(is_active=False)
+        mark_logged_in(user)
+        self.assertIsNone(user.last_login_at)
+
+    def test_stamping_a_pending_account_would_lock_it_out(self) -> None:
+        # Тот самый переход, который ловим: отметили вход — и ждущий стал
+        # неотличим от отключённого.
+        user = self._U(is_active=False)
+        mark_logged_in(user)
+        self.assertFalse(
+            account_revoked_after_activation(
+                is_active=user.is_active,
+                has_logged_in_before=user.last_login_at is not None,
+            ),
+            "ждущий одобрения не должен выглядеть отключённым после входа",
+        )
+
+
+class OwnAccessRequestTests(unittest.TestCase):
+    """Экран ожидания показывает человеку его же анкету — и только её."""
+
+    def test_own_request_passes_the_gate(self) -> None:
+        self.assertFalse(
+            pending_approval_gate_applies(
+                is_active=False, path="/api/v1/access-requests/mine"
+            )
+        )
+
+    def test_the_rest_of_the_queue_stays_closed(self) -> None:
+        # Очередь целиком — это список чужих заявок с их телефонами.
+        # Ждущий не должен доставать оттуда ничего, включая счётчик.
+        for path in (
+            "/api/v1/access-requests",
+            "/api/v1/access-requests/count",
+            "/api/v1/access-requests/bulk-approve",
+            "/api/v1/access-requests/mine/../",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    pending_approval_gate_applies(is_active=False, path=path)
                 )
 
 

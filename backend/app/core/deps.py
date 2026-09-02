@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -21,6 +22,11 @@ _TEMP_PASSWORD_ALLOWED_PATHS = frozenset(
         "/api/v1/auth/change-password",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
+        # Своя же анкета с /join. Здесь она не нужна ни одному экрану, но
+        # список ждущего одобрения обязан оставаться строго уже этого
+        # (tests/test_pending_approval_gate.py), а этот путь безопасен для
+        # любого аккаунта: он отдаёт только собственную строку.
+        "/api/v1/access-requests/mine",
     }
 )
 
@@ -30,12 +36,18 @@ _TEMP_PASSWORD_ALLOWED_PATHS = frozenset(
 # Теперь он входит и попадает на экран ожидания; дальше этих путей не проходит.
 #
 # Список намеренно короче остальных: pending-аккаунт не подтверждён никем, и ни
-# одного чужого объекта он касаться не должен. Профиль и выход — всё.
+# одного чужого объекта он касаться не должен. Профиль, своя заявка и выход — всё.
+#
+# `/access-requests/mine` жёстко прибит к current_user.id и отдаёт только
+# собственную анкету: экран ожидания показывает человеку, что он о себе указал,
+# и даёт это исправить. Чужих данных здесь нет по построению — иначе путь в
+# этом списке был бы дырой ровно того размера, ради которого список и заведён.
 _PENDING_APPROVAL_ALLOWED_PATHS = frozenset(
     {
         "/api/v1/auth/me",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
+        "/api/v1/access-requests/mine",
     }
 )
 
@@ -50,6 +62,9 @@ _AGREEMENT_ALLOWED_PATHS = frozenset(
         "/api/v1/auth/logout-all",
         "/api/v1/agreements/pending",
         "/api/v1/portal/profile",
+        # См. комментарий в _TEMP_PASSWORD_ALLOWED_PATHS: держим инвариант
+        # «ждущий одобрения проходит строго меньше остальных».
+        "/api/v1/access-requests/mine",
     }
 )
 
@@ -88,6 +103,30 @@ def account_revoked_after_activation(*, is_active: bool, has_logged_in_before: b
     спрашивать это раньше «мягкого» pending_approval_gate_applies.
     """
     return not is_active and has_logged_in_before
+
+
+def mark_logged_in(user: User) -> None:
+    """Отметить вход — но только у аккаунта, который уже открыт.
+
+    Вторая половина `account_revoked_after_activation`, и держать их порознь
+    нельзя. Та функция читает `last_login_at` как признак «аккаунт уже
+    работал»: если он проставлен, а `is_active` снят, значит доступ отобрали
+    осознанно, и вход закрывается жёстко.
+
+    Штамп у ждущего одобрения ломает ровно это. Аккаунт заводится с
+    `is_active=False` и `last_login_at=NULL`; человек входит, попадает на
+    экран ожидания — и если вход отметить, то уже следующий запрос прочитает
+    ту же пару как «был активен, отключили» и ответит 401. Экран ожидания
+    не успевает отрисоваться, а вторая попытка входа встречает «Аккаунт
+    отключён администратором» — про аккаунт, которого никто не отключал.
+
+    Поэтому ждущий вход не отмечает. Ничего при этом не теряется: «последний
+    вход» у неодобренной заявки и показывать негде — админ видит её в очереди,
+    а не в списке работающих людей.
+    """
+    if not user.is_active:
+        return
+    user.last_login_at = datetime.now(timezone.utc)
 
 
 _AGREEMENT_PRE_SIGNATURE_ACTIONS = frozenset({"sign", "preview", "download"})

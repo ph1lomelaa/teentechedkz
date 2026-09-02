@@ -27,7 +27,10 @@ import {
   Award,
   ShieldCheck,
   UserCheck,
+  UserPlus,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { accessRequestsApi } from '@/api/accessRequests'
 import { useAuth } from '@/contexts/AuthContext'
 import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -50,6 +53,12 @@ interface NavItem {
    * может только сузить показ, но не расширить.
    */
   permission?: NavPermission
+  /**
+   * Счётчик рядом с пунктом. Единственный сейчас — очередь заявок: в день
+   * массовой регистрации она наполняется, пока админ смотрит в другой раздел,
+   * и без числа в меню он про неё просто не вспомнит.
+   */
+  badge?: 'access_requests'
 }
 
 interface NavGroup {
@@ -120,6 +129,9 @@ const ADMIN_ONLY_ITEMS: NavItem[] = [
 // раздел управления, для самого МЗК-менеджера — его собственный балл.
 function staffOnlyItems(role: string): NavItem[] {
   return [
+    // Очередь самозаписи. Право access_requests:view — у админа и МЗК, поэтому
+    // ментор пункта не увидит, хотя список сам по себе staff-only.
+    { label: 'Заявки на доступ', path: '/settings/access-requests', icon: <UserPlus className="w-4 h-4" />, permission: ['access_requests', 'view'], badge: 'access_requests' },
     { label: 'Задачи менторов', path: '/mentor-tasks', icon: <ListTodo className="w-4 h-4" />, permission: ['tasks', 'manage'] },
     { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" />, permission: ['checkins', 'view'] },
     { label: 'Возвратные кейсы', path: '/refund-cases', icon: <Banknote className="w-4 h-4" />, permission: ['refund_cases', 'manage'] },
@@ -176,6 +188,7 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/statistics': 'Статистика',
     '/finances': 'Финансы',
     '/settings/users': 'Пользователи',
+    '/settings/access-requests': 'Заявки на доступ',
     '/settings/permissions': 'Права доступа',
     '/settings/responsibilities': 'Кто за что отвечает',
     '/roadmap-templates': 'Roadmap-шаблоны',
@@ -213,6 +226,22 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   useScrollRestoration(mainRef)
 
   const navGroups = user ? filterNavByPermission(getNavGroups(user.role), can) : []
+
+  // Счётчик заявок. Спрашиваем, только если пункт виден: у ментора эта ручка
+  // отвечает 403, и запрос был бы гарантированной ошибкой в консоли.
+  const showsAccessRequests = navGroups.some((g) =>
+    g.items.some((i) => i.badge === 'access_requests'),
+  )
+  const { data: accessRequestCount } = useQuery({
+    queryKey: ['access-requests', 'count'],
+    queryFn: accessRequestsApi.count,
+    enabled: showsAccessRequests,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  const badgeCounts: Record<string, number> = {
+    access_requests: accessRequestCount?.total ?? 0,
+  }
   const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
 
   // Закрываем мобильное меню при переходе на другую страницу
@@ -292,7 +321,20 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                       <span className={isActive ? 'text-black' : 'text-white/50'}>
                         {item.icon}
                       </span>
-                      {item.label}
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.badge && badgeCounts[item.badge] > 0 && (
+                        <span
+                          className={cn(
+                            'ml-auto shrink-0 rounded-pill px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
+                            isActive ? 'bg-black/15 text-black' : 'bg-brand text-black',
+                          )}
+                          // Цвет не единственный носитель смысла: число рядом
+                          // с пунктом читается и без него.
+                          aria-label={`${badgeCounts[item.badge]} ждут одобрения`}
+                        >
+                          {badgeCounts[item.badge]}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}

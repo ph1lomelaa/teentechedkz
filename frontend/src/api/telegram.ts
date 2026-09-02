@@ -110,6 +110,19 @@ export const telegramApi = {
     })
     return response.data
   },
+  /**
+   * QR персональной ссылки — картинкой, а не через <img src>.
+   *
+   * Access-токен живёт в памяти JS, а не в куке, поэтому браузер не приложит
+   * его к запросу за картинкой: прямой <img src> получил бы 401. Тянем через
+   * тот же клиент, что и всё остальное, и отдаём blob.
+   */
+  inviteLinkQr: async (linkId: string): Promise<Blob> => {
+    const response = await apiClient.get(`/telegram-chats/invite-links/${linkId}/qr.svg`, {
+      responseType: 'blob',
+    })
+    return response.data as Blob
+  },
   unbindStudentTelegram: async (studentId: string): Promise<{ ok: boolean }> => {
     const response = await apiClient.post<{ ok: boolean }>(`/telegram-chats/students/${studentId}/telegram/unbind`)
     return response.data

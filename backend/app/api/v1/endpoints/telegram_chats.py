@@ -1825,11 +1825,65 @@ async def create_group_invite_link(
     )
     await db.commit()
     return {
+        # id нужен фронту, чтобы попросить QR этой же ссылки.
+        "id": str(link.id),
         "invite_link": result.invite_link,
         "expires_at": expires_at.isoformat(),
         "expected_student_id": str(student.id),
         "expected_student_name": student.full_name,
     }
+
+
+@router.get("/invite-links/{link_id}/qr.svg")
+async def invite_link_qr(
+    link_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: StaffUser,
+):
+    """QR той же персональной ссылки — чтобы ученик вступил телефоном.
+
+    Зачем картинка, если ссылка уже есть
+    ------------------------------------
+    Ссылку надо куда-то переслать, а на живой встрече пересылать некуда:
+    показать экран проще, чем искать общий мессенджер с каждым. Текст ссылки
+    рядом остаётся — QR его не заменяет, а дополняет.
+
+    SVG, а не PNG: генерится без Pillow, не мылится при увеличении и на печати.
+
+    Доступ тот же, что у создания ссылки: ссылка одноразовая и именная, и
+    показывать её QR кому попало — то же самое, что отдать саму ссылку.
+    """
+    link = await db.get(TelegramInviteLink, link_id)
+    if link is None:
+        raise HTTPException(status_code=404, detail="Ссылка не найдена")
+    await require_student_access(db, link.student_id, current_user)
+
+    chat = (
+        await db.execute(select(TelegramChat).where(TelegramChat.chat_id == link.tg_chat_id))
+    ).scalar_one_or_none()
+    if chat is not None:
+        await _require_chat_access(db, chat.id, current_user)
+
+    if link.revoked or link.used_at is not None:
+        # Отозванная ссылка ведёт в никуда. Отдать её QR — значит выдать
+        # человеку картинку, которая молча не сработает у него на глазах.
+        raise HTTPException(status_code=409, detail="Ссылка больше не действует")
+
+    import io
+
+    import qrcode
+    import qrcode.image.svg
+
+    image = qrcode.make(link.invite_link, image_factory=qrcode.image.svg.SvgPathImage)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="image/svg+xml",
+        # Ссылка одноразовая и отзывается: кэш отдал бы мёртвый QR.
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/students/{student_id}/telegram/unbind")

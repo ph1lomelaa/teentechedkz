@@ -20,6 +20,7 @@ import {
 
 import { telegramApi } from '@/api/telegram'
 import { toast } from '@/hooks/use-toast'
+import { InviteQrCode } from '@/components/shared/InviteQrCode'
 import { cn, formatDate } from '@/lib/utils'
 import type { TelegramChat, TelegramGroupInviteLink, TelegramGroupSetupLink } from '@/types'
 
@@ -548,6 +549,7 @@ export function TelegramGroupManager({ studentId, studentName, chat, variant = '
               <button className={secondaryButton} onClick={() => copy(studentInvite.invite_link)}><Copy className="h-4 w-4" /> Копировать</button>
               <a className={secondaryButton} href={studentInvite.invite_link} target="_blank" rel="noreferrer">Открыть <ExternalLink className="h-4 w-4" /></a>
             </div>
+            <InviteQrCode linkId={studentInvite.id} className="mt-4" />
           </div>
         )}
       </div>

@@ -2,10 +2,14 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, KeyRound, Link2, Power, RotateCcw, UserPlus } from 'lucide-react'
 import { portalAccessApi } from '@/api/portalAccess'
+import type { ExistingUserConflict } from '@/api/portalAccess'
+import { conflictMessage, parseExistingUserConflict } from '@/lib/existingUserConflict'
 import { toast } from '@/hooks/use-toast'
 import { AppButton } from '@/components/ui'
 import { cn, formatDate } from '@/lib/utils'
 import { QueryError } from '@/components/shared/QueryState'
+
+type ExistingUser = ExistingUserConflict['user']
 
 type Props = {
   studentId: string
@@ -40,6 +44,10 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
     queryClient.invalidateQueries({ queryKey: ['staff-conversation', studentId] })
   }
 
+  // Аккаунт, занявший этот email. Тот же случай, что в CRM-панели: студент
+  // зарегистрировался сам раньше, чем ему открыли карточку.
+  const [existingUser, setExistingUser] = useState<ExistingUser | null>(null)
+
   const grantMutation = useMutation({
     mutationFn: () => portalAccessApi.grant(studentId, email.trim(), name.trim() || undefined),
     onSuccess: (res) => {
@@ -48,13 +56,44 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
       setInviteExpiresAt(res.invite_expires_at)
       setEmail('')
       setName('')
+      setExistingUser(null)
       invalidate()
       onGranted?.()
       toast({ title: 'Доступ выдан', description: 'Передайте студенту ссылку-приглашение и временный пароль.' })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Не удалось выдать доступ', description: detail ?? 'Ошибка', variant: 'destructive' })
+      const found = parseExistingUserConflict(err)
+      if (found) {
+        setExistingUser(found)
+        return
+      }
+      toast({
+        title: 'Не удалось выдать доступ',
+        description: conflictMessage(err) ?? 'Ошибка',
+        variant: 'destructive',
+      })
+    },
+  })
+
+  const linkUserMutation = useMutation({
+    mutationFn: (userId: string) => portalAccessApi.linkUser(studentId, userId),
+    onSuccess: () => {
+      setExistingUser(null)
+      setEmail('')
+      setName('')
+      invalidate()
+      onGranted?.()
+      toast({
+        title: 'Аккаунт привязан',
+        description: 'Студент увидит свой кабинет — заново входить не нужно.',
+      })
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Не удалось привязать аккаунт',
+        description: conflictMessage(err) ?? 'Ошибка',
+        variant: 'destructive',
+      })
     },
   })
 
@@ -182,6 +221,36 @@ export function WorkspaceAccessPanel({ studentId, studentName, onGranted }: Prop
               />
             </label>
           </div>
+          {existingUser && (
+            <div className="rounded-ctl border border-w-accentDim/40 bg-w-accent/[0.08] p-3 text-sm text-w-ink">
+              <p className="font-bold">Этот адрес уже занят</p>
+              <p className="mt-1 text-w-muted">
+                {existingUser.name} · {existingUser.email}
+                {!existingUser.is_active && ' · ждёт одобрения'}
+              </p>
+              <p className="mt-1 text-w-muted">
+                Похоже, студент зарегистрировался сам. Второй аккаунт не нужен — привяжите этот.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <AppButton
+                  colorPrefix="w"
+                  size="sm"
+                  disabled={linkUserMutation.isPending}
+                  onClick={() => linkUserMutation.mutate(existingUser.id)}
+                >
+                  <Link2 className="h-3.5 w-3.5" /> Привязать этот аккаунт
+                </AppButton>
+                <AppButton
+                  colorPrefix="w"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setExistingUser(null)}
+                >
+                  Указать другой адрес
+                </AppButton>
+              </div>
+            </div>
+          )}
           <AppButton colorPrefix="w" size="sm" disabled={grantMutation.isPending || !email.trim()} onClick={() => grantMutation.mutate()}>
             <UserPlus className="h-3.5 w-3.5" /> {grantMutation.isPending ? 'Выдаём...' : 'Выдать доступ'}
           </AppButton>

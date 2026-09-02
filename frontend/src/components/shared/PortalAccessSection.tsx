@@ -11,7 +11,11 @@ import { Input } from '@/components/ui/primitives/input'
 import { Badge } from '@/components/ui/primitives/badge'
 import { useToast } from '@/hooks/use-toast'
 import { portalAccessApi } from '@/api/portalAccess'
+import type { ExistingUserConflict } from '@/api/portalAccess'
+import { conflictMessage, parseExistingUserConflict } from '@/lib/existingUserConflict'
 import { QueryState } from '@/components/shared/QueryState'
+
+type ExistingUser = ExistingUserConflict['user']
 
 function fmtDate(value?: string | null): string {
   if (!value) return 'ещё не входил(а)'
@@ -40,6 +44,9 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
   const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
   const [secondEmail, setSecondEmail] = useState('')
+  // Аккаунт, который занял этот email. Появляется из 409 и живёт до тех
+  // пор, пока его не привяжут или не сменят адрес.
+  const [existingUser, setExistingUser] = useState<ExistingUser | null>(null)
 
   const { data: access, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal-access', studentId],
@@ -59,12 +66,44 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
       setInviteExpiresAt(res.invite_expires_at)
       setEmail('')
       setName('')
+      setExistingUser(null)
       invalidate()
       toast({ title: 'Доступ выдан', description: 'Ссылку-приглашение и временный пароль передайте студенту.' })
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      toast({ title: 'Не удалось выдать доступ', description: detail ?? 'Ошибка', variant: 'destructive' })
+      // Адрес занят: раньше это был конец пути. Теперь показываем найденный
+      // аккаунт и предлагаем привязать его к карточке.
+      const found = parseExistingUserConflict(err)
+      if (found) {
+        setExistingUser(found)
+        return
+      }
+      toast({
+        title: 'Не удалось выдать доступ',
+        description: conflictMessage(err) ?? 'Ошибка',
+        variant: 'destructive',
+      })
+    },
+  })
+
+  const linkUserMutation = useMutation({
+    mutationFn: (userId: string) => portalAccessApi.linkUser(studentId, userId),
+    onSuccess: () => {
+      setExistingUser(null)
+      setEmail('')
+      setName('')
+      invalidate()
+      toast({
+        title: 'Аккаунт привязан',
+        description: 'Студент увидит свой кабинет — заново входить не нужно.',
+      })
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Не удалось привязать аккаунт',
+        description: conflictMessage(err) ?? 'Ошибка',
+        variant: 'destructive',
+      })
     },
   })
 
@@ -306,6 +345,38 @@ export const PortalAccessSection: React.FC<{ studentId: string }> = ({ studentId
                 />
               </div>
             </div>
+            {existingUser && (
+              <div className="rounded-panel border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Этот адрес уже занят</p>
+                <p className="mt-1">
+                  {existingUser.name} · {existingUser.email}
+                  {!existingUser.is_active && ' · ждёт одобрения'}
+                </p>
+                <p className="mt-1 text-amber-800">
+                  Скорее всего, студент зарегистрировался сам. Второй аккаунт заводить не нужно —
+                  привяжите этот к карточке.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => linkUserMutation.mutate(existingUser.id)}
+                    disabled={linkUserMutation.isPending}
+                  >
+                    <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                    Привязать этот аккаунт
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => setExistingUser(null)}
+                  >
+                    Указать другой адрес
+                  </Button>
+                </div>
+              </div>
+            )}
             <Button
               size="sm"
               className="h-9 px-4 text-xs"

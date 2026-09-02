@@ -30,6 +30,8 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("agreements", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("applications", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("applications", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("access_requests", Action.manage): ("admin",),
+    ("access_requests", Action.view): ("admin", "mzk_manager"),
     ("audit", Action.view): ("admin",),
     ("chat", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("chat", Action.view): ("admin", "mzk_manager", "mentor", "student"),
@@ -209,6 +211,7 @@ class SensitiveResourceTests(unittest.TestCase):
         for resource in (
             "guardians", "confidential_notes", "finances", "contracts",
             "users", "audit", "security_incidents", "refund_cases",
+            "access_requests",
             "mentor_rewards", "mzk_quality", "workspace", "export",
         ):
             for action in (Action.view, Action.manage):
@@ -222,6 +225,9 @@ class SensitiveResourceTests(unittest.TestCase):
             ("users", Action.manage),
             ("audit", Action.view),
             ("agreements", Action.manage),
+            # Одобрение заявки выдаёт человеку доступ к чужой карточке —
+            # то же по цене, что users:manage, и держится на том же уровне.
+            ("access_requests", Action.manage),
         ):
             for role in (UserRole.mzk_manager, UserRole.mentor, UserRole.student):
                 with self.subTest(resource=resource, role=role.value):

@@ -147,6 +147,12 @@ jobs:
           # `deepgram_rest` падает без ключа. Это отдельный сервис в CI и
           # платные запросы на каждый прогон, то есть решение, а не мелочь.
           python tests/e2e_workspace_telegram.py http://127.0.0.1:8001
+          # Самозапись: тупик «email занят, кабинет выдать нечем» и очередь
+          # заявок. Тремя звеньями (занятый email, students.user_id, роль) он
+          # собирался только вживую — юнит-тестами каждое звено выглядело
+          # исправным. Сам /public/join сюда не входит: нужен настоящий
+          # id_token от Google, а вердикт матчинга покрыт test_access_requests.
+          python tests/e2e_access_requests.py http://127.0.0.1:8001
 
       # ---------- Compose ----------
       - name: Validate docker compose

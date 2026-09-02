@@ -672,8 +672,11 @@ async def _workspace_workload(db: AsyncSession, student_ids: list[uuid.UUID], su
         select(MentorTaskPenalty.mentor_id, func.count())
         .where(
             MentorTaskPenalty.mentor_id.in_(grouped.keys()),
-            MentorTaskPenalty.created_at >= month_start,
-            MentorTaskPenalty.created_at < month_end,
+            # recorded_at, а не created_at: такой колонки у модели нет вовсе,
+            # и обращение к ней роняло весь дашборд в 500 (AttributeError
+            # вычисляется при построении запроса, а не в базе).
+            MentorTaskPenalty.recorded_at >= month_start,
+            MentorTaskPenalty.recorded_at < month_end,
         )
         .group_by(MentorTaskPenalty.mentor_id)
     )

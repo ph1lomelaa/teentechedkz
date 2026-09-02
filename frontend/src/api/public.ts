@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { LoginResponse } from './auth'
 
 export interface PublicApplicationInput {
   full_name: string
@@ -25,7 +26,28 @@ export interface MentorSignupInput {
   password: string
 }
 
+export interface JoinInput {
+  credential: string
+  requested_role: 'student' | 'mentor'
+  full_name: string
+  phone: string
+  city?: string
+  direction?: string
+  code?: string
+}
+
+/**
+ * `status` — единственное, что решает, куда вести человека дальше.
+ * `active` — он уже в системе (совпал телефон или код), `pending` — ждёт
+ * админа. Сессия приходит в обоих случаях: ждущий должен видеть свою заявку.
+ */
+export type JoinResult = LoginResponse & { status: 'active' | 'pending' }
+
 export const publicApi = {
+  join: async (body: JoinInput): Promise<JoinResult> => {
+    const response = await apiClient.post<JoinResult>('/public/join', body)
+    return response.data
+  },
   createApplication: async (body: PublicApplicationInput): Promise<PublicApplicationResult> => {
     const response = await apiClient.post<PublicApplicationResult>('/public/applications', body)
     return response.data

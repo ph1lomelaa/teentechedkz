@@ -30,6 +30,12 @@ export interface GrantAccessResponse {
   invite_expires_at: string
 }
 
+/** Тело 409 от `grant`, когда email уже занят: кого нашли и можно ли привязать. */
+export interface ExistingUserConflict {
+  message: string
+  user: { id: string; name: string; email: string; is_active: boolean; role: string }
+}
+
 export interface ResetPasswordResponse {
   temp_password: string
 }
@@ -47,6 +53,18 @@ export const portalAccessApi = {
   grant: (studentId: string, email: string, name?: string) =>
     apiClient
       .post<GrantAccessResponse>(`/students/${studentId}/grant-access`, { email, name })
+      .then((r) => r.data),
+
+  /**
+   * Отдать кабинет этой карточки уже существующему аккаунту.
+   *
+   * Нужно, когда человек зарегистрировался сам раньше, чем менеджер открыл его
+   * карточку: тогда `grant` упирается в занятый email и отвечает 409 с
+   * `X-Error-Code: USER_EXISTS`, а найденный аккаунт приезжает в теле ошибки.
+   */
+  linkUser: (studentId: string, userId: string) =>
+    apiClient
+      .post<AccessStatus>(`/students/${studentId}/link-user`, { user_id: userId })
       .then((r) => r.data),
 
   reset: (studentId: string) =>

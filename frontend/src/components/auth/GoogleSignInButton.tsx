@@ -57,13 +57,22 @@ function loadGsi(): Promise<void> {
 export const GoogleSignInButton: React.FC<{
   onCredential: (credential: string) => void
   onError: (message: string) => void
-}> = ({ onCredential, onError }) => {
+  /** Разделитель «или» нужен там, где рядом есть вход по паролю. На /join
+   *  Google — единственный способ, и черта над ним отделяла бы его от пустоты. */
+  divider?: boolean
+  /** Надпись на кнопке: вход или продолжение регистрации. */
+  text?: 'signin_with' | 'continue_with'
+}> = ({ onCredential, onError, divider = true, text = 'signin_with' }) => {
   const holder = useRef<HTMLDivElement>(null)
   const [enabled, setEnabled] = useState(false)
   // Колбэк Google вызывается вне React; держим последнюю версию в ref, иначе
   // кнопка, отрисованная один раз, навсегда защёлкнет первый onCredential.
   const latest = useRef({ onCredential, onError })
   latest.current = { onCredential, onError }
+  // Кнопку Google рисует их скрипт один раз; надпись читаем через ref, чтобы
+  // не тащить `text` в зависимости эффекта и не перерисовывать её впустую.
+  const textRef = useRef(text)
+  textRef.current = text
 
   useEffect(() => {
     let cancelled = false
@@ -96,7 +105,7 @@ export const GoogleSignInButton: React.FC<{
         theme: 'filled_black',
         size: 'large',
         width: 320,
-        text: 'signin_with',
+        text: textRef.current,
         shape: 'rectangular',
         locale: 'ru',
       })
@@ -110,13 +119,15 @@ export const GoogleSignInButton: React.FC<{
   }, [])
 
   return (
-    <div className={enabled ? 'mt-6' : 'hidden'}>
-      <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-white/35">
-        <span className="h-px flex-1 bg-white/10" />
-        или
-        <span className="h-px flex-1 bg-white/10" />
-      </div>
-      <div ref={holder} className="mt-4 flex justify-center" />
+    <div className={enabled ? (divider ? 'mt-6' : '') : 'hidden'}>
+      {divider && (
+        <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-white/35">
+          <span className="h-px flex-1 bg-white/10" />
+          или
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+      )}
+      <div ref={holder} className={`flex justify-center ${divider ? 'mt-4' : ''}`} />
     </div>
   )
 }

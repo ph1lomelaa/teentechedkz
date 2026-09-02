@@ -53,6 +53,7 @@ from app.api.v1.endpoints import (
     credentials,
     student_universities,
     security_incidents,
+    access_requests,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -60,6 +61,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(users.router)
+api_router.include_router(access_requests.router)
 api_router.include_router(students.router)
 api_router.include_router(student_access.router)
 api_router.include_router(invites.router)

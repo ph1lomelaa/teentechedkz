@@ -10,6 +10,7 @@ from .application import Application
 from .mentor_assignment import MentorAssignment
 from .student_responsibility import ResponsibilityArea, StudentResponsibility
 from .permission_override import PermissionOverride
+from .access_request import AccessRequest, ACCESS_REQUEST_STATUSES
 from .service import Service
 from .portfolio_progress import PortfolioProgress
 from .country_reference import CountryReference
@@ -117,4 +118,5 @@ __all__ = [
     "RewardRule", "RewardRuleKind",
     "MentorTaskPenalty", "PenaltyColor", "SecurityIncident", "SecurityIncidentKind", "SecurityIncidentStatus",
     "UserCheckin", "CheckinStatus",
+    "AccessRequest", "ACCESS_REQUEST_STATUSES",
 ]

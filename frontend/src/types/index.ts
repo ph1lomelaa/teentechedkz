@@ -639,6 +639,7 @@ export interface TelegramGroupReadiness {
 }
 
 export interface TelegramGroupInviteLink {
+  id: string
   invite_link: string
   expires_at: string
   expected_student_id: string

@@ -12,6 +12,7 @@ from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
 from app.models.audit_log import AuditAction
+from app.models.student import Student
 from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
 from app.services.audit import record_audit
@@ -302,6 +303,19 @@ async def update_user(
             new_role = UserRole(body["role"])
         except ValueError:
             raise HTTPException(status_code=422, detail="Неверная роль")
+        if new_role == UserRole.student:
+            # `role=student` без `students.user_id` — сломанный аккаунт:
+            # `get_current_student` (core/deps.py) резолвит студента как
+            # `students WHERE user_id = me` и отдаёт 404 на каждом экране
+            # портала. Раньше такой аккаунт делался отсюда двумя кликами.
+            linked = (
+                await db.execute(select(Student.id).where(Student.user_id == user.id))
+            ).scalar_one_or_none()
+            if linked is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ученику роль выдаётся привязкой к карточке студента, а не сменой роли",
+                )
         if new_role != user.role:
             user.role = new_role
             # A role change invalidates whatever the client believes it can do —

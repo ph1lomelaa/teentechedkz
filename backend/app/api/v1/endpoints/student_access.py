@@ -23,10 +23,12 @@ from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.security import hash_password
 from app.services.mentor_scope import primary_mentor_id, require_student_access
+from app.services.access_requests import decide, link_user_to_student
 from app.services.audit import record_audit
 from app.services.sessions import revoke_all_sessions
 from app.services.invites import issue_invite, student_invite_url
 from app.services.user_emails import MAX_EXTRA_EMAILS, email_in_use, list_extra_emails, norm
+from app.models.access_request import STATUS_APPROVED, STATUS_NEW, AccessRequest
 from app.models.audit_log import AuditAction
 from app.models.student import Student
 from app.models.user import User, UserRole
@@ -177,7 +179,25 @@ async def grant_access(
     email = body.email.strip().lower()
     exists = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if exists:
-        raise HTTPException(status_code=409, detail="Пользователь с таким email уже существует")
+        # Раньше здесь был тупик: студент, зарегистрировавшийся сам через
+        # Google, занимал email, и выдать ему кабинет становилось нечем —
+        # ни этой ручкой, ни какой-либо другой. Теперь отказ машиночитаемый:
+        # фронт показывает найденный аккаунт и предлагает привязать его
+        # (POST /students/{id}/link-user) вместо создания второго.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "У этого адреса уже есть аккаунт — его можно привязать к карточке",
+                "user": {
+                    "id": str(exists.id),
+                    "name": exists.name,
+                    "email": exists.email,
+                    "is_active": exists.is_active,
+                    "role": exists.role.value,
+                },
+            },
+            headers={"X-Error-Code": "USER_EXISTS"},
+        )
 
     temp_password = _gen_password()
     user = User(
@@ -229,6 +249,59 @@ async def grant_access(
         invite_code=raw_code,
         invite_expires_at=invite.expires_at,
     )
+
+
+class LinkUserRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+@router.post("/{student_id}/link-user", response_model=AccessStatus, status_code=201)
+async def link_existing_user(
+    student_id: uuid.UUID,
+    body: LinkUserRequest,
+    request: Request,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Отдать кабинет этой карточки уже существующему аккаунту.
+
+    Зачем отдельно от `grant_access`
+    --------------------------------
+    `grant_access` умеет только «завести нового пользователя», и на занятом
+    email упирается в 409. Массовая самозапись делает этот случай основным:
+    человек приходит через /join раньше, чем менеджер открывает его карточку.
+    Привязка — вторая половина той же операции, и без неё зарегистрировавшийся
+    сам ученик не получает кабинет никаким способом.
+
+    Роль и связь ставятся вместе (`link_user_to_student`): `role=student` без
+    `students.user_id` — это 404 на каждом экране портала.
+    """
+    student = await _staff_student(db, student_id, current_user)
+
+    user = await db.get(User, body.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    await link_user_to_student(
+        db,
+        student=student,
+        user=user,
+        actor=current_user,
+        request=request,
+        via="link_user",
+    )
+
+    # Заявка этого человека, если он пришёл через /join, закрывается тем же
+    # действием: иначе он останется висеть в очереди уже с выданным кабинетом.
+    req = (
+        await db.execute(select(AccessRequest).where(AccessRequest.user_id == user.id))
+    ).scalar_one_or_none()
+    if req is not None and req.status == STATUS_NEW:
+        await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
+
+    await db.commit()
+    await db.refresh(user)
+    return await _full_access_status(db, student, user)
 
 
 @router.post("/{student_id}/invite", response_model=InviteResponse)
