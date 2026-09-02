@@ -32,6 +32,20 @@ async def ensure_default_services(db: AsyncSession, student_id: uuid.UUID) -> in
     Идемпотентно: добавляет только те типы, которых у студента ещё нет,
     поэтому безопасно вызывать повторно и на существующих студентах.
     Коммит остаётся на вызывающей стороне. Возвращает число созданных строк.
+
+    Почему в конце flush
+    --------------------
+    Сессия собрана с `autoflush=False` (core/database.py). Без явного сброса
+    добавленные здесь строки живут только в памяти сессии: следующий SELECT по
+    услугам их не видит, решает, что услуги нет, и заводит вторую такую же —
+    а на коммите это падает на `uq_services_student_service_type`. Ровно так
+    ломалось «Создать студентов из анкет»: `_create_student_from_intake`
+    зовёт сначала эту функцию, а потом `_apply_intake_services`, который
+    делает такой SELECT.
+
+    Тот же аргумент касается и обещанной выше идемпотентности: без flush
+    повторный вызов в рамках одной транзакции не увидел бы собственных строк.
+    Flush — не коммит: транзакция вызывающей стороны остаётся открытой.
     """
     existing = await db.execute(
         select(Service.service_type).where(Service.student_id == student_id)
@@ -51,4 +65,6 @@ async def ensure_default_services(db: AsyncSession, student_id: uuid.UUID) -> in
             )
         )
         created += 1
+    if created:
+        await db.flush()
     return created

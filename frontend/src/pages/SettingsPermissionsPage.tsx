@@ -20,6 +20,12 @@ import {
   TableRow,
 } from '@/components/ui/primitives/table'
 import { PageHeader, StatCard } from '@/components/ui'
+import {
+  OTHER_GROUP,
+  RESOURCE_GROUPS,
+  groupTitleFor,
+  resourceLabel,
+} from '@/lib/permissionLabels'
 
 const ACTION_LABELS: Record<PermissionAction, string> = {
   view: 'Просмотр',
@@ -173,12 +179,43 @@ export const SettingsPermissionsPage: React.FC = () => {
     return (data?.rules ?? []).filter((rule) => {
       if (onlyReview && !rule.review) return false
       if (!needle) return true
+      // Ищем и по названию, и по ключу: админ набирает «жалобы», разработчик —
+      // «complaints», и обоим должно найтись.
       return (
         rule.resource.toLowerCase().includes(needle) ||
+        resourceLabel(rule.resource).toLowerCase().includes(needle) ||
+        groupTitleFor(rule.resource).toLowerCase().includes(needle) ||
         ACTION_LABELS[rule.action].toLowerCase().includes(needle)
       )
     })
   }, [data?.rules, query, onlyReview])
+
+  /**
+   * Правила, разложенные по разделам страницы.
+   *
+   * Плоский список из 87 строк не читается: соседние строки про деньги и про
+   * Telegram ничем не связаны, а глазу не за что зацепиться. Порядок групп
+   * задан в permissionLabels — от ежедневного к системному; внутри группы
+   * сохраняется порядок реестра, чтобы правила одного раздела шли подряд.
+   */
+  const grouped = useMemo(() => {
+    const order = [...RESOURCE_GROUPS.map((g) => g.title), OTHER_GROUP]
+    const hints = new Map(RESOURCE_GROUPS.map((g) => [g.title, g.hint]))
+    const buckets = new Map<string, PermissionMatrixRule[]>()
+    for (const rule of visibleRules) {
+      const title = groupTitleFor(rule.resource)
+      const list = buckets.get(title)
+      if (list) list.push(rule)
+      else buckets.set(title, [rule])
+    }
+    return order
+      .filter((title) => buckets.has(title))
+      .map((title) => ({
+        title,
+        hint: hints.get(title) ?? '',
+        rules: buckets.get(title) as PermissionMatrixRule[],
+      }))
+  }, [visibleRules])
 
   const toggle = (key: string) => {
     setExpanded((prev) => {
@@ -280,7 +317,18 @@ export const SettingsPermissionsPage: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              visibleRules.map((rule) => {
+              grouped.flatMap((group) => [
+                <TableRow key={`group-${group.title}`} className="border-p-line hover:bg-transparent">
+                  <TableCell colSpan={columnCount} className="bg-p-bg py-2">
+                    <span className="text-[11px] font-black uppercase tracking-[0.14em] text-p-accent">
+                      {group.title}
+                    </span>
+                    {group.hint && (
+                      <span className="ml-2 text-xs text-p-muted">{group.hint}</span>
+                    )}
+                  </TableCell>
+                </TableRow>,
+                ...group.rules.map((rule) => {
                 const key = ruleKey(rule)
                 const isOpen = expanded.has(key)
                 const notes = rule.extra_rules.length
@@ -297,7 +345,17 @@ export const SettingsPermissionsPage: React.FC = () => {
                           ) : (
                             <ChevronRight className="h-3.5 w-3.5 text-p-muted2" aria-hidden />
                           )}
-                          <span className="font-mono text-[13px]">{rule.resource}</span>
+                          {/* Крупно — название, мелко — ключ реестра. Ключ не
+                              убираем: по нему разговаривают с разработчиком и
+                              по нему же ищут в коде. */}
+                          <span className="min-w-0">
+                            <span className="block text-[14px] leading-tight text-p-text">
+                              {resourceLabel(rule.resource)}
+                            </span>
+                            <span className="block font-mono text-[11px] leading-tight text-p-muted2">
+                              {rule.resource}
+                            </span>
+                          </span>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1.5 pl-5">
                           {rule.review && (
@@ -342,17 +400,21 @@ export const SettingsPermissionsPage: React.FC = () => {
                     {isOpen && <RuleDetails rule={rule} colSpan={columnCount} />}
                   </React.Fragment>
                 )
-              })
+                }),
+              ])
             )}
           </TableBody>
         </Table>
       </div>
 
       <p className="mt-4 text-xs text-p-muted">
-        Названия разделов — ключи реестра из <span className="font-mono">app/core/permissions.py</span>.
-        Они не переводятся намеренно: перевод стал бы вторым названием одного и того же права.
-        Строки с пометкой «защищено» изменить нельзя: без них нельзя управлять системой,
-        и вернуть снятое право было бы уже нечем. Каждая правка пишется в историю.
+        Под каждым названием — ключ реестра из <span className="font-mono">app/core/permissions.py</span>:
+        название нужно, чтобы понять строку, ключ — чтобы найти её в коде и назвать разработчику.
+        «Полный доступ» включает просмотр, создание, правку и удаление. Подпись под галочкой
+        («свои студенты», «своя запись») означает, что роль видит не весь раздел, а только свою часть;
+        без подписи — раздел целиком. Строки с пометкой «защищено» изменить нельзя: без них
+        нельзя управлять системой, и вернуть снятое право было бы уже нечем.
+        Каждая правка пишется в историю.
       </p>
     </div>
   )
