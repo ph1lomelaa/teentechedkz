@@ -127,6 +127,32 @@ const StatusInboxPage = React.lazy(() => import('@/pages/StatusInboxPage'))
 
 const queryClient = createQueryClient()
 
+/**
+ * Ошибка «версия приложения устарела», а не поломка кода.
+ *
+ * Страницы грузятся чанками, имена которых содержат хеш сборки. После деплоя
+ * старые файлы исчезают, и вкладка, открытая до выката, при переходе в раздел
+ * просит несуществующий чанк. Формулировка у браузеров разная — Safari говорит
+ * «'text/html' is not a valid JavaScript MIME type» (nginx отдавал index.html
+ * вместо js), Chrome — «Failed to fetch dynamically imported module».
+ *
+ * Показывать такому человеку «Экран не открылся» бессмысленно: чинить нечего,
+ * нужна перезагрузка.
+ */
+export function isStaleBuildError(error: Error): boolean {
+  const text = `${error.name} ${error.message}`
+  return (
+    /dynamically imported module/i.test(text) ||
+    /Importing a module script failed/i.test(text) ||
+    /valid JavaScript MIME type/i.test(text) ||
+    /ChunkLoadError/i.test(text)
+  )
+}
+
+/** Ключ одноразовой попытки: страховка от петли перезагрузок, если новая
+ *  сборка тоже не грузится (например, файл действительно не выложен). */
+const RELOAD_GUARD = 'tte:stale-build-reloaded'
+
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }
@@ -137,8 +163,32 @@ class AppErrorBoundary extends React.Component<
     return { error }
   }
 
+  componentDidMount() {
+    // Приложение поднялось — значит прошлая перезагрузка помогла. Снимаем
+    // страховку, иначе следующий деплой в этой же сессии уже не перезагрузит
+    // вкладку и человек снова упрётся в экран.
+    try {
+      sessionStorage.removeItem(RELOAD_GUARD)
+    } catch {
+      // Хранилище недоступно — не страшно, страховки тогда и не было.
+    }
+  }
+
   componentDidCatch(error: Error) {
     console.error('App runtime error', error)
+
+    if (isStaleBuildError(error)) {
+      let alreadyTried = false
+      try {
+        alreadyTried = sessionStorage.getItem(RELOAD_GUARD) === '1'
+        sessionStorage.setItem(RELOAD_GUARD, '1')
+      } catch {
+        // Приватный режим — хранилище недоступно. Тогда лучше не перезагружать
+        // вовсе, чем уйти в бесконечный цикл: человек увидит экран с кнопкой.
+        return
+      }
+      if (!alreadyTried) window.location.reload()
+    }
   }
 
   render() {
@@ -150,9 +200,13 @@ class AppErrorBoundary extends React.Component<
           <div className="text-[11px] font-black uppercase tracking-[0.24em] text-[#FFD400]">
             TeenTechEd
           </div>
-          <h1 className="mt-3 font-display text-2xl font-black">Экран не открылся</h1>
+          <h1 className="mt-3 font-display text-2xl font-black">
+            {isStaleBuildError(this.state.error) ? 'Вышло обновление' : 'Экран не открылся'}
+          </h1>
           <p className="mt-2 text-sm leading-6 text-white/65">
-            Страница упала в runtime. Теперь вместо белого экрана показываем ошибку, чтобы её можно было быстро исправить.
+            {isStaleBuildError(this.state.error)
+              ? 'Пока вкладка была открыта, портал обновился, и старые файлы страницы больше не отдаются. Обновите страницу — данные не потеряются.'
+              : 'Страница упала в runtime. Теперь вместо белого экрана показываем ошибку, чтобы её можно было быстро исправить.'}
           </p>
           <pre className="mt-4 max-h-52 overflow-auto rounded-panel border border-white/10 bg-black/40 p-3 text-xs text-white/70">
             {this.state.error.message}
