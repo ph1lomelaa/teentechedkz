@@ -181,7 +181,11 @@ def main() -> None:
                 headers=auth(tokens["mentor"]),
                 json={"student_id": ids["foreign_student_id"]},
             )
-            require(foreign_pairing.status_code == 404, "mentor cannot pair foreign student")
+            # Скоуп ментора снят 02.09.2026 (решение владельца, см.
+            # services/mentor_scope.py): чужой ученик для ментора больше не
+            # «не найден». Проверяем именно это, а не отсутствие проверки:
+            # 404 здесь снова означал бы, что ограничение вернулось молча.
+            require(foreign_pairing.status_code == 200, "mentor can pair any student")
             student_pairing = client.post(
                 "/telegram-chats/pairing-code",
                 headers=auth(tokens["student"]),

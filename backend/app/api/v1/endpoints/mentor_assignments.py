@@ -149,8 +149,18 @@ async def create_assignment(
     mentor = mentor_result.scalar_one_or_none()
     if not mentor:
         raise HTTPException(status_code=404, detail="Специалист не найден")
-    if mentor.role not in (UserRole.mentor, UserRole.mzk_manager):
-        raise HTTPException(status_code=422, detail="Назначить можно только ментора или МЗК")
+    # Админ здесь наравне с ментором и МЗК: в небольшой команде он ведёт
+    # студентов сам, а прежнее правило это запрещало — он не мог взять
+    # студента даже себе. Доступа это не добавляет: админ и так видит всех
+    # (mentor_scope.py: скоуп применяется только к роли mentor). Меняется
+    # ровно одно — он становится видимым ответственным в карточке и в
+    # «Кто за что отвечает», то есть система начинает записывать то, что и
+    # так происходит. На деньги не влияет: вознаграждение заводится вручную
+    # с явным mentor_id (mentor_rewards.py), а не выводится из назначений.
+    if mentor.role not in (UserRole.admin, UserRole.mentor, UserRole.mzk_manager):
+        raise HTTPException(
+            status_code=422, detail="Назначить можно только сотрудника"
+        )
     active_result = await db.execute(
         select(MentorAssignment)
         .where(

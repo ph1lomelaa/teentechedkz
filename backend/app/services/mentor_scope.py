@@ -11,21 +11,37 @@ from app.models.user import User, UserRole
 
 
 async def mentor_assigned_student_ids(db: AsyncSession, user: User) -> set[uuid.UUID] | None:
-    """None means "no scoping needed" (admin/mzk_manager see everything).
-    A set (possibly empty) means the caller must be restricted to it."""
-    if user.role != UserRole.mentor:
-        return None
-    result = await db.execute(
-        select(MentorAssignment.student_id).where(
-            MentorAssignment.mentor_id == user.id,
-            MentorAssignment.is_active == True,  # noqa
-        )
-    )
-    return {r[0] for r in result.all()}
+    """Каких учеников этот сотрудник имеет право трогать.
+
+    `None` — «ограничивать не надо». Множество (возможно пустое) — вызывающий
+    обязан сузиться до него.
+
+    Сейчас всегда `None`: решение владельца от 02.09.2026 — сотрудник видит
+    карточку любого ученика, а не только своих. До этого ментор получал 404 на
+    чужой карточке, хотя список всех учеников в общей базе ему и так был
+    открыт: ограничение висело на карточке, но не на списке, и выглядело
+    случайным.
+
+    Что это открывает — важно понимать, потому что через этот же гейт идут
+    18 мест: родители с ИИН, конфиденциальные заметки, документы, переписка.
+    Решение осознанное: команда небольшая, и подмена доступа согласованием
+    мешала работе больше, чем защищала.
+
+    Функция намеренно оставлена, а не вырезана из 18 вызовов: если правило
+    вернётся (например, вырастет команда или появится требование по ПДн),
+    менять придётся одно место, а не всю обвязку заново. `db` и `user`
+    остаются в сигнатуре по той же причине.
+    """
+    del db, user  # см. докстринг: скоуп выключен, но плечо для возврата цело
+    return None
 
 
 async def require_student_access(db: AsyncSession, student_id: uuid.UUID, user: User) -> None:
-    """Raises if a mentor tries to touch a student outside their assignments."""
+    """Пропускает всех, пока скоуп выключен (см. mentor_assigned_student_ids).
+
+    Оставлена по всем 18 вызовам специально: это точка, где ограничение
+    включается обратно одним изменением.
+    """
     allowed_ids = await mentor_assigned_student_ids(db, user)
     if allowed_ids is None:
         return

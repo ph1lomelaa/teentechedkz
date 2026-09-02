@@ -97,14 +97,16 @@ class MatrixContentTests(_MatrixClientCase):
                             ).value,
                         )
 
-    def test_mentor_scope_survives_serialization(self) -> None:
-        # Скоуп — второй axis матрицы; если он потеряется, страница покажет
-        # ментору «весь раздел» там, где он видит только своих студентов.
+    def test_scope_survives_serialization(self) -> None:
+        # Скоуп — второй axis матрицы; потеряется он — и страница начнёт
+        # обещать не тот объём данных. У ученика он есть и обязан доехать;
+        # у ментора сейчас снят (02.09.2026), и это тоже должно быть видно
+        # на странице, а не подменяться прочерком.
         row = next(
             r for r in self.payload["rules"]
             if r["resource"] == "students" and r["action"] == Action.view.value
         )
-        self.assertEqual(row["roles"][UserRole.mentor.value]["scope"], Scope.assigned.value)
+        self.assertEqual(row["roles"][UserRole.mentor.value]["scope"], Scope.all.value)
         self.assertEqual(row["roles"][UserRole.student.value]["scope"], Scope.own.value)
         self.assertEqual(row["roles"][UserRole.admin.value]["scope"], Scope.all.value)
 

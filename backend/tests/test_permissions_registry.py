@@ -137,10 +137,12 @@ class ScopeTests(unittest.TestCase):
             Scope.all,
         )
 
-    def test_mentor_is_scoped_to_assigned_students(self) -> None:
+    def test_mentor_is_not_scoped_anymore(self) -> None:
+        # Осознанное решение, а не регрессия: скоуп ментора снят 02.09.2026
+        # (services/mentor_scope.py). Тест держит реестр в согласии с гейтом.
         self.assertEqual(
             scope_for(resource="documents", action=Action.manage, role=UserRole.mentor),
-            Scope.assigned,
+            Scope.all,
         )
 
     def test_student_is_scoped_to_own_record(self) -> None:

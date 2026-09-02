@@ -274,6 +274,8 @@ export const DashboardPage: React.FC = () => {
   const canDrag = hasRole('admin', 'mzk_manager')
   const isAdmin = hasRole('admin', 'mzk_manager')
   const canSelectStudents = hasRole('admin', 'mentor', 'mzk_manager')
+  // Взять студентов себе может любой сотрудник — админ в том числе.
+  const canOwnStudents = hasRole('admin', 'mentor', 'mzk_manager')
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [targetUserId, setTargetUserId] = useState('')
@@ -327,8 +329,10 @@ export const DashboardPage: React.FC = () => {
     queryFn: () => usersApi.list(),
     enabled: isAdmin,
   })
+  // Админ здесь наравне с остальными: в небольшой команде он ведёт студентов
+  // сам, и бэкенд это теперь разрешает (mentor_assignments.py).
   const availableAssignees = assignmentUsers.filter(
-    (candidate) => candidate.is_active && ['mentor', 'mzk_manager'].includes(candidate.role)
+    (candidate) => candidate.is_active && ['admin', 'mentor', 'mzk_manager'].includes(candidate.role)
   )
   const assignedIds = useMemo(() => {
     if (!isAdmin || !targetUserId) return new Set<string>()
@@ -419,6 +423,17 @@ export const DashboardPage: React.FC = () => {
 
   const filteredStudents = students
 
+  /** Кого из видимого сейчас можно назначить — на это опирается «Выбрать все». */
+  const selectableIds = useMemo(
+    () => filteredStudents
+      .filter((student) => !student.is_mine && !assignedIds.has(student.id))
+      .map((student) => student.id),
+    [filteredStudents, assignedIds],
+  )
+  const selectableCount = selectableIds.length
+  const allFilteredSelected =
+    selectableCount > 0 && selectableIds.every((id) => selectedIds.has(id))
+
   const grouped = useMemo(() => {
     const groups = {} as Record<PipelineStatus, StudentListItem[]>
     for (const status of PIPELINE_COLUMNS) groups[status] = []
@@ -495,6 +510,28 @@ export const DashboardPage: React.FC = () => {
             <p className="mt-0.5 text-xs text-p-muted">Студенты с отметкой «Уже мой» повторно не назначаются.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selectableCount === 0}
+              onClick={() => setSelectedIds(allFilteredSelected ? new Set() : new Set(selectableIds))}
+            >
+              {allFilteredSelected ? 'Снять выбор' : `Выбрать все · ${selectableCount}`}
+            </Button>
+            {canOwnStudents && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={selectedIds.size === 0 || assignSelectedMutation.isPending}
+                onClick={() => assignSelectedMutation.mutate({
+                  studentIds: Array.from(selectedIds),
+                  assigneeId: user?.id,
+                })}
+              >
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                Назначить мне
+              </Button>
+            )}
             {isAdmin && (
               <Select
                 value={targetUserId || 'none'}

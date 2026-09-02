@@ -167,10 +167,13 @@ class ScopePinningTests(unittest.TestCase):
     """
 
     def test_students_view_scope(self) -> None:
+        # Ментор с 02.09.2026 не ограничен: карточку любого ученика он
+        # открывает наравне с админом (решение владельца, см.
+        # services/mentor_scope.py). Ученик ограничен и остаётся таким.
         expected = {
             UserRole.admin: Scope.all,
             UserRole.mzk_manager: Scope.all,
-            UserRole.mentor: Scope.assigned,
+            UserRole.mentor: Scope.all,
             UserRole.student: Scope.own,
         }
         for role, scope in expected.items():
@@ -179,13 +182,30 @@ class ScopePinningTests(unittest.TestCase):
                     scope_for(resource="students", action=Action.view, role=role), scope
                 )
 
-    def test_mentor_is_never_unscoped_on_student_data(self) -> None:
-        # Ментор, получивший Scope.all на карточках студентов, видит всю базу.
+    def test_registry_and_gate_agree_on_mentor_scope(self) -> None:
+        # Реестр — это то, что админ читает на странице прав, а гейт —
+        # то, что происходит на самом деле. Разойдись они, страница начнёт
+        # обещать «свои студенты» там, где открыт весь поток, и врать про
+        # ПДн. Поэтому оба конца проверяются одним тестом.
+        import asyncio
+        import types
+
+        from app.services.mentor_scope import mentor_assigned_student_ids
+
+        fake_mentor = types.SimpleNamespace(id=None, role=UserRole.mentor)
+        gate_unrestricted = (
+            asyncio.run(mentor_assigned_student_ids(None, fake_mentor)) is None
+        )
         for resource in ("students", "documents", "meetings", "roadmaps", "tasks"):
             with self.subTest(resource=resource):
-                self.assertIsNot(
-                    scope_for(resource=resource, action=Action.view, role=UserRole.mentor),
-                    Scope.all,
+                declared_all = (
+                    scope_for(resource=resource, action=Action.view, role=UserRole.mentor)
+                    is Scope.all
+                )
+                self.assertEqual(
+                    declared_all,
+                    gate_unrestricted,
+                    "реестр и services/mentor_scope.py разошлись по скоупу ментора",
                 )
 
     def test_student_is_always_scoped_to_own(self) -> None:

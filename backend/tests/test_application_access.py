@@ -55,21 +55,24 @@ def user(role, uid=None):
 
 
 class ManageTests(unittest.IsolatedAsyncioTestCase):
-    async def test_mentor_may_not_touch_a_student_outside_scope(self):
-        """Ровно та дыра, ради которой написан тест."""
+    async def test_mentor_may_touch_any_student(self):
+        """Скоуп ментора снят 02.09.2026 — решение владельца.
+
+        Раньше здесь проверялось обратное: ментор получал 404 на чужом
+        ученике. Ограничение висело на карточке, но не на списке — всю базу
+        ментор и так видел, — и мешало работе больше, чем защищало.
+        Настоящий переключатель — services/mentor_scope.py.
+        """
         db = FakeDb(assigned_ids=[OTHER_STUDENT_ID])
-        with self.assertRaises(HTTPException) as ctx:
-            await _assert_manage(db, STUDENT_ID, user(UserRole.mentor))
-        self.assertEqual(ctx.exception.status_code, 404)
+        await _assert_manage(db, STUDENT_ID, user(UserRole.mentor))
 
     async def test_mentor_may_touch_their_own_student(self):
         db = FakeDb(assigned_ids=[STUDENT_ID])
         await _assert_manage(db, STUDENT_ID, user(UserRole.mentor))
 
-    async def test_mentor_with_no_assignments_is_refused(self):
+    async def test_mentor_without_assignments_is_not_locked_out(self):
         db = FakeDb(assigned_ids=[])
-        with self.assertRaises(HTTPException):
-            await _assert_manage(db, STUDENT_ID, user(UserRole.mentor))
+        await _assert_manage(db, STUDENT_ID, user(UserRole.mentor))
 
     async def test_admin_and_mzk_are_unscoped(self):
         for role in (UserRole.admin, UserRole.mzk_manager):
@@ -101,10 +104,9 @@ class ReadTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException):
             await _assert_read(db, STUDENT_ID, user(UserRole.student))
 
-    async def test_mentor_scope_applies_to_reads_too(self):
+    async def test_mentor_reads_any_student(self):
         db = FakeDb(assigned_ids=[OTHER_STUDENT_ID])
-        with self.assertRaises(HTTPException):
-            await _assert_read(db, STUDENT_ID, user(UserRole.mentor))
+        await _assert_read(db, STUDENT_ID, user(UserRole.mentor))
 
     async def test_admin_reads_anyone(self):
         await _assert_read(FakeDb(), STUDENT_ID, user(UserRole.admin))

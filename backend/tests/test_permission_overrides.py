@@ -115,9 +115,13 @@ class RegistryStaysThePlaceOfTruthTests(unittest.TestCase):
         # фильтрация живёт в mentor_scope и обязана остаться одна.
         permissions.set_overrides({("students", Action.view): frozenset({UserRole.mentor})})
         try:
+            # Значение берётся из реестра, а не из переопределения: сейчас
+            # у ментора скоуп снят (02.09.2026), и конструктор ролей его не
+            # возвращает. Проверяется именно это — что «кому можно» и
+            # «сколько данных видно» остаются разными рычагами.
             self.assertEqual(
                 permissions.scope_for(resource="students", action=Action.view, role=UserRole.mentor).value,
-                "assigned",
+                "all",
             )
         finally:
             permissions.set_overrides({})
