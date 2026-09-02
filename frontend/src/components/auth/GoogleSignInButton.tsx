@@ -169,18 +169,17 @@ export const GoogleSignInButton: React.FC<{
         <div
           ref={holder}
           className="w-full overflow-hidden rounded-ctl"
-          // Место держим, только пока кнопка ожидается. Когда способ выключен,
-          // пустая полоса под сообщением выглядела бы как недогрузившийся блок.
-          style={{ minHeight: phase === 'disabled' || phase === 'failed' ? 0 : BUTTON_HEIGHT }}
-        >
-          {phase === 'loading' && (
-            <div
-              className="w-full animate-pulse rounded-ctl border border-[#343434] bg-[#1C1C1C]"
-              style={{ height: BUTTON_HEIGHT }}
-              aria-hidden
-            />
-          )}
-        </div>
+          // Google заполняет этот узел сам. Высоту до загрузки держит скелетон
+          // ниже, иначе получилось бы две полосы по 44px.
+          style={{ minHeight: phase === 'ready' ? BUTTON_HEIGHT : 0 }}
+        />
+        {phase === 'loading' && (
+          <div
+            className="w-full animate-pulse rounded-ctl border border-[#343434] bg-[#1C1C1C]"
+            style={{ height: BUTTON_HEIGHT }}
+            aria-hidden
+          />
+        )}
 
         {/* Молча спрятанная кнопка читается как поломка, поэтому говорим прямо. */}
         {phase === 'disabled' && (
