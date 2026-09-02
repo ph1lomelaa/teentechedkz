@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
+import * as Sentry from '@sentry/react'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import type { PermissionAction } from '@/api/permissions'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -224,8 +225,15 @@ class AppErrorBoundary extends React.Component<
     }, HEALTHY_APP_DELAY_MS)
   }
 
-  componentDidCatch(error: Error) {
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('App runtime error', error)
+    // Обычный ErrorBoundary изолирует ошибку от глобального обработчика, поэтому
+    // без явного capture в Sentry не попадали ни стек компонента, ни маршрут.
+    // При пустом VITE_SENTRY_DSN SDK остаётся no-op.
+    Sentry.captureException(error, {
+      contexts: { react: { componentStack: info.componentStack } },
+      tags: { error_source: 'app_error_boundary' },
+    })
 
     if (isRecoverableAppError(error)) recoverPageOnce()
   }
