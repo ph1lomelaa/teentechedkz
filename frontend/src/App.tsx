@@ -182,6 +182,25 @@ const RELOAD_GUARD = 'tte:runtime-recovery-reloaded'
 const HEALTHY_APP_DELAY_MS = 10_000
 
 /**
+ * Из аварийного экрана нужен выход, который не возвращает человека в тот же
+ * падающий кабинет. Удаляем только данные TeenTechEd этого origin (не данные
+ * других сайтов), затем открываем независимый экран входа полной навигацией.
+ */
+function resetClientStateAndOpenLogin() {
+  try {
+    sessionStorage.clear()
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('tte:') || key.startsWith('teenteched-') || key.startsWith('transcript-outbox:')) {
+        localStorage.removeItem(key)
+      }
+    }
+  } catch {
+    // Даже при запрете Storage переход на безопасный маршрут всё равно нужен.
+  }
+  window.location.assign('/login')
+}
+
+/**
  * Возвращает `true`, когда перезагрузка уже начата или намеренно подавлена.
  * Одна функция используется и React boundary, и глобальными обработчиками:
  * иначе ошибки из Promise проходили мимо boundary и оставляли вкладку в
@@ -274,6 +293,13 @@ class AppErrorBoundary extends React.Component<
             >
               В кабинет
             </a>
+            <button
+              type="button"
+              onClick={resetClientStateAndOpenLogin}
+              className="rounded-ctl border border-white/15 px-4 py-2 text-xs font-bold text-white/75 hover:text-white"
+            >
+              Сбросить и войти заново
+            </button>
           </div>
         </div>
       </div>
