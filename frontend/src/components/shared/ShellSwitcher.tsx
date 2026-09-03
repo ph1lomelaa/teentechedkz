@@ -26,9 +26,20 @@ const SHELLS: { id: Shell; label: string; hint: string; to: string }[] = [
 
 export const ShellSwitcher: React.FC<{
   current: Shell
+  /**
+   * Как переключатель ведёт себя во флексе — решает родитель, а не он сам.
+   *
+   * Здесь стоял жёсткий `flex-1`. В шапке CRM это верно: там строка, и он
+   * заполняет ширину рядом с кнопкой закрытия. А в боковом меню кабинета
+   * контейнер колоночный, и тот же `flex-1` растягивал его по ВЫСОТЕ — меню
+   * уезжало вниз, последние пункты обрезались, появлялась полоса прокрутки.
+   * Один и тот же класс в двух направлениях флекса значит разное, поэтому
+   * решение отдано месту вызова.
+   */
+  className?: string
   /** Класс фона плашки логотипа — единственное, чем оболочки отличаются визуально. */
   accentClass?: string
-}> = ({ current, accentClass = 'bg-brand' }) => {
+}> = ({ current, accentClass = 'bg-brand', className }) => {
   const { user } = useAuth()
   const location = useLocation()
   const [open, setOpen] = useState(false)
@@ -74,14 +85,20 @@ export const ShellSwitcher: React.FC<{
 
   if (!canSwitch) {
     return (
-      <Link to={currentShell.to} className="flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+      <Link
+        to={currentShell.to}
+        className={cn(
+          'flex items-center gap-2.5 rounded-ctl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+          className,
+        )}
+      >
         {brand}
       </Link>
     )
   }
 
   return (
-    <div ref={boxRef} className="relative flex-1 min-w-0">
+    <div ref={boxRef} className={cn('relative min-w-0', className)}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

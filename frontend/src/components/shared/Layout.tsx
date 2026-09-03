@@ -277,7 +277,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       >
         {/* Логотип + переключатель оболочек (общий с кабинетом) */}
         <div className="relative flex items-center justify-between px-4 py-5 border-b border-white/10">
-          <ShellSwitcher current="crm" accentClass="bg-brand" />
+          <ShellSwitcher current="crm" accentClass="bg-brand" className="flex-1" />
           <button
             type="button"
             onClick={() => setMobileOpen(false)}

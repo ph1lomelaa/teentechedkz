@@ -24,107 +24,136 @@ import { WorkspaceLayout } from '@/layouts/WorkspaceLayout'
 import { createQueryClient } from '@/lib/queryClient'
 
 // Lazy-loaded pages (less critical path)
-const DashboardPage = React.lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
-const StudentsListPage = React.lazy(() => import('@/pages/StudentsListPage').then((m) => ({ default: m.StudentsListPage })))
-const StudentCardPage = React.lazy(() => import('@/pages/StudentCardPage').then((m) => ({ default: m.StudentCardPage })))
-const NotesPage = React.lazy(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
-const NoteSessionPage = React.lazy(() => import('@/pages/NoteSessionPage').then((m) => ({ default: m.NoteSessionPage })))
-const NoteDetailPage = React.lazy(() => import('@/pages/NoteDetailPage').then((m) => ({ default: m.NoteDetailPage })))
-const PortalHomePage = React.lazy(() => import('@/pages/portal/PortalHomePage').then((m) => ({ default: m.PortalHomePage })))
-const PortalRoadmapPage = React.lazy(() => import('@/pages/portal/PortalRoadmapPage').then((m) => ({ default: m.PortalRoadmapPage })))
-const PortalTasksPage = React.lazy(() => import('@/pages/portal/PortalTasksPage').then((m) => ({ default: m.PortalTasksPage })))
-const PortalMeetingsPage = React.lazy(() => import('@/pages/portal/PortalMeetingsPage').then((m) => ({ default: m.PortalMeetingsPage })))
-const PortalNotesPage = React.lazy(() => import('@/pages/portal/PortalNotesPage').then((m) => ({ default: m.PortalNotesPage })))
-const PortalComplaintsPage = React.lazy(() => import('@/pages/portal/PortalComplaintsPage').then((m) => ({ default: m.PortalComplaintsPage })))
-const WorkspaceComplaintsPage = React.lazy(() => import('@/pages/workspace/WorkspaceComplaintsPage').then((m) => ({ default: m.WorkspaceComplaintsPage })))
-const WorkspaceRefundCasesPage = React.lazy(() => import('@/pages/workspace/WorkspaceRefundCasesPage').then((m) => ({ default: m.WorkspaceRefundCasesPage })))
-const WorkspaceSecurityIncidentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceSecurityIncidentsPage').then((m) => ({ default: m.WorkspaceSecurityIncidentsPage })))
-const WorkspaceMzkQualityPage = React.lazy(() => import('@/pages/workspace/WorkspaceMzkQualityPage').then((m) => ({ default: m.WorkspaceMzkQualityPage })))
-const WorkspaceMentorRewardsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMentorRewardsPage').then((m) => ({ default: m.WorkspaceMentorRewardsPage })))
-const WorkspaceMyRewardsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyRewardsPage').then((m) => ({ default: m.WorkspaceMyRewardsPage })))
+/**
+ * Ленивая страница, которая умеет пережить деплой.
+ *
+ * Имена чанков содержат хеш сборки: после выката старых файлов больше нет, и
+ * вкладка, открытая до него, при переходе в раздел просит несуществующий
+ * модуль. Формулировка у браузеров разная и меняется от версии к версии —
+ * Chrome говорит «Failed to fetch dynamically imported module», Safari бросает
+ * `TypeError: The object can not be found here.`, Firefox — своё. Подбирать
+ * список текстов оказалось гонкой: очередная формулировка снова доводила
+ * человека до экрана «Экран не открылся», где чинить нечего.
+ *
+ * Здесь текст не нужен вовсе. В этом месте точно известно, что не удалось
+ * загрузить именно чанк страницы, — и это ровно тот случай, когда помогает
+ * перезагрузка. `recoverPageOnce` защищена от петли: вторая подряд неудача
+ * доводит ошибку до экрана, а не крутит вкладку по кругу.
+ */
+// `React.ComponentType` без параметра — это компонент без пропсов, а роуты
+// именно так их и рендерят: <DashboardPage />. `any` здесь запрещён линтером.
+function lazyRoute<T extends React.ComponentType>(
+  load: () => Promise<{ default: T }>,
+): React.LazyExoticComponent<T> {
+  return React.lazy(() =>
+    load().catch((error: unknown) => {
+      recoverPageOnce()
+      throw error
+    }),
+  )
+}
+
+const DashboardPage = lazyRoute(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
+const StudentsListPage = lazyRoute(() => import('@/pages/StudentsListPage').then((m) => ({ default: m.StudentsListPage })))
+const StudentCardPage = lazyRoute(() => import('@/pages/StudentCardPage').then((m) => ({ default: m.StudentCardPage })))
+const NotesPage = lazyRoute(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
+const NoteSessionPage = lazyRoute(() => import('@/pages/NoteSessionPage').then((m) => ({ default: m.NoteSessionPage })))
+const NoteDetailPage = lazyRoute(() => import('@/pages/NoteDetailPage').then((m) => ({ default: m.NoteDetailPage })))
+const PortalHomePage = lazyRoute(() => import('@/pages/portal/PortalHomePage').then((m) => ({ default: m.PortalHomePage })))
+const PortalRoadmapPage = lazyRoute(() => import('@/pages/portal/PortalRoadmapPage').then((m) => ({ default: m.PortalRoadmapPage })))
+const PortalTasksPage = lazyRoute(() => import('@/pages/portal/PortalTasksPage').then((m) => ({ default: m.PortalTasksPage })))
+const PortalMeetingsPage = lazyRoute(() => import('@/pages/portal/PortalMeetingsPage').then((m) => ({ default: m.PortalMeetingsPage })))
+const PortalNotesPage = lazyRoute(() => import('@/pages/portal/PortalNotesPage').then((m) => ({ default: m.PortalNotesPage })))
+const PortalComplaintsPage = lazyRoute(() => import('@/pages/portal/PortalComplaintsPage').then((m) => ({ default: m.PortalComplaintsPage })))
+const WorkspaceComplaintsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceComplaintsPage').then((m) => ({ default: m.WorkspaceComplaintsPage })))
+const WorkspaceRefundCasesPage = lazyRoute(() => import('@/pages/workspace/WorkspaceRefundCasesPage').then((m) => ({ default: m.WorkspaceRefundCasesPage })))
+const WorkspaceSecurityIncidentsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceSecurityIncidentsPage').then((m) => ({ default: m.WorkspaceSecurityIncidentsPage })))
+const WorkspaceMzkQualityPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMzkQualityPage').then((m) => ({ default: m.WorkspaceMzkQualityPage })))
+const WorkspaceMentorRewardsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMentorRewardsPage').then((m) => ({ default: m.WorkspaceMentorRewardsPage })))
+const WorkspaceMyRewardsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMyRewardsPage').then((m) => ({ default: m.WorkspaceMyRewardsPage })))
 // CRM-версии тех же админ-разделов (общие компоненты, токены ds-*).
-const AgreementsPage = React.lazy(() => import('@/pages/AgreementsPage').then((m) => ({ default: m.AgreementsPage })))
-const MzkQualityPage = React.lazy(() => import('@/pages/MzkQualityPage').then((m) => ({ default: m.MzkQualityPage })))
-const MentorRewardsPage = React.lazy(() => import('@/pages/MentorRewardsPage').then((m) => ({ default: m.MentorRewardsPage })))
-const MentorTasksPage = React.lazy(() => import('@/pages/MentorTasksPage').then((m) => ({ default: m.MentorTasksPage })))
-const CheckinsPage = React.lazy(() => import('@/pages/CheckinsPage').then((m) => ({ default: m.CheckinsPage })))
-const PortalImportantNotesPage = React.lazy(() => import('@/pages/portal/PortalImportantNotesPage').then((m) => ({ default: m.PortalImportantNotesPage })))
-const PortalUniversitiesPage = React.lazy(() => import('@/pages/portal/PortalUniversitiesPage').then((m) => ({ default: m.PortalUniversitiesPage })))
-const PortalUniversityDetailPage = React.lazy(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
-const PortalShortlistPage = React.lazy(() => import('@/pages/portal/PortalShortlistPage').then((m) => ({ default: m.PortalShortlistPage })))
-const PortalApplicationsPage = React.lazy(() => import('@/pages/portal/PortalApplicationsPage').then((m) => ({ default: m.PortalApplicationsPage })))
-const PortalCountriesPage = React.lazy(() => import('@/pages/portal/PortalCountriesPage').then((m) => ({ default: m.PortalCountriesPage })))
-const PortalCountryDetailPage = React.lazy(() => import('@/pages/portal/PortalCountryDetailPage').then((m) => ({ default: m.PortalCountryDetailPage })))
-const PortalChatPage = React.lazy(() => import('@/pages/portal/PortalChatPage').then((m) => ({ default: m.PortalChatPage })))
-const PortalQuestionnairesPage = React.lazy(() => import('@/pages/portal/PortalQuestionnairesPage').then((m) => ({ default: m.PortalQuestionnairesPage })))
-const PortalProfilePage = React.lazy(() => import('@/pages/portal/PortalProfilePage').then((m) => ({ default: m.PortalProfilePage })))
-const PortalDocumentsPage = React.lazy(() => import('@/pages/portal/PortalDocumentsPage').then((m) => ({ default: m.PortalDocumentsPage })))
-const PortalNotificationsPage = React.lazy(() => import('@/pages/portal/PortalNotificationsPage').then((m) => ({ default: m.PortalNotificationsPage })))
-const WorkspaceDashboardPage = React.lazy(() => import('@/pages/workspace/WorkspaceDashboardPage').then((m) => ({ default: m.WorkspaceDashboardPage })))
-const WorkspaceStudentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceStudentsPage').then((m) => ({ default: m.WorkspaceStudentsPage })))
-const WorkspaceStudentDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceStudentDetailPage').then((m) => ({ default: m.WorkspaceStudentDetailPage })))
-const WorkspaceTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceTasksPage').then((m) => ({ default: m.WorkspaceTasksPage })))
-const WorkspaceReviewPage = React.lazy(() => import('@/pages/workspace/WorkspaceReviewPage').then((m) => ({ default: m.WorkspaceReviewPage })))
-const WorkspaceMentorTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceMentorTasksPage').then((m) => ({ default: m.WorkspaceMentorTasksPage })))
-const WorkspaceMyTasksPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyTasksPage').then((m) => ({ default: m.WorkspaceMyTasksPage })))
-const WorkspaceCheckinsPage = React.lazy(() => import('@/pages/workspace/WorkspaceCheckinsPage').then((m) => ({ default: m.WorkspaceCheckinsPage })))
-const WorkspaceMeetingsPage = React.lazy(() => import('@/pages/workspace/WorkspaceMeetingsPage').then((m) => ({ default: m.WorkspaceMeetingsPage })))
-const WorkspaceDocumentsPage = React.lazy(() => import('@/pages/workspace/WorkspaceDocumentsPage').then((m) => ({ default: m.WorkspaceDocumentsPage })))
-const WorkspaceChatPage = React.lazy(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
-const WorkspaceRoadmapPage = React.lazy(() => import('@/pages/workspace/WorkspaceRoadmapPage').then((m) => ({ default: m.WorkspaceRoadmapPage })))
-const WorkspaceUniversitiesPage = React.lazy(() => import('@/pages/workspace/WorkspaceUniversitiesPage').then((m) => ({ default: m.WorkspaceUniversitiesPage })))
-const WorkspaceUniversityDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceUniversityDetailPage').then((m) => ({ default: m.WorkspaceUniversityDetailPage })))
-const WorkspaceCountriesPage = React.lazy(() => import('@/pages/workspace/WorkspaceCountriesPage').then((m) => ({ default: m.WorkspaceCountriesPage })))
-const WorkspaceCountryDetailPage = React.lazy(() => import('@/pages/workspace/WorkspaceCountryDetailPage').then((m) => ({ default: m.WorkspaceCountryDetailPage })))
-const WorkspaceAgreementsPage = React.lazy(() => import('@/pages/workspace/WorkspaceAgreementsPage').then((m) => ({ default: m.WorkspaceAgreementsPage })))
-const WorkspaceMyDayPage = React.lazy(() => import('@/pages/workspace/WorkspaceMyDayPage').then((m) => ({ default: m.WorkspaceMyDayPage })))
-const WorkspaceQuestionnairesPage = React.lazy(() => import('@/pages/workspace/WorkspaceQuestionnairesPage').then((m) => ({ default: m.WorkspaceQuestionnairesPage })))
-const WorkspaceNotificationsPage = React.lazy(() => import('@/pages/workspace/WorkspaceNotificationsPage').then((m) => ({ default: m.WorkspaceNotificationsPage })))
-const NewStudentPage = React.lazy(() =>
+const AgreementsPage = lazyRoute(() => import('@/pages/AgreementsPage').then((m) => ({ default: m.AgreementsPage })))
+const MzkQualityPage = lazyRoute(() => import('@/pages/MzkQualityPage').then((m) => ({ default: m.MzkQualityPage })))
+const MentorRewardsPage = lazyRoute(() => import('@/pages/MentorRewardsPage').then((m) => ({ default: m.MentorRewardsPage })))
+const MentorTasksPage = lazyRoute(() => import('@/pages/MentorTasksPage').then((m) => ({ default: m.MentorTasksPage })))
+const CheckinsPage = lazyRoute(() => import('@/pages/CheckinsPage').then((m) => ({ default: m.CheckinsPage })))
+const PortalImportantNotesPage = lazyRoute(() => import('@/pages/portal/PortalImportantNotesPage').then((m) => ({ default: m.PortalImportantNotesPage })))
+const PortalUniversitiesPage = lazyRoute(() => import('@/pages/portal/PortalUniversitiesPage').then((m) => ({ default: m.PortalUniversitiesPage })))
+const PortalUniversityDetailPage = lazyRoute(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
+const PortalShortlistPage = lazyRoute(() => import('@/pages/portal/PortalShortlistPage').then((m) => ({ default: m.PortalShortlistPage })))
+const PortalApplicationsPage = lazyRoute(() => import('@/pages/portal/PortalApplicationsPage').then((m) => ({ default: m.PortalApplicationsPage })))
+const PortalCountriesPage = lazyRoute(() => import('@/pages/portal/PortalCountriesPage').then((m) => ({ default: m.PortalCountriesPage })))
+const PortalCountryDetailPage = lazyRoute(() => import('@/pages/portal/PortalCountryDetailPage').then((m) => ({ default: m.PortalCountryDetailPage })))
+const PortalChatPage = lazyRoute(() => import('@/pages/portal/PortalChatPage').then((m) => ({ default: m.PortalChatPage })))
+const PortalQuestionnairesPage = lazyRoute(() => import('@/pages/portal/PortalQuestionnairesPage').then((m) => ({ default: m.PortalQuestionnairesPage })))
+const PortalProfilePage = lazyRoute(() => import('@/pages/portal/PortalProfilePage').then((m) => ({ default: m.PortalProfilePage })))
+const PortalDocumentsPage = lazyRoute(() => import('@/pages/portal/PortalDocumentsPage').then((m) => ({ default: m.PortalDocumentsPage })))
+const PortalNotificationsPage = lazyRoute(() => import('@/pages/portal/PortalNotificationsPage').then((m) => ({ default: m.PortalNotificationsPage })))
+const WorkspaceDashboardPage = lazyRoute(() => import('@/pages/workspace/WorkspaceDashboardPage').then((m) => ({ default: m.WorkspaceDashboardPage })))
+const WorkspaceStudentsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceStudentsPage').then((m) => ({ default: m.WorkspaceStudentsPage })))
+const WorkspaceStudentDetailPage = lazyRoute(() => import('@/pages/workspace/WorkspaceStudentDetailPage').then((m) => ({ default: m.WorkspaceStudentDetailPage })))
+const WorkspaceTasksPage = lazyRoute(() => import('@/pages/workspace/WorkspaceTasksPage').then((m) => ({ default: m.WorkspaceTasksPage })))
+const WorkspaceReviewPage = lazyRoute(() => import('@/pages/workspace/WorkspaceReviewPage').then((m) => ({ default: m.WorkspaceReviewPage })))
+const WorkspaceMentorTasksPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMentorTasksPage').then((m) => ({ default: m.WorkspaceMentorTasksPage })))
+const WorkspaceMyTasksPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMyTasksPage').then((m) => ({ default: m.WorkspaceMyTasksPage })))
+const WorkspaceCheckinsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceCheckinsPage').then((m) => ({ default: m.WorkspaceCheckinsPage })))
+const WorkspaceMeetingsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMeetingsPage').then((m) => ({ default: m.WorkspaceMeetingsPage })))
+const WorkspaceDocumentsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceDocumentsPage').then((m) => ({ default: m.WorkspaceDocumentsPage })))
+const WorkspaceChatPage = lazyRoute(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
+const WorkspaceRoadmapPage = lazyRoute(() => import('@/pages/workspace/WorkspaceRoadmapPage').then((m) => ({ default: m.WorkspaceRoadmapPage })))
+const WorkspaceUniversitiesPage = lazyRoute(() => import('@/pages/workspace/WorkspaceUniversitiesPage').then((m) => ({ default: m.WorkspaceUniversitiesPage })))
+const WorkspaceUniversityDetailPage = lazyRoute(() => import('@/pages/workspace/WorkspaceUniversityDetailPage').then((m) => ({ default: m.WorkspaceUniversityDetailPage })))
+const WorkspaceCountriesPage = lazyRoute(() => import('@/pages/workspace/WorkspaceCountriesPage').then((m) => ({ default: m.WorkspaceCountriesPage })))
+const WorkspaceCountryDetailPage = lazyRoute(() => import('@/pages/workspace/WorkspaceCountryDetailPage').then((m) => ({ default: m.WorkspaceCountryDetailPage })))
+const WorkspaceAgreementsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceAgreementsPage').then((m) => ({ default: m.WorkspaceAgreementsPage })))
+const WorkspaceMyDayPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMyDayPage').then((m) => ({ default: m.WorkspaceMyDayPage })))
+const WorkspaceQuestionnairesPage = lazyRoute(() => import('@/pages/workspace/WorkspaceQuestionnairesPage').then((m) => ({ default: m.WorkspaceQuestionnairesPage })))
+const WorkspaceNotificationsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceNotificationsPage').then((m) => ({ default: m.WorkspaceNotificationsPage })))
+const NewStudentPage = lazyRoute(() =>
   import('@/pages/NewStudentPage').then((m) => ({ default: m.NewStudentPage }))
 )
-const MyStudentsPage = React.lazy(() =>
+const MyStudentsPage = lazyRoute(() =>
   import('@/pages/MyStudentsPage').then((m) => ({ default: m.MyStudentsPage }))
 )
-const CountryDetailPage = React.lazy(() =>
+const CountryDetailPage = lazyRoute(() =>
   import('@/pages/CountryDetailPage').then((m) => ({ default: m.CountryDetailPage }))
 )
-const CountriesPage = React.lazy(() =>
+const CountriesPage = lazyRoute(() =>
   import('@/pages/CountriesPage').then((m) => ({ default: m.CountriesPage }))
 )
-const FinancesPage = React.lazy(() =>
+const FinancesPage = lazyRoute(() =>
   import('@/pages/FinancesPage').then((m) => ({ default: m.FinancesPage }))
 )
-const SettingsUsersPage = React.lazy(() =>
+const SettingsUsersPage = lazyRoute(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
 )
-const SettingsAccessRequestsPage = React.lazy(() =>
+const SettingsAccessRequestsPage = lazyRoute(() =>
   import('@/pages/SettingsAccessRequestsPage').then((m) => ({ default: m.SettingsAccessRequestsPage }))
 )
-const SettingsPermissionsPage = React.lazy(() =>
+const SettingsPermissionsPage = lazyRoute(() =>
   import('@/pages/SettingsPermissionsPage').then((m) => ({ default: m.SettingsPermissionsPage }))
 )
-const StatisticsPage = React.lazy(() =>
+const StatisticsPage = lazyRoute(() =>
   import('@/pages/StatisticsPage').then((m) => ({ default: m.StatisticsPage }))
 )
-const TemplatesPage = React.lazy(() =>
+const TemplatesPage = lazyRoute(() =>
   import('@/pages/TemplatesPage').then((m) => ({ default: m.TemplatesPage }))
 )
-const KnowledgeBasePage = React.lazy(() =>
+const KnowledgeBasePage = lazyRoute(() =>
   import('@/pages/KnowledgeBasePage').then((m) => ({ default: m.KnowledgeBasePage }))
 )
-const UniversityDetailPage = React.lazy(() =>
+const UniversityDetailPage = lazyRoute(() =>
   import('@/pages/UniversityDetailPage').then((m) => ({ default: m.UniversityDetailPage }))
 )
-const UniversitiesPage = React.lazy(() =>
+const UniversitiesPage = lazyRoute(() =>
   import('@/pages/UniversitiesPage').then((m) => ({ default: m.UniversitiesPage }))
 )
-const AtRiskStudentsPage = React.lazy(() =>
+const AtRiskStudentsPage = lazyRoute(() =>
   import('@/pages/AtRiskStudentsPage').then((m) => ({ default: m.AtRiskStudentsPage }))
 )
-const TelegramInboxPage = React.lazy(() => import('@/pages/TelegramInboxPage'))
-const TelegramChatDetailPage = React.lazy(() => import('@/pages/TelegramChatDetailPage'))
-const StatusInboxPage = React.lazy(() => import('@/pages/StatusInboxPage'))
+const TelegramInboxPage = lazyRoute(() => import('@/pages/TelegramInboxPage'))
+const TelegramChatDetailPage = lazyRoute(() => import('@/pages/TelegramChatDetailPage'))
+const StatusInboxPage = lazyRoute(() => import('@/pages/StatusInboxPage'))
 
 const queryClient = createQueryClient()
 
