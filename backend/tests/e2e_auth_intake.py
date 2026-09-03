@@ -31,7 +31,13 @@ if str(BACKEND_ROOT) not in sys.path:
 # docker-compose gives the backend a URL with host `postgres`; this smoke test
 # runs on the host, where the same container is published on 127.0.0.1:5432.
 env_values = dotenv_values(REPO_ROOT / ".env")
-if Path("/.dockerenv").exists():
+# Явно переданный DATABASE_URL — главнее всего. Раньше вне контейнера скрипт
+# его игнорировал и всегда собирал адрес с 127.0.0.1:5432 из .env: прогнать
+# e2e против другой базы (или когда порт 5432 занят системным Postgres) было
+# невозможно, а ошибка выглядела как «роль tte не существует».
+if os.environ.get("DATABASE_URL"):
+    pass
+elif Path("/.dockerenv").exists():
     # Inside the backend container, compose already injects the correct URL.
     host_database_url = os.environ["DATABASE_URL"]
 else:

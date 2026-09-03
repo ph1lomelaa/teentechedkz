@@ -36,6 +36,7 @@ from app.models.student import Student
 from app.models.user import User, UserRole
 from app.services.access_requests import (
     BLOCKED_REASON_TEXT,
+    backfill_pending_without_request,
     backfill_unlinked_student_requests,
     decide,
     link_user_to_student,
@@ -134,7 +135,11 @@ async def list_requests(
     if status_filter not in ACCESS_REQUEST_STATUSES and status_filter != "all":
         raise HTTPException(status_code=422, detail="Неизвестный статус")
 
-    created = await backfill_unlinked_student_requests(db)
+    # Два разных пропуска в очередь, и оба надо закрыть перед показом:
+    # аккаунт вообще без заявки (так делал старый вход через Google) и
+    # ученик с ролью, но без карточки. Иначе человек ждёт, а его не видно.
+    created = await backfill_pending_without_request(db)
+    created += await backfill_unlinked_student_requests(db)
     if created:
         await db.commit()
     query = select(AccessRequest).options(joinedload(AccessRequest.user))
@@ -166,7 +171,11 @@ async def pending_count(
     """Счётчик для бейджа в шапке. Отдельно от списка: шапка опрашивает его
     регулярно, а тянуть ради числа всю очередь с подсказками — расточительно."""
     require_access(current_user, "access_requests", Action.view)
-    created = await backfill_unlinked_student_requests(db)
+    # Два разных пропуска в очередь, и оба надо закрыть перед показом:
+    # аккаунт вообще без заявки (так делал старый вход через Google) и
+    # ученик с ролью, но без карточки. Иначе человек ждёт, а его не видно.
+    created = await backfill_pending_without_request(db)
+    created += await backfill_unlinked_student_requests(db)
     if created:
         await db.commit()
     total = (

@@ -38,7 +38,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 env_values = dotenv_values(REPO_ROOT / ".env")
-if Path("/.dockerenv").exists():
+# Явно переданный DATABASE_URL — главнее всего. Раньше вне контейнера скрипт
+# его игнорировал и всегда собирал адрес с 127.0.0.1:5432 из .env: прогнать
+# e2e против другой базы (или когда порт 5432 занят системным Postgres) было
+# невозможно, а ошибка выглядела как «роль tte не существует».
+if os.environ.get("DATABASE_URL"):
+    pass
+elif Path("/.dockerenv").exists():
     os.environ.setdefault("DATABASE_URL", os.environ["DATABASE_URL"])
 else:
     db_user = quote_plus(str(env_values.get("POSTGRES_USER") or "tte"))
@@ -110,7 +116,17 @@ async def seed(created: Created) -> dict:
             phone=phone,
             is_active=False,
         )
-        db.add_all([admin, student_user])
+        # Так аккаунт заводил старый вход через Google: роль-заглушка,
+        # is_active=False и НИ ОДНОЙ строки в access_requests. Такой человек
+        # ждал вечно — очередь читает только заявки, и его там не было.
+        ghost = User(
+            name=f"{created.marker} Призрак",
+            email=f"{created.marker}-ghost@example.com",
+            hashed_password="!google",
+            role=UserRole.mentor,
+            is_active=False,
+        )
+        db.add_all([admin, student_user, ghost])
         await db.flush()
 
         card = Student(
@@ -136,13 +152,14 @@ async def seed(created: Created) -> dict:
             )
         )
         await db.commit()
-        created.user_ids.update({admin.id, student_user.id})
+        created.user_ids.update({admin.id, student_user.id, ghost.id})
         created.student_ids.add(card.id)
         result = {
             "admin_email": admin_email,
             "admin_password": admin_password,
             "student_user_id": str(student_user.id),
             "student_email": student_user.email,
+            "ghost_email": ghost.email,
             "card_id": str(card.id),
         }
     await engine.dispose()
@@ -217,6 +234,22 @@ def main() -> None:
             "в заявке видна подсказанная карточка",
         )
         require(mine["suggested_student"]["is_free"], "карточка помечена свободной")
+
+        # --- аккаунт без заявки всё равно виден ---
+        # Регрессия, из-за которой «заявки учеников просто не показывались»:
+        # аккаунт, заведённый мимо /join, не имел строки в access_requests и в
+        # очередь не попадал ни при каких фильтрах. Разовая миграция вычистила
+        # накопленное, но не защищала от новых — теперь очередь достраивает их
+        # при открытии.
+        ghost_row = next(
+            (i for i in queue.json()["items"] if i["user"]["email"] == seeded["ghost_email"]),
+            None,
+        )
+        require(ghost_row is not None, "аккаунт без заявки подтянут в очередь")
+        require(
+            ghost_row["status"] == "new",
+            "подтянутая заявка ждёт решения, а не считается обработанной",
+        )
 
         # --- ловушка: роль ученика без карточки не выдаётся ---
         broken = admin.patch(

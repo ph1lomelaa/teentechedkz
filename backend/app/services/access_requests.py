@@ -37,6 +37,7 @@ from app.models.access_request import (
 )
 from app.models.audit_log import AuditAction
 from app.models.student import Student
+from app.models.student_invite import StudentInvite
 from app.models.user import User, UserRole
 from app.services.audit import record_audit
 from app.services.sheets_sync import _load_students_index
@@ -51,6 +52,72 @@ def normalize_phone(phone: str) -> str:
     from migration.transformers.normalize import normalize_phone as _impl
 
     return _impl(phone or "")
+
+
+async def backfill_pending_without_request(db: AsyncSession) -> int:
+    """Показать в очереди всех, кто ждёт одобрения, кем бы их ни завели.
+
+    Ради чего
+    ---------
+    Очередь читает только `access_requests`. Аккаунт можно завести и мимо неё —
+    так делал старый вход через Google: незнакомая почта создавала
+    `User(role=mentor, is_active=False)` без строки заявки. Такой человек ждал
+    вечно: в очереди его нет, а в списке пользователей он неотличим от
+    отключённого. Именно так «заявки учеников просто не показывались».
+
+    Разовая миграция (088) вычистила накопленное, но не защищает от нового:
+    любой будущий путь создания снова родит невидимку. Поэтому проверка
+    ленивая — на каждом открытии очереди, — и её стоимость нулевая, когда
+    вставлять нечего.
+
+    Кого НЕ берём
+    ------------
+    Приглашённых сотрудников с живой ссылкой: они ждут не решения админа, а
+    собственного перехода по приглашению, и в очереди были бы шумом.
+
+    Роль в заявке — `student` или `mentor`: только их допускает CHECK таблицы.
+    Ждущий аккаунт носит роль-заглушку, настоящая роль выбирается при
+    одобрении, поэтому здесь она лишь подсказка админу.
+    """
+    now = datetime.now(timezone.utc)
+    live_invite = (
+        select(StudentInvite.user_id)
+        .where(StudentInvite.used_at.is_(None), StudentInvite.expires_at > now)
+        .scalar_subquery()
+    )
+    users = (
+        (
+            await db.execute(
+                select(User)
+                .outerjoin(AccessRequest, AccessRequest.user_id == User.id)
+                .where(
+                    User.is_active == False,  # noqa: E712
+                    AccessRequest.id.is_(None),
+                    User.id.not_in(live_invite),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for user in users:
+        db.add(
+            AccessRequest(
+                user_id=user.id,
+                requested_role=(
+                    UserRole.student.value
+                    if user.role == UserRole.student
+                    else UserRole.mentor.value
+                ),
+                full_name=user.name or user.email,
+                phone_raw=user.phone or "",
+                phone_normalized=normalize_phone(user.phone or ""),
+                status=STATUS_NEW,
+            )
+        )
+    if users:
+        await db.flush()
+    return len(users)
 
 
 async def backfill_unlinked_student_requests(db: AsyncSession) -> int:

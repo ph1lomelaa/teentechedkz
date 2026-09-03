@@ -64,6 +64,24 @@ export function SettingsAccessRequestsPage() {
     [items, roleFilter],
   )
 
+  /**
+   * Сколько заявок в каждой вкладке.
+   *
+   * Ради чего: фильтр по умолчанию стоит на «Учениках», а счётчики и пустое
+   * состояние считались по отфильтрованному списку. Пока все ждущие были
+   * менторами, страница показывала «Ждут решения 0» и «Очередь пуста» — и
+   * читалась как «заявки перестали приходить». Число на вкладке не даёт
+   * непустой категории спрятаться.
+   */
+  const countByRole = useMemo(
+    () => ({
+      student: items.filter((item) => item.requested_role === 'student').length,
+      mentor: items.filter((item) => item.requested_role === 'mentor').length,
+      all: items.length,
+    }),
+    [items],
+  )
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['access-requests'] })
     setSelected(new Set())
@@ -161,7 +179,10 @@ export function SettingsAccessRequestsPage() {
           colorPrefix="p"
           icon={<Clock className="h-4 w-4" />}
           label="Ждут решения"
-          value={String(visibleItems.length)}
+          // Вся очередь, а не текущая вкладка: это заголовочное число, по
+          // которому судят «есть ли работа». Считая его по фильтру, страница
+          // показывала 0 при шестнадцати ждущих.
+          value={String(items.length)}
           valueClassName={visibleItems.length > 0 ? 'text-amber-500' : undefined}
           warn={visibleItems.length > 0}
         />
@@ -169,12 +190,13 @@ export function SettingsAccessRequestsPage() {
           colorPrefix="p"
           label="Совпал телефон"
           value={String(autoReady.length)}
-          sub={autoReady.length ? 'можно одобрить пачкой' : undefined}
+          sub={autoReady.length ? 'можно одобрить пачкой' : 'в этой вкладке'}
         />
         <StatCard
           colorPrefix="p"
           label="Нужна проверка"
           value={String(visibleItems.length - autoReady.length)}
+          sub="в этой вкладке"
         />
       </div>
 
@@ -187,6 +209,9 @@ export function SettingsAccessRequestsPage() {
             onClick={() => setRequestRoleFilter(filter.value)}
           >
             {filter.label}
+            <span className="ml-1.5 tabular-nums opacity-70">
+              {countByRole[filter.value]}
+            </span>
           </Button>
         ))}
       </div>
@@ -238,11 +263,27 @@ export function SettingsAccessRequestsPage() {
         onRetry={query.refetch}
         isEmpty={visibleItems.length === 0}
         empty={
-          <EmptyState
-            icon={<Check className="h-6 w-6" />}
-            title="Очередь пуста"
-            description="Все, кто зарегистрировался, уже получили доступ. Новые заявки появятся здесь автоматически."
-          />
+          items.length === 0 ? (
+            <EmptyState
+              icon={<Check className="h-6 w-6" />}
+              title="Очередь пуста"
+              description="Все, кто зарегистрировался, уже получили доступ. Новые заявки появятся здесь автоматически."
+            />
+          ) : (
+            // Заявки есть, просто не в этой вкладке. Говорить здесь «очередь
+            // пуста» — прямая ложь, из-за которой 16 ждущих менторов выглядели
+            // как «заявки перестали приходить».
+            <EmptyState
+              icon={<Check className="h-6 w-6" />}
+              title="В этой вкладке пусто"
+              description={`Здесь никого нет, но всего заявок ждёт ${items.length}. Переключитесь на «Все», чтобы увидеть остальных.`}
+              action={
+                <Button size="sm" variant="outline" onClick={() => setRequestRoleFilter('all')}>
+                  Показать все ({items.length})
+                </Button>
+              }
+            />
+          )
         }
       >
         <div className="space-y-3">
