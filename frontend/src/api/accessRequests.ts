@@ -45,6 +45,20 @@ export interface ApproveResult {
   temp_password: string | null
 }
 
+export interface ApprovedStaff {
+  id: string
+  name: string
+  email: string
+  /** Временный пароль — только у тех, у кого пароля не было (вход был через
+   *  Google). Показывается один раз: нигде в открытом виде он не хранится. */
+  temp_password: string | null
+}
+
+export interface BulkApproveStaffResult {
+  approved: ApprovedStaff[]
+  skipped: { id: string; name?: string; reason: string }[]
+}
+
 export interface BulkApproveResult {
   approved: { id: string; name: string; student_id: string }[]
 
@@ -81,6 +95,18 @@ export const accessRequestsApi = {
   },
   bulkApprove: async (ids: string[]): Promise<BulkApproveResult> => {
     const response = await apiClient.post('/access-requests/bulk-approve', { ids })
+    return response.data
+  },
+  /**
+   * Одобрить пачку заявок сотрудников. Отдельно от `bulkApprove`: там решение
+   * опирается на совпадение телефона с карточкой, здесь проверять нечего и
+   * решение целиком человеческое — поэтому и роль задаётся явно.
+   */
+  bulkApproveStaff: async (
+    ids: string[],
+    role: 'mentor' | 'mzk_manager',
+  ): Promise<BulkApproveStaffResult> => {
+    const response = await apiClient.post('/access-requests/bulk-approve-staff', { ids, role })
     return response.data
   },
 }

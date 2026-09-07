@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Clock, Link2, Search, UserPlus, X } from 'lucide-react'
 import { accessRequestsApi } from '@/api/accessRequests'
 import { useAuth } from '@/contexts/AuthContext'
-import type { AccessRequestItem } from '@/api/accessRequests'
+import type { AccessRequestItem, ApprovedStaff } from '@/api/accessRequests'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -15,6 +15,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/primitives/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui'
@@ -147,6 +154,35 @@ export function SettingsAccessRequestsPage() {
     onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
   })
 
+  const [confirmStaff, setConfirmStaff] = useState(false)
+  const [staffRole, setStaffRole] = useState<'mentor' | 'mzk_manager'>('mentor')
+  // Выданные пароли живут до закрытия окна и только здесь: второй раз их не
+  // посмотреть, поэтому окно закрывается явной кнопкой, а не по клику мимо.
+  const [issuedStaff, setIssuedStaff] = useState<ApprovedStaff[] | null>(null)
+
+  const bulkStaff = useMutation({
+    mutationFn: (ids: string[]) => accessRequestsApi.bulkApproveStaff(ids, staffRole),
+    onSuccess: (result) => {
+      setConfirmStaff(false)
+      const withPasswords = result.approved.filter((a) => a.temp_password)
+      if (withPasswords.length > 0) setIssuedStaff(result.approved)
+      else toast({ title: `Открыт доступ: ${result.approved.length}` })
+
+      if (result.skipped.length > 0) {
+        toast({
+          variant: 'destructive',
+          title: `Не взяли: ${result.skipped.length}`,
+          description: result.skipped
+            .slice(0, 5)
+            .map((s) => `${s.name ?? 'Заявка'} — ${s.reason}`)
+            .join('; '),
+        })
+      }
+      invalidate()
+    },
+    onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
+  })
+
   // Кандидаты на массовое одобрение — те же, кого пропустит сервер. Считаем
   // здесь только чтобы не предлагать кнопку, которая ничего не сделает;
   // настоящее решение всё равно принимается на бэкенде.
@@ -159,6 +195,18 @@ export function SettingsAccessRequestsPage() {
           i.suggested_student?.is_free,
       ),
     [visibleItems],
+  )
+
+  /**
+   * Сколько отмеченных заявок массовое одобрение точно не возьмёт.
+   *
+   * «Выбрать все» отмечает и менторов, а сервер их отбрасывает все до одной —
+   * получалось «Открыт доступ: 0. Осталось разобрать: 16» уже ПОСЛЕ нажатия,
+   * и выглядело это как отказ в правах. Считаем заранее, чтобы сказать до.
+   */
+  const selectedMentorItems = useMemo(
+    () => items.filter((i) => selected.has(i.id) && i.requested_role !== 'student'),
+    [items, selected],
   )
 
   const setRequestRoleFilter = (role: RequestRoleFilter) => {
@@ -247,6 +295,21 @@ export function SettingsAccessRequestsPage() {
             <Check className="mr-1.5 h-4 w-4" />
             Одобрить выбранные ({selected.size})
           </Button>
+          {/* Отдельная кнопка, а не общая: у ученика решение опирается на
+              совпадение телефона с карточкой, а здесь проверять нечего —
+              доступ сотрудника выдаётся целиком под ответственность человека.
+              Поэтому и подтверждение со списком имён. */}
+          {selectedMentorItems.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setConfirmStaff(true)}
+            >
+              <UserPlus className="mr-1.5 h-4 w-4" />
+              Одобрить как сотрудников ({selectedMentorItems.length})
+            </Button>
+          )}
           {autoReady.length > 0 && selected.size === 0 && (
             <button
               type="button"
@@ -330,7 +393,121 @@ export function SettingsAccessRequestsPage() {
         password={issuedPassword}
         onClose={() => setIssuedPassword(null)}
       />
+
+      <Dialog open={confirmStaff} onOpenChange={(open) => !open && setConfirmStaff(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Одобрить как сотрудников: {selectedMentorItems.length}</DialogTitle>
+            <DialogDescription>
+              Проверять здесь нечего: заявку мог подать кто угодно, кто открыл ссылку
+              регистрации. Одобрение сразу открывает доступ к данным студентов — убедитесь,
+              что знаете каждого в списке.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-p-muted">Роль</p>
+            <Select value={staffRole} onValueChange={(v) => setStaffRole(v as 'mentor' | 'mzk_manager')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mentor">Ментор</SelectItem>
+                <SelectItem value="mzk_manager">МЗК-менеджер</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <ul className="max-h-52 overflow-y-auto rounded-panel border border-p-line bg-p-bg p-3 text-sm">
+            {selectedMentorItems.map((item) => (
+              <li key={item.id} className="py-0.5">
+                {item.full_name}
+                <span className="ml-2 text-xs text-p-muted">{item.user.email}</span>
+              </li>
+            ))}
+          </ul>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmStaff(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={bulkStaff.isPending}
+              onClick={() => bulkStaff.mutate(selectedMentorItems.map((i) => i.id))}
+            >
+              {bulkStaff.isPending ? 'Одобряем…' : 'Одобрить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <IssuedStaffDialog staff={issuedStaff} onClose={() => setIssuedStaff(null)} />
     </div>
+  )
+}
+
+/** Пароли одобренной пачки: показываются один раз, поэтому вместе с именами. */
+function IssuedStaffDialog({
+  staff,
+  onClose,
+}: {
+  staff: ApprovedStaff[] | null
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const withPassword = (staff ?? []).filter((s) => s.temp_password)
+
+  const copyAll = async () => {
+    const text = withPassword.map((s) => `${s.name}\t${s.email}\t${s.temp_password}`).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast({ title: 'Не удалось скопировать', variant: 'destructive' })
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(staff)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Доступ открыт — раздайте временные пароли</DialogTitle>
+          <DialogDescription>
+            У этих людей не было пароля: они регистрировались через Google. Пароли показаны
+            один раз — скопируйте сейчас. Потерянный восстанавливается только сбросом
+            в «Пользователях». При первом входе система попросит сменить пароль.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-72 overflow-y-auto rounded-panel border border-p-line">
+          <table className="w-full text-sm">
+            <tbody>
+              {withPassword.map((s) => (
+                <tr key={s.id} className="border-b border-p-line last:border-0">
+                  <td className="px-3 py-2">
+                    {s.name}
+                    <div className="text-xs text-p-muted">{s.email}</div>
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">{s.temp_password}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {(staff?.length ?? 0) > withPassword.length && (
+          <p className="text-xs text-p-muted">
+            Остальным пароль не выдавался — он у них уже есть.
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={copyAll}>
+            {copied ? 'Скопировано' : 'Скопировать всё'}
+          </Button>
+          <Button onClick={onClose}>Готово</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

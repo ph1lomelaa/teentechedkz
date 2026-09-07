@@ -77,12 +77,27 @@ class TempPasswordTests(unittest.TestCase):
     def test_approval_issues_a_password_for_a_passwordless_account(self) -> None:
         from app.api.v1.endpoints import access_requests
 
-        source = inspect.getsource(access_requests.approve_request)
+        source = inspect.getsource(access_requests._grant_staff_role)
         self.assertIn("is_google_only", source)
         self.assertIn("gen_password", source)
         # Без этого человек войдёт временным паролем и оставит его навсегда.
         self.assertIn("must_change_password = True", source)
         self.assertIn("temp_password", source)
+
+    def test_single_and_bulk_approval_share_one_implementation(self) -> None:
+        """Обе ручки выдают роль через один хелпер.
+
+        Разойдись они — массовое одобрение забыло бы выдать временный пароль,
+        и половина одобренных снова осталась бы без входа. Ровно та проблема,
+        с которой всё началось.
+        """
+        from app.api.v1.endpoints import access_requests
+
+        for endpoint in (access_requests.approve_request, access_requests.bulk_approve_staff):
+            source = inspect.getsource(endpoint)
+            self.assertIn("_grant_staff_role", source, endpoint.__name__)
+            # Своей копии выдачи пароля быть не должно.
+            self.assertNotIn("gen_password(", source, endpoint.__name__)
 
     def test_staff_reset_revokes_sessions_and_forces_a_change(self) -> None:
         from app.api.v1.endpoints import users

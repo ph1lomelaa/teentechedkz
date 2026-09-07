@@ -208,6 +208,53 @@ class ApproveRequest(BaseModel):
     student_id: uuid.UUID | None = None
 
 
+def _grant_staff_role(
+    db: AsyncSession,
+    *,
+    user: User,
+    role: str,
+    actor: User,
+    request: Request,
+    via: str,
+) -> str | None:
+    """Выдать сотруднику роль и, если пароля не было, временный пароль.
+
+    Общая часть одиночного и массового одобрения: если бы каждая ручка делала
+    это сама, они бы разошлись — например, массовая забыла бы выдать пароль,
+    и половина одобренных снова осталась бы без входа.
+
+    Возвращает временный пароль или None, если у человека пароль уже есть.
+    """
+    user.role = UserRole(role)
+    user.is_active = True
+
+    # Сотрудник, пришедший через /join, заведён с заглушкой вместо хеша:
+    # пароля у него нет вовсе, войти он может только кнопкой Google. Раньше
+    # одобрение об этом молчало — человек шёл «вспоминать» несуществующий
+    # пароль, и очередь «менторы забыли пароли» набиралась сама собой.
+    # Выдаём временный пароль, чтобы у него было два рабочих пути входа.
+    temp_password: str | None = None
+    if is_google_only(user.hashed_password):
+        temp_password = gen_password()
+        user.hashed_password = hash_password(temp_password)
+        user.must_change_password = True
+
+    record_audit(
+        db,
+        action=AuditAction.access_granted,
+        actor=actor,
+        target_user_id=user.id,
+        request=request,
+        meta={
+            "via": via,
+            "role": role,
+            "email": user.email,
+            "temp_password_issued": temp_password is not None,
+        },
+    )
+    return temp_password
+
+
 @router.post("/{request_id}/approve")
 async def approve_request(
     request_id: uuid.UUID,
@@ -236,31 +283,8 @@ async def approve_request(
             db, student=student, user=user, actor=current_user, request=request, via="queue"
         )
     else:
-        user.role = UserRole(body.role)
-        user.is_active = True
-
-        # Сотрудник, пришедший через /join, заведён с заглушкой вместо хеша:
-        # пароля у него нет вовсе, войти он может только кнопкой Google. Раньше
-        # одобрение об этом молчало — человек шёл «вспоминать» несуществующий
-        # пароль, и очередь «менторы забыли пароли» набиралась сама собой.
-        # Выдаём временный пароль, чтобы у него было два рабочих пути входа.
-        if is_google_only(user.hashed_password):
-            temp_password = gen_password()
-            user.hashed_password = hash_password(temp_password)
-            user.must_change_password = True
-
-        record_audit(
-            db,
-            action=AuditAction.access_granted,
-            actor=current_user,
-            target_user_id=user.id,
-            request=request,
-            meta={
-                "via": "queue",
-                "role": body.role,
-                "email": user.email,
-                "temp_password_issued": temp_password is not None,
-            },
+        temp_password = _grant_staff_role(
+            db, user=user, role=body.role, actor=current_user, request=request, via="queue"
         )
 
     await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
@@ -390,11 +414,16 @@ async def bulk_approve(
 
     for req in requests:
         if req.requested_role != "student":
+            # Формулировка важна: прежняя («роль назначает админ») читалась
+            # как «у вас не хватает прав», хотя кнопку жмёт как раз админ.
+            # Причина другая — массовой проверки для ментора не существует:
+            # у ученика сверяется телефон с карточкой, а у ментора сверять
+            # нечего, и роль (ментор/МЗК-менеджер) в заявке не указана.
             skipped.append(
                 {
                     "id": str(req.id),
                     "name": req.full_name,
-                    "reason": "Ментора нужно одобрить вручную — роль назначает админ",
+                    "reason": "Заявку ментора одобряют по одной — кнопкой «Одобрить как ментора» в строке",
                 }
             )
             continue
@@ -442,6 +471,92 @@ async def bulk_approve(
                 row["user_id"] = req.user_id
                 break
         approved.append({"id": str(req.id), "name": req.full_name, "student_id": str(student.id)})
+
+    await db.commit()
+    return {"approved": approved, "skipped": skipped}
+
+
+class BulkApproveStaffRequest(BaseModel):
+    ids: list[uuid.UUID]
+    role: Literal["mentor", "mzk_manager"] = "mentor"
+
+
+@router.post("/bulk-approve-staff")
+async def bulk_approve_staff(
+    body: BulkApproveStaffRequest,
+    request: Request,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Одобрить пачку заявок сотрудников (менторы, МЗК-менеджеры).
+
+    Почему отдельной ручкой, а не в `/bulk-approve`
+    -----------------------------------------------
+    У ученика массовое одобрение опирается на объективную проверку — точное
+    совпадение телефона со свободной карточкой; заявку без такой проверки та
+    кнопка не берёт. У сотрудника сверять нечего: заявку может подать кто
+    угодно, кто открыл ссылку /join, а одобрение сразу даёт доступ к данным
+    студентов. Поэтому решение остаётся полностью человеческим — и должно
+    выглядеть как отдельное осознанное действие, а не как «одобрить выбранные».
+    Роль тоже задаётся явно: из заявки её не вывести, там только «не ученик».
+
+    Ученики сюда не попадают: им нужна карточка, а её выбирают по одной.
+    """
+    require_access(current_user, "access_requests", Action.manage)
+    if not body.ids:
+        return {"approved": [], "skipped": []}
+
+    requests = (
+        (
+            await db.execute(
+                select(AccessRequest)
+                .options(joinedload(AccessRequest.user))
+                .where(AccessRequest.id.in_(body.ids), AccessRequest.status == STATUS_NEW)
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    found = {r.id for r in requests}
+
+    approved: list[dict] = []
+    skipped: list[dict] = []
+
+    for missing in [i for i in body.ids if i not in found]:
+        skipped.append({"id": str(missing), "reason": "Заявка не найдена или уже обработана"})
+
+    for req in requests:
+        if req.requested_role == "student":
+            skipped.append(
+                {
+                    "id": str(req.id),
+                    "name": req.full_name,
+                    "reason": "Это заявка ученика — её одобряют вместе с карточкой",
+                }
+            )
+            continue
+
+        temp_password = _grant_staff_role(
+            db,
+            user=req.user,
+            role=body.role,
+            actor=current_user,
+            request=request,
+            via="queue_bulk_staff",
+        )
+        await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
+        approved.append(
+            {
+                "id": str(req.id),
+                "name": req.full_name,
+                "email": req.user.email,
+                # Единственный момент, когда пароль виден. Отдаём вместе с
+                # именем и почтой: без них список из шестнадцати паролей
+                # невозможно раздать по адресатам.
+                "temp_password": temp_password,
+            }
+        )
 
     await db.commit()
     return {"approved": approved, "skipped": skipped}
