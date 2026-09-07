@@ -1,320 +1,271 @@
 # TeenTechEd CRM
 
-Full-stack CRM для образовательного консалтинга: FastAPI (async) + React 18 + PostgreSQL, с фоновым воркером на `arq`, Redis и MinIO.
-
-Если интересует, как всё это устроено внутри (веб-процесс vs воркер, очереди, Notion/Telegram/Deepgram интеграции) — смотри [ARCHITECTURE.md](ARCHITECTURE.md). Этот файл — только про то, как поднять проект локально.
-
-## Требования
-
-- **Docker** (версия 20.10+)
-- **Docker Compose** (версия 2.0+)
-- **Git**
-
-Никаких других требований не нужно — всё остальное (Python, Node, Postgres) работает в контейнерах.
-
-## Быстрый старт
-
-### 1. Клонируй репозиторий и перейди в папку
-
-```bash
-git clone <repository-url>
-cd teentechedkz
-```
-
-### 2. Создай файл `.env` из примера
-
-```bash
-cp .env.example .env
-```
-
-Для локальной разработки значения по умолчанию уже настроены и работают. Внешние интеграции (Telegram, Notion, Deepgram, OpenAI/Anthropic) — опциональны: без них приложение полностью работает, просто соответствующие функции (Telegram-инбокс, синк Notion, транскрипция, AI-инсайты) будут неактивны. Добавь ключи в `.env`, когда понадобятся.
-
-### 3. Запусти проект
-
-```bash
-docker compose up --build
-```
-
-Поднимаются 6 сервисов: `postgres`, `redis`, `minio`, `backend`, **`worker`**, `frontend`. При первом запуске Docker соберёт образы и применит миграции — подожди, пока вывод стабилизируется (примерно 30-60 секунд).
-
-Важно: `worker` — не опциональный сервис для фоновых задач "на будущее". Он обязателен уже сейчас: там крутятся Notion/Sheets-синк, payment notifier, Telegram-вебхук health-check, и туда же уезжает вся тяжёлая обработка (транскрипция аудио, вложения из Telegram, AI-извлечение инсайтов) — без него эти функции просто не будут работать, хотя сам сайт и API останутся доступны. Подробнее — в ARCHITECTURE.md.
-
-### 4. Готово. Открой приложение
-
-| Сервис | URL | Описание |
-|--------|-----|---------|
-| **Frontend** | http://localhost:3000 | React-приложение |
-| **API** | http://localhost:8001 | FastAPI (Swagger: http://localhost:8001/docs) |
-| **PostgreSQL** | localhost:5432 | База данных (пользователь: `tte`, пароль: `tte`) |
-| **Redis** | localhost:6379 | Rate-limit, очередь `arq`, WebSocket pub/sub |
-| **MinIO** | http://localhost:9001 | S3-совместимое хранилище (консоль) |
-
-## Вход в приложение
-
-При первом запуске сидируется тестовый администратор:
-
-- **Email**: `admin@teenteched.kz`
-- **Пароль**: `Admin1234!`
-
-Смени пароль сразу после первого входа (Настройки → аккаунт) — значение по умолчанию совпадает с тем, что лежит в `.env.example`, и держать его в проде нельзя.
-
-## Структура проекта
-
-```
-teentechedkz/
-├── backend/
-│   ├── app/
-│   │   ├── api/v1/endpoints/   # ~40 роутеров: students, roadmaps, chat, telegram_webhook, notion...
-│   │   ├── models/             # SQLAlchemy-модели (~40 таблиц)
-│   │   ├── schemas/            # Pydantic-схемы запросов/ответов
-│   │   ├── services/           # Бизнес-логика: notion_sync, telegram_bot, deepgram_rest, queue...
-│   │   ├── core/                # config, database, security, deps
-│   │   ├── main.py              # FastAPI-приложение (веб-тир, uvicorn)
-│   │   └── worker.py            # arq-воркер (фоновый тир) — см. ARCHITECTURE.md
-│   ├── alembic/versions/        # миграции БД
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   └── src/
-│       ├── api/                 # HTTP-клиенты по доменам
-│       ├── components/
-│       │   ├── portal/          # компоненты студенческого кабинета
-│       │   ├── workspace/       # компоненты тёмной workspace-темы для менторов
-│       │   └── shared/          # общие для классического CRM и workspace
-│       ├── pages/
-│       │   ├── portal/          # /portal/* — кабинет студента
-│       │   ├── workspace/       # /workspace/* — альтернативный UI для менторов
-│       │   └── *.tsx            # классический CRM (/students, /finances, /statistics...)
-│       └── App.tsx
-├── migration/                    # скрипты миграции данных из Notion/Google Sheets
-├── scripts/                      # backup.sh / restore.sh (бэкапы БД), туннель для dev
-├── monitoring/                   # стек наблюдаемости: Grafana + Prometheus + Loki + экспортеры
-├── docker-compose.yml            # dev-конфигурация
-├── docker-compose.prod.yml       # prod-конфигурация (multi-worker uvicorn, логи/лимиты/healthcheck)
-├── .env.example
-├── README.md                     # этот файл
-└── ARCHITECTURE.md               # как всё устроено внутри
-```
-
-## Разработка
-
-### Просмотр логов
-
-```bash
-docker compose logs -f
-docker compose logs -f backend
-docker compose logs -f worker      # Notion/Sheets синк, транскрипция, Telegram-обработка — здесь
-docker compose logs -f frontend
-```
-
-### Остановка и перезагрузка
-
-```bash
-docker compose down          # остановить все сервисы
-docker compose down -v       # + удалить данные из БД/MinIO (полная очистка)
-docker compose restart backend worker   # применить изменения без пересборки образа
-```
-
-### Пересборка после изменения зависимостей
-
-Если менял `requirements.txt` или `package.json` — просто `restart` не подхватит новые пакеты:
-
-```bash
-docker compose up -d --build backend worker
-```
-
-### Миграции БД
-
-```bash
-docker compose exec backend alembic upgrade head            # применить миграции
-docker compose exec backend alembic revision -m "название"  # создать новую
-```
-
-Если добавляешь модель/поле — создавай миграцию сразу и не забудь применить её (`alembic upgrade head`) при следующем деплое или локальном обновлении: без этого прод/локалка упадут с `UndefinedColumnError` при первом же запросе к новой колонке.
-
-## Переменные окружения
-
-Полный список — в `.env.example`, там же комментарии по каждой группе. Коротко:
-
-```
-# БД (значения по умолчанию подходят для локалки)
-POSTGRES_USER=tte
-POSTGRES_PASSWORD=tte
-POSTGRES_DB=tte_db
-
-# Storage (S3-совместимое, MinIO)
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-
-# Auth — смени в проде на случайную строку 32+ символов.
-# В проде бэкенд НЕ СТАРТУЕТ с дефолтными значениями (fail-fast) — так и задумано.
-JWT_SECRET_KEY=change-me-in-production-min-32-chars-long-random
-PGCRYPTO_KEY=change-me-in-production-min-32-chars-long-random
-
-# Rate-limit по IP доверяет X-Forwarded-For только за прокси (Caddy). За Caddy — true.
-TRUST_PROXY_HEADERS=true
-
-# Наблюдаемость (опционально): ошибки в Sentry. Пусто => выключено.
-SENTRY_DSN=
-VITE_SENTRY_DSN=
-
-# Масштабирование веб-тира (используется только в docker-compose.prod.yml)
-UVICORN_WORKERS=2
-DB_POOL_SIZE=10
-DB_MAX_OVERFLOW=5
-
-# Опционально — интеграции, без них приложение работает, но без этих функций
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_WEBHOOK_URL=
-NOTION_API_KEY=
-NOTION_DATABASE_ID=... # data source ID, не container ID из URL базы
-DEEPGRAM_API_KEY=
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
-GOOGLE_SERVICE_ACCOUNT_JSON=
-```
-
-Frontend использует `VITE_API_URL` (по умолчанию `http://localhost:8001` в dev-конфиге).
-
-## Решение проблем
-
-### "Port 3000/8001/5432 уже занят"
-
-```bash
-lsof -i :3000
-```
-Либо смени порты в `docker-compose.yml` (левая часть `ports:` — порт на хосте).
-
-### "Логин не проходит / 500 ошибка на /auth/login"
-
-Почти всегда значит, что миграции не применены после обновления кода:
-```bash
-docker compose exec backend alembic upgrade head
-```
-
-### "Изменения в коде не применяются"
-
-- **Backend**: перезагружается автоматически (`uvicorn --reload`). Если код в `worker.py` или сервисах, которые импортирует воркер, — воркер `--reload` не поддерживает, перезапусти вручную: `docker compose restart worker`.
-- **Frontend**: обновляется автоматически (Vite HMR). Если нет — смотри консоль браузера.
-
-### "Telegram-сообщения не приходят"
-
-Проверь `docker compose logs worker` — регистрация вебхука и health-check живут там, не в `backend`. Также нужен публично доступный `TELEGRAM_WEBHOOK_URL` (Telegram не может достучаться до `localhost`) — для локальной разработки обычно используют туннель (ngrok и т.п.).
-
-### "Docker не находит образы / странно себя ведёт после обновления кода"
-
-```bash
-docker compose up -d --build
-```
-
-## Отладка
-
-```bash
-docker compose ps                                    # статус всех сервисов, все должны быть Up
-docker compose exec postgres psql -U tte -d tte_db   # подключиться к БД
-docker compose exec redis redis-cli ping             # проверить Redis
-```
-
-## Документация API
-
-Swagger — **http://localhost:8001/docs** (отключён в проде). Можно отправлять тестовые запросы прямо из браузера.
-
-## Загрузка данных при первом запуске
-
-При первом старте создаются только администратор и справочник стран. Все остальные данные (студенты, договоры, лиды) нужно загрузить отдельно — вот по шагам, что именно нажимать.
-
-### Шаг 0. Настроить ключи интеграций
-
-Если нужны реальные данные из Notion и/или Google Sheets, а не пустая CRM с одним админом — заполни в `.env`:
-
-```
-NOTION_API_KEY=...
-NOTION_DATABASE_ID=...             # Manage data sources → Copy data source ID
-GOOGLE_SERVICE_ACCOUNT_JSON=...   # только если нужен синк из Google Sheets
-```
-
-и пересоздай сервисы, чтобы Docker перечитал `env_file`:
-
-```bash
-docker compose up -d --force-recreate backend worker
-```
-
-Без этих ключей соответствующие кнопки синка просто не найдут данных — ошибок при этом не будет, интеграция тихо считается выключенной.
-
-### Шаг 1. Войти под администратором
-
-`admin@teenteched.kz` / `Admin1234!`, затем сразу сменить пароль (Настройки → аккаунт).
-
-### Шаг 2. Открыть страницу «Студенты» (`/students`)
-
-Кнопки синка видны только ролям `admin`/`mzk_manager` — под ментором их не будет.
-
-### Шаг 3. Синхронизировать Notion
-
-1. Нажать **«Синк Notion»** — подтягивает все строки Notion-таблицы в CRM прямо сейчас (не дожидаясь часового автосинка).
-2. Нажать кнопку **«Notion»** рядом — откроется список записей, которые не привязались к студенту автоматически (автопривязка срабатывает только при совпадении имени/телефона на 100%).
-3. Для оставшихся записей — либо привязать по одной кнопкой **«Привязать»**, либо разом кнопкой **«Привязать всех»** (там, где есть предположительное совпадение), либо **«Создать всех»** — если студентов в CRM для части записей ещё нет вообще, они создадутся с нуля из данных Notion.
-
-### Шаг 4. Синхронизировать анкеты/лиды (Google Sheets и форма заявки на сайте)
-
-1. Нажать кнопку **«Синк»** на той же странице — подтягивает анкеты.
-2. Нажать **«Входящие»** — тот же принцип: **«Привязать»** / **«Привязать всех»** / **«Создать всех»**.
-
-### Шаг 5. Дальше ничего нажимать не нужно
-
-После первого ручного прогона данные обновляются сами: Notion — раз в час, Sheets — раз в 5 минут (крутится в контейнере `worker`; `docker compose logs worker` покажет, что синк реально идёт). Кнопки нужны только чтобы не ждать первый автоцикл или подтянуть изменения немедленно.
-
-### Альтернатива — вручную через интерфейс
-
-Без внешних интеграций студентов/менторов можно заводить прямо в UI, залогинившись администратором — кнопка «Добавить» на соответствующих страницах.
-
-### Полный путь заявки и доступа
-
-1. Абитуриент отправляет `/apply`. Заявка получает статус `new`, появляется в
-   **Студенты → Входящие**, а admin/MZK получают уведомление.
-2. Сотрудник проверяет заявку и либо привязывает её к существующему студенту,
-   либо создаёт карточку. Только после этого лид становится студентом CRM.
-3. В карточке сотрудник выдаёт доступ: система создаёт student-аккаунт,
-   временный пароль и одноразовые ссылку/код приглашения.
-4. Студент может принять приглашение и сразу войти с собственным паролем. Если
-   он вошёл по временному паролю, все остальные разделы заблокированы до смены.
-5. Reset пароля, отключение доступа, смена роли и деактивация сотрудника
-   отзывают refresh-сессии. Повторно использовать приглашение нельзя.
-6. Заявка ментора создаёт неактивный аккаунт. Вход открывается только после
-   одобрения администратора в **Настройки → Пользователи**.
-
-Этот путь проверяет живой smoke-тест `backend/tests/e2e_auth_intake.py`; CI
-запускает его после создания схемы и до деплоя.
-
-## Продакшн
-
-Отдельная конфигурация — `docker-compose.prod.yml`. Ключевые отличия от dev: без `--reload`, несколько uvicorn-воркеров (`UVICORN_WORKERS`), явные лимиты пула соединений к БД, ротация логов, лимиты памяти и healthcheck'и на всех сервисах. Подробности — в разделах «Масштабирование» и «Эксплуатация» [ARCHITECTURE.md](ARCHITECTURE.md).
-
-Деплой автоматический: пуш в `main` запускает GitHub Actions (`.github/workflows/deploy.yml`) — сначала проверки (lint, тесты фронта/бэка, применение миграций на чистой БД, валидация compose), затем деплой по SSH. Красный CI = деплой не пойдёт.
-
-### Бэкапы БД
-
-```bash
-./scripts/backup.sh                       # pg_dump + gzip + ротация + off-site в MinIO
-./scripts/restore.sh backups/<дамп>.sql.gz  # восстановление
-```
-
-На проде поставь в cron (ежедневно в 03:00):
-
-```bash
-0 3 * * * /path/to/teentechedkz/scripts/backup.sh >> /var/log/tte-backup.log 2>&1
-```
-
-Деплой сам делает бэкап перед накатом миграций. Хотя бы раз проверь восстановление на тестовой БД — бэкап без проверенного restore не считается.
-
-### Мониторинг и наблюдаемость
-
-Ошибки (Sentry), метрики/нагрузка (Grafana + Prometheus), логи с поиском (Loki), алерты о падениях — отдельный стек в `monitoring/`. Запуск и настройка — в [monitoring/README.md](monitoring/README.md).
-
-```bash
-docker compose -f monitoring/docker-compose.monitoring.yml up -d
-```
+An operations platform for a university-admissions consultancy: it runs the full
+client lifecycle from an inbound lead to an enrolled student, and it runs the
+company's own working regulations on top of that — mentor assignment, service
+delivery, quality reviews, complaints, refunds and payouts.
+
+The system replaced a stack of Notion boards, Google Forms and spreadsheets. Those
+sources are still read (staff kept working in them during the migration), but the
+database is now the source of truth.
+
+- **How it is built inside** — [ARCHITECTURE.md](ARCHITECTURE.md)
+  (web tier vs. worker, queues, WebSocket fan-out, integration patterns).
+- **How to run it** — [docs/SETUP.md](docs/SETUP.md).
 
 ---
 
-**Вопросы?** Смотри ARCHITECTURE.md или пиши в канал разработки.
+## 1. Problem domain
+
+A consultancy guides school students through applying to foreign universities.
+One student means a signed contract, a paid package of services, several country
+applications, a personal roadmap of deadlines, a team of mentors, dozens of
+documents, and a year or more of meetings and messaging.
+
+Three things made spreadsheets stop working:
+
+1. **No single record of a student.** Contract terms lived in one sheet, the
+   admissions progress in another, mentor notes in Telegram, documents in Drive.
+   Answering "where is this student right now" required a person who remembered.
+2. **Nothing enforced the regulations.** The company has written rules — response
+   deadlines, mandatory mentor roles per student, monthly quality reviews,
+   penalties and bonuses. A document cannot enforce itself.
+3. **No accountability trail.** Who changed a status, who saw a passport scan, who
+   approved staff access — none of it was recoverable.
+
+The system is built around those three gaps, which is why so much of it is
+assignment, status, deadline and audit machinery rather than CRUD screens.
+
+---
+
+## 2. Roles and access model
+
+Four roles: `admin`, `mzk_manager`, `mentor`, `student`.
+
+| Role | Scope |
+|---|---|
+| `admin` | Everything, including the permission registry and staff accounts. |
+| `mzk_manager` | Account/quality manager: owns the client relationship, reviews mentor work, handles complaints and refunds. |
+| `mentor` | Sees **only** students they are assigned to, enforced server-side. |
+| `student` | Client-facing portal account, linked to exactly one student record. |
+
+Access is resource-based, not role-based at the call site. A central registry
+(`backend/app/core/permissions.py`) maps `(resource, action)` pairs to roles, with
+per-user overrides stored in the database and edited from an admin screen. Mentor
+scoping is a separate layer: a mentor who is not assigned to a student gets `404`,
+not `403` — the existence of the record is not disclosed.
+
+**Why a registry rather than checks in each handler.** Access rules previously
+lived in ~30 hand-written helpers. An audit found three helpers with the same name
+and three different behaviours, and helpers whose name contradicted their body. A
+conformance test now asserts the registry and the remaining legacy helpers answer
+identically, so the two cannot drift.
+
+---
+
+## 3. Functional scope
+
+### 3.1 Client lifecycle
+
+- **Student record** — profile, guardians, emergency contacts, target degree and
+  intake year, work folder, company-issued working phone.
+- **Contracts** with a pipeline status (`active_work`, `paused`, `suspended`,
+  `no_status`, …), amendments, and a renewal signal that fires before a contract
+  ages out.
+- **Payments** — schedule, actual receipts, mentor payouts, and a background
+  notifier that warns the student, the mentors and the managers about upcoming and
+  overdue instalments.
+- **Services** — what was actually sold (career guidance, IELTS mock, IELTS/SAT
+  prep, portfolio work), each with its own status and assigned specialist.
+
+### 3.2 Admissions
+
+- **Applications** per country, with submission and visa status.
+- **University reference** and a per-student shortlist, plus scholarships.
+- **Roadmaps** — reusable templates authored by staff become live per-student
+  roadmaps with stages, tasks and subtasks. A student may run several roadmaps at
+  once (parallel applications to different countries).
+- **Questionnaires** attached to roadmap tasks — the student fills them in the
+  portal, staff reads structured answers instead of chat messages.
+
+Students **cannot** move their own roadmap statuses. Progress is confirmed by a
+mentor; the student fills questionnaires and watches progress. This is a
+deliberate restriction — self-reported completion diverged from the real process.
+
+### 3.3 Work management
+
+- **Mentor assignment** — a student has a team, not one mentor: lead mentor,
+  IELTS teacher, career counsellor, country mentor. Assignments are foreign keys
+  to real accounts, carry a status (`active`, `awaiting_signature`, `required`,
+  `replaced`), and every replacement is written to history with a reason.
+- **Task SLA and urgency** — background loops escalate tasks by colour status and
+  notify when deadlines approach or pass.
+- **Meetings** and **check-ins**.
+- **Session notes** — live transcription of a call streamed from the browser
+  straight to the speech-to-text provider, with a chunked audio backup that is
+  re-transcribed server-side if the live stream drops.
+- **Responsibilities matrix** — who owns what for a given student.
+
+### 3.4 Communication
+
+- **Telegram** — group chats are bound to students; incoming messages, voice notes
+  and files land in an inbox, attachments are transcribed, and an LLM extracts
+  candidate insights for a human to confirm.
+- **In-app chat** over WebSocket, with Redis fan-out so a message reaches the user
+  regardless of which web process holds their socket.
+- **Notifications** — per-user, pushed live and collected in one bell.
+
+### 3.5 Documents and sensitive data
+
+- Document storage in S3-compatible object storage, with a verification state.
+- National ID numbers are encrypted at rest (`pgcrypto`).
+- Confidential notes are a separate resource with its own access rule.
+- Uploads are read with a hard size cap while streaming, so an oversized file
+  cannot exhaust process memory before the size check.
+
+### 3.6 Regulation and quality
+
+This is the part that encodes the company's written rules:
+
+- **Agreements** — regulations are published in the system and signed
+  electronically; an unsigned mentor gets assignments in `awaiting_signature`.
+- **Complaints** — a complaints book with response SLA and breach tracking.
+- **Refund cases** and **security incidents** with their own workflows.
+- **Monthly quality reviews** — individual reviews aggregate into a monthly score
+  per manager.
+- **Mentor rewards and penalties** — stage bonuses and a register of financial
+  penalties derived from task colour statuses, with the mentor's right to object.
+
+### 3.7 Intake and data sources
+
+- **Google Forms** (manager package form, student case form) are polled and staged
+  in `intake_submissions`. Rows without a plausible duplicate become student cards
+  automatically, with no status, so the database shows the full picture of
+  inbound demand; rows resembling an existing student wait for a human to link
+  them, because automatic linking would create duplicates.
+- **Notion** is mirrored row-by-row and fuzzy-matched to students, with manual
+  linking for the rest.
+- **Landing form** posts leads into the same intake pipeline.
+- Contract amounts and personal arrangements are never imported automatically —
+  they are human-entered fields by design.
+
+### 3.8 Accounts and access provisioning
+
+- **Self-registration** through a single `/join` link, verified by Google. A
+  student whose phone exactly matches a free card gets their portal immediately;
+  everyone else lands in an approval queue with a matching hint.
+- **Approval queue** — bulk approval is allowed only where an objective check
+  exists (exact phone match against a free card). Staff approvals are a separate,
+  explicit action with named confirmation, because nothing about a staff request
+  can be verified automatically.
+- **Account recovery without email.** The system sends no email at all. Recovery
+  is Google sign-in: a person links their Google account once and can always get
+  back in. The fallback is a generated temporary password, shown once to an admin,
+  which forces a change on first login and revokes existing sessions.
+
+### 3.9 Administration
+
+- **Permission registry UI** with per-user overrides.
+- **Audit log** — logins, access grants, password resets, permission changes,
+  Google links, invitations.
+- **Status history** per entity, and Excel export.
+
+---
+
+## 4. Client surfaces
+
+Three front-ends over one API, because the audiences need different things:
+
+| Surface | Route | Audience |
+|---|---|---|
+| Classic CRM | `/students`, `/finances`, `/statistics`, … | Managers and admins — dense tables, filters, bulk actions. |
+| Workspace | `/workspace/*` | Mentors — dark theme, one student card with tabs instead of many pages. |
+| Portal | `/portal/*` | Students — roadmap, tasks, documents, meetings, university shortlist. |
+
+Shared business logic lives in common components and API clients; the three
+differ in layout and design tokens, not in duplicated logic.
+
+---
+
+## 5. Architecture in brief
+
+```
+browser / Telegram → Caddy → frontend (nginx)
+                           → backend (FastAPI, async)   ← fast DB I/O only
+                                     ↓ enqueue
+                                   Redis  (queue · WS pub/sub · rate limit)
+                                     ↓
+                                   worker (arq)  ← all slow/external work
+                                     ↓
+                     PostgreSQL · MinIO · Notion/Telegram/STT/LLM
+```
+
+The rule that shapes everything: **the web tier never waits on an external API.**
+It answers from the database or enqueues a job. Transcription, LLM calls, Telegram
+file downloads and all periodic syncs live in a single `worker` process.
+
+This is not incidental — it comes from an incident. Transcription and Telegram
+handling once ran synchronously inside HTTP requests on one uvicorn process with a
+small connection pool. A few concurrent heavy operations blocked the event loop and
+the pool, and the **whole site** stopped responding, not just the heavy feature.
+
+Full reasoning, including why background loops are forbidden in the web process
+and how the WebSocket hub works across processes, is in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+**Stack:** FastAPI (async) · SQLAlchemy 2.0 (async) · asyncpg · PostgreSQL 15 ·
+Redis + `arq` · MinIO · React 18 + TypeScript · Vite · TanStack Query · Tailwind ·
+Radix UI · Alembic.
+
+---
+
+## 6. Engineering notes
+
+**Authentication.** Short-lived JWT access token plus an opaque refresh token,
+stored hashed and rotated on every refresh, in an httpOnly cookie. A 20-second
+grace window resolves the two-tabs race that otherwise logs a valid session out.
+Passwords are bcrypt. In production the backend refuses to start on default
+secrets — a crashed deploy is safer than a silently insecure one.
+
+**Observability.** Four independent layers: errors to Sentry (PII off), metrics to
+Prometheus/Grafana (host, containers, app, database, Redis), logs to Loki, and
+alerts on service health, resource pressure, 5xx rate and backup staleness.
+
+**Backups.** Nightly `pg_dump` with integrity verification, retention and an
+off-site copy to object storage. The deploy takes a dump *before* running
+migrations, since migrations are not reversible without one.
+
+**CI/CD.** Push to `main` runs tests, applies the schema and every migration to a
+clean database, and asserts a single Alembic head. Only a green run deploys.
+`main` is production; the pipeline is the only barrier in front of users.
+
+**Testing.** ~60 backend test files, deliberately hermetic — no database fixtures.
+Tests target decisions rather than plumbing: permission-registry conformance,
+duplicate prevention on intake, partial-success semantics of bulk operations,
+token verification rules. Front-end unit tests cover filter logic and state that
+survives navigation.
+
+---
+
+## 7. Scale
+
+| | |
+|---|---|
+| Database tables | 80 |
+| API routes | 385 across 53 modules |
+| Alembic migrations | 88 |
+| Front-end pages | 87 across 3 surfaces |
+| Backend test files | 60 |
+
+---
+
+## 8. Repository layout
+
+```
+backend/         FastAPI app — api/v1/endpoints, models, services, core; worker.py
+frontend/        React app — pages/{,workspace,portal}, components, api clients
+migration/       One-off importers from Notion and Google Sheets
+monitoring/      Grafana · Prometheus · Loki · exporters
+scripts/         Backup, restore, smoke checks
+docs/            Setup guide, plans, regulations
+```
