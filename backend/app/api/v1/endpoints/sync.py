@@ -20,8 +20,19 @@ from app.models import IntakeSubmission, IntakeSource, IntakeStatus, Student
 from app.models.user import UserRole
 from app.services import sheets_sync
 from app.services.intake_ai_check import check_same_meaning
-from app.services.default_services import ensure_default_services
 from app.services.sheets_sync import map_row, PACKAGE_FIELD_PATTERNS, CASES_FIELD_PATTERNS  # noqa: F401
+# Создание карточек из анкет живёт в сервисе — им пользуется и эта ручка, и
+# автоматический проход после синка. Приватные имена сохранены алиасами, чтобы
+# не трогать десяток вызовов ниже.
+from app.services.intake_promote import (
+    apply_intake_countries as _apply_intake_countries,
+    apply_intake_services as _apply_intake_services,
+    backfill_student_fields as _backfill_student_fields,
+    create_student_from_intake as _create_student_from_intake,
+    norm_cmp as _norm_cmp,
+    promote_new_submissions,
+    service_included_from_answer as _service_included_from_answer,
+)
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -258,9 +269,9 @@ async def create_student_from_submission(
     # Защита от дублей: имя могло быть написано на другом языке — проверяем
     # транслит-матчем по свежему списку студентов, а не только по кандидату синка
     from migration.transformers.match import fuzzy_match
-    from app.services.sheets_sync import _load_students_index
+    from app.services.sheets_sync import load_students_index
 
-    students_index = await _load_students_index(db)
+    students_index = await load_students_index(db)
     raw_phone = ""
     for key, value in submission.raw_data.items():
         if "телефон" in str(key).lower():
@@ -280,210 +291,22 @@ async def create_student_from_submission(
     return {"student_id": str(student.id), "submission": _submission_to_dict(submission)}
 
 
-def _parse_intake_year(raw) -> int | None:
-    for token in str(raw or "").replace(".", " ").split():
-        if token.isdigit() and 2020 <= int(token) <= 2035:
-            return int(token)
-    return None
-
-
-def _backfill_student_fields(student: Student, mapped: dict) -> list[str]:
-    """Дозаполняет ТОЛЬКО пустые поля профиля значениями из анкеты — никогда
-    не перезаписывает то, что уже внесено вручную или из другой анкеты того
-    же студента (Пакет и Кейс приходят в разное время и дополняют друг друга)."""
-    changed: list[str] = []
-
-    def backfill(attr: str, value):
-        if not value or getattr(student, attr):
-            return
-        setattr(student, attr, value)
-        changed.append(attr)
-
-    backfill("city", mapped.get("city"))
-    backfill("specialty", mapped.get("specialty"))
-    backfill("gpa", mapped.get("gpa"))
-    backfill("achievements_text", mapped.get("achievements"))
-    backfill("budget_per_year", mapped.get("budget"))
-    backfill("phone", mapped.get("phone"))
-
-    raw_age = str(mapped.get("age", "")).split(".")[0]
-    if raw_age.isdigit() and 10 <= int(raw_age) <= 80 and not student.age:
-        student.age = int(raw_age)
-        changed.append("age")
-
-    return changed
-
-
-async def _apply_intake_countries(db: AsyncSession, student: Student, mapped: dict) -> int:
-    """Создаёт заявки (Application) по странам из анкеты, которых ещё нет у студента в CRM."""
-    from migration.transformers.normalize import countries_set
-    from app.models import Application
-
-    raw = mapped.get("countries")
-    if not raw:
-        return 0
-
-    existing = {
-        c.strip().lower()
-        for c in (await db.execute(
-            select(Application.country).where(Application.student_id == student.id)
-        )).scalars().all()
-        if c
-    }
-
-    added = 0
-    for country in sorted(countries_set(raw)):
-        key = country.strip().lower()
-        if not key or key in existing:
-            continue
-        db.add(Application(student_id=student.id, country=country, is_primary=not existing))
-        existing.add(key)
-        added += 1
-    return added
-
-
-async def _apply_intake_services(db: AsyncSession, student: Student, mapped: dict) -> int:
-    """Обновляет услуги только из package-анкеты менеджера.
-
-    Стоимость сопровождения и договорённости остаются ручными полями.
-    """
-    from app.models.service import Service, ServiceStatus, ServiceType
-
-    svc_map = {
-        "svc_proforientation": ServiceType.proforientation,
-        "svc_ielts_mock": ServiceType.ielts_mock,
-        "svc_ielts_prep": ServiceType.ielts_prep,
-        "svc_sat_prep": ServiceType.sat_prep,
-        "svc_portfolio": ServiceType.portfolio_improvement,
-    }
-
-    changed = 0
-    for field, svc_type in svc_map.items():
-        if field not in mapped:
-            continue
-        included = _service_included_from_answer(field, mapped.get(field))
-        if included is None:
-            continue
-
-        # uq_services_student_service_type гарантирует не больше одной строки
-        # на тип (миграция 066); раньше здесь брали .all()[0] в обход
-        # MultipleResultsFound из-за дубликатов после слияния студентов.
-        existing = (await db.execute(
-            select(Service).where(
-                Service.student_id == student.id,
-                Service.service_type == svc_type,
-            )
-        )).scalar_one_or_none()
-
-        if existing:
-            if existing.included != included:
-                existing.included = included
-                changed += 1
-            if svc_type == ServiceType.portfolio_improvement and included and not existing.portfolio_directions_count:
-                existing.portfolio_directions_count = _portfolio_directions_count(mapped.get(field))
-        else:
-            extra = {}
-            if svc_type == ServiceType.portfolio_improvement and included:
-                extra["portfolio_directions_count"] = _portfolio_directions_count(mapped.get(field))
-            db.add(Service(
-                student_id=student.id,
-                service_type=svc_type,
-                included=included,
-                status=ServiceStatus.not_started,
-                **extra,
-            ))
-            changed += 1
-    return changed
-
-
-def _portfolio_directions_count(v) -> int | None:
-    t = _norm_cmp(v)
-    if any(x in t for x in ("все", "all")):
-        return 4
-    for token in t.replace(",", " ").split():
-        if token.isdigit() and int(token) > 0:
-            return int(token)
-    return None
-
-
-async def _create_student_from_intake(db: AsyncSession, submission: IntakeSubmission, user_id: uuid.UUID) -> Student:
-    from migration.transformers.normalize import parse_degree
-
-    source = submission.source
-    headers = list(submission.raw_data.keys())
-    values = [submission.raw_data[h] for h in headers]
-    mapped = map_row(headers, values, source)
-
-    student = Student(
-        full_name=(submission.full_name or "Без имени")[:500],
-        phone=mapped.get("phone", "")[:100],
-        degree_level=parse_degree(mapped.get("degree_level", "")),
-        intake_year=_parse_intake_year(mapped.get("intake_year")) or datetime.now(timezone.utc).year + 1,
-    )
-    db.add(student)
-    await db.flush()
-
-    await ensure_default_services(db, student.id)
-
-    _backfill_student_fields(student, mapped)
-    await _apply_intake_countries(db, student, mapped)
-    if source == IntakeSource.package:
-        await _apply_intake_services(db, student, mapped)
-
-    submission.student_id = student.id
-    submission.status = IntakeStatus.linked
-    submission.linked_by = user_id
-    submission.linked_at = datetime.now(timezone.utc)
-
-    await log_change(
-        db, "student", student.id, "created_from_intake",
-        None, f"{source.value}:{submission.id}", str(user_id), "sheets_sync",
-    )
-    return student
-
-
 @router.post("/submissions/create-missing")
 async def create_missing_from_intake(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
     """Создать студентов из всех новых анкет БЕЗ кандидата на привязку.
-    Каждая анкета перепроверяется транслит-матчем — при найденном похожем
-    студенте запись пропускается и получает кандидата вместо дубля."""
+
+    Та же работа, что синк делает сам после каждого прохода — кнопка нужна,
+    чтобы не ждать следующего цикла. От гонки с синком защищает блокировка
+    строк внутри `promote_new_submissions`, а не лок в памяти: синк крутится в
+    процессе worker, эта ручка — в uvicorn, и общего `asyncio.Lock` у них нет.
+    """
     require_access(current_user, "sync", Action.manage)
-
-    from migration.transformers.match import fuzzy_match
-    from app.services.sheets_sync import _load_students_index
-
-    result = await db.execute(
-        select(IntakeSubmission).where(
-            IntakeSubmission.status == IntakeStatus.new,
-            IntakeSubmission.suggested_student_id.is_(None),
-        )
-    )
-    submissions = result.scalars().all()
-    students_index = await _load_students_index(db)
-
-    created = skipped = 0
-    for submission in submissions:
-        match = fuzzy_match(
-            submission.full_name or "", submission.phone_normalized or "", students_index
-        )
-        if match.student_id and match.confidence >= 0.9:
-            submission.suggested_student_id = match.student_id
-            submission.suggested_confidence = round(match.confidence, 3)
-            skipped += 1
-            continue
-        student = await _create_student_from_intake(db, submission, current_user.id)
-        # вторая анкета того же человека в этом прогоне не должна создать дубль
-        students_index.append({
-            "id": student.id, "full_name": student.full_name,
-            "phone": student.phone, "intake_year": student.intake_year,
-        })
-        created += 1
-
+    counters = await promote_new_submissions(db, actor_id=current_user.id)
     await db.commit()
-    return {"ok": True, "created": created, "skipped": skipped}
+    return {"ok": True, **counters}
 
 
 # --- Сверка анкет по студенту ------------------------------------------------
@@ -495,10 +318,6 @@ _SERVICE_ROWS = [
     ("svc_sat_prep", "Подготовка SAT"),
     ("svc_portfolio", "Портфолио (направления)"),
 ]
-
-
-def _norm_cmp(v: str | None) -> str:
-    return " ".join(str(v or "").lower().split())
 
 
 def _norm_year(v: str | None) -> str:
@@ -542,38 +361,6 @@ def _svc_truthy(v) -> bool:
     «Есть, по англ» / «Медицина» → есть."""
     included = _service_included_from_answer("", v)
     return bool(included)
-
-
-def _service_included_from_answer(field: str, v) -> bool | None:
-    """Интерпретация ответа менеджера по услуге из свободного текста."""
-    t = _norm_cmp(v)
-    if not t:
-        return None
-    if t in ("не включена", "-", "нет", "no", "none", "nan"):
-        return False
-    if t in ("включена", "да", "yes", "true", "1", "+", "есть"):
-        return True
-    if t.startswith(("нет", "no", "не ")):
-        return False
-
-    if field == "svc_ielts_mock":
-        if "немец" in t and not any(x in t for x in ("ielts", "айлтс", "мок", "mock")):
-            return False
-        if "подготов" in t and not any(x in t for x in ("мок", "mock")):
-            return False
-        return any(x in t for x in ("мок", "mock", "ielts mock", "айлтс мок"))
-
-    if field == "svc_ielts_prep":
-        if "немец" in t and not any(x in t for x in ("ielts", "айлтс")):
-            return False
-        return not t.startswith(("нет", "no", "не "))
-
-    if field == "svc_portfolio":
-        if any(x in t for x in ("все", "all")):
-            return True
-        return any(token.isdigit() and int(token) > 0 for token in t.replace(",", " ").split())
-
-    return not t.startswith(("нет", "no", "не "))
 
 
 def _values_same(field: str, a, b) -> bool:

@@ -17,10 +17,15 @@ export const LoginPage: React.FC = () => {
   // Почты нет в системе. Отдельным состоянием, а не текстом ошибки: здесь
   // нужна не жалоба, а следующий шаг — кнопка на регистрацию.
   const [noAccount, setNoAccount] = useState(false)
+  // У аккаунта, заведённого через Google, пароля нет вовсе. Общее «неверный
+  // email или пароль» отправляло человека вспоминать несуществующий пароль —
+  // именно так и набралась очередь «менторы забыли пароли».
+  const [googleOnly, setGoogleOnly] = useState(false)
 
   const handleGoogle = async (credential: string) => {
     setError('')
     setNoAccount(false)
+    setGoogleOnly(false)
     setIsLoading(true)
     try {
       const data = await authApi.loginWithGoogle(credential)
@@ -49,12 +54,21 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setGoogleOnly(false)
     setIsLoading(true)
     try {
       const user = await login(email, password)
       navigate(postLoginPath(user), { replace: true })
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      const axiosErr = err as {
+        response?: { status?: number; headers?: Record<string, string>; data?: { detail?: string } }
+      }
+      // Опознаём по заголовку, а не по тексту: текст меняется при первой же
+      // правке формулировки, и проверка по нему тихо перестаёт срабатывать.
+      if (axiosErr.response?.headers?.['x-error-code'] === 'GOOGLE_ONLY') {
+        setGoogleOnly(true)
+        return
+      }
       // Backend already distinguishes "wrong password" from "account pending
       // approval" with a specific detail message — don't paper over it with a
       // generic 401 message, or a mentor waiting on approval reads it as
@@ -91,6 +105,17 @@ export const LoginPage: React.FC = () => {
                 >
                   Зарегистрироваться
                 </Link>
+              </div>
+            )}
+
+            {googleOnly && (
+              <div className="rounded-ctl border border-[#FFD400]/25 bg-[#FFD400]/[0.08] px-4 py-4 text-sm leading-6 text-white/80">
+                <p className="font-semibold text-white">Вход в этот аккаунт — через Google</p>
+                <p className="mt-1">
+                  Пароля у него нет: при регистрации вы входили кнопкой Google. Нажмите
+                  «Войти через Google» ниже — той же почтой. Если такой возможности нет,
+                  попросите куратора выдать временный пароль.
+                </p>
               </div>
             )}
 

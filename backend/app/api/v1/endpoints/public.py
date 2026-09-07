@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import mark_logged_in
+from app.core.security import GOOGLE_ONLY_PASSWORD
 from app.models.access_request import STATUS_AUTO_APPROVED, STATUS_NEW, AccessRequest
 from app.models.audit_log import AuditAction
 from app.models.notification import Notification
@@ -179,11 +180,13 @@ async def join(
         # Пароля нет и не будет: вход в такой аккаунт только через Google.
         # Заглушка непустой строкой — та же, что в /auth/google: `verify_password`
         # её не примет ни к какому вводу, поэтому вход по паролю не откроется сам.
+        # Пароль появится, только если админ выдаст временный при одобрении
+        # заявки — тогда у ментора будет и второй путь входа.
         user = User(
             name=full_name,
             email=identity.email,
             phone=phone_raw,
-            hashed_password="!google",
+            hashed_password=GOOGLE_ONLY_PASSWORD,
             # Роль намеренно не `student`, даже когда человек просит ученика:
             # `role=student` без `students.user_id` отдаёт 404 на каждом экране
             # портала. Настоящая роль ставится вместе с привязкой к карточке.

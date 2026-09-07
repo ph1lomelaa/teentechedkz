@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
-import { syncApi, IntakeSubmission } from '@/api/sync'
+import { syncApi, IntakeSubmission, SheetCounters } from '@/api/sync'
 import { notionApi, NotionSnapshotItem } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLocalState } from '@/lib/use-local-state'
@@ -16,6 +16,8 @@ import {
   DEGREE_LEVEL_COLORS,
   SERVICE_TYPE_LABELS,
   SERVICE_STATUS_LABELS,
+  MENTOR_ROLE_LABELS,
+  ASSIGNABLE_MENTOR_ROLES,
   ServiceType,
   StudentListItem,
 } from '@/types'
@@ -58,7 +60,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
-export type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints' | 'renewal'
+export type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints' | 'renewal' | 'name_only_mentor'
 /**
  * Один сигнал операционного фильтра «Контроль работы» — чистая функция ради
  * юнит-теста: подмешать сюда что-то новое и забыть проверить границу («0»
@@ -89,6 +91,14 @@ export function matchesOperationalFilter(s: StudentListItem, filter: Operational
     // проверки снова разошлись бы по имени.
     case 'renewal':
       return s.risk_category === 'renewal'
+    // Ментор есть текстом (импорт из Notion), но настоящего назначения нет —
+    // такой ментор студента у себя не видит. В списке это неотличимо от
+    // нормально назначенного, поэтому нужен способ собрать весь бэклог разом.
+    case 'name_only_mentor':
+      return (
+        (s.responsibles?.filter((r) => r.is_active).length ?? 0) === 0 &&
+        (s.mentors?.length ?? 0) > 0
+      )
     default:
       return true
   }
@@ -261,7 +271,15 @@ function IntakeInbox() {
       setConfirmCreateAll(false)
       toast({
         title: 'Студенты созданы',
-        description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
+        description: [
+          `Создано: ${res.created}`,
+          res.skipped ? `пропущено (нашёлся похожий студент): ${res.skipped}` : null,
+          // Проход ограничен потолком: без этой строки кнопка выглядела бы
+          // как «всё разобрано», хотя очередь не пуста.
+          res.has_more ? 'очередь разобрана не до конца — нажмите ещё раз' : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
       })
     },
     onError: (err) => toast({ title: 'Не удалось создать студентов', description: getErrorMessage(err), variant: 'destructive' }),
@@ -959,6 +977,88 @@ export const StudentsListPage: React.FC = () => {
     onError: (err) => toast({ title: 'Не удалось стать ответственным', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
+  // --- Назначение ответственных прямо из списка -----------------------------
+  //
+  // Раньше назначить можно было только внутри карточки студента: на разборе
+  // набора это десятки переходов, и ответственные просто не проставлялись.
+  const canAssign = can('mentor_assignments', 'manage')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkMentorId, setBulkMentorId] = useState('')
+  // Одна роль на оба способа назначения — и на строчный селект, и на пачку.
+  // Две независимые роли означали бы, что одно действие делает разное в
+  // зависимости от того, откуда его начали.
+  const [assignRole, setAssignRole] = useState<string>('lead')
+  // Замена уже назначенного специалиста требует причины. В пачке такие студенты
+  // не роняют остальных — бэкенд возвращает их в `skipped`, а мы переспрашиваем
+  // причину и повторяем запрос уже только по ним.
+  const [reasonDialog, setReasonDialog] = useState<{
+    studentIds: string[]
+    mentorId: string
+    role: string
+  } | null>(null)
+  const [replacementReason, setReplacementReason] = useState('')
+
+  const assignMutation = useMutation({
+    mutationFn: (vars: { studentIds: string[]; mentorId: string; role: string; reason?: string }) =>
+      mentorAssignmentsApi.bulkAssign({
+        student_ids: vars.studentIds,
+        mentor_id: vars.mentorId,
+        role: vars.role,
+        replacement_reason: vars.reason,
+      }),
+    onSuccess: (res, vars) => {
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
+
+      const needReason = res.skipped.filter((s) => s.reason === 'needs_reason')
+      if (needReason.length > 0) {
+        // Не тост, а следующий шаг: у этих студентов уже есть ответственный,
+        // и без причины замена не пройдёт.
+        setReasonDialog({
+          studentIds: needReason.map((s) => s.student_id),
+          mentorId: vars.mentorId,
+          role: vars.role,
+        })
+        setReplacementReason('')
+      } else {
+        setReasonDialog(null)
+        setSelectedIds(new Set())
+      }
+
+      const done = res.assigned + res.replaced
+      if (done > 0 || res.already > 0) {
+        const notes = [
+          // Молчать про «уже был назначен» нельзя: иначе «назначено: 3» из
+          // двадцати выбранных читается как сбой.
+          res.already > 0 ? `уже были назначены: ${res.already}` : null,
+          res.assignment_status === 'awaiting_signature'
+            ? 'Специалист ещё не подписал регламент — назначения ждут подписи.'
+            : null,
+        ].filter(Boolean)
+        toast({
+          title: done > 0 ? `Назначено: ${done}` : 'Все выбранные уже назначены',
+          description: notes.join(' · ') || undefined,
+        })
+      }
+    },
+    onError: (err) =>
+      toast({ title: 'Не удалось назначить', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
+  // Число колонок таблицы — считаем, а не пишем числом: пустые состояния
+  // растягиваются на всю ширину через colSpan, и раньше это была захардкоженная
+  // константа, которую пришлось бы править при каждой новой колонке.
+  const columnCount = 8 + (isManager ? 1 : 0) + (canAssign ? 1 : 0)
+
+  const toggleSelected = (studentId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(studentId)) next.delete(studentId)
+      else next.add(studentId)
+      return next
+    })
+  }
+
   const unassignSelfMutation = useMutation({
     mutationFn: (studentId: string) => mentorAssignmentsApi.setSelfActive(studentId, false),
     onSuccess: () => {
@@ -1008,9 +1108,15 @@ export const StudentsListPage: React.FC = () => {
     mutationFn: syncApi.run,
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['intake'] })
-      const parts = Object.entries(res.counters).map(
-        ([src, c]) => `${src === 'package' ? 'Пакет' : 'Кейсы'}: +${c.new}`
-      )
+      qc.invalidateQueries({ queryKey: ['students'] })
+      // `promoted` живёт в тех же counters, но описывает не лист формы, а то,
+      // сколько анкет синк сам превратил в карточки — считать его источником нельзя.
+      const { promoted, ...sheets } = res.counters
+      const parts = Object.entries(sheets)
+        .filter((entry): entry is [string, SheetCounters] => Boolean(entry[1]))
+        .map(([src, c]) => `${src === 'package' ? 'Пакет' : 'Кейсы'}: +${c.new}`)
+      if (promoted?.created) parts.push(`создано карточек: ${promoted.created}`)
+      if (promoted?.skipped) parts.push(`на проверку: ${promoted.skipped}`)
       toast({ title: 'Синхронизация завершена', description: parts.join(' · ') })
     },
     onError: (err: unknown) => {
@@ -1026,6 +1132,16 @@ export const StudentsListPage: React.FC = () => {
     return searched.filter((s) => matchesOperationalFilter(s, operationalFilter))
   }, [allStudents, debouncedSearch, operationalFilter])
   const total = students.length
+  // «Выбрать всех» относится к тому, что реально видно после фильтров, а не ко
+  // всей базе: иначе галочка молча захватила бы студентов вне выборки.
+  const allOnPageSelected = students.length > 0 && students.every((s) => selectedIds.has(s.id))
+  // Действуем только по видимым — выделение переживает смену фильтров.
+  // Иначе: отметил двадцать, сузил поиск до трёх, нажал «Назначить» — и
+  // ответственный молча уехал всем двадцати, включая тех, кого на экране нет.
+  const selectedVisible = useMemo(
+    () => students.filter((s) => selectedIds.has(s.id)).map((s) => s.id),
+    [students, selectedIds],
+  )
   const newCount = syncStatus?.new_submissions ?? 0
   const activeFiltersCount =
     (scope !== 'all' ? 1 : 0) +
@@ -1136,6 +1252,7 @@ export const StudentsListPage: React.FC = () => {
       open_complaints: 'Открытые обращения',
       docs_review: 'Документы на проверке',
       renewal: 'Контракт 500',
+      name_only_mentor: 'Ментор только по имени',
     }
     activeFilterChips.push({
       key: 'operational',
@@ -1360,6 +1477,7 @@ export const StudentsListPage: React.FC = () => {
                       <SelectItem value="open_complaints">Открытые обращения</SelectItem>
                       <SelectItem value="docs_review">Документы на проверке</SelectItem>
                       <SelectItem value="renewal">Контракт 500 (перепродление)</SelectItem>
+                      <SelectItem value="name_only_mentor">Ментор только по имени</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1577,11 +1695,91 @@ export const StudentsListPage: React.FC = () => {
         </div>
       )}
 
+      {/* Панель назначения.
+          Выбор роли виден всегда, а не только при выделении: он управляет и
+          строчным «+ Назначить». Спрятанный за выделением, он превращал бы
+          строчную кнопку в скрытый режим — назначает то ли ментора по УП, то
+          ли профориентолога, и по экрану не понять. */}
+      {canAssign && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-panel border border-p-line bg-p-bg px-3 py-2">
+          <span className="text-sm font-semibold text-p-text">
+            {selectedVisible.length > 0 ? `Выбрано: ${selectedVisible.length}` : 'Назначить:'}
+          </span>
+          <Select value={assignRole} onValueChange={setAssignRole}>
+            <SelectTrigger className="h-9 w-[190px]">
+              <SelectValue placeholder="Роль" />
+            </SelectTrigger>
+            <SelectContent>
+              {ASSIGNABLE_MENTOR_ROLES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {MENTOR_ROLE_LABELS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedVisible.length === 0 ? (
+            <span className="text-xs text-p-muted">
+              Выберите студентов галочками — или назначайте по одному прямо в строке.
+            </span>
+          ) : (
+            <>
+              <Select value={bulkMentorId} onValueChange={setBulkMentorId}>
+                <SelectTrigger className="h-9 w-[220px]">
+                  <SelectValue placeholder="Кого назначить" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mentorUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                disabled={!bulkMentorId || assignMutation.isPending}
+                onClick={() =>
+                  assignMutation.mutate({
+                    studentIds: selectedVisible,
+                    mentorId: bulkMentorId,
+                    role: assignRole,
+                  })
+                }
+              >
+                {assignMutation.isPending ? 'Назначаем…' : 'Назначить ответственного'}
+              </Button>
+            </>
+          )}
+          <button
+            hidden={selectedVisible.length === 0}
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-p-muted underline underline-offset-4 hover:text-black"
+          >
+            Снять выбор
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="border-y border-p-line">
         <Table>
           <TableHeader>
             <TableRow className="border-p-line hover:bg-transparent">
+              {canAssign && (
+                <TableHead className="w-9">
+                  <input
+                    type="checkbox"
+                    aria-label="Выбрать всех на странице"
+                    className="h-4 w-4 cursor-pointer accent-black"
+                    checked={allOnPageSelected}
+                    onChange={(e) =>
+                      setSelectedIds(
+                        e.target.checked ? new Set(students.map((s) => s.id)) : new Set()
+                      )
+                    }
+                  />
+                </TableHead>
+              )}
               <TableHead>Студент</TableHead>
               <TableHead>Степень</TableHead>
               <TableHead>Статус</TableHead>
@@ -1600,7 +1798,7 @@ export const StudentsListPage: React.FC = () => {
                  «Студенты не найдены» — сотрудник шёл менять фильтры вместо
                  того, чтобы повторить запрос. */
               <TableRow>
-                <TableCell colSpan={isManager ? 9 : 8} className="py-12 text-center" role="alert">
+                <TableCell colSpan={columnCount} className="py-12 text-center" role="alert">
                   <p className="text-sm font-bold text-p-text">Не удалось загрузить список</p>
                   <p className="mt-1 text-sm text-p-muted">
                     {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
@@ -1613,13 +1811,13 @@ export const StudentsListPage: React.FC = () => {
               </TableRow>
             ) : isLoading ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 9 : 8} className="text-center py-12 text-p-muted text-sm">
+                <TableCell colSpan={columnCount} className="text-center py-12 text-p-muted text-sm">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : students.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isManager ? 9 : 8} className="text-center py-12 text-p-muted text-sm">
+                <TableCell colSpan={columnCount} className="text-center py-12 text-p-muted text-sm">
                   Студенты не найдены
                 </TableCell>
               </TableRow>
@@ -1628,6 +1826,17 @@ export const StudentsListPage: React.FC = () => {
                 const intake = intakeOverview[student.id]
                 return (
                 <TableRow key={student.id} className="border-p-line hover:bg-p-bg transition-colors">
+                  {canAssign && (
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        aria-label={`Выбрать ${student.full_name}`}
+                        className="h-4 w-4 cursor-pointer accent-black"
+                        checked={selectedIds.has(student.id)}
+                        onChange={() => toggleSelected(student.id)}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Link
                       to={`/students/${student.id}`}
@@ -1710,6 +1919,48 @@ export const StudentsListPage: React.FC = () => {
                       <span className="text-xs text-p-muted max-w-[180px] truncate">
                         {student.responsibles?.filter((r) => r.is_active).map((r) => r.name || 'Без имени').join(', ') || '—'}
                       </span>
+
+                      {/* Ментор «только по имени»: строка, приехавшая импортом
+                          из Notion, а не настоящее назначение. Такой ментор не
+                          видит студента у себя — на глаз это неотличимо от
+                          нормально назначенного, поэтому показываем явно. */}
+                      {(student.responsibles?.filter((r) => r.is_active).length ?? 0) === 0 &&
+                        (student.mentors?.length ?? 0) > 0 && (
+                          <span
+                            title="Ментор указан текстом из импорта, а не привязан к аккаунту — студента он у себя не видит. Назначьте ответственного."
+                            className="w-fit max-w-[180px] truncate rounded-pill border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-700"
+                          >
+                            по имени: {student.mentors?.join(', ')}
+                          </span>
+                        )}
+
+                      {canAssign && (
+                        <Select
+                          value=""
+                          onValueChange={(mentorId) =>
+                            assignMutation.mutate({
+                              studentIds: [student.id],
+                              mentorId,
+                              role: assignRole,
+                            })
+                          }
+                        >
+                          {/* Роль вынесена в подпись: она общая с панелью
+                              массового назначения и может быть не «Ментор по
+                              УП». Кнопка «+ Назначить» без роли молча ставила
+                              бы не того специалиста, которого ждут. */}
+                          <SelectTrigger className="h-7 w-[170px] text-xs">
+                            <SelectValue placeholder={`+ ${MENTOR_ROLE_LABELS[assignRole]}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {mentorUsers.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </TableCell>
                   {isManager && (
@@ -1767,6 +2018,47 @@ export const StudentsListPage: React.FC = () => {
           ? `Найдено: ${students.length} из ${allStudents.length}`
           : `Всего студентов: ${students.length}`}
       </p>
+
+      {/* Замена ответственного пишется в историю, поэтому причина обязательна.
+          Спрашиваем её только по тем студентам, у кого ответственный уже был, —
+          остальные из той же пачки к этому моменту уже назначены. */}
+      <Dialog open={Boolean(reasonDialog)} onOpenChange={(open) => !open && setReasonDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Нужна причина замены</DialogTitle>
+            <DialogDescription>
+              {reasonDialog?.studentIds.length === 1
+                ? 'У этого студента уже есть ответственный этой роли. Замена попадёт в историю — укажите причину.'
+                : `У ${reasonDialog?.studentIds.length} студентов уже есть ответственный этой роли. Замена попадёт в историю — укажите причину.`}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={replacementReason}
+            onChange={(e) => setReplacementReason(e.target.value)}
+            placeholder="Например: ментор ушёл в отпуск"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReasonDialog(null)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={!replacementReason.trim() || assignMutation.isPending}
+              onClick={() =>
+                reasonDialog &&
+                assignMutation.mutate({
+                  studentIds: reasonDialog.studentIds,
+                  mentorId: reasonDialog.mentorId,
+                  role: reasonDialog.role,
+                  reason: replacementReason.trim(),
+                })
+              }
+            >
+              {assignMutation.isPending ? 'Заменяем…' : 'Заменить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

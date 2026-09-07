@@ -14,6 +14,18 @@ export interface RefreshResponse {
   expires_in: number
 }
 
+export interface LinkedEmail {
+  id: string
+  email: string
+  is_verified: boolean
+}
+
+export interface MyEmails {
+  primary: string
+  extras: LinkedEmail[]
+  max_extras: number
+}
+
 export const authApi = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
     const response = await apiClient.post<LoginResponse>('/auth/login', {
@@ -56,5 +68,28 @@ export const authApi = {
       old_password: oldPassword,
       new_password: newPassword,
     })
+  },
+
+  /** Свои адреса входа: основной плюс привязанный Google, если он есть. */
+  myEmails: async (): Promise<MyEmails> => {
+    const response = await apiClient.get<MyEmails>('/auth/me/emails')
+    return response.data
+  },
+
+  /**
+   * Привязать свой Google к текущему аккаунту.
+   *
+   * Это и есть самообслуживание вместо «забыли пароль?»: почты в системе нет,
+   * слать ссылку некуда, а привязав Google один раз, человек входит кнопкой и
+   * больше не зависит от того, помнит ли он пароль.
+   */
+  linkGoogle: async (credential: string): Promise<MyEmails> => {
+    const response = await apiClient.post<MyEmails>('/auth/google/link', { credential })
+    return response.data
+  },
+
+  unlinkEmail: async (emailId: string): Promise<MyEmails> => {
+    const response = await apiClient.delete<MyEmails>(`/auth/me/emails/${emailId}`)
+    return response.data
   },
 }

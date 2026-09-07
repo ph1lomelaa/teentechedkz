@@ -149,9 +149,9 @@ class PasswordlessAccountTests(unittest.TestCase):
     def test_password_login_into_a_google_account_is_a_plain_no(self) -> None:
         # Раньше `UnknownHashError` уходил наружу: 500 вместо «неверный пароль»,
         # и по коду ответа было видно, что такой аккаунт существует.
-        from app.core.security import verify_password
+        from app.core.security import GOOGLE_ONLY_PASSWORD, verify_password
 
-        self.assertFalse(verify_password("anything", "!google"))
+        self.assertFalse(verify_password("anything", GOOGLE_ONLY_PASSWORD))
         self.assertFalse(verify_password("", "!"))
 
     def test_real_hashes_still_work(self) -> None:

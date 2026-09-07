@@ -67,6 +67,7 @@ import {
   NoteVisibility,
   StudentTimelineItem,
   MENTOR_ROLE_LABELS,
+  ASSIGNABLE_MENTOR_ROLES,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -1268,7 +1269,7 @@ export const StudentCardPage: React.FC = () => {
                     <Select value={assignmentRole} onValueChange={setAssignmentRole}>
                       <SelectTrigger className="bg-white"><SelectValue placeholder="Роль" /></SelectTrigger>
                       <SelectContent>
-                        {['career', 'ielts', 'lead', 'country'].map((role) => (
+                        {ASSIGNABLE_MENTOR_ROLES.map((role) => (
                           <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>
                         ))}
                       </SelectContent>

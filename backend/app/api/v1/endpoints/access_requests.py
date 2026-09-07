@@ -24,6 +24,7 @@ from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
+from app.core.security import hash_password, is_google_only
 from app.models.access_request import (
     ACCESS_REQUEST_STATUSES,
     STATUS_APPROVED,
@@ -45,6 +46,7 @@ from app.services.access_requests import (
 )
 from app.services.audit import record_audit
 from app.services.default_services import ensure_default_services
+from app.services.passwords import gen_password
 
 router = APIRouter(prefix="/access-requests", tags=["access-requests"])
 
@@ -219,6 +221,8 @@ async def approve_request(
     req = await _load_open(db, request_id)
     user = req.user
 
+    temp_password: str | None = None
+
     if body.role == "student":
         if body.student_id is None:
             raise HTTPException(
@@ -234,18 +238,36 @@ async def approve_request(
     else:
         user.role = UserRole(body.role)
         user.is_active = True
+
+        # Сотрудник, пришедший через /join, заведён с заглушкой вместо хеша:
+        # пароля у него нет вовсе, войти он может только кнопкой Google. Раньше
+        # одобрение об этом молчало — человек шёл «вспоминать» несуществующий
+        # пароль, и очередь «менторы забыли пароли» набиралась сама собой.
+        # Выдаём временный пароль, чтобы у него было два рабочих пути входа.
+        if is_google_only(user.hashed_password):
+            temp_password = gen_password()
+            user.hashed_password = hash_password(temp_password)
+            user.must_change_password = True
+
         record_audit(
             db,
             action=AuditAction.access_granted,
             actor=current_user,
             target_user_id=user.id,
             request=request,
-            meta={"via": "queue", "role": body.role, "email": user.email},
+            meta={
+                "via": "queue",
+                "role": body.role,
+                "email": user.email,
+                "temp_password_issued": temp_password is not None,
+            },
         )
 
     await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
     await db.commit()
-    return {"ok": True, "status": STATUS_APPROVED}
+    # Пароль возвращается ровно один раз — в ответе на само одобрение. Нигде
+    # больше он не хранится в открытом виде; забыли передать — только сброс.
+    return {"ok": True, "status": STATUS_APPROVED, "temp_password": temp_password}
 
 
 @router.post("/{request_id}/reject")

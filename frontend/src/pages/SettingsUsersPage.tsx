@@ -54,7 +54,6 @@ interface UserForm {
   role: UserRole
   phone: string
   telegram_username: string
-  password: string
 }
 
 const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
@@ -104,22 +103,37 @@ function UserModal({
     role: user?.role ?? 'mentor',
     phone: user?.phone ?? '',
     telegram_username: user?.telegram_username ?? '',
-    password: '',
   })
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [copiedPassword, setCopiedPassword] = useState(false)
+
+  const resetMutation = useMutation({
+    mutationFn: () => usersApi.resetPassword(user!.id),
+    onSuccess: (res) => {
+      setTempPassword(res.temp_password)
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Не удалось сбросить пароль',
+        description: getErrorMessage(err, 'Попробуйте ещё раз'),
+        variant: 'destructive',
+      })
+    },
+  })
 
   const mutation = useMutation({
     mutationFn: async (): Promise<string | null> => {
       if (isEdit && user) {
-        const payload: Partial<User> & { password?: string } = {
+        const payload: Partial<User> = {
           name: form.name,
           email: form.email,
           role: form.role,
           phone: form.phone || undefined,
           telegram_username: form.telegram_username || undefined,
         }
-        if (form.password) payload.password = form.password
         await usersApi.update(user.id, payload)
         return null
       }
@@ -155,6 +169,17 @@ function UserModal({
       setTimeout(() => setCopied(false), 2000)
     } catch {
       toast({ title: 'Не удалось скопировать ссылку', variant: 'destructive' })
+    }
+  }
+
+  const copyPassword = async () => {
+    if (!tempPassword) return
+    try {
+      await navigator.clipboard.writeText(tempPassword)
+      setCopiedPassword(true)
+      setTimeout(() => setCopiedPassword(false), 2000)
+    } catch {
+      toast({ title: 'Не удалось скопировать пароль', variant: 'destructive' })
     }
   }
 
@@ -244,14 +269,44 @@ function UserModal({
                       placeholder="@username"
                     />
                   </div>
-                  <div>
-                    <Label>Новый пароль (оставьте пустым, если не меняете)</Label>
-                    <Input
-                      type="password"
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder="••••••••"
-                    />
+                  {/* Доступ отделён от полей профиля: это не «ещё одно поле»,
+                      а действие, которое обрывает чужие сессии. Раньше здесь
+                      админ вписывал пароль руками — он получался слабым,
+                      повторялся между сотрудниками и навсегда оставался
+                      известен админу. Теперь пароль генерируется, живёт до
+                      первого входа и обязателен к смене. */}
+                  <div className="rounded-panel border border-p-line p-3 space-y-2">
+                    <Label>Доступ</Label>
+                    {tempPassword ? (
+                      <>
+                        <p className="text-xs text-p-muted">
+                          Передайте пароль лично. Он показан один раз — после закрытия окна
+                          его нельзя посмотреть снова, только сбросить заново.
+                        </p>
+                        <div className="rounded-panel border border-p-line bg-p-bg p-3 font-mono text-sm break-all">
+                          {tempPassword}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={copyPassword}>
+                          {copiedPassword ? 'Скопировано' : 'Скопировать пароль'}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-p-muted">
+                          {isSelf
+                            ? 'Свой пароль меняется через «Сменить пароль» — там нужно знать текущий.'
+                            : 'Сотрудник войдёт временным паролем и сразу задаст свой. Все его открытые сессии закроются.'}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isSelf || resetMutation.isPending}
+                          onClick={() => resetMutation.mutate()}
+                        >
+                          {resetMutation.isPending ? 'Сбрасываем…' : 'Сбросить пароль'}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </>
               )}

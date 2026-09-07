@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_SERVICE_ACCOUNT_FILE: str = ""
     SHEETS_SYNC_INTERVAL_SECONDS: int = 300
+    # Анкеты без похожего кандидата после каждого синка сами становятся карточками
+    # в общей базе (без статуса). Выключается без деплоя, если из форм пойдёт мусор.
+    ENABLE_INTAKE_AUTO_CREATE: bool = True
 
     # AI / transcription
     DEEPGRAM_API_KEY: str = ""

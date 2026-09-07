@@ -7,8 +7,6 @@ login (must_change_password).
 """
 from __future__ import annotations
 
-import secrets
-import string
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -22,6 +20,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.security import hash_password
+from app.services.passwords import gen_password
 from app.services.mentor_scope import primary_mentor_id, require_student_access
 from app.services.access_requests import decide, link_user_to_student
 from app.services.audit import record_audit
@@ -35,13 +34,6 @@ from app.models.user import User, UserRole
 from app.models.user_email import UserEmail
 
 router = APIRouter(prefix="/students", tags=["student-access"])
-
-# Unambiguous alphabet (no O/0, I/l/1) for a readable temp password.
-_PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-
-
-def _gen_password(length: int = 10) -> str:
-    return "".join(secrets.choice(_PW_ALPHABET) for _ in range(length))
 
 
 class GrantAccessRequest(BaseModel):
@@ -199,7 +191,7 @@ async def grant_access(
             headers={"X-Error-Code": "USER_EXISTS"},
         )
 
-    temp_password = _gen_password()
+    temp_password = gen_password()
     user = User(
         name=(body.name or student.full_name).strip(),
         email=email,
@@ -348,7 +340,7 @@ async def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="Аккаунт не найден")
 
-    temp_password = _gen_password()
+    temp_password = gen_password()
     user.hashed_password = hash_password(temp_password)
     user.must_change_password = True
     # A staff reset invalidates any session the student still has open.

@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.core.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    is_google_only,
+)
 from app.core.config import settings
 from app.core.deps import (
     account_revoked_after_activation,
@@ -35,8 +41,15 @@ from app.services.google_auth import (
     is_configured as google_is_configured,
     verify_id_token as verify_google_id_token,
 )
-from app.services.user_emails import resolve_user_by_email
+from app.services.user_emails import (
+    MAX_EXTRA_EMAILS,
+    email_in_use,
+    list_extra_emails,
+    norm,
+    resolve_user_by_email,
+)
 from app.services.user_payload import resolve_user_payload
+from app.models.user_email import UserEmail
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -66,6 +79,29 @@ async def login(
         )
 
     user = await resolve_user_by_email(db, email)
+
+    # Аккаунт, заведённый через Google, пароля не имеет вовсе. Общий ответ
+    # «неверный email или пароль» здесь врал: человек шёл вспоминать пароль,
+    # которого у него никогда не было, — так и накопилась очередь «менторы
+    # забыли пароли». Отвечаем тем же 401, но говорим, чем на самом деле войти.
+    #
+    # Существование аккаунта это не раскрывает сильнее, чем текущий код: тем же
+    # 401 отвечает и деактивированный аккаунт двумя ветками ниже.
+    if user and is_google_only(user.hashed_password):
+        record_audit(
+            db,
+            action=AuditAction.login_failed,
+            actor=user,
+            target_user_id=user.id,
+            request=request,
+            meta={"reason": "google_only"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="В этот аккаунт вход через Google — нажмите «Войти через Google» ниже.",
+            headers={"X-Error-Code": "GOOGLE_ONLY"},
+        )
 
     if not user or not verify_password(password, user.hashed_password):
         record_audit(
@@ -258,6 +294,125 @@ async def login_with_google(
     await rate_limit.reset(bucket="login_email", subject=identity.email)
 
     return session
+
+
+# --- Свои почты: привязка Google как способ восстановить доступ ---------------
+#
+# Почты в системе нет, поэтому классического «забыли пароль?» со ссылкой быть не
+# может. Роль самообслуживания играет Google: привязав его один раз, человек
+# входит кнопкой и больше не зависит от того, помнит ли он пароль и свободен ли
+# админ. Дальше ничего писать не нужно — `resolve_user_by_email` уже принимает
+# подтверждённый вторичный адрес, поэтому /auth/google найдёт этот аккаунт сам.
+#
+# Ручки self-scoped: человек управляет только своим аккаунтом, поэтому
+# require_access здесь не нужен (ср. student_access.py, где админ правит чужой).
+
+
+def _email_entries_payload(user: User, extras: list[UserEmail]) -> dict:
+    return {
+        "primary": user.email,
+        "extras": [
+            {"id": str(ue.id), "email": ue.email, "is_verified": ue.is_verified}
+            for ue in extras
+        ],
+        "max_extras": MAX_EXTRA_EMAILS,
+    }
+
+
+@router.get("/me/emails")
+async def list_my_emails(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+
+
+@router.post("/google/link")
+async def link_google_account(
+    body: dict,
+    request: Request,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Привязать свой Google к текущему аккаунту — чтобы потом входить кнопкой."""
+    await rate_limit.enforce(
+        request, bucket="google_link", limit=10, window_seconds=300, subject=str(current_user.id)
+    )
+
+    try:
+        identity = verify_google_id_token(body.get("credential") or body.get("id_token") or "")
+    except GoogleAuthNotConfigured as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+    # Без этой проверки чужой Google-аккаунт с неподтверждённым, но совпадающим
+    # адресом получил бы вход в аккаунт ментора. Та же причина, что в /auth/google.
+    if not identity.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google не подтвердил этот адрес почты.",
+        )
+
+    email = norm(identity.email)
+    if email == norm(current_user.email):
+        # Уже основной адрес — входить через Google можно прямо сейчас.
+        return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+
+    extras = await list_extra_emails(db, current_user.id)
+    if any(norm(ue.email) == email for ue in extras):
+        return _email_entries_payload(current_user, extras)
+
+    if await email_in_use(db, email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Этот адрес уже привязан к другому аккаунту.",
+        )
+    if len(extras) >= MAX_EXTRA_EMAILS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Можно привязать только один дополнительный адрес — отвяжите старый.",
+        )
+
+    db.add(UserEmail(user_id=current_user.id, email=email, is_verified=True))
+    # Привязка добавляет способ войти в аккаунт — это ровно то, что аудит обязан
+    # видеть. `google_linked` заведён в AuditAction заранее, как раз под это.
+    record_audit(
+        db,
+        action=AuditAction.google_linked,
+        actor=current_user,
+        target_user_id=current_user.id,
+        request=request,
+        meta={"email": email},
+    )
+    await db.commit()
+    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+
+
+@router.delete("/me/emails/{email_id}")
+async def unlink_my_email(
+    email_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    ue = await db.get(UserEmail, email_id)
+    if not ue or ue.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Адрес не найден")
+    removed = ue.email
+    await db.delete(ue)
+    # Отвязка убирает способ войти — след нужен не меньше, чем от привязки:
+    # иначе «я не могу войти, хотя привязывал Google» нечем разобрать.
+    record_audit(
+        db,
+        action=AuditAction.google_unlinked,
+        actor=current_user,
+        target_user_id=current_user.id,
+        request=request,
+        meta={"email": removed},
+    )
+    await db.commit()
+    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
 
 
 @router.post("/refresh")

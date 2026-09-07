@@ -17,6 +17,7 @@ from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
 from app.services.audit import record_audit
 from app.services.invites import issue_invite, invite_url
+from app.services.passwords import gen_password
 from app.services.sessions import revoke_all_sessions
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -258,6 +259,57 @@ async def create_login_link(
         "invite_code": raw_code,
         "invite_expires_at": invite.expires_at.isoformat(),
     }
+
+
+@router.post("/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Выдать сотруднику новый временный пароль — показывается один раз.
+
+    Зачем отдельно от PATCH с полем `password`
+    ------------------------------------------
+    Там пароль придумывает админ и потом диктует его человеку: он получается
+    слабым, повторяется между сотрудниками и остаётся known-by-admin навсегда.
+    Здесь пароль генерируется (`services/passwords.py`), живёт до первого входа
+    и обязателен к смене — админ physически не может «оставить как есть».
+
+    Почему не самообслуживание: почты в системе нет, слать ссылку некуда.
+    Ментор, привязавший Google (`POST /auth/google/link`), в этой ручке уже не
+    нуждается — она остаётся для тех, у кого Google нет.
+    """
+    require_access(current_user, "users", Action.manage)
+
+    # Себе — через «Сменить пароль»: там нужно знать текущий, и это осознанно.
+    # Сброс самому себе к тому же оборвал бы собственную сессию.
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=400, detail="Свой пароль меняйте через «Сменить пароль»"
+        )
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    temp_password = gen_password()
+    user.hashed_password = hash_password(temp_password)
+    user.must_change_password = True
+    # Сброс обязан оборвать чужие живые сессии: иначе тот, кто увёл доступ,
+    # продолжает работать с уже недействительным паролем.
+    revoked = await revoke_all_sessions(db, user.id)
+    record_audit(
+        db,
+        action=AuditAction.password_reset,
+        actor=current_user,
+        target_user_id=user.id,
+        request=request,
+        meta={"email": user.email, "sessions_revoked": revoked},
+    )
+    await db.commit()
+    return {"temp_password": temp_password}
 
 
 @router.get("/{user_id}")

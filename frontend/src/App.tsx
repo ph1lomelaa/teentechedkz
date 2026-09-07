@@ -71,6 +71,7 @@ const WorkspaceSecurityIncidentsPage = lazyRoute(() => import('@/pages/workspace
 const WorkspaceMzkQualityPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMzkQualityPage').then((m) => ({ default: m.WorkspaceMzkQualityPage })))
 const WorkspaceMentorRewardsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMentorRewardsPage').then((m) => ({ default: m.WorkspaceMentorRewardsPage })))
 const WorkspaceMyRewardsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMyRewardsPage').then((m) => ({ default: m.WorkspaceMyRewardsPage })))
+const WorkspaceProfilePage = lazyRoute(() => import('@/pages/workspace/WorkspaceProfilePage').then((m) => ({ default: m.WorkspaceProfilePage })))
 // CRM-версии тех же админ-разделов (общие компоненты, токены ds-*).
 const AgreementsPage = lazyRoute(() => import('@/pages/AgreementsPage').then((m) => ({ default: m.AgreementsPage })))
 const MzkQualityPage = lazyRoute(() => import('@/pages/MzkQualityPage').then((m) => ({ default: m.MzkQualityPage })))
@@ -964,6 +965,7 @@ function AppRoutes() {
       <Route path="/workspace/my-rewards" element={<WorkspaceRoute><WorkspaceMyRewardsPage /></WorkspaceRoute>} />
       <Route path="/workspace/my-day" element={<WorkspaceRoute><WorkspaceMyDayPage /></WorkspaceRoute>} />
       <Route path="/workspace/notifications" element={<WorkspaceRoute><WorkspaceNotificationsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/profile" element={<WorkspaceRoute><WorkspaceProfilePage /></WorkspaceRoute>} />
       <Route
         path="/workspace/status"
         element={

@@ -11,9 +11,23 @@ from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
+# Значение `users.hashed_password` у аккаунта, заведённого через Google: пароля
+# нет и не предполагается. Не bcrypt-хеш, поэтому `verify_password` не примет к
+# нему ни один ввод — вход в такой аккаунт возможен только кнопкой Google.
+#
+# Отдельная константа, а не литерал по коду, потому что по ней теперь принимают
+# решения в трёх местах: выдать внятную ошибку на входе, выдать временный пароль
+# при одобрении заявки и не считать такой аккаунт «просто забывшим пароль».
+GOOGLE_ONLY_PASSWORD = "!google"
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def is_google_only(hashed: str) -> bool:
+    """Аккаунт без собственного пароля — вход только через Google."""
+    return hashed == GOOGLE_ONLY_PASSWORD
 
 
 # Заглушка вместо хеша: аккаунт, у которого пароля нет и не предполагается

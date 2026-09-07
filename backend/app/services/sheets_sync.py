@@ -1,7 +1,12 @@
 """Автосинк ответов Google-форм («Пакет сопровождения», «Кейсы студентов») в intake_submissions.
 
-Строки форм НЕ пишутся в карточки студентов автоматически — только в staging-таблицу.
-Привязка к студенту и создание студентов происходят вручную через /sync/submissions.
+Каждая строка формы сначала попадает в staging-таблицу `intake_submissions`.
+Дальше, если включён ENABLE_INTAKE_AUTO_CREATE, анкеты БЕЗ похожего кандидата
+сразу становятся карточками студентов без статуса (`services/intake_promote.py`) —
+иначе общая база показывала бы неполную картину по заявкам.
+
+Анкеты, похожие на уже существующего студента, автоматика не трогает никогда:
+их привязывает человек через /sync/submissions, иначе пойдут дубли.
 Суммы договора и договорённости никогда не переносятся автоматически (human-only поля).
 """
 from __future__ import annotations
@@ -24,6 +29,10 @@ sys.path.insert(0, "/app") if "/app" not in sys.path else None
 
 logger = logging.getLogger(__name__)
 
+# Только против самоналожения прохода в ЭТОМ процессе (медленный синк ещё
+# идёт, а его уже дёрнули кнопкой). Между процессами не работает вовсе —
+# worker и uvicorn общей памяти не имеют, и защита от гонки при разборе
+# анкет живёт на уровне БД (intake_promote: SELECT ... FOR UPDATE SKIP LOCKED).
 _sync_lock = asyncio.Lock()
 
 _STATUS_KIND = "sheets_sync_status"
@@ -134,7 +143,7 @@ def _parse_timestamp(raw: str) -> datetime | None:
     return None
 
 
-async def _load_students_index(db: AsyncSession) -> list[dict]:
+async def load_students_index(db: AsyncSession) -> list[dict]:
     """Карточки в форме, которую понимает `fuzzy_match`.
 
     `user_id` в наборе не нужен матчингу, но нужен всем, кто по его результату
@@ -246,7 +255,7 @@ async def run_sync(db: AsyncSession) -> dict:
         try:
             dfs = await loop.run_in_executor(None, _fetch)
 
-            students_index = await _load_students_index(db)
+            students_index = await load_students_index(db)
             counters: dict = {}
             if "package" in dfs:
                 counters["package"] = await _ingest_dataframe(db, dfs["package"], IntakeSource.package, students_index)
@@ -257,6 +266,27 @@ async def run_sync(db: AsyncSession) -> dict:
                 raise RuntimeError(
                     "Таблицы форм не найдены — проверь, что обе таблицы расшарены на email сервисного аккаунта"
                 )
+
+            # Анкеты без похожего кандидата сразу становятся карточками в общей
+            # базе — без статуса, чтобы картина по заявкам была полной, а не
+            # заканчивалась на staging-таблице.
+            #
+            # Ошибка промоушена НЕ роняет синк: строки форм уже сохранены выше,
+            # и помечать весь проход неуспешным из-за второй фазы неправильно —
+            # следующий прогон подберёт те же анкеты и попробует снова.
+            if settings.ENABLE_INTAKE_AUTO_CREATE:
+                from app.services.intake_promote import promote_new_submissions
+
+                try:
+                    promoted = await promote_new_submissions(db, actor_id=None)
+                    # Счётчик проставляем только после успешного коммита: иначе
+                    # упавший коммит оставил бы в статусе «создано N» при нуле
+                    # реально созданных карточек.
+                    await db.commit()
+                    counters["promoted"] = promoted
+                except Exception:
+                    await db.rollback()
+                    logger.exception("Intake auto-create failed after sheets sync")
 
             await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Sheets sync done: {counters}")

@@ -101,7 +101,7 @@ const viewports = [
   { name: 'desktop', width: 1440, height: 1000, scale: 1 },
   { name: 'mobile', width: 390, height: 844, scale: 1 },
 ]
-const routes = ['/workspace', '/workspace/students', '/workspace/roadmap', '/workspace/tasks', '/workspace/meetings', '/workspace/documents', '/workspace/chat', '/workspace/universities', '/workspace/countries']
+const routes = ['/workspace', '/workspace/students', '/workspace/roadmap', '/workspace/tasks', '/workspace/meetings', '/workspace/documents', '/workspace/chat', '/workspace/universities', '/workspace/countries', '/workspace/profile']
 const results = []
 
 for (const viewport of viewports) {

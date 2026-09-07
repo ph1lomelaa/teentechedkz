@@ -357,6 +357,17 @@ export const countriesApi = {
   },
 }
 
+export interface BulkAssignResult {
+  assigned: number
+  replaced: number
+  /** Уже были назначены на этого специалиста — не ошибка и не работа. */
+  already: number
+  /** Кого не взяли и почему. `needs_reason` — у студента уже есть
+   *  ответственный этой роли, для замены нужна причина. */
+  skipped: { student_id: string; reason: string }[]
+  assignment_status: string
+}
+
 export const mentorAssignmentsApi = {
   listByStudent: async (studentId: string): Promise<MentorAssignment[]> => {
     const response = await apiClient.get<MentorAssignment[]>(
@@ -372,6 +383,22 @@ export const mentorAssignmentsApi = {
       `/mentor-assignments`,
       { ...data, student_id: studentId }
     )
+    return response.data
+  },
+  /**
+   * Назначить одного специалиста сразу нескольким студентам.
+   *
+   * Частичный успех — норма: студенты, у которых уже есть ответственный этой
+   * роли, вернутся в `skipped` с `needs_reason`, и по ним нужно переспросить
+   * причину замены и повторить запрос уже с ней.
+   */
+  bulkAssign: async (data: {
+    student_ids: string[]
+    mentor_id: string
+    role?: string
+    replacement_reason?: string
+  }): Promise<BulkAssignResult> => {
+    const response = await apiClient.post<BulkAssignResult>('/mentor-assignments/bulk', data)
     return response.data
   },
   assignSelf: async (studentId: string): Promise<MentorAssignment> => {
@@ -452,6 +479,14 @@ export const usersApi = {
     data: Partial<User> & { password?: string }
   ): Promise<User> => {
     const response = await apiClient.patch<User>(`/users/${id}`, data)
+    return response.data
+  },
+  /**
+   * Сгенерировать сотруднику временный пароль. Показывается ровно один раз —
+   * нигде больше он в открытом виде не хранится.
+   */
+  resetPassword: async (id: string): Promise<{ temp_password: string }> => {
+    const response = await apiClient.post<{ temp_password: string }>(`/users/${id}/reset-password`)
     return response.data
   },
 }

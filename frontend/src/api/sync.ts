@@ -46,13 +46,34 @@ export interface StudentIntake {
   comparison: ComparisonRow[]
 }
 
+/** Счётчики одного листа формы. */
+export interface SheetCounters {
+  total_rows: number
+  new: number
+  matched: number
+}
+
+/** Сколько анкет синк сам превратил в карточки общей базы (и сколько отдал человеку). */
+export interface PromotedCounters {
+  created: number
+  skipped: number
+  /** Проход упёрся в потолок — очередь разберётся следующими синками. */
+  has_more: boolean
+}
+
+/** Ключи — источники (`package`/`cases`), плюс отдельный `promoted`: у него
+ *  другая форма, поэтому обходить это как однородную карту нельзя. */
+export interface SyncCounters extends Record<string, SheetCounters | PromotedCounters | undefined> {
+  promoted?: PromotedCounters
+}
+
 export interface SyncStatusInfo {
   configured: boolean
   last_run: {
     at: string | null
     ok: boolean | null
     error: string | null
-    counters: Record<string, { total_rows: number; new: number; matched: number }> | null
+    counters: SyncCounters | null
   }
   new_submissions: number
 }
@@ -60,7 +81,7 @@ export interface SyncStatusInfo {
 export const syncApi = {
   run: async () => {
     const res = await apiClient.post('/sync/run')
-    return res.data as { ok: boolean; counters: Record<string, { total_rows: number; new: number; matched: number }> }
+    return res.data as { ok: boolean; counters: SyncCounters }
   },
   status: async () => {
     const res = await apiClient.get('/sync/status')
@@ -91,7 +112,9 @@ export const syncApi = {
   },
   createMissing: async () => {
     const res = await apiClient.post('/sync/submissions/create-missing')
-    return res.data as { ok: boolean; created: number; skipped: number }
+    // has_more — проход ограничен потолком (см. services/intake_promote.py),
+    // и очередь могла остаться непустой.
+    return res.data as { ok: boolean; created: number; skipped: number; has_more: boolean }
   },
   studentIntake: async (studentId: string) => {
     const res = await apiClient.get(`/sync/students/${studentId}/intake`)

@@ -1,0 +1,196 @@
+"""Массовое назначение ответственных: почему частичный успех обязателен.
+
+Ради чего тест
+--------------
+Назначить ответственного раньше можно было только внутри карточки студента, и
+на распределении набора это десятки переходов — на практике ответственные
+просто не проставлялись. Массовая ручка убирает эту работу, но приносит с собой
+неочевидное требование.
+
+Замена уже назначенного специалиста требует причины (это правило старше и
+осмысленное: замена пишется в историю). В пачке из двадцати студентов один-два
+обычно уже с ответственным. Если отказывать всей пачке, массовое назначение
+бесполезно ровно в том случае, ради которого его завели, — при разборе базы,
+где часть студентов уже разобрана.
+
+Поэтому `_assign_one` возвращает исход, а не бросает исключение, и такие
+студенты уезжают в `skipped`, откуда фронт переспрашивает причину.
+
+БД здесь нет (в проекте нет фикстур с ней): проверяется ветвление на
+подменённой сессии.
+"""
+import asyncio
+import unittest
+import uuid
+
+from app.api.v1.endpoints.mentor_assignments import MAX_BULK_ASSIGN, _assign_one
+from app.models.mentor_assignment import MentorAssignment, MentorRole
+from app.models.mentor_assignment_history import MentorAssignmentHistory
+
+
+class _Result:
+    def __init__(self, row):
+        self._row = row
+
+    def scalar_one_or_none(self):
+        return self._row
+
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class FakeSession:
+    """Отдаёт заранее заданные ответы на три SELECT'а внутри `_assign_one`.
+
+    Порядок фиксирован самой функцией: сначала назначение НА ТОГО ЖЕ
+    специалиста, затем активное назначение этой роли на другого, затем
+    «требуется, но не назначен» (assignment_status == "required").
+    """
+
+    def __init__(self, same=None, active=None, required=None):
+        self._answers = [same, active, required]
+        self.added = []
+
+    async def execute(self, _query):
+        return _Result(self._answers.pop(0) if self._answers else None)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+
+def _existing(mentor_id):
+    ma = MentorAssignment(
+        student_id=uuid.uuid4(),
+        mentor_id=mentor_id,
+        role=MentorRole.lead,
+        is_active=True,
+        assignment_status="active",
+    )
+    return ma
+
+
+def _call(session, *, reason="", student_id=None, mentor_id=None):
+    return asyncio.run(
+        _assign_one(
+            session,
+            student_id=student_id or uuid.uuid4(),
+            mentor_id=mentor_id or uuid.uuid4(),
+            role=MentorRole.lead,
+            replacement_reason=reason,
+            actor_id=uuid.uuid4(),
+            assignment_status="active",
+        )
+    )
+
+
+class AssignOneTests(unittest.TestCase):
+    def test_free_student_gets_a_new_assignment(self) -> None:
+        session = FakeSession()
+        outcome, ma = _call(session)
+
+        self.assertEqual(outcome, "created")
+        self.assertIn(ma, session.added)
+        self.assertTrue(ma.is_active)
+
+    def test_replacement_without_a_reason_is_reported_not_raised(self) -> None:
+        # Ключевая проверка: именно исход, а не исключение, — иначе один такой
+        # студент уронил бы всю пачку вместе с корректными назначениями.
+        session = FakeSession(active=_existing(uuid.uuid4()))
+        outcome, ma = _call(session, reason="")
+
+        self.assertEqual(outcome, "needs_reason")
+        self.assertIsNone(ma)
+        self.assertEqual(session.added, [], "ничего не должно быть записано")
+
+    def test_replacement_with_a_reason_writes_history(self) -> None:
+        previous_mentor = uuid.uuid4()
+        previous = _existing(previous_mentor)
+        session = FakeSession(active=previous)
+        new_mentor = uuid.uuid4()
+
+        outcome, ma = _call(session, reason="  ушёл в отпуск  ", mentor_id=new_mentor)
+
+        self.assertEqual(outcome, "replaced")
+        self.assertFalse(previous.is_active, "прежний ответственный остался активным")
+        self.assertEqual(previous.assignment_status, "replaced")
+
+        history = [x for x in session.added if isinstance(x, MentorAssignmentHistory)]
+        self.assertEqual(len(history), 1, "замена без следа в истории")
+        self.assertEqual(history[0].previous_mentor_id, previous_mentor)
+        self.assertEqual(history[0].replacement_mentor_id, new_mentor)
+        self.assertEqual(history[0].reason, "ушёл в отпуск", "причина не обрезана")
+        self.assertIsNotNone(ma)
+
+    def test_same_mentor_twice_does_not_duplicate(self) -> None:
+        """Повторное назначение того же специалиста — no-op, а не вторая строка.
+
+        Уникального индекса на (student_id, mentor_id, role) в схеме нет, а
+        поиск «прежнего» идёт с условием `mentor_id != mentor_id` и того же
+        ментора не видит. Без отдельной проверки повторное назначение молча
+        писало вторую строку, и в «Ответственных» ментор двоился. С массовым
+        назначением («выделить всех и назначить») это стало обычным случаем,
+        а не редкой ошибкой.
+        """
+        mentor_id = uuid.uuid4()
+        existing = _existing(mentor_id)
+        session = FakeSession(same=existing)
+
+        outcome, ma = _call(session, mentor_id=mentor_id)
+
+        self.assertEqual(outcome, "already")
+        self.assertIs(ma, existing)
+        self.assertEqual(session.added, [], "создана вторая строка назначения")
+
+    def test_previously_removed_mentor_is_reactivated(self) -> None:
+        # «Взял → снял → назначили заново» должно вернуть ту же строку, а не
+        # завести вторую на того же человека. Так же ведёт себя `assign_self`.
+        mentor_id = uuid.uuid4()
+        removed = _existing(mentor_id)
+        removed.is_active = False
+        removed.assignment_status = "replaced"
+        session = FakeSession(same=removed)
+
+        outcome, ma = _call(session, mentor_id=mentor_id)
+
+        self.assertEqual(outcome, "created")
+        self.assertIs(ma, removed)
+        self.assertTrue(ma.is_active)
+        self.assertEqual(ma.assignment_status, "active")
+        self.assertEqual(session.added, [], "создана вторая строка вместо возврата прежней")
+
+    def test_placeholder_assignment_is_filled_instead_of_duplicated(self) -> None:
+        # Строка «ответственный требуется, но не назначен» должна заполняться,
+        # а не соседствовать со второй — иначе у студента два назначения.
+        placeholder = MentorAssignment(
+            student_id=uuid.uuid4(),
+            mentor_id=None,
+            role=MentorRole.lead,
+            is_active=False,
+            assignment_status="required",
+        )
+        session = FakeSession(required=placeholder)
+        mentor_id = uuid.uuid4()
+
+        outcome, ma = _call(session, mentor_id=mentor_id)
+
+        self.assertEqual(outcome, "created")
+        self.assertIs(ma, placeholder)
+        self.assertEqual(ma.mentor_id, mentor_id)
+        self.assertEqual(ma.assignment_status, "active")
+        self.assertTrue(ma.is_active)
+        self.assertEqual(session.added, [], "placeholder продублирован новой строкой")
+
+
+class BulkLimitTests(unittest.TestCase):
+    def test_batch_size_is_capped(self) -> None:
+        # Пачка держит блокировки строк на всё время транзакции; без потолка
+        # «выделить всё» превращается в длинную транзакцию на всю базу.
+        self.assertGreater(MAX_BULK_ASSIGN, 0)
+        self.assertLessEqual(MAX_BULK_ASSIGN, 500)
+
+
+if __name__ == "__main__":
+    unittest.main()

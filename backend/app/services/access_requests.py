@@ -40,7 +40,7 @@ from app.models.student import Student
 from app.models.student_invite import StudentInvite
 from app.models.user import User, UserRole
 from app.services.audit import record_audit
-from app.services.sheets_sync import _load_students_index
+from app.services.sheets_sync import load_students_index
 
 # Матчинг живёт в пакете `migration`, который лежит рядом с приложением, а не
 # внутри него. Тот же приём, что в endpoints/students.py:_compute_duplicate_pairs.
@@ -165,10 +165,6 @@ async def backfill_unlinked_student_requests(db: AsyncSession) -> int:
     if rows:
         await db.flush()
     return len(rows)
-
-
-async def load_students_index(db: AsyncSession) -> list[dict]:
-    return await _load_students_index(db)
 
 
 class Suggestion:

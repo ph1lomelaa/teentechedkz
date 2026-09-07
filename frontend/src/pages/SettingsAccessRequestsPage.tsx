@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/primitives/dialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
@@ -87,11 +88,20 @@ export function SettingsAccessRequestsPage() {
     setSelected(new Set())
   }
 
+  // Показывается ровно один раз, сразу после одобрения. Второй возможности
+  // увидеть этот пароль нет — только сброс в «Пользователях».
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null)
+
   const approve = useMutation({
     mutationFn: ({ id, role, studentId }: { id: string; role: string; studentId?: string }) =>
       accessRequestsApi.approve(id, { role, student_id: studentId }),
-    onSuccess: () => {
-      toast({ title: 'Доступ открыт' })
+    onSuccess: (result) => {
+      // Сотрудник, пришедший через Google, пароля не имел вовсе. Одобрение
+      // выдаёт ему временный — и это единственный момент, когда пароль виден:
+      // нигде в открытом виде он не хранится. Показываем отдельным окном, а не
+      // тостом: тост исчезнет через пару секунд вместе с паролем.
+      if (result?.temp_password) setIssuedPassword(result.temp_password)
+      else toast({ title: 'Доступ открыт' })
       invalidate()
     },
     onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
@@ -315,7 +325,58 @@ export function SettingsAccessRequestsPage() {
           setPickerFor(null)
         }}
       />
+
+      <IssuedPasswordDialog
+        password={issuedPassword}
+        onClose={() => setIssuedPassword(null)}
+      />
     </div>
+  )
+}
+
+/** Одноразовый показ временного пароля сразу после одобрения заявки. */
+function IssuedPasswordDialog({
+  password,
+  onClose,
+}: {
+  password: string | null
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    if (!password) return
+    try {
+      await navigator.clipboard.writeText(password)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast({ title: 'Не удалось скопировать пароль', variant: 'destructive' })
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(password)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Доступ открыт — передайте временный пароль</DialogTitle>
+          <DialogDescription>
+            У этого аккаунта не было пароля: человек регистрировался через Google.
+            Передайте пароль лично — при первом входе система попросит сменить его.
+            Показывается один раз; потерян — сбросьте в «Пользователях».
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-panel border border-p-line bg-p-bg p-3 font-mono text-sm break-all">
+          {password}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={copy}>
+            {copied ? 'Скопировано' : 'Скопировать пароль'}
+          </Button>
+          <Button onClick={onClose}>Готово</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

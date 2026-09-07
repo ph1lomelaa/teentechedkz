@@ -64,4 +64,43 @@ describe('matchesOperationalFilter', () => {
     expect(matchesOperationalFilter(student({ telegram: { linked: true, pending_signals: 0 } }), 'telegram_unlinked')).toBe(false)
     expect(matchesOperationalFilter(student({ telegram: { linked: false, pending_signals: 0 } }), 'telegram_unlinked')).toBe(true)
   })
+
+  /**
+   * Ментор «по имени» — строка из импорта Notion без настоящего назначения.
+   * Такой ментор студента у себя не видит, а в списке выглядит как обычный
+   * назначенный: сигнал существует именно чтобы собрать этот бэклог.
+   */
+  describe('name_only_mentor', () => {
+    const named = { mentors: ['Айгерим К.'] }
+    const active = { id: 'u1', assignment_id: 'a1', name: 'Ментор', role: 'lead', is_active: true }
+
+    it('срабатывает, когда есть только текстовый ментор', () => {
+      expect(matchesOperationalFilter(student({ ...named, responsibles: [] }), 'name_only_mentor')).toBe(true)
+      expect(matchesOperationalFilter(student(named), 'name_only_mentor')).toBe(true)
+    })
+
+    it('молчит, когда есть настоящее назначение', () => {
+      expect(
+        matchesOperationalFilter(student({ ...named, responsibles: [active] }), 'name_only_mentor'),
+      ).toBe(false)
+    })
+
+    it('неактивное назначение не считается назначением', () => {
+      // Снятый ответственный не ведёт студента — такой студент обязан
+      // остаться в бэклоге, иначе он потеряется навсегда.
+      expect(
+        matchesOperationalFilter(
+          student({ ...named, responsibles: [{ ...active, is_active: false }] }),
+          'name_only_mentor',
+        ),
+      ).toBe(true)
+    })
+
+    it('молчит, когда текстового ментора нет вовсе', () => {
+      // Просто «без ответственного» — это другой сигнал (фильтр «Не назначены»),
+      // и путать их нельзя: здесь речь именно о расхождении импорта с CRM.
+      expect(matchesOperationalFilter(student({ mentors: [] }), 'name_only_mentor')).toBe(false)
+      expect(matchesOperationalFilter(student(), 'name_only_mentor')).toBe(false)
+    })
+  })
 })

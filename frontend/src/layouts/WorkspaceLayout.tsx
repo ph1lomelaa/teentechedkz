@@ -16,6 +16,7 @@ import {
   GraduationCap,
   Globe,
   KeyRound,
+  UserCircle,
   LayoutDashboard,
   ListChecks,
   ListTodo,
@@ -267,6 +268,13 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
         </nav>
 
         <div className="mt-auto border-t border-white/10 pt-3.5">
+          <Link
+            to="/workspace/profile"
+            className="mb-1 flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
+          >
+            <UserCircle className="h-4 w-4" />
+            Профиль и вход
+          </Link>
           <Link
             to="/change-password"
             className="mb-1 flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"

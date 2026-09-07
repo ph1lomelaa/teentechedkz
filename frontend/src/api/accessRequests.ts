@@ -37,8 +37,17 @@ export interface MyAccessRequest {
   created_at: string
 }
 
+export interface ApproveResult {
+  ok: boolean
+  status: string
+  /** Временный пароль — только для сотрудника, у которого пароля не было
+   *  (вход был лишь через Google). Приходит один раз; показать и передать. */
+  temp_password: string | null
+}
+
 export interface BulkApproveResult {
   approved: { id: string; name: string; student_id: string }[]
+
   /** Кого не взяли и почему. Показывать обязательно — молчание читается как
    *  «очередь разобрана», хотя половина осталась. */
   skipped: { id: string; name?: string; reason: string }[]
@@ -58,8 +67,8 @@ export const accessRequestsApi = {
     const response = await apiClient.get('/access-requests/mine')
     return response.data
   },
-  approve: async (id: string, body: { role: string; student_id?: string }) => {
-    const response = await apiClient.post(`/access-requests/${id}/approve`, body)
+  approve: async (id: string, body: { role: string; student_id?: string }): Promise<ApproveResult> => {
+    const response = await apiClient.post<ApproveResult>(`/access-requests/${id}/approve`, body)
     return response.data
   },
   reject: async (id: string) => {
