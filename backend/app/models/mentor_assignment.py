@@ -15,6 +15,12 @@ class MentorRole(str, enum.Enum):
     english = "english"
     career = "career"  # профориентолог — регламент МЗК
     country = "country"  # ментор по стране — регламент МЗК
+    # Единственная роль, которую назначают не ментору, а сотруднику с
+    # UserRole.mzk_manager: менеджер ведёт студента целиком, а не предмет.
+    # В обязательную команду (required_roles в students.py и гейт этапа в
+    # roadmaps.py) намеренно не входит — иначе у всех текущих студентов команда
+    # разом стала бы неполной и роадмапы встали бы.
+    mzk = "mzk"
 
 
 class MentorAssignment(Base):

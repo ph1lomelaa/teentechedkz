@@ -68,6 +68,7 @@ import {
   StudentTimelineItem,
   MENTOR_ROLE_LABELS,
   ASSIGNABLE_MENTOR_ROLES,
+  ROLE_USER_SOURCE,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -612,6 +613,12 @@ export const StudentCardPage: React.FC = () => {
   const [pendingNotionPush, setPendingNotionPush] = useState<{ field: string; label: string } | null>(null)
   const [mentorToAssign, setMentorToAssign] = useState('')
   const [assignmentRole, setAssignmentRole] = useState('lead')
+  // Смена роли обнуляет выбранного человека: на МЗК назначают менеджера, на
+  // остальные роли — ментора, и оставшийся в поле ментор уехал бы как МЗК.
+  const changeAssignmentRole = (role: string) => {
+    setAssignmentRole(role)
+    setMentorToAssign('')
+  }
   const [assignmentZone, setAssignmentZone] = useState('')
   const [assignmentCountry, setAssignmentCountry] = useState('')
   const [assignmentDueDate, setAssignmentDueDate] = useState('')
@@ -638,6 +645,11 @@ export const StudentCardPage: React.FC = () => {
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
     enabled: can('users', 'view'),
   })
+
+  // Кого предлагать под выбранную роль: МЗК ведёт студента целиком, и назначают
+  // на неё менеджера, а не ментора. Правило общее с общей базой (ROLE_USER_SOURCE).
+  const assignsManager = ROLE_USER_SOURCE[assignmentRole] === 'mzk_manager'
+  const assignableForRole = assignsManager ? mzkManagers : mentors
 
   const { data: history = [] } = useQuery({
     queryKey: studentKeys.history(id),
@@ -1260,13 +1272,13 @@ export const StudentCardPage: React.FC = () => {
               {can('mentor_assignments', 'manage') && (
                 <div className="rounded-panel border border-p-line bg-p-bg p-3">
                   <div className="mb-2">
-                    <p className="text-sm font-medium text-p-text">Назначить ментора</p>
+                    <p className="text-sm font-medium text-p-text">Назначить ответственного</p>
                     <p className="text-xs text-p-muted">
-                      После назначения студент появится у выбранного ментора в CRM «Мои студенты» и в личном кабинете ментора.
+                      После назначения студент появится у выбранного сотрудника в CRM «Мои студенты» и в его личном кабинете.
                     </p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    <Select value={assignmentRole} onValueChange={setAssignmentRole}>
+                    <Select value={assignmentRole} onValueChange={changeAssignmentRole}>
                       <SelectTrigger className="bg-white"><SelectValue placeholder="Роль" /></SelectTrigger>
                       <SelectContent>
                         {ASSIGNABLE_MENTOR_ROLES.map((role) => (
@@ -1276,10 +1288,12 @@ export const StudentCardPage: React.FC = () => {
                     </Select>
                     <Select value={mentorToAssign} onValueChange={setMentorToAssign}>
                       <SelectTrigger className="sm:max-w-xs bg-white">
-                        <SelectValue placeholder="Выберите ментора" />
+                        <SelectValue placeholder={assignsManager ? 'Выберите менеджера' : 'Выберите ментора'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {mentors.map((mentor) => {
+                        {assignableForRole.length === 0 ? (
+                          <div className="px-2 py-1.5 text-xs text-p-muted">Нет сотрудников с этой ролью</div>
+                        ) : assignableForRole.map((mentor) => {
                           const alreadyActive = student.responsibles?.some(
                             (responsible) => responsible.id === mentor.id && responsible.is_active
                           )

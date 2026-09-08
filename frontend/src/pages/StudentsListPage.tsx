@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X } from 'lucide-react'
+import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X, UserPlus } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import { syncApi, IntakeSubmission, SheetCounters } from '@/api/sync'
@@ -18,6 +18,7 @@ import {
   SERVICE_STATUS_LABELS,
   MENTOR_ROLE_LABELS,
   ASSIGNABLE_MENTOR_ROLES,
+  ROLE_USER_SOURCE,
   ServiceType,
   StudentListItem,
 } from '@/types'
@@ -982,6 +983,11 @@ export const StudentsListPage: React.FC = () => {
   // Раньше назначить можно было только внутри карточки студента: на разборе
   // набора это десятки переходов, и ответственные просто не проставлялись.
   const canAssign = can('mentor_assignments', 'manage')
+  // Режим назначения включается кнопкой, а не висит на экране всегда. Галочки в
+  // каждой строке и панель с ролью — это инструмент разбора набора, а открывают
+  // общую базу обычно чтобы посмотреть студента: постоянная колонка выделения
+  // читалась как «здесь надо что-то отметить» и мешала основному сценарию.
+  const [assignMode, setAssignMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkMentorId, setBulkMentorId] = useState('')
   // Одна роль на оба способа назначения — и на строчный селект, и на пачку.
@@ -1045,10 +1051,31 @@ export const StudentsListPage: React.FC = () => {
       toast({ title: 'Не удалось назначить', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
+  // Кого предлагать во втором списке. МЗК ведут студента целиком, и назначают на
+  // эту роль менеджера, а не ментора — правило одно на все экраны (ROLE_USER_SOURCE).
+  const assignableUsers = useMemo(
+    () => (ROLE_USER_SOURCE[assignRole] === 'mzk_manager' ? mzkUsers : mentorUsers),
+    [assignRole, mzkUsers, mentorUsers],
+  )
+
+  // Смена роли обнуляет выбранного человека: списки разные, и оставшийся в поле
+  // ментор при переключении на «МЗК» уехал бы в назначение как МЗК-ответственный —
+  // бэкенд его принимает, роль от этого не проверяется.
+  const changeAssignRole = (role: string) => {
+    setAssignRole(role)
+    setBulkMentorId('')
+  }
+
+  const exitAssignMode = () => {
+    setAssignMode(false)
+    setSelectedIds(new Set())
+    setBulkMentorId('')
+  }
+
   // Число колонок таблицы — считаем, а не пишем числом: пустые состояния
   // растягиваются на всю ширину через colSpan, и раньше это была захардкоженная
   // константа, которую пришлось бы править при каждой новой колонке.
-  const columnCount = 8 + (isManager ? 1 : 0) + (canAssign ? 1 : 0)
+  const columnCount = 8 + (isManager ? 1 : 0) + (assignMode ? 1 : 0)
 
   const toggleSelected = (studentId: string) => {
     setSelectedIds((prev) => {
@@ -1384,6 +1411,19 @@ export const StudentsListPage: React.FC = () => {
             className="pl-8 h-9 text-sm"
           />
         </div>
+        <div className="flex items-center gap-2">
+        {canAssign && (
+          <Button
+            type="button"
+            variant={assignMode ? 'default' : 'outline'}
+            size="sm"
+            className="h-9 gap-1.5"
+            onClick={() => (assignMode ? exitAssignMode() : setAssignMode(true))}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            {assignMode ? 'Выйти из выбора' : 'Выбрать студентов'}
+          </Button>
+        )}
         <div className="relative">
           <Button
             type="button"
@@ -1664,6 +1704,7 @@ export const StudentsListPage: React.FC = () => {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       {/* Активные фильтры — видны без открытия панели */}
@@ -1695,17 +1736,17 @@ export const StudentsListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Панель назначения.
-          Выбор роли виден всегда, а не только при выделении: он управляет и
-          строчным «+ Назначить». Спрятанный за выделением, он превращал бы
-          строчную кнопку в скрытый режим — назначает то ли ментора по УП, то
-          ли профориентолога, и по экрану не понять. */}
-      {canAssign && (
+      {/* Панель назначения — видна, пока включён режим выбора.
+          Внутри режима выбор роли виден всегда, а не только при выделении: он
+          управляет и строчным «+ Назначить». Спрятанный за выделением, он
+          превращал бы строчную кнопку в скрытый режим — назначает то ли ментора
+          по УП, то ли профориентолога, и по экрану не понять. */}
+      {canAssign && assignMode && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-panel border border-p-line bg-p-bg px-3 py-2">
           <span className="text-sm font-semibold text-p-text">
             {selectedVisible.length > 0 ? `Выбрано: ${selectedVisible.length}` : 'Назначить:'}
           </span>
-          <Select value={assignRole} onValueChange={setAssignRole}>
+          <Select value={assignRole} onValueChange={changeAssignRole}>
             <SelectTrigger className="h-9 w-[190px]">
               <SelectValue placeholder="Роль" />
             </SelectTrigger>
@@ -1728,11 +1769,17 @@ export const StudentsListPage: React.FC = () => {
                   <SelectValue placeholder="Кого назначить" />
                 </SelectTrigger>
                 <SelectContent>
-                  {mentorUsers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.name}
-                    </SelectItem>
-                  ))}
+                  {assignableUsers.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-p-muted">
+                      Нет сотрудников с этой ролью
+                    </div>
+                  ) : (
+                    assignableUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
               <Button
@@ -1765,7 +1812,7 @@ export const StudentsListPage: React.FC = () => {
         <Table>
           <TableHeader>
             <TableRow className="border-p-line hover:bg-transparent">
-              {canAssign && (
+              {assignMode && (
                 <TableHead className="w-9">
                   <input
                     type="checkbox"
@@ -1826,7 +1873,7 @@ export const StudentsListPage: React.FC = () => {
                 const intake = intakeOverview[student.id]
                 return (
                 <TableRow key={student.id} className="border-p-line hover:bg-p-bg transition-colors">
-                  {canAssign && (
+                  {assignMode && (
                     <TableCell>
                       <input
                         type="checkbox"
@@ -1934,7 +1981,7 @@ export const StudentsListPage: React.FC = () => {
                           </span>
                         )}
 
-                      {canAssign && (
+                      {assignMode && (
                         <Select
                           value=""
                           onValueChange={(mentorId) =>
@@ -1953,11 +2000,17 @@ export const StudentsListPage: React.FC = () => {
                             <SelectValue placeholder={`+ ${MENTOR_ROLE_LABELS[assignRole]}`} />
                           </SelectTrigger>
                           <SelectContent>
-                            {mentorUsers.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.name}
-                              </SelectItem>
-                            ))}
+                            {assignableUsers.length === 0 ? (
+                              <div className="px-2 py-1.5 text-xs text-p-muted">
+                                Нет сотрудников с этой ролью
+                              </div>
+                            ) : (
+                              assignableUsers.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>
+                                  {u.name}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                       )}

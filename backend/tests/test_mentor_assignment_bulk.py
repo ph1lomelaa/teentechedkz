@@ -23,9 +23,20 @@ import asyncio
 import unittest
 import uuid
 
-from app.api.v1.endpoints.mentor_assignments import MAX_BULK_ASSIGN, _assign_one
+import inspect
+import re
+
+from fastapi import HTTPException
+
+from app.api.v1.endpoints import roadmaps
+from app.api.v1.endpoints.mentor_assignments import (
+    MAX_BULK_ASSIGN,
+    _assign_one,
+    _load_assignable_mentor,
+)
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.mentor_assignment_history import MentorAssignmentHistory
+from app.models.user import User, UserRole
 
 
 class _Result:
@@ -72,13 +83,13 @@ def _existing(mentor_id):
     return ma
 
 
-def _call(session, *, reason="", student_id=None, mentor_id=None):
+def _call(session, *, reason="", student_id=None, mentor_id=None, role=MentorRole.lead):
     return asyncio.run(
         _assign_one(
             session,
             student_id=student_id or uuid.uuid4(),
             mentor_id=mentor_id or uuid.uuid4(),
-            role=MentorRole.lead,
+            role=role,
             replacement_reason=reason,
             actor_id=uuid.uuid4(),
             assignment_status="active",
@@ -182,6 +193,60 @@ class AssignOneTests(unittest.TestCase):
         self.assertEqual(ma.assignment_status, "active")
         self.assertTrue(ma.is_active)
         self.assertEqual(session.added, [], "placeholder продублирован новой строкой")
+
+
+class MzkRoleTests(unittest.TestCase):
+    """Роль «МЗК»: менеджер как ответственный за студента.
+
+    Ради чего: распределить студентов между менеджерами МЗК было нельзя —
+    назначения знали только менторские роли, и менеджер мог лишь «взять на
+    себя» одного студента за раз. Роль даёт тот же механизм: массовое
+    назначение, историю замен и попадание студента в «Мои студенты» менеджера
+    (scope=mine фильтрует по mentor_id назначения, роль пользователя там не
+    участвует).
+    """
+
+    def test_manager_gets_a_normal_assignment(self) -> None:
+        session = FakeSession()
+        mentor_id = uuid.uuid4()
+
+        outcome, ma = _call(session, mentor_id=mentor_id, role=MentorRole.mzk)
+
+        self.assertEqual(outcome, "created")
+        self.assertEqual(ma.role, MentorRole.mzk)
+        self.assertEqual(ma.mentor_id, mentor_id)
+        self.assertTrue(ma.is_active)
+
+    def test_mzk_manager_is_assignable(self) -> None:
+        manager = User(id=uuid.uuid4(), name="Мерей", email="m@example.kz", role=UserRole.mzk_manager)
+        session = FakeSession(same=manager)
+
+        loaded = asyncio.run(_load_assignable_mentor(session, manager.id))
+
+        self.assertIs(loaded, manager)
+
+    def test_student_account_is_still_rejected(self) -> None:
+        # Роль расширяет круг назначаемых сотрудников, а не открывает его всем.
+        client = User(id=uuid.uuid4(), name="Ученик", email="s@example.kz", role=UserRole.student)
+        session = FakeSession(same=client)
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(_load_assignable_mentor(session, client.id))
+
+        self.assertEqual(ctx.exception.status_code, 422)
+
+    def test_mzk_is_not_part_of_the_required_team(self) -> None:
+        """Гейт этапа роадмапа остаётся на четырёх менторских ролях.
+
+        Если добавить сюда «МЗК», у каждого студента без назначенного менеджера
+        команда разом станет неполной и этап нельзя будет начать — то есть
+        новая роль молча остановит работу по всей базе. Проверяем сам источник:
+        множество ролей в `update_stage`.
+        """
+        source = inspect.getsource(roadmaps.update_stage)
+        match = re.search(r"required_roles = \{([^}]*)\}", source)
+        self.assertIsNotNone(match, "гейт команды в update_stage переписан — проверьте тест")
+        self.assertNotIn("mzk", match.group(1))
 
 
 class BulkLimitTests(unittest.TestCase):

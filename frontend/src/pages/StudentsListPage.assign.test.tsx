@@ -92,6 +92,16 @@ function renderPage() {
   )
 }
 
+/**
+ * Галочки и панель назначения живут внутри режима выбора: общую базу чаще
+ * открывают, чтобы посмотреть студента, и постоянная колонка выделения читалась
+ * как «здесь надо что-то отметить». Каждый сценарий сначала входит в режим.
+ */
+async function enterAssignMode() {
+  fireEvent.click(await screen.findByText('Выбрать студентов'))
+  return screen.findByLabelText('Выбрать Первый Студент')
+}
+
 describe('назначение ответственных из общей базы', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -111,7 +121,7 @@ describe('назначение ответственных из общей баз
     // показывала: выбрав в панели «Профориентолог», сотрудник всё равно
     // назначил бы ментора по УП и не увидел бы подвоха.
     renderPage()
-    await screen.findByLabelText('Выбрать Первый Студент')
+    await enterAssignMode()
 
     expect(screen.queryByText('+ Назначить')).toBeNull()
     expect(screen.getAllByText('+ Ментор по УП').length).toBeGreaterThan(0)
@@ -121,7 +131,7 @@ describe('назначение ответственных из общей баз
     renderPage()
 
     // До выбора панели нет — она не должна занимать место просто так.
-    await screen.findByLabelText('Выбрать Первый Студент')
+    await enterAssignMode()
     expect(screen.queryByText(/^Выбрано:/)).toBeNull()
 
     fireEvent.click(screen.getByLabelText('Выбрать Первый Студент'))
@@ -135,7 +145,7 @@ describe('назначение ответственных из общей баз
     // Отметил двоих, сузил поиск до одного — «Выбрано» обязано стать 1.
     // Иначе кнопка назначала бы и тому, кого на экране уже нет.
     renderPage()
-    await screen.findByLabelText('Выбрать Первый Студент')
+    await enterAssignMode()
     fireEvent.click(screen.getByLabelText('Выбрать Первый Студент'))
     fireEvent.click(screen.getByLabelText('Выбрать Второй Студент'))
     expect(await screen.findByText('Выбрано: 2')).toBeTruthy()
@@ -147,11 +157,23 @@ describe('назначение ответственных из общей баз
     expect(await screen.findByText('Выбрано: 1')).toBeTruthy()
   })
 
+  it('без режима выбора таблица чистая — ни галочек, ни панели', async () => {
+    // Ради чего: галочка в каждой строке и панель с ролью — инструмент разбора
+    // набора, а не постоянная часть списка.
+    renderPage()
+    await screen.findByText('Первый Студент')
+
+    expect(screen.queryByLabelText('Выбрать Первый Студент')).toBeNull()
+    expect(screen.queryByLabelText('Выбрать всех на странице')).toBeNull()
+    expect(screen.queryByText('Назначить:')).toBeNull()
+    expect(screen.queryByText('+ Ментор по УП')).toBeNull()
+  })
+
   it('«выбрать всех» берёт только то, что видно после фильтров', async () => {
     renderPage()
     // Дожидаемся строк: заголовок таблицы рисуется и во время загрузки, а
     // «выбрать всех» относится к загруженной выборке.
-    await screen.findByLabelText('Выбрать Первый Студент')
+    await enterAssignMode()
     fireEvent.click(screen.getByLabelText('Выбрать всех на странице'))
     expect(await screen.findByText('Выбрано: 2')).toBeTruthy()
 

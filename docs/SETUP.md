@@ -296,6 +296,67 @@ docker compose up -d --force-recreate backend worker
 
 Деплой автоматический: пуш в `main` запускает GitHub Actions (`.github/workflows/deploy.yml`) — сначала проверки (lint, тесты фронта/бэка, применение миграций на чистой БД, валидация compose), затем деплой по SSH. Красный CI = деплой не пойдёт.
 
+### Как выкатить изменения
+
+Обычный путь — просто запушить. Заходить на сервер не нужно:
+
+```bash
+git push origin main
+```
+
+Дальше CI сам сделает на сервере: `git pull` → бэкап БД → `up -d --build` → проверит
+`/health` локально и на `https://teenteched.kz/health`.
+
+Миграции накатывать отдельно не надо: бэкенд-контейнер при старте сам выполняет
+`bootstrap_db && alembic upgrade head` (см. `command:` в `docker-compose.prod.yml`).
+
+### Пересборка на сервере вручную
+
+Нужна редко — когда CI недоступен или надо форсировать пересборку.
+
+```bash
+ssh root@169.58.80.127
+su - deploy            # ПРОБЕЛ после дефиса! `su -deploy` — это ошибка:
+                       # su примет `-d` за свой флаг и откажется
+```
+
+Если пользователя `deploy` нет, посмотреть, под кем живёт проект: `ls -la /home`.
+Найти каталог, если забыт путь:
+
+```bash
+find / -name docker-compose.prod.yml -not -path '*/node_modules/*' 2>/dev/null
+```
+
+Сама пересборка — те же шаги, что делает CI:
+
+```bash
+cd <путь-к-проекту>
+git pull origin main
+bash scripts/backup.sh          # обязательно ДО пересборки
+docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
+curl -fsS https://teenteched.kz/health
+```
+
+Бэкап перед пересборкой — не формальность: миграции применяются при старте
+контейнера, и откатить их без дампа нельзя.
+
+Если не поднялось:
+
+```bash
+docker compose -f docker-compose.prod.yml ps -a
+docker compose -f docker-compose.prod.yml logs --tail=250 backend
+docker compose -f docker-compose.prod.yml logs --tail=150 worker
+```
+
+**Чего не делать:**
+
+- `docker compose down -v` — флаг `-v` сносит тома вместе с базой и файлами MinIO.
+- Обходить красный CI руками: это единственная проверка перед пользователями.
+
+Правки только в коде воркера (синки, фоновые задачи) можно применить без полной
+пересборки — `docker compose -f docker-compose.prod.yml restart worker`. Воркер не
+поддерживает `--reload`, сам он изменения не подхватит.
+
 ### Бэкапы БД
 
 ```bash
