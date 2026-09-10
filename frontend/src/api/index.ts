@@ -19,6 +19,7 @@ import {
   NoteVisibility,
   InsightWithDiff,
   PaginatedResponse,
+  AssignmentBoard,
 } from '../types'
 
 export * from './client'
@@ -415,6 +416,17 @@ export const mentorAssignmentsApi = {
       `/mentor-assignments/student/${studentId}/self`,
       { is_active: isActive }
     )
+    return response.data
+  },
+  /**
+   * Доска распределения: кто из сотрудников ведёт каких студентов.
+   *
+   * Роль обязательна — доска показывает одну роль за раз. У студента
+   * ответственных несколько, а на доске «колонка = сотрудник» карточка не
+   * может лежать в двух колонках сразу.
+   */
+  board: async (params: { role: string }): Promise<AssignmentBoard> => {
+    const response = await apiClient.get<AssignmentBoard>('/mentor-assignments/board', { params })
     return response.data
   },
 }

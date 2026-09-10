@@ -23,7 +23,12 @@ export interface StudentsQueryParams {
   mentor_name?: string
   mzk_name?: string
   service_type?: string
+  /** Роль назначения. Вместе с `mentor_id` — «студенты этого человека именно
+   *  как МЗК»; вместе со `scope: 'mine'` — «мои как ментор по УП». */
   assignment_role?: string
+  /** Кого забыли назначить на эту роль — переход из колонки «Без
+   *  ответственного» на доске распределения. */
+  missing_role?: string
 }
 
 export interface FacetOption {

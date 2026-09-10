@@ -32,6 +32,7 @@ export const RESOURCE_GROUPS: ResourceGroup[] = [
     hint: 'Карточка, контакты, доступ в кабинет',
     resources: [
       'students', 'student_access', 'responsibilities', 'mentor_assignments',
+      'assignment_overview',
       'guardians', 'emergency_contacts', 'confidential_notes', 'documents',
       'credentials', 'student_universities', 'applications', 'portfolio',
       'services', 'status_history',
@@ -82,6 +83,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   student_access: 'Доступ ученика в кабинет',
   responsibilities: 'Кто за что отвечает',
   mentor_assignments: 'Назначение менторов',
+  assignment_overview: 'Доска распределения учеников',
   guardians: 'Родители и опекуны',
   emergency_contacts: 'Экстренные контакты',
   confidential_notes: 'Конфиденциальные заметки',

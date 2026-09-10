@@ -134,6 +134,11 @@ describe('назначение ответственных из общей баз
     await enterAssignMode()
     expect(screen.queryByText(/^Выбрано:/)).toBeNull()
 
+    // Кого назначить — видно сразу, вместе с ролью: роль выбирают именно
+    // затем, чтобы увидеть список людей. Кнопка при этом ждёт выделения.
+    expect(screen.getByText('Кого назначить')).toBeTruthy()
+    expect(screen.getByText('Назначить ответственного').closest('button')?.disabled).toBe(true)
+
     fireEvent.click(screen.getByLabelText('Выбрать Первый Студент'))
     fireEvent.click(screen.getByLabelText('Выбрать Второй Студент'))
 

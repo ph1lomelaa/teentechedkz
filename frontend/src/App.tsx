@@ -55,6 +55,7 @@ function lazyRoute<T extends React.ComponentType>(
 
 const DashboardPage = lazyRoute(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const StudentsListPage = lazyRoute(() => import('@/pages/StudentsListPage').then((m) => ({ default: m.StudentsListPage })))
+const StudentsDistributionPage = lazyRoute(() => import('@/pages/StudentsDistributionPage').then((m) => ({ default: m.StudentsDistributionPage })))
 const StudentCardPage = lazyRoute(() => import('@/pages/StudentCardPage').then((m) => ({ default: m.StudentCardPage })))
 const NotesPage = lazyRoute(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
 const NoteSessionPage = lazyRoute(() => import('@/pages/NoteSessionPage').then((m) => ({ default: m.NoteSessionPage })))
@@ -523,6 +524,18 @@ function AppRoutes() {
           <ProtectedRoute>
             <AppLayout>
               <StudentsListPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Раньше «/students/:id» — иначе «distribution» уедет туда как id студента. */}
+      <Route
+        path="/students/distribution"
+        element={
+          <ProtectedRoute permission={['assignment_overview', 'view']}>
+            <AppLayout>
+              <StudentsDistributionPage />
             </AppLayout>
           </ProtectedRoute>
         }

@@ -180,6 +180,7 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/dashboard': 'Обзор',
     '/students': 'Общая база студентов',
     '/students/new': 'Новый студент',
+    '/students/distribution': 'Распределение студентов',
     '/my-students': 'Мои студенты',
     '/notes': 'Конспекты',
     '/countries': 'Справочник стран',
@@ -205,6 +206,10 @@ function getBreadcrumb(pathname: string, role: string): string {
   }
   if (pathname.match(/^\/universities\/[^/]+$/)) return 'Университет'
   if (pathname.match(/^\/countries\/[^/]+$/)) return 'Страна'
+  // Точные пути под /students проверяем раньше маски карточки: иначе
+  // «/students/new» и «/students/distribution» читаются как id студента, и обе
+  // подписи из карты выше остаются мёртвыми.
+  if (map[pathname]) return map[pathname]
   if (pathname.match(/^\/students\/[^/]+$/)) return 'Карточка студента'
   if (pathname.match(/^\/notes\/session\/[^/]+$/)) return 'Сессия конспекта'
   if (pathname.match(/^\/notes\/[^/]+$/)) return 'Конспект'

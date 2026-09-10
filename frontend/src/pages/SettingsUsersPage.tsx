@@ -40,12 +40,18 @@ const ROLE_FILTER_LABELS: Record<UserRole | 'all', string> = {
   all: 'Все роли',
   ...ROLE_LABELS,
 }
-const STATUS_FILTER_OPTIONS = ['all', 'active', 'pending'] as const
+/**
+ * «Активные» стоят первыми и включены по умолчанию: список сотрудников — это
+ * рабочий справочник, а деактивированные и не завершившие регистрацию аккаунты
+ * копятся годами и оттесняют действующих людей вниз. Неактивные никуда не
+ * делись — они за отдельным пунктом фильтра и в карточке «Ожидают активации».
+ */
+const STATUS_FILTER_OPTIONS = ['active', 'inactive', 'all'] as const
 type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number]
 const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
-  all: 'Любой статус',
   active: 'Активные',
-  pending: 'Ожидают активации',
+  inactive: 'Неактивные',
+  all: 'Любой статус',
 }
 
 interface UserForm {
@@ -335,7 +341,7 @@ export const SettingsUsersPage: React.FC = () => {
   const [addOpen, setAddOpen] = useState(false)
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
 
   const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['users', 'all'],
@@ -354,7 +360,7 @@ export const SettingsUsersPage: React.FC = () => {
       .filter((user) => {
         if (roleFilter !== 'all' && user.role !== roleFilter) return false
         if (statusFilter === 'active' && !user.is_active) return false
-        if (statusFilter === 'pending' && user.is_active) return false
+        if (statusFilter === 'inactive' && user.is_active) return false
         return true
       })
       .sort((first, second) => {
@@ -448,12 +454,25 @@ export const SettingsUsersPage: React.FC = () => {
           valueClassName={pendingCount > 0 ? 'text-amber-500' : undefined}
           sub={pendingCount > 0 ? 'новые заявки' : undefined}
           warn={pendingCount > 0}
-          onClick={() => { setRoleFilter('all'); setStatusFilter('pending') }}
+          onClick={() => { setRoleFilter('all'); setStatusFilter('inactive') }}
         />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="label-caps">Пользователи</p>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <p className="label-caps">Пользователи · {filteredUsers.length}</p>
+          {/* Про спрятанных говорим вслух: список по умолчанию показывает не
+              всех, и без этой строки неактивные выглядели бы как пропавшие. */}
+          {statusFilter === 'active' && pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter('inactive')}
+              className="text-xs text-p-muted underline underline-offset-4 hover:text-black"
+            >
+              скрыто неактивных: {pendingCount}
+            </button>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {(['student', 'mentor', 'mzk_manager'] as const).map((role) => (
             <Button
@@ -521,6 +540,18 @@ export const SettingsUsersPage: React.FC = () => {
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-p-muted">
                   Нет пользователей по выбранным фильтрам
+                  {statusFilter === 'active' && pendingCount > 0 && (
+                    <>
+                      {' — '}
+                      <button
+                        type="button"
+                        onClick={() => setStatusFilter('inactive')}
+                        className="underline underline-offset-4 hover:text-black"
+                      >
+                        посмотреть неактивных ({pendingCount})
+                      </button>
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (

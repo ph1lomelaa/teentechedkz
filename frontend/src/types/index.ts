@@ -201,6 +201,37 @@ export const ROLE_USER_SOURCE: Record<string, 'mentor' | 'mzk_manager'> = {
   mzk: 'mzk_manager',
 }
 
+/** Карточка студента на доске распределения — минимум, нужный колонке. */
+export interface BoardStudent {
+  id: string
+  full_name: string
+  pipeline_status?: string | null
+  /** Назначение, которое меняет перетаскивание. null — студент ещё ничей. */
+  assignment_id: string | null
+  assignment_status: string | null
+}
+
+/** Колонка доски — один сотрудник. Пустая колонка не ошибка: в неё перетаскивают. */
+export interface BoardColumn {
+  staff_id: string
+  name: string
+  user_role: UserRole
+  students: BoardStudent[]
+}
+
+/**
+ * Доска распределения по ОДНОЙ роли. У студента ответственных несколько, и на
+ * доске «колонка = сотрудник» карточка не может лежать в двух колонках сразу —
+ * поэтому роль часть запроса, а не фильтр поверх общего ответа.
+ */
+export interface AssignmentBoard {
+  role: string
+  totals: { students: number; assigned: number; unassigned: number }
+  columns: BoardColumn[]
+  /** Кого забыли назначить на эту роль — первая колонка доски. */
+  unassigned: BoardStudent[]
+}
+
 /** Вуз в заявке, развёрнутый бэкендом, — минимум для карточки и ссылки. */
 export interface ApplicationUniversityRef {
   id: string
