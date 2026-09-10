@@ -281,6 +281,10 @@ html[data-crm-theme='light'] {
      var() невалиден и подсветка молча не работает. */
   --p-accent: #FFD400;
   --p-accent-dim: #C9A800;
+  /* --p-danger по той же причине: доска распределения помечает им перегруз, а
+     QueryState с colorPrefix="p" — иконку ошибки. Без проксирования var()
+     невалиден, и «перегружен» молча красится в currentColor. */
+  --p-danger: #FF6B6B;
   --crm-bg: #0A0A0A;
   --crm-panel: #141414;
   --crm-panel-soft: #1C1C1C;

@@ -62,11 +62,11 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
   return (
     <div
       className={cn(
-        'rounded-panel border border-p-line bg-white p-2.5 transition-colors',
+        'rounded-panel border border-p-line bg-p-panel2 px-2.5 py-2 transition-colors',
         isDragging && 'opacity-40',
       )}
     >
-      <div className="text-sm font-medium leading-snug text-p-text line-clamp-2">
+      <div className="text-[13px] font-medium leading-snug text-p-text line-clamp-2">
         {student.full_name}
       </div>
       <div className="mt-1.5 flex items-center gap-1.5">
@@ -80,7 +80,7 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
         {student.assignment_status === 'awaiting_signature' && (
           <span
             title="Специалист ещё не подписал регламент — назначение ждёт подписи"
-            className="shrink-0 rounded-pill border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+            className="shrink-0 rounded-pill border border-p-accent/40 bg-p-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-p-accent"
           >
             ждёт подписи
           </span>
@@ -161,16 +161,16 @@ function Column({
       ref={dropRef}
       className={cn(
         'flex flex-col rounded-card border transition-colors',
-        warning ? 'border-amber-300 bg-amber-50/60' : 'border-p-line bg-p-bg/50',
-        isOver && canDrag && 'border-brand bg-brand/5',
+        warning ? 'border-p-accent/45 bg-p-panel' : 'border-p-line bg-p-panel',
+        isOver && canDrag && 'border-p-accent bg-p-accent/[0.07]',
       )}
     >
-      <div className={cn('border-b px-3 pb-2 pt-3', warning ? 'border-amber-200' : 'border-p-line')}>
+      <div className={cn('border-b px-2.5 pb-2 pt-2.5', warning ? 'border-p-accent/30' : 'border-p-line')}>
         <div className="flex items-start justify-between gap-2">
           <span
             className={cn(
               'flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-caps',
-              warning ? 'text-amber-700' : 'text-p-muted',
+              warning ? 'text-p-accent' : 'text-p-text',
             )}
           >
             {warning && <AlertTriangle className="h-3 w-3 shrink-0" />}
@@ -181,7 +181,7 @@ function Column({
           <span
             className={cn(
               'shrink-0 rounded-pill border px-1.5 py-0.5 text-[10px] font-semibold',
-              warning ? 'border-amber-300 text-amber-700' : 'border-p-line text-p-muted',
+              warning ? 'border-p-accent/45 text-p-accent' : 'border-p-line text-p-muted',
             )}
           >
             {/* При активном поиске показываем «видно из всего», иначе кажется,
@@ -191,18 +191,18 @@ function Column({
         </div>
         {subtitle && <div className="mt-0.5 truncate text-[10px] text-p-muted2">{subtitle}</div>}
 
-        <div className="mt-2 h-1 overflow-hidden rounded-pill bg-p-line/60">
+        <div className="mt-2 h-1 overflow-hidden rounded-pill bg-p-line">
           <div
-            className={cn('h-full rounded-pill', overloaded ? 'bg-amber-500' : warning ? 'bg-amber-400' : 'bg-brand')}
+            className={cn('h-full rounded-pill', overloaded ? 'bg-p-danger' : warning ? 'bg-p-accent/50' : 'bg-p-accent')}
             style={{ width: `${Math.round(loadRatio * 100)}%` }}
           />
         </div>
         {overloaded && (
-          <div className="mt-1 text-[10px] font-medium text-amber-700">Нагрузка выше средней</div>
+          <div className="mt-1 text-[10px] font-medium text-p-danger">Нагрузка выше средней</div>
         )}
       </div>
 
-      <div className="min-h-[70px] flex-1 space-y-1.5 overflow-y-auto px-2 py-2 max-h-[calc(100vh-21rem)]">
+      <div className="min-h-[70px] flex-1 space-y-1 overflow-y-auto px-2 py-2 max-h-[calc(100vh-21rem)]">
         {/* Вне режима перетаскивания хуки dnd-kit не зовём вовсе: без
             DndContext вокруг они работают на значениях по умолчанию, и это
             слишком тонкая опора для колонки, которую видит вся команда. */}
@@ -232,8 +232,8 @@ function Column({
           className={cn(
             'flex items-center justify-between gap-1 border-t px-3 py-2 text-[11px] font-medium transition-colors',
             warning
-              ? 'border-amber-200 text-amber-700 hover:bg-amber-100/60'
-              : 'border-p-line text-p-muted hover:bg-p-bg hover:text-p-text',
+              ? 'border-p-accent/30 text-p-accent hover:bg-p-accent/10'
+              : 'border-p-line text-p-muted hover:bg-p-panel2 hover:text-p-text',
           )}
         >
           Показать в базе
@@ -300,7 +300,10 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   const content = (
     <div
       className="grid min-w-max gap-2"
-      style={{ gridTemplateColumns: `repeat(${board.columns.length + 1}, minmax(210px, 1fr))` }}
+      // Ширина фиксированная, а не 1fr: при двух-трёх колонках доля растягивала
+      // каждую на треть экрана, и «доска» читалась как несколько длинных
+      // списков — по ней нельзя было вести глазом и сравнивать нагрузку.
+      style={{ gridTemplateColumns: `repeat(${board.columns.length + 1}, 208px)` }}
     >
       {/* «Без ответственного» первой: ради неё доску и открывают — кого забыли
           распределить, видно раньше, чем у кого сколько. */}

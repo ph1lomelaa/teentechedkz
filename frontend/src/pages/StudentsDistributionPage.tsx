@@ -159,7 +159,7 @@ export const StudentsDistributionPage: React.FC = () => {
           {data && (
             <span className="whitespace-nowrap text-xs text-p-muted">
               {data.totals.students} студентов ·{' '}
-              <span className={data.totals.unassigned > 0 ? 'font-medium text-amber-700' : undefined}>
+              <span className={data.totals.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
                 {data.totals.unassigned} без «{roleLabel}»
               </span>
             </span>
