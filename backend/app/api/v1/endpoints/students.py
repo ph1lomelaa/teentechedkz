@@ -499,6 +499,7 @@ async def list_students(
     mentor_id: uuid.UUID | None = None,
     mentor_name: str | None = None,
     mzk_name: str | None = None,
+    missing_role: str | None = None,
     service_type: str | None = None,
     scope: str = Query("all", pattern="^(all|mine|assigned|unassigned)$"),
     assignment_role: str | None = None,
@@ -564,16 +565,34 @@ async def list_students(
         except ValueError:
             pass
 
-    if pipeline_status or mzk_manager_id:
+    if pipeline_status:
         query = query.join(Contract, Contract.student_id == Student.id, isouter=True)
-        if pipeline_status:
-            from app.models.contract import PipelineStatus
-            try:
-                query = query.where(Contract.pipeline_status == PipelineStatus(pipeline_status))
-            except ValueError:
-                pass
-        if mzk_manager_id:
-            query = query.where(Contract.mzk_manager_id == mzk_manager_id)
+        from app.models.contract import PipelineStatus
+        try:
+            query = query.where(Contract.pipeline_status == PipelineStatus(pipeline_status))
+        except ValueError:
+            pass
+
+    if mzk_manager_id:
+        # «Кто МЗК студента» живёт в двух местах: новое назначение
+        # MentorAssignment(role=mzk) и старое поле contracts.mzk_manager_id.
+        # Источник истины — назначение (его пишет и распределение, и доска), но
+        # договоры, не покрытые бэкфиллом 090, иначе выпали бы из фильтра, и
+        # студент «пропал» бы у своего МЗК. Поэтому ИЛИ, а не одно из двух.
+        #
+        # Подзапросами, а не джойном: scope=mine выше уже присоединяет
+        # MentorAssignment, и второй join той же таблицы сломал бы запрос.
+        by_assignment = select(MentorAssignment.student_id).where(
+            MentorAssignment.mentor_id == mzk_manager_id,
+            MentorAssignment.role == MentorRole.mzk,
+            MentorAssignment.is_active == True,  # noqa: E712
+        )
+        by_contract = select(Contract.student_id).where(
+            Contract.mzk_manager_id == mzk_manager_id
+        )
+        query = query.where(
+            or_(Student.id.in_(by_assignment), Student.id.in_(by_contract))
+        )
 
     if country:
         query = query.join(Application, Application.student_id == Student.id, isouter=True)
@@ -596,14 +615,38 @@ async def list_students(
         query = query.where(Application.lead_mentor_id == lead_mentor_id)
 
     if mentor_id:
-        query = query.join(
-            MentorAssignment,
-            MentorAssignment.student_id == Student.id,
-            isouter=True,
-        ).where(
+        # Подзапрос вместо джойна: он не конфликтует с join из scope=mine и не
+        # размножает строки студента по числу его назначений.
+        by_mentor = select(MentorAssignment.student_id).where(
             MentorAssignment.mentor_id == mentor_id,
             MentorAssignment.is_active == True,  # noqa: E712
         )
+        # Роль вместе с человеком: без неё «студенты Зиры как МЗК» и «студенты
+        # Зиры как ментора по УП» — один и тот же список, и переход с колонки
+        # доски распределения в общую базу давал бы не тот набор.
+        if assignment_role:
+            try:
+                by_mentor = by_mentor.where(MentorAssignment.role == MentorRole(assignment_role))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Unknown assignment role: {assignment_role}")
+        query = query.where(Student.id.in_(by_mentor))
+
+    if missing_role:
+        # «Кого забыли назначить на эту роль» — колонка «Без ответственного» на
+        # доске распределения. Плейсхолдеры (assignment_status='required',
+        # mentor_id IS NULL) ответственным не считаются: они и создаются как
+        # напоминание, что назначить некого.
+        try:
+            missing_role_enum = MentorRole(missing_role)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Unknown assignment role: {missing_role}")
+        has_role = select(MentorAssignment.student_id).where(
+            MentorAssignment.role == missing_role_enum,
+            MentorAssignment.is_active == True,  # noqa: E712
+            MentorAssignment.assignment_status != "required",
+            MentorAssignment.mentor_id.is_not(None),
+        )
+        query = query.where(Student.id.not_in(has_role))
 
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
@@ -877,6 +920,22 @@ async def list_students(
         ]
         is_mine = any(a.mentor_id == current_user.id and a.is_active for a in assignments)
 
+        # Имя МЗК: сначала активное назначение (источник истины — его пишет
+        # распределение), потом поле договора, потом текстовая метка из Notion.
+        # До этого читался только договор, поэтому назначенный через общую базу
+        # МЗК в колонке не появлялся — тот же разрыв, что ломал фильтр.
+        mzk_from_assignment = next(
+            (
+                a.mentor.name
+                for a in assignments
+                if a.role == MentorRole.mzk
+                and a.is_active
+                and a.assignment_status != "required"
+                and a.mentor
+            ),
+            None,
+        )
+
         service_items = services_by_student.get(s.id, [])
         service_status_counts = Counter(item["status"] for item in service_items)
 
@@ -923,8 +982,9 @@ async def list_students(
             "countries": countries_by_student.get(s.id, []),
             "mentors": people.student_mentor_labels.get(s.id, []),
             "mzk_manager_name": (
-                contract.mzk_manager.name if contract and contract.mzk_manager
-                else people.student_manager_label.get(s.id)
+                mzk_from_assignment
+                or (contract.mzk_manager.name if contract and contract.mzk_manager else None)
+                or people.student_manager_label.get(s.id)
             ),
             "responsibles": responsibles,
             "responsible_count": len([r for r in responsibles if r["is_active"]]),

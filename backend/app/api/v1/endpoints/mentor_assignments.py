@@ -1,9 +1,10 @@
 from __future__ import annotations
 import uuid
+from collections import defaultdict
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -152,6 +153,37 @@ async def _load_assignable_mentor(db: AsyncSession, mentor_id: uuid.UUID) -> Use
     return mentor
 
 
+async def _mirror_mzk_to_contract(db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID) -> None:
+    """Продублировать назначение МЗК в contracts.mzk_manager_id.
+
+    Источник истины — MentorAssignment(role=mzk): именно его пишет назначение и
+    читает доска распределения. Но `contracts.mzk_manager_id` до сих пор читают
+    шесть мест, переехать которым — отдельная задача: workspace.py:74,
+    tasks.py:97, payments.py, telegram_chats.py:186, task_urgency_notifier.py,
+    payment_notifier.py. Без зеркала назначенный через доску МЗК не увидел бы
+    своих студентов в задачах и уведомлениях.
+
+    Направление ровно одно: назначение -> договор. Обратно не синхронизируем,
+    иначе снова два равноправных источника и та же рассинхронизация, из-за
+    которой фильтр «Ответственный -> МЗК» ничего не находил.
+
+    Коммит — на вызывающем, как и во всём _assign_one.
+    """
+    from app.models.contract import Contract
+
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.student_id == student_id)
+        .order_by(Contract.created_at.desc())
+        .limit(1)
+    )
+    contract = result.scalar_one_or_none()
+    # Договора может не быть (студент заведён до подписания) — тогда зеркалить
+    # некуда, и это не ошибка: доска работает от назначения.
+    if contract is not None:
+        contract.mzk_manager_id = mentor_id
+
+
 async def _assign_one(
     db: AsyncSession,
     *,
@@ -200,6 +232,8 @@ async def _assign_one(
             return "already", same
         same.is_active = True
         same.assignment_status = assignment_status
+        if role == MentorRole.mzk:
+            await _mirror_mzk_to_contract(db, student_id, mentor_id)
         return "created", same
 
     active_result = await db.execute(
@@ -259,6 +293,8 @@ async def _assign_one(
             is_active=is_active,
         )
         db.add(ma)
+    if role == MentorRole.mzk:
+        await _mirror_mzk_to_contract(db, student_id, mentor_id)
     return outcome, ma
 
 
@@ -494,3 +530,170 @@ def _ma_to_dict(a: MentorAssignment) -> dict:
         "is_active": a.is_active,
         "assigned_at": a.assigned_at.isoformat(),
     }
+
+
+# ------------------------------------------------------------------ доска
+# Роли, для которых доска берёт колонки не из менторов. Совпадает с
+# ROLE_USER_SOURCE на фронте (frontend/src/types/index.ts): МЗК назначают из
+# mzk_manager, остальные роли — из менторов.
+_BOARD_STAFF_ROLE: dict[MentorRole, UserRole] = {
+    MentorRole.mzk: UserRole.mzk_manager,
+}
+
+
+def _board_student(student, pipeline_status: str | None, assignment=None) -> dict:
+    return {
+        "id": str(student.id),
+        "full_name": student.full_name,
+        "pipeline_status": pipeline_status,
+        "assignment_id": str(assignment.id) if assignment is not None else None,
+        "assignment_status": assignment.assignment_status if assignment is not None else None,
+    }
+
+
+def _build_board(
+    *,
+    role: MentorRole,
+    assignment_rows: list,
+    staff: list,
+    students: list,
+    pipeline_by_student: dict,
+) -> dict:
+    """Разложить назначения по колонкам-сотрудникам. Чистая функция.
+
+    Вынесена из ручки по тому же принципу, что `_aggregate_mentor_workload`
+    (workspace.py): ORM остаётся снаружи, а раскладка проверяется юнит-тестом
+    без базы — фикстур с БД в проекте нет.
+
+    `assignment_rows` — тройки (назначение, студент, сотрудник) уже отфильтрованные
+    по роли и активности; `students` — все неархивные студенты (из них считается
+    колонка «без ответственного»); `staff` — сотрудники, чьи колонки должны быть
+    даже пустыми.
+    """
+    by_staff: dict = defaultdict(list)
+    staff_by_id: dict = {}
+    assigned_student_ids: set = set()
+    for assignment, student, person in assignment_rows:
+        staff_by_id[person.id] = person
+        assigned_student_ids.add(student.id)
+        by_staff[person.id].append(
+            _board_student(student, pipeline_by_student.get(student.id), assignment)
+        )
+
+    for person in staff:
+        staff_by_id.setdefault(person.id, person)
+
+    # Пустая колонка сотрудника нужна намеренно: это и ответ на вопрос «кто
+    # свободен», и место, куда перетащить карточку. Но админ, который никого не
+    # ведёт, — лишняя пустая колонка на каждой доске: он назначаем наравне с
+    # менторами (_load_assignable_mentor), а не ведёт студентов постоянно.
+    columns = [
+        {
+            "staff_id": str(person.id),
+            "name": person.name,
+            "user_role": person.role.value,
+            "students": by_staff.get(person.id, []),
+        }
+        for person in staff_by_id.values()
+        if person.role != UserRole.admin or by_staff.get(person.id)
+    ]
+    # Порядок стабилен между перерисовками: иначе после каждого перетаскивания
+    # колонки менялись бы местами прямо под курсором.
+    columns.sort(key=lambda c: (c["name"] or "").lower())
+
+    unassigned = [
+        _board_student(student, pipeline_by_student.get(student.id))
+        for student in students
+        if student.id not in assigned_student_ids
+    ]
+
+    return {
+        "role": role.value,
+        "totals": {
+            "students": len(students),
+            "assigned": len(assigned_student_ids),
+            "unassigned": len(unassigned),
+        },
+        "columns": columns,
+        "unassigned": unassigned,
+    }
+
+
+@router.get("/board")
+async def assignment_board(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+    role: str = Query(..., description="Роль назначения, распределение которой показываем"),
+):
+    """Кто из сотрудников ведёт каких студентов — одной ролью за раз.
+
+    Зачем
+    -----
+    Назначить ответственного было можно, а посмотреть картину распределения —
+    негде: фильтр в общей базе отвечает про одного человека за раз, и чтобы
+    понять, кому достался студент, приходилось перебирать сотрудников вручную.
+    Отсюда и ощущение, что система «забывает» назначения.
+
+    Почему ровно одна роль
+    ----------------------
+    У студента ответственных несколько (МЗК, ментор по УП, профориентолог...),
+    а на доске «колонка = сотрудник» одна карточка не может лежать в двух
+    колонках сразу. Роль обязательна: без неё студент попадал бы на доску
+    столько раз, сколько у него ответственных, и счётчики врали бы.
+    """
+    require_access(current_user, "assignment_overview", Action.view)
+    try:
+        mentor_role = MentorRole(role)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Неизвестная роль назначения: {role}")
+
+    from app.models.student import Student
+    from app.models.contract import Contract
+
+    # Статус для карточки — из самого свежего договора студента, как в
+    # list_students. Отдельным запросом, чтобы не тащить джойн в остальные.
+    pipeline_by_student: dict[uuid.UUID, str | None] = {}
+    contracts_result = await db.execute(
+        select(Contract.student_id, Contract.pipeline_status)
+        .order_by(Contract.student_id, Contract.created_at.desc())
+    )
+    for student_id, status in contracts_result.all():
+        pipeline_by_student.setdefault(student_id, status.value if status else None)
+
+    # Плейсхолдеры «ответственный требуется» (mentor_id IS NULL) отсекает сам
+    # join к users, но статус проверяем явно — заполненный плейсхолдер остаётся
+    # в статусе required, пока его не тронут.
+    assignments_result = await db.execute(
+        select(MentorAssignment, Student, User)
+        .join(Student, Student.id == MentorAssignment.student_id)
+        .join(User, User.id == MentorAssignment.mentor_id)
+        .where(
+            MentorAssignment.role == mentor_role,
+            MentorAssignment.is_active == True,  # noqa: E712
+            MentorAssignment.assignment_status != "required",
+            Student.is_archived == False,  # noqa: E712
+        )
+        .order_by(Student.full_name)
+    )
+
+    staff_role = _BOARD_STAFF_ROLE.get(mentor_role, UserRole.mentor)
+    staff_result = await db.execute(
+        select(User).where(
+            User.role.in_([staff_role, UserRole.admin]),
+            User.is_active == True,  # noqa: E712
+        )
+    )
+
+    students_result = await db.execute(
+        select(Student)
+        .where(Student.is_archived == False)  # noqa: E712
+        .order_by(Student.full_name)
+    )
+
+    return _build_board(
+        role=mentor_role,
+        assignment_rows=list(assignments_result.all()),
+        staff=list(staff_result.scalars()),
+        students=list(students_result.scalars()),
+        pipeline_by_student=pipeline_by_student,
+    )

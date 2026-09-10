@@ -32,6 +32,8 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("applications", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("access_requests", Action.manage): ("admin",),
     ("access_requests", Action.view): ("admin", "mzk_manager"),
+    # Доска распределения: чужая нагрузка целиком — вопрос управления.
+    ("assignment_overview", Action.view): ("admin", "mzk_manager"),
     ("audit", Action.view): ("admin",),
     ("chat", Action.manage): ("admin", "mzk_manager", "mentor"),
     ("chat", Action.view): ("admin", "mzk_manager", "mentor", "student"),
