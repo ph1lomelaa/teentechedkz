@@ -127,7 +127,6 @@ interface ColumnProps {
   totalCount: number
   /** Доля от самой загруженной колонки — полоса нагрузки. */
   loadRatio: number
-  overloaded?: boolean
   emphasis?: 'default' | 'warning'
   canDrag: boolean
   href: string
@@ -146,7 +145,6 @@ function Column({
   students,
   totalCount,
   loadRatio,
-  overloaded,
   emphasis = 'default',
   canDrag,
   href,
@@ -191,15 +189,16 @@ function Column({
         </div>
         {subtitle && <div className="mt-0.5 truncate text-[10px] text-p-muted2">{subtitle}</div>}
 
+        {/* Полоса показывает долю от самой загруженной колонки — и только.
+            Отдельной пометки «перегружен» здесь нет намеренно: порог считался
+            от средней по команде, а решение о перегрузе принимает человек,
+            глядя на числа, — цветной ярлык за него это решал. */}
         <div className="mt-2 h-1 overflow-hidden rounded-pill bg-p-line">
           <div
-            className={cn('h-full rounded-pill', overloaded ? 'bg-p-danger' : warning ? 'bg-p-accent/50' : 'bg-p-accent')}
+            className={cn('h-full rounded-pill', warning ? 'bg-p-accent/50' : 'bg-p-accent')}
             style={{ width: `${Math.round(loadRatio * 100)}%` }}
           />
         </div>
-        {overloaded && (
-          <div className="mt-1 text-[10px] font-medium text-p-danger">Нагрузка выше средней</div>
-        )}
       </div>
 
       <div className="min-h-[70px] flex-1 space-y-1 overflow-y-auto px-2 py-2 max-h-[calc(100vh-21rem)]">
@@ -269,14 +268,11 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   const visible = (students: BoardStudent[]) =>
     query ? students.filter((s) => s.full_name.toLowerCase().includes(query)) : students
 
-  // Полоса нагрузки — доля от самой большой колонки; «перегружен» считаем от
-  // средней, тем же порогом 1.5×, что и в нагрузке менторов на «Статистике».
-  const { maxLoad, overloadThreshold } = useMemo(() => {
-    const counts = board.columns.map((c) => c.students.length)
-    const total = counts.reduce((sum, n) => sum + n, 0)
-    const average = counts.length ? total / counts.length : 0
-    return { maxLoad: Math.max(1, ...counts), overloadThreshold: average * 1.5 }
-  }, [board.columns])
+  // Полоса нагрузки — доля от самой большой колонки.
+  const maxLoad = useMemo(
+    () => Math.max(1, ...board.columns.map((c) => c.students.length)),
+    [board.columns],
+  )
 
   const byId = useMemo(() => {
     const map = new Map<string, BoardStudent>()
@@ -326,7 +322,6 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
           students={visible(column.students)}
           totalCount={column.students.length}
           loadRatio={column.students.length / maxLoad}
-          overloaded={overloadThreshold > 0 && column.students.length > overloadThreshold}
           canDrag={canDrag}
           href={columnHref(column)}
         />
