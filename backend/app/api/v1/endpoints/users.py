@@ -1,7 +1,9 @@
 from __future__ import annotations
 import secrets
+from datetime import date
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
@@ -12,10 +14,12 @@ from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
 from app.models.audit_log import AuditAction
+from app.models.mentor_assignment import MentorRole
 from app.models.student import Student
 from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
 from app.services.audit import record_audit
+from app.services.excel_export import export_login_links
 from app.services.invites import issue_invite, invite_url
 from app.services.passwords import gen_password
 from app.services.sessions import revoke_all_sessions
@@ -91,7 +95,13 @@ async def list_users(
     current_user: CurrentUser,
     role: str | None = None,
     is_active: bool | None = None,
+    specialty: str | None = None,
 ):
+    """Список пользователей.
+
+    `specialty` фильтрует по менторской специализации (MentorRole) — это то,
+    чем наполняется список «кого назначить» на выбранную роль.
+    """
     require_access(current_user, "users", Action.view)
 
     query = select(User)
@@ -102,6 +112,12 @@ async def list_users(
             raise HTTPException(status_code=422, detail=f"Unknown role: {role}")
     if is_active is not None:
         query = query.where(User.is_active == is_active)
+    if specialty:
+        if specialty not in {r.value for r in MentorRole}:
+            raise HTTPException(
+                status_code=422, detail=f"Неизвестная специализация: {specialty}"
+            )
+        query = query.where(User.mentor_specialties.any(specialty))
 
     result = await db.execute(query.order_by(User.name))
     users = result.scalars().all()
@@ -138,6 +154,7 @@ async def create_user(
         role=role,
         phone=body.get("phone"),
         telegram_username=body.get("telegram_username"),
+        mentor_specialties=_parse_specialties(body.get("mentor_specialties")),
         must_change_password=True,
     )
     db.add(user)
@@ -183,6 +200,7 @@ async def create_user_invite(
         hashed_password=hash_password(secrets.token_urlsafe(32)),
         role=role,
         phone=body.get("phone"),
+        mentor_specialties=_parse_specialties(body.get("mentor_specialties")),
         is_active=False,
         must_change_password=False,
     )
@@ -199,6 +217,137 @@ async def create_user_invite(
         "invite_code": raw_code,
         "invite_expires_at": invite.expires_at.isoformat(),
     }
+
+
+BULK_LINK_TTL_HOURS = 336  # 14 дней
+MAX_LINK_TTL_HOURS = 720  # 30 дней — дальше ссылка живёт дольше, чем её помнят
+
+
+@router.post("/login-links/export")
+async def export_login_links_xlsx(
+    body: dict,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Одним файлом — ссылки на вход для всей группы сотрудников.
+
+    Зачем
+    -----
+    Ссылку выдавала только `create_login_link`, по одному человеку за раз. На
+    16 менторов это 16 кликов и таблица, собранная руками; а поскольку почты в
+    системе нет, файл всё равно относит человек. Здесь тот же механизм на
+    группу: xlsx с именем, ролью, специализацией и персональной ссылкой.
+
+    Срок жизни
+    ----------
+    Дефолт инвайта — 72 часа (`INVITE_TTL_HOURS`), и его мы не трогаем: он про
+    выдачу ссылки в руки конкретному человеку. Файл же уходит в общий чат и
+    открывают его неделю, поэтому здесь 14 дней — но только здесь.
+
+    Чем платим
+    ----------
+    `issue_invite` гасит предыдущий невостребованный инвайт, так что повторная
+    выгрузка ломает ссылки из прошлой. Это осознанно (одна живая ссылка на
+    человека), но UI обязан предупредить об этом до нажатия.
+    """
+    require_access(current_user, "users", Action.manage)
+
+    try:
+        ttl_hours = int(body.get("ttl_hours") or BULK_LINK_TTL_HOURS)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="ttl_hours: ожидается число")
+    if not 1 <= ttl_hours <= MAX_LINK_TTL_HOURS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"ttl_hours: допустимо от 1 до {MAX_LINK_TTL_HOURS} часов",
+        )
+
+    query = select(User)
+    raw_ids = body.get("user_ids")
+    if raw_ids:
+        try:
+            ids = [uuid.UUID(str(value)) for value in raw_ids]
+        except ValueError:
+            raise HTTPException(status_code=422, detail="user_ids: ожидаются UUID")
+        query = query.where(User.id.in_(ids))
+    else:
+        # Без явного списка — вся роль целиком; по умолчанию менторы, ради
+        # которых выгрузка и делалась.
+        try:
+            role = UserRole(body.get("role") or UserRole.mentor.value)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Неверная роль")
+        query = query.where(User.role == role)
+
+    result = await db.execute(query.order_by(User.name))
+    users = result.scalars().all()
+    if not users:
+        raise HTTPException(status_code=404, detail="Некому выдавать ссылки — список пуст")
+
+    rows: list[dict] = []
+    skipped: list[dict] = []
+    for user in users:
+        # Те же два отказа, что и в create_login_link, но пачку они не роняют:
+        # 15 живых ссылок полезнее, чем 409 на весь запрос из-за одного.
+        if user.role == UserRole.student:
+            skipped.append({
+                "name": user.name,
+                "email": user.email,
+                "reason": "Аккаунт ученика — ссылка выдаётся из карточки студента",
+            })
+            continue
+        if not user.is_active:
+            skipped.append({
+                "name": user.name,
+                "email": user.email,
+                "reason": "Аккаунт не активирован — сначала одобрите заявку",
+            })
+            continue
+
+        invite, raw_token, raw_code = await issue_invite(
+            db,
+            user_id=user.id,
+            student_id=None,
+            created_by=current_user.id,
+            ttl_hours=ttl_hours,
+        )
+        # След на каждого отдельно, а не один на выгрузку: ссылка — это
+        # возможность сменить чужой пароль, и запись «выдал 16 ссылок» не
+        # отвечает на вопрос, чей доступ трогали.
+        record_audit(
+            db,
+            action=AuditAction.invite_created,
+            actor=current_user,
+            target_user_id=user.id,
+            request=request,
+            meta={"kind": "login_link_bulk", "email": user.email, "ttl_hours": ttl_hours},
+        )
+        rows.append({
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "mentor_specialties": list(user.mentor_specialties or []),
+            "invite_url": invite_url(raw_token),
+            "invite_code": raw_code,
+            "expires_at": invite.expires_at.strftime("%d.%m.%Y %H:%M"),
+        })
+
+    await db.commit()
+
+    content = export_login_links(rows, skipped)
+    filename = f"login_links_{date.today().isoformat()}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            # Фронту нужно показать, кого пропустили: тела у файла не почитаешь.
+            "X-Links-Issued": str(len(rows)),
+            "X-Links-Skipped": str(len(skipped)),
+            "Access-Control-Expose-Headers": "X-Links-Issued, X-Links-Skipped",
+        },
+    )
 
 
 @router.post("/{user_id}/login-link")
@@ -379,6 +528,10 @@ async def update_user(
         user.telegram_username = body["telegram_username"]
     if "telegram_id" in body:
         user.telegram_id = body["telegram_id"]
+    if "mentor_specialties" in body:
+        # Сессии не рвём: специализация не влияет на права (см. models/user.py),
+        # она меняет только то, в каком списке «кого назначить» человек виден.
+        user.mentor_specialties = _parse_specialties(body["mentor_specialties"])
     if "is_active" in body:
         user.is_active = body["is_active"]
         if not user.is_active:
@@ -419,6 +572,31 @@ async def deactivate_user(
     return {"message": "Пользователь деактивирован"}
 
 
+def _parse_specialties(raw) -> list[str]:
+    """Разобрать список специализаций из тела запроса.
+
+    Справочник один — MentorRole (mentor_assignment.py). Свой список здесь не
+    заводим: разъехавшись, он дал бы специализацию, под которую нельзя назначить,
+    потому что назначения знают только про MentorRole.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(
+            status_code=422, detail="mentor_specialties: ожидается список"
+        )
+    known = {r.value for r in MentorRole}
+    cleaned: list[str] = []
+    for item in raw:
+        if item not in known:
+            raise HTTPException(
+                status_code=422, detail=f"Неизвестная специализация: {item}"
+            )
+        if item not in cleaned:  # дубли в списке ничего не значат
+            cleaned.append(item)
+    return cleaned
+
+
 def _user_to_dict(u: User, agreement_status: dict | None = None) -> dict:
     return {
         "id": str(u.id),
@@ -430,6 +608,7 @@ def _user_to_dict(u: User, agreement_status: dict | None = None) -> dict:
         "phone": u.phone,
         "is_active": u.is_active,
         "must_change_password": u.must_change_password,
+        "mentor_specialties": list(u.mentor_specialties or []),
         "created_at": u.created_at.isoformat() if u.created_at else None,
         "agreement_status": agreement_status or {"status": "not_applicable"},
     }

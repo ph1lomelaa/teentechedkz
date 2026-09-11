@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -68,6 +68,7 @@ import {
   StudentTimelineItem,
   MENTOR_ROLE_LABELS,
   ASSIGNABLE_MENTOR_ROLES,
+  splitAssignCandidates,
   ROLE_USER_SOURCE,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
@@ -650,6 +651,17 @@ export const StudentCardPage: React.FC = () => {
   // на неё менеджера, а не ментора. Правило общее с общей базой (ROLE_USER_SOURCE).
   const assignsManager = ROLE_USER_SOURCE[assignmentRole] === 'mzk_manager'
   const assignableForRole = assignsManager ? mzkManagers : mentors
+  // Заявленные на эту специализацию — сверху, остальные ниже и по-прежнему
+  // выбираемы (splitAssignCandidates объясняет, почему не жёсткий фильтр).
+  const assignCandidateGroups = useMemo(() => {
+    const { matching, others } = splitAssignCandidates(assignableForRole, assignmentRole)
+    // Заголовок группы рисуем, только если групп две: когда специализации ещё
+    // ни у кого не проставлены, «Другие сотрудники» над всем списком — шум.
+    return [
+      { title: MENTOR_ROLE_LABELS[assignmentRole] ?? 'Эта роль', users: matching },
+      { title: 'Другие сотрудники', users: others },
+    ].filter((group) => group.users.length > 0)
+  }, [assignableForRole, assignmentRole])
 
   const { data: history = [] } = useQuery({
     queryKey: studentKeys.history(id),
@@ -1293,16 +1305,27 @@ export const StudentCardPage: React.FC = () => {
                       <SelectContent>
                         {assignableForRole.length === 0 ? (
                           <div className="px-2 py-1.5 text-xs text-p-muted">Нет сотрудников с этой ролью</div>
-                        ) : assignableForRole.map((mentor) => {
-                          const alreadyActive = student.responsibles?.some(
-                            (responsible) => responsible.id === mentor.id && responsible.is_active
-                          )
-                          return (
-                            <SelectItem key={mentor.id} value={mentor.id} disabled={alreadyActive}>
-                              {mentor.name}{alreadyActive ? ' · уже назначен' : ''}
-                            </SelectItem>
-                          )
-                        })}
+                        ) : (
+                          assignCandidateGroups.map((group) => (
+                            <React.Fragment key={group.title}>
+                              {assignCandidateGroups.length > 1 && (
+                                <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-p-muted2">
+                                  {group.title}
+                                </div>
+                              )}
+                              {group.users.map((mentor) => {
+                                const alreadyActive = student.responsibles?.some(
+                                  (responsible) => responsible.id === mentor.id && responsible.is_active
+                                )
+                                return (
+                                  <SelectItem key={mentor.id} value={mentor.id} disabled={alreadyActive}>
+                                    {mentor.name}{alreadyActive ? ' · уже назначен' : ''}
+                                  </SelectItem>
+                                )
+                              })}
+                            </React.Fragment>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <Input value={assignmentZone} onChange={(event) => setAssignmentZone(event.target.value)} placeholder="Функциональная зона" className="bg-white" />

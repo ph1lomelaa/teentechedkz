@@ -74,7 +74,8 @@ describe('postLoginPath', () => {
   })
 
   it('обычного пользователя ведёт домой по роли', () => {
-    expect(postLoginPath(base)).toBe('/workspace/my-day')
+    expect(postLoginPath(base)).toBe('/students')
+    expect(postLoginPath({ ...base, role: 'mzk_manager' })).toBe('/workspace/my-day')
     expect(postLoginPath({ ...base, role: 'admin' })).toBe('/dashboard')
   })
 

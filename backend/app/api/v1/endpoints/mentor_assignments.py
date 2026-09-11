@@ -677,12 +677,30 @@ async def assignment_board(
     )
 
     staff_role = _BOARD_STAFF_ROLE.get(mentor_role, UserRole.mentor)
-    staff_result = await db.execute(
-        select(User).where(
-            User.role.in_([staff_role, UserRole.admin]),
-            User.is_active == True,  # noqa: E712
-        )
+    staff_query = select(User).where(
+        User.role.in_([staff_role, UserRole.admin]),
+        User.is_active == True,  # noqa: E712
     )
+    # Колонки — те, кто на эту роль и заявлен (users.mentor_specialties).
+    # Пока специализации не проставлены, фильтр дал бы доску без единой
+    # колонки, поэтому он включается, только если размечен хоть кто-то.
+    # Сотрудник с уже существующими назначениями колонку не теряет в любом
+    # случае — её создаёт сам assignment_rows в _build_board.
+    marked_exists = (
+        await db.execute(
+            select(User.id)
+            .where(
+                User.is_active == True,  # noqa: E712
+                User.mentor_specialties.any(mentor_role.value),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if marked_exists is not None:
+        staff_query = staff_query.where(
+            User.mentor_specialties.any(mentor_role.value)
+        )
+    staff_result = await db.execute(staff_query)
 
     students_result = await db.execute(
         select(Student)

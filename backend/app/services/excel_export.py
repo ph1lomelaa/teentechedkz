@@ -5,6 +5,7 @@ from datetime import date
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
+from app.models.mentor_assignment import MentorRole
 from app.models.user import UserRole
 
 
@@ -20,6 +21,38 @@ PIPELINE_STATUS_RU = {
     "suspended": "Подвешено",
     "no_status": "Нет статуса",
 }
+
+USER_ROLE_RU = {
+    UserRole.admin: "Администратор",
+    UserRole.mzk_manager: "МЗК",
+    UserRole.mentor: "Ментор",
+    UserRole.student: "Студент",
+}
+
+# Подписи те же, что на экранах (frontend/src/types/index.ts, MENTOR_ROLE_LABELS).
+MENTOR_ROLE_RU = {
+    MentorRole.lead: "Ментор по УП",
+    MentorRole.ielts: "Учитель IELTS",
+    MentorRole.sat: "SAT",
+    MentorRole.portfolio: "Портфолио",
+    MentorRole.visa: "Виза",
+    MentorRole.english: "Английский",
+    MentorRole.career: "Профориентолог",
+    MentorRole.country: "Ментор по стране",
+    MentorRole.mzk: "МЗК",
+}
+
+
+def specialties_ru(values) -> str:
+    """`['career', 'country']` → «Профориентолог, Ментор по стране»."""
+    out = []
+    for value in values or []:
+        try:
+            out.append(MENTOR_ROLE_RU[MentorRole(value)])
+        except (ValueError, KeyError):
+            out.append(value)  # неизвестное значение показываем как есть
+    return ", ".join(out)
+
 
 HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -148,3 +181,39 @@ def _autofit(ws):
     for col in ws.columns:
         max_len = max((len(str(cell.value or "")) for cell in col), default=10)
         ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+
+def export_login_links(rows: list[dict], skipped: list[dict]) -> bytes:
+    """Файл для рассылки: имя, роль, специализация и персональная ссылка входа.
+
+    Зачем отдельный лист «Пропущены»
+    --------------------------------
+    Неактивным аккаунтам ссылку не выдаём (см. create_login_link), и без этого
+    листа координатор получила бы 14 строк вместо 16, не поняв, кого потеряла.
+    """
+    wb = openpyxl.Workbook()
+
+    ws = wb.active
+    ws.title = "Ссылки"
+    _header(ws, ["Имя", "Email", "Роль", "Специализация", "Ссылка для входа", "Код", "Действует до"])
+    for row in rows:
+        ws.append([
+            row.get("name"),
+            row.get("email"),
+            USER_ROLE_RU.get(row.get("role"), ""),
+            specialties_ru(row.get("mentor_specialties")),
+            row.get("invite_url"),
+            row.get("invite_code"),
+            row.get("expires_at"),
+        ])
+    _autofit(ws)
+
+    ws2 = wb.create_sheet("Пропущены")
+    _header(ws2, ["Имя", "Email", "Причина"])
+    for row in skipped:
+        ws2.append([row.get("name"), row.get("email"), row.get("reason")])
+    _autofit(ws2)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

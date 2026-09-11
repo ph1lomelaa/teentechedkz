@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -26,6 +27,22 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Специализация ментора: «ментор по УП», «по стране», «профориентолог».
+    # Значения — из MentorRole (mentor_assignment.py), справочник один на всю
+    # систему, второго не заводим.
+    #
+    # Почему поле здесь, а не выводится из назначений: MentorAssignment.role
+    # отвечает на вопрос «кого этот ментор ведёт по этой роли», а не «кто он
+    # такой». У ментора без студентов специализации не было вообще — и в списке
+    # «кого назначить» он выглядел неотличимо от всех прочих.
+    #
+    # Это ПОДПИСЬ, а не право доступа: права остаются на User.role через
+    # core/permissions.py. Читать это поле в require_access или mentor_scope
+    # нельзя — иначе редактирование подписи в настройках тихо станет раздачей
+    # доступов.
+    mentor_specialties: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock } from 'lucide-react'
+import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock, Download } from 'lucide-react'
 import { usersApi } from '@/api/index'
-import { User, UserRole, ROLE_LABELS } from '@/types'
+import { User, UserRole, ROLE_LABELS, ASSIGNABLE_MENTOR_ROLES, MENTOR_ROLE_LABELS } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -60,9 +60,34 @@ interface UserForm {
   role: UserRole
   phone: string
   telegram_username: string
+  mentor_specialties: string[]
 }
 
 const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
+
+/**
+ * Специализации, которые проставляют ментору руками. Берём общий список
+ * назначаемых ролей и убираем 'mzk': эту роль ведёт менеджер МЗК, а не ментор
+ * (ROLE_USER_SOURCE), и в форме ментора она означала бы не то, что написано.
+ */
+const MENTOR_SPECIALTY_OPTIONS = ASSIGNABLE_MENTOR_ROLES.filter((role) => role !== 'mzk')
+
+/** Бейджи специализаций в строке таблицы и в карточке. */
+function SpecialtyBadges({ values }: { values?: string[] }) {
+  if (!values?.length) return <span className="text-xs text-p-muted2">—</span>
+  return (
+    <div className="flex flex-wrap gap-1">
+      {values.map((value) => (
+        <span
+          key={value}
+          className="text-[11px] px-2 py-0.5 bg-p-bg text-p-text border border-p-line rounded-pill"
+        >
+          {MENTOR_ROLE_LABELS[value] ?? value}
+        </span>
+      ))}
+    </div>
+  )
+}
 const USER_ROLE_ORDER: Record<UserRole, number> = {
   student: 0,
   mentor: 1,
@@ -109,6 +134,7 @@ function UserModal({
     role: user?.role ?? 'mentor',
     phone: user?.phone ?? '',
     telegram_username: user?.telegram_username ?? '',
+    mentor_specialties: user?.mentor_specialties ?? [],
   })
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -139,6 +165,7 @@ function UserModal({
           role: form.role,
           phone: form.phone || undefined,
           telegram_username: form.telegram_username || undefined,
+          mentor_specialties: form.mentor_specialties,
         }
         await usersApi.update(user.id, payload)
         return null
@@ -149,6 +176,7 @@ function UserModal({
         email: form.email,
         role: form.role,
         phone: form.phone || undefined,
+        mentor_specialties: form.mentor_specialties,
       })
       return created.invite_url
     },
@@ -257,6 +285,45 @@ function UserModal({
                   <p className="text-xs text-p-muted mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
                 )}
               </div>
+              {/* Специализация только у ментора: у админа и МЗК своя роль в
+                  назначениях, и предлагать им «Профориентолог» — вводить в
+                  заблуждение. Список множественный: один ментор реально ведёт
+                  и IELTS, и страну. */}
+              {form.role === 'mentor' && (
+                <div>
+                  <Label>Специализация</Label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {MENTOR_SPECIALTY_OPTIONS.map((specialty) => {
+                      const checked = form.mentor_specialties.includes(specialty)
+                      return (
+                        <button
+                          key={specialty}
+                          type="button"
+                          aria-pressed={checked}
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              mentor_specialties: checked
+                                ? form.mentor_specialties.filter((value) => value !== specialty)
+                                : [...form.mentor_specialties, specialty],
+                            })
+                          }
+                          className={
+                            checked
+                              ? 'text-xs px-2.5 py-1 rounded-pill border border-p-accent bg-p-accent/10 text-p-text font-medium'
+                              : 'text-xs px-2.5 py-1 rounded-pill border border-p-line bg-white text-p-muted hover:text-p-text'
+                          }
+                        >
+                          {MENTOR_ROLE_LABELS[specialty]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-p-muted mt-1">
+                    Определяет, в каком списке «кого назначить» ментор появится. На права доступа не влияет.
+                  </p>
+                </div>
+              )}
               <div>
                 <Label>Телефон</Label>
                 <Input
@@ -336,10 +403,11 @@ function UserModal({
 export const SettingsUsersPage: React.FC = () => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const { user: currentUser, logout } = useAuth()
+  const { user: currentUser, logout, can } = useAuth()
   const [editUser, setEditUser] = useState<User | undefined>()
   const [addOpen, setAddOpen] = useState(false)
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
+  const [linksExportOpen, setLinksExportOpen] = useState(false)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
 
@@ -382,6 +450,31 @@ export const SettingsUsersPage: React.FC = () => {
     },
   })
 
+  const exportLinksMutation = useMutation({
+    mutationFn: () => usersApi.exportLoginLinks({ role: 'mentor' }),
+    onSuccess: ({ issued, skipped }) => {
+      setLinksExportOpen(false)
+      toast({
+        title: `Файл готов: ссылок ${issued}`,
+        description: skipped
+          ? `Пропущено ${skipped} — причины на листе «Пропущены».`
+          : 'Ссылки действуют 14 дней.',
+      })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Не удалось выгрузить ссылки',
+        description: getErrorMessage(err),
+        variant: 'destructive',
+      })
+    },
+  })
+
+  const activeMentorCount = useMemo(
+    () => users.filter((u) => u.role === 'mentor' && u.is_active).length,
+    [users],
+  )
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')
@@ -394,10 +487,18 @@ export const SettingsUsersPage: React.FC = () => {
         title="Настройки"
         description="Аккаунт и пользователи"
         action={(
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Добавить
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {can('users', 'manage') && (
+            <Button variant="outline" onClick={() => setLinksExportOpen(true)}>
+              <Download className="w-4 h-4 mr-2" />
+              Ссылки на вход
+            </Button>
+          )}
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Добавить
+          </Button>
+        </div>
         )}
       />
 
@@ -510,6 +611,7 @@ export const SettingsUsersPage: React.FC = () => {
               <TableHead>Имя</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Роль</TableHead>
+              <TableHead>Специализация</TableHead>
               <TableHead>Telegram</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead>Регламент</TableHead>
@@ -520,7 +622,7 @@ export const SettingsUsersPage: React.FC = () => {
             {isError ? (
               /* Строкой, а не карточкой: карточка внутри tbody сломала бы таблицу. */
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center" role="alert">
+                <TableCell colSpan={8} className="py-8 text-center" role="alert">
                   <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
                   <p className="mt-1 text-sm text-p-muted">
                     {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
@@ -532,13 +634,13 @@ export const SettingsUsersPage: React.FC = () => {
               </TableRow>
             ) : isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={8} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={8} className="text-center py-8 text-p-muted">
                   Нет пользователей по выбранным фильтрам
                   {statusFilter === 'active' && pendingCount > 0 && (
                     <>
@@ -563,6 +665,11 @@ export const SettingsUsersPage: React.FC = () => {
                     <span className="text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-pill font-medium uppercase tracking-wide">
                       {ROLE_LABELS[user.role]}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {user.role === 'mentor'
+                      ? <SpecialtyBadges values={user.mentor_specialties} />
+                      : <span className="text-xs text-p-muted2">—</span>}
                   </TableCell>
                   <TableCell className="text-p-muted text-sm">
                     {user.telegram_username ?? '—'}
@@ -620,6 +727,45 @@ export const SettingsUsersPage: React.FC = () => {
           onClose={() => setEditUser(undefined)}
         />
       )}
+
+      {/* Подтверждение обязательно: выгрузка не читает данные, а выдаёт новые
+          ссылки и тем самым гасит выданные раньше. Нажавший вслепую ломает
+          доступ тем, кто ещё не успел перейти по старой ссылке. */}
+      <Dialog open={linksExportOpen} onOpenChange={setLinksExportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Выгрузить ссылки на вход?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  В файл попадут активные менторы — сейчас их {activeMentorCount}. У каждого будет
+                  персональная ссылка: он перейдёт по ней и задаст пароль сам.
+                </p>
+                <p>Ссылки действуют 14 дней.</p>
+                <p className="text-amber-700">
+                  Ранее выданные ссылки этих людей перестанут работать — у каждого живёт только
+                  одна.
+                </p>
+                <p className="text-p-muted">
+                  Неактивные аккаунты пропускаются: ссылка не заменяет одобрение заявки. Их список
+                  будет на отдельном листе.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinksExportOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => exportLinksMutation.mutate()}
+              disabled={exportLinksMutation.isPending}
+            >
+              {exportLinksMutation.isPending ? 'Готовим файл...' : 'Выгрузить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!deactivateTarget} onOpenChange={() => setDeactivateTarget(null)}>
         <DialogContent className="max-w-sm">

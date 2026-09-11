@@ -18,6 +18,7 @@ class UserCreate(BaseModel):
     role: UserRole
     phone: str | None = None
     telegram_username: str | None = None
+    mentor_specialties: list[str] = []
 
 
 class UserUpdate(BaseModel):
@@ -31,6 +32,7 @@ class UserUpdate(BaseModel):
     telegram_username: str | None = None
     is_active: bool | None = None
     must_change_password: bool | None = None
+    mentor_specialties: list[str] | None = None
 
 
 class UserResponse(BaseModel):
@@ -47,6 +49,8 @@ class UserResponse(BaseModel):
     phone: str | None = None
     is_active: bool
     must_change_password: bool
+    # Специализация ментора (MentorRole). Подпись, не право доступа.
+    mentor_specialties: list[str] = []
     created_at: datetime
 
 

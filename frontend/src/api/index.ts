@@ -458,7 +458,7 @@ export const historyApi = {
 }
 
 export const usersApi = {
-  list: async (params?: { role?: string }): Promise<User[]> => {
+  list: async (params?: { role?: string; specialty?: string }): Promise<User[]> => {
     const response = await apiClient.get<User[]>('/users', { params })
     return response.data
   },
@@ -467,7 +467,7 @@ export const usersApi = {
     return response.data
   },
   createInvite: async (
-    data: { name: string; email: string; role: string; phone?: string },
+    data: { name: string; email: string; role: string; phone?: string; mentor_specialties?: string[] },
   ): Promise<User & { invite_url: string; invite_code: string; invite_expires_at: string }> => {
     const response = await apiClient.post<User & { invite_url: string; invite_code: string; invite_expires_at: string }>(
       '/users/invite',
@@ -485,6 +485,47 @@ export const usersApi = {
       invite_expires_at: string
     }>(`/users/${id}/login-link`)
     return response.data
+  },
+  /**
+   * Скачать xlsx со ссылками на вход для группы сотрудников.
+   *
+   * Выгрузка гасит ранее выданные ссылки этих людей — на бэке одна живая
+   * ссылка на человека. Вызывающий обязан предупредить об этом заранее.
+   * Возвращает, скольким выдали и скольких пропустили: в самом файле это
+   * видно только если его открыть.
+   */
+  exportLoginLinks: async (
+    body?: { user_ids?: string[]; role?: string; ttl_hours?: number },
+  ): Promise<{ issued: number; skipped: number }> => {
+    let response
+    try {
+      response = await apiClient.post('/users/login-links/export', body ?? {}, {
+        responseType: 'blob',
+      })
+    } catch (error) {
+      // responseType: 'blob' превращает и тело ошибки в Blob, из-за чего
+      // getErrorMessage не видит detail и показывает общую фразу вместо
+      // «Некому выдавать ссылки». Разворачиваем обратно в объект.
+      const data = (error as { response?: { data?: unknown } })?.response?.data
+      if (data instanceof Blob) {
+        try {
+          ;(error as { response: { data: unknown } }).response.data = JSON.parse(await data.text())
+        } catch {
+          /* не JSON — оставляем как есть */
+        }
+      }
+      throw error
+    }
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `login_links_${new Date().toISOString().split('T')[0]}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+    return {
+      issued: Number(response.headers['x-links-issued'] ?? 0),
+      skipped: Number(response.headers['x-links-skipped'] ?? 0),
+    }
   },
   update: async (
     id: string,

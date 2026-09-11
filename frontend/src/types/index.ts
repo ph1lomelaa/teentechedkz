@@ -48,6 +48,14 @@ export interface User {
   phone?: string
   is_active: boolean
   must_change_password: boolean
+  /**
+   * Специализация ментора — ключи MENTOR_ROLE_LABELS (на бэке MentorRole).
+   * Отвечает на вопрос «кто этот человек», тогда как MentorAssignment.role —
+   * на вопрос «кого он ведёт». Из неё собирается список «кого назначить».
+   *
+   * Это подпись, а не право: права живут в `permissions` ниже.
+   */
+  mentor_specialties?: string[]
   agreement_signature_required?: boolean
   agreement_status?: {
     status: 'not_applicable' | 'pending' | 'signed'
@@ -199,6 +207,33 @@ export const MENTOR_ROLE_LABELS: Record<string, string> = {
  */
 export const ROLE_USER_SOURCE: Record<string, 'mentor' | 'mzk_manager'> = {
   mzk: 'mzk_manager',
+}
+
+/**
+ * Разложить кандидатов на назначение по тому, заявлены ли они на эту роль.
+ *
+ * Назначение всегда пишется на аккаунт (`mentor_assignments.mentor_id`), но до
+ * сих пор список «кого назначить» был одинаков для всех ролей: под
+ * «Профориентолога» предлагались все менторы подряд, и роль уходила наугад.
+ * Теперь сверху идут те, у кого эта специализация проставлена.
+ *
+ * Почему `others` не выбрасываем, а показываем ниже: замена на время отпуска и
+ * разовая подстраховка — обычное дело, а пока специализации ещё не проставлены
+ * (их заполняют руками), жёсткий фильтр оставил бы список пустым и назначения
+ * встали бы совсем. Бэкенд по той же причине специализацию не проверяет
+ * (`_load_assignable_mentor`) — это подсказка, а не запрет.
+ */
+export function splitAssignCandidates<T extends { mentor_specialties?: string[] }>(
+  users: T[],
+  role: string,
+): { matching: T[]; others: T[] } {
+  const matching: T[] = []
+  const others: T[] = []
+  for (const user of users) {
+    if (user.mentor_specialties?.includes(role)) matching.push(user)
+    else others.push(user)
+  }
+  return { matching, others }
 }
 
 /** Карточка студента на доске распределения — минимум, нужный колонке. */

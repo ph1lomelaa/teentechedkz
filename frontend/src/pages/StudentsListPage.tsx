@@ -20,6 +20,7 @@ import {
   ResponsibleUser,
   ASSIGNABLE_MENTOR_ROLES,
   ROLE_USER_SOURCE,
+  splitAssignCandidates,
   ServiceType,
   StudentListItem,
 } from '@/types'
@@ -841,6 +842,35 @@ function NotionInbox() {
   )
 }
 
+/**
+ * Опции выпадающего списка «кого назначить», сгруппированные по специализации.
+ * Вынесено, потому что список рисуется дважды — в панели массового назначения и
+ * в строке студента, — и раньше это были две копии одной разметки.
+ */
+function AssigneeOptions({ groups }: { groups: Array<{ title: string; users: Array<{ id: string; name: string }> }> }) {
+  if (groups.length === 0) {
+    return <div className="px-2 py-1.5 text-xs text-p-muted">Нет сотрудников с этой ролью</div>
+  }
+  return (
+    <>
+      {groups.map((group) => (
+        <React.Fragment key={group.title}>
+          {groups.length > 1 && (
+            <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-p-muted2">
+              {group.title}
+            </div>
+          )}
+          {group.users.map((user) => (
+            <SelectItem key={user.id} value={user.id}>
+              {user.name}
+            </SelectItem>
+          ))}
+        </React.Fragment>
+      ))}
+    </>
+  )
+}
+
 export const StudentsListPage: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -1091,6 +1121,16 @@ export const StudentsListPage: React.FC = () => {
     () => (ROLE_USER_SOURCE[assignRole] === 'mzk_manager' ? mzkUsers : mentorUsers),
     [assignRole, mzkUsers, mentorUsers],
   )
+
+  // Заявленные на эту специализацию — первыми. Правило и причины общие с
+  // карточкой студента: splitAssignCandidates в types/index.ts.
+  const assignCandidateGroups = useMemo(() => {
+    const { matching, others } = splitAssignCandidates(assignableUsers, assignRole)
+    return [
+      { title: MENTOR_ROLE_LABELS[assignRole] ?? 'Эта роль', users: matching },
+      { title: 'Другие сотрудники', users: others },
+    ].filter((group) => group.users.length > 0)
+  }, [assignableUsers, assignRole])
 
   // Смена роли обнуляет выбранного человека: списки разные, и оставшийся в поле
   // ментор при переключении на «МЗК» уехал бы в назначение как МЗК-ответственный —
@@ -1827,17 +1867,7 @@ export const StudentsListPage: React.FC = () => {
               <SelectValue placeholder="Кого назначить" />
             </SelectTrigger>
             <SelectContent>
-              {assignableUsers.length === 0 ? (
-                <div className="px-2 py-1.5 text-xs text-p-muted">
-                  Нет сотрудников с этой ролью
-                </div>
-              ) : (
-                assignableUsers.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name}
-                  </SelectItem>
-                ))
-              )}
+              <AssigneeOptions groups={assignCandidateGroups} />
             </SelectContent>
           </Select>
           <Button
@@ -2080,17 +2110,7 @@ export const StudentsListPage: React.FC = () => {
                             <SelectValue placeholder={`+ ${MENTOR_ROLE_LABELS[assignRole]}`} />
                           </SelectTrigger>
                           <SelectContent>
-                            {assignableUsers.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-p-muted">
-                                Нет сотрудников с этой ролью
-                              </div>
-                            ) : (
-                              assignableUsers.map((u) => (
-                                <SelectItem key={u.id} value={u.id}>
-                                  {u.name}
-                                </SelectItem>
-                              ))
-                            )}
+                            <AssigneeOptions groups={assignCandidateGroups} />
                           </SelectContent>
                         </Select>
                       )}
