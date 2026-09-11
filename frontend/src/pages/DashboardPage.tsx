@@ -437,9 +437,33 @@ export const DashboardPage: React.FC = () => {
   const grouped = useMemo(() => {
     const groups = {} as Record<PipelineStatus, StudentListItem[]>
     for (const status of PIPELINE_COLUMNS) groups[status] = []
-    for (const student of filteredStudents) groups[student.pipeline_status ?? 'no_status'].push(student)
+    for (const student of filteredStudents) {
+      // Статус, которого нет в справочнике, кладём в «Нет статуса», а не
+      // обращаемся к несуществующей группе: раньше такой студент ронял всю
+      // доску на `undefined.push`, то есть один незнакомый этап с бэкенда
+      // выносил экран целиком.
+      const status = student.pipeline_status ?? 'no_status'
+      ;(groups[status] ?? groups.no_status).push(student)
+    }
     return groups
   }, [filteredStudents])
+
+  /**
+   * Заполненные колонки — первыми, пустые — в конец.
+   *
+   * Этапов десять, а занято обычно три-четыре: пустые «Пересдача IELTS» и «Не
+   * оплачено» стояли в середине и раздвигали доску так, что до колонок с
+   * людьми приходилось горизонтально скроллить.
+   *
+   * Внутри каждой половины порядок канонический (PIPELINE_COLUMNS), а не
+   * «по числу студентов»: иначе колонки менялись бы местами после каждого
+   * перетаскивания, и глаз перестал бы находить нужную по памяти.
+   */
+  const orderedColumns = useMemo(() => {
+    const filled = PIPELINE_COLUMNS.filter((status) => (grouped[status]?.length ?? 0) > 0)
+    const empty = PIPELINE_COLUMNS.filter((status) => (grouped[status]?.length ?? 0) === 0)
+    return [...filled, ...empty]
+  }, [grouped])
 
   const handleDragStart = (event: DragStartEvent) => {
     const student = students.find((s) => s.id === event.active.id)
@@ -636,8 +660,9 @@ export const DashboardPage: React.FC = () => {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="grid min-w-max grid-cols-[repeat(10,minmax(180px,1fr))] gap-2">
-              {PIPELINE_COLUMNS.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={canDrag && !selectionMode} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
+            <div className="grid min-w-max gap-2"
+              style={{ gridTemplateColumns: `repeat(${orderedColumns.length}, minmax(180px, 1fr))` }}>
+              {orderedColumns.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={canDrag && !selectionMode} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
             </div>
             <DragOverlay>
               {activeStudent ? (
@@ -646,8 +671,9 @@ export const DashboardPage: React.FC = () => {
             </DragOverlay>
           </DndContext>
         ) : (
-          <div className="grid min-w-max grid-cols-[repeat(10,minmax(180px,1fr))] gap-2">
-            {PIPELINE_COLUMNS.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={false} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
+          <div className="grid min-w-max gap-2"
+              style={{ gridTemplateColumns: `repeat(${orderedColumns.length}, minmax(180px, 1fr))` }}>
+            {orderedColumns.map((status) => <KanbanColumn key={status} status={status} students={grouped[status] ?? []} canDrag={false} selectionMode={selectionMode} selectedIds={selectedIds} assignedIds={assignedIds} onToggleSelected={toggleSelected} onOpenStudent={setPeekStudent} />)}
           </div>
         )}
       </div>

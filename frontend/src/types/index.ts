@@ -974,16 +974,26 @@ export interface HistoryEntry {
   changed_at: string
 }
 
+/**
+ * Этапы воронки: подпись и порядок сразу. Порядок ключей здесь — это порядок
+ * колонок на доске и пунктов в выпадающих списках, поэтому новый этап
+ * достаточно вписать сюда один раз, в нужное место.
+ *
+ * `Record<PipelineStatus, string>` заставляет компилятор ругаться, если этап
+ * добавили в тип, но забыли здесь. Раньше рядом жил ещё и отдельный массив
+ * колонок — его никто не сверял, и статус, не попавший в него руками, просто
+ * не появлялся на доске.
+ */
 export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {
   active_work: 'Активная работа',
   on_visa: 'На визе',
   paused: 'Пауза',
+  ielts_retake: 'Пересдача IELTS',
+  unpaid: 'Не оплачено',
   changed_mind: 'Передумали',
   refund: 'На возврате',
-  unpaid: 'Не оплачено',
-  transferred_pipeline: 'Перевели',
-  ielts_retake: 'Пересдача IELTS',
   suspended: 'Подвешено',
+  transferred_pipeline: 'Перевели',
   no_status: 'Нет статуса',
 }
 
@@ -1057,15 +1067,10 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   student: 'Студент',
 }
 
-export const PIPELINE_COLUMNS: PipelineStatus[] = [
-  'active_work',
-  'on_visa',
-  'paused',
-  'ielts_retake',
-  'unpaid',
-  'changed_mind',
-  'refund',
-  'suspended',
-  'transferred_pipeline',
-  'no_status',
-]
+/**
+ * Колонки доски — выводятся из справочника этапов, а не выписываются вторым
+ * списком. Ручной список был единственным местом, которое ничто не сверяло:
+ * тип и обе таблицы подписей связаны через `Record<PipelineStatus, …>` и
+ * расходиться не могут, а массив мог — и тогда этап терял колонку молча.
+ */
+export const PIPELINE_COLUMNS = Object.keys(PIPELINE_STATUS_LABELS) as PipelineStatus[]
