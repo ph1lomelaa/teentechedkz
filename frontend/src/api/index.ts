@@ -506,10 +506,11 @@ export const usersApi = {
       // responseType: 'blob' превращает и тело ошибки в Blob, из-за чего
       // getErrorMessage не видит detail и показывает общую фразу вместо
       // «Некому выдавать ссылки». Разворачиваем обратно в объект.
-      const data = (error as { response?: { data?: unknown } })?.response?.data
-      if (data instanceof Blob) {
+      const wrapped = error as { response?: { data?: unknown } }
+      const data = wrapped?.response?.data
+      if (data instanceof Blob && wrapped.response) {
         try {
-          ;(error as { response: { data: unknown } }).response.data = JSON.parse(await data.text())
+          wrapped.response.data = JSON.parse(await data.text())
         } catch {
           /* не JSON — оставляем как есть */
         }

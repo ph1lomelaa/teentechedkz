@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { Label } from '@/components/ui/primitives/label'
+import { Checkbox } from '@/components/ui/primitives/checkbox'
 import { getErrorMessage } from '@/lib/errorMessage'
 import {
   Dialog,
@@ -292,30 +293,27 @@ function UserModal({
               {form.role === 'mentor' && (
                 <div>
                   <Label>Специализация</Label>
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <div className="mt-1 space-y-2 rounded-panel border border-p-line p-3">
                     {MENTOR_SPECIALTY_OPTIONS.map((specialty) => {
                       const checked = form.mentor_specialties.includes(specialty)
                       return (
-                        <button
+                        <label
                           key={specialty}
-                          type="button"
-                          aria-pressed={checked}
-                          onClick={() =>
-                            setForm({
-                              ...form,
-                              mentor_specialties: checked
-                                ? form.mentor_specialties.filter((value) => value !== specialty)
-                                : [...form.mentor_specialties, specialty],
-                            })
-                          }
-                          className={
-                            checked
-                              ? 'text-xs px-2.5 py-1 rounded-pill border border-p-accent bg-p-accent/10 text-p-text font-medium'
-                              : 'text-xs px-2.5 py-1 rounded-pill border border-p-line bg-white text-p-muted hover:text-p-text'
-                          }
+                          className="flex cursor-pointer items-center gap-2 text-sm text-p-text"
                         >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) =>
+                              setForm({
+                                ...form,
+                                mentor_specialties: value
+                                  ? [...form.mentor_specialties, specialty]
+                                  : form.mentor_specialties.filter((item) => item !== specialty),
+                              })
+                            }
+                          />
                           {MENTOR_ROLE_LABELS[specialty]}
-                        </button>
+                        </label>
                       )
                     })}
                   </div>
