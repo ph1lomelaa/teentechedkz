@@ -50,6 +50,7 @@ import { StudentChatSection } from '@/components/shared/StudentChatSection'
 import { ContractAddendaSection } from '@/components/shared/ContractAddendaSection'
 import { PortalAccessSection } from '@/components/shared/PortalAccessSection'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
+import { DeleteStudentSection } from '@/components/students/DeleteStudentSection'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DOC_TYPE_LABELS,
@@ -2491,6 +2492,10 @@ export const StudentCardPage: React.FC = () => {
         )}
 
       </Accordion>
+
+      {can('students', 'delete') && (
+        <DeleteStudentSection studentId={student.id} fullName={student.full_name} />
+      )}
 
       {/* Edit student modal */}
       {editOpen && (

@@ -69,6 +69,23 @@ BEGIN
     END LOOP;
 END $$;
 
+\echo '=== Назначения этих аккаунтов: у кого из студентов они числятся ==='
+SELECT s.full_name AS student, ma.role::text AS role, v.name AS mentor
+FROM mentor_assignments ma
+JOIN _victims v ON v.id = ma.mentor_id
+JOIN students  s ON s.id = ma.student_id;
+
+-- Назначение не удаляем, а возвращаем в «ответственный требуется».
+--
+-- Удали мы строку — студент молча потерял бы слот роли, и увидеть это было бы
+-- негде: в команде просто стало бы на одного меньше. Плейсхолдер же остаётся
+-- видимым «нужен ментор по этой роли», а назначенный позже человек его просто
+-- заполнит (mentor_assignments.py, ветка required).
+UPDATE mentor_assignments
+SET mentor_id = NULL,
+    assignment_status = 'required'
+WHERE mentor_id IN (SELECT id FROM _victims);
+
 DELETE FROM users WHERE id IN (SELECT id FROM _victims);
 
 \echo '=== Осталось пользователей ==='

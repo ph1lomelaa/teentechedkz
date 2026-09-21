@@ -93,6 +93,15 @@ class SkipTests(unittest.TestCase):
         skip_block = source[source.index("skipped.append") : source.index("invite, raw_token")]
         self.assertNotIn("HTTPException", skip_block)
 
+    def test_a_skipped_person_still_takes_a_row(self) -> None:
+        # Пропуск обязан оставаться строкой с пустой ссылкой. Выпади строка из
+        # файла — при переносе колонки со ссылками в общую таблицу всё ниже
+        # первого пропущенного съедет, и человек получит в своей графе чужой
+        # инвайт, то есть право задать пароль чужому аккаунту.
+        source = _source()
+        skip_block = source[source.index("skipped.append") : source.index("invite, raw_token")]
+        self.assertIn("rows.append", skip_block)
+
 
 class AuditTests(unittest.TestCase):
     def test_every_issued_link_is_recorded_separately(self) -> None:
@@ -185,7 +194,7 @@ class WorkbookTests(unittest.TestCase):
         )
         row = [cell.value for cell in wb["Ссылки"][2]]
         self.assertEqual(
-            row,
+            row[:7],
             [
                 "Айгерим",
                 "a@example.kz",
@@ -196,6 +205,44 @@ class WorkbookTests(unittest.TestCase):
                 "25.09.2026 13:00",
             ],
         )
+        # Восьмая колонка — «Примечание»; у выданной ссылки ей нечего сказать.
+        self.assertFalse(row[7])
+
+    def test_a_skipped_row_keeps_its_place_with_an_empty_link(self) -> None:
+        # Инвариант выравнивания: сколько людей запросили — столько строк в
+        # листе «Ссылки», в том же порядке. Пропущенный отличается пустой
+        # ссылкой и причиной в примечании, а не отсутствием.
+        wb = self._book(
+            [
+                {
+                    "name": "Айгерим",
+                    "email": "a@example.kz",
+                    "role": UserRole.mentor,
+                    "mentor_specialties": [],
+                    "invite_url": "https://teenteched.kz/invite/abc",
+                    "invite_code": "K7NPQR23",
+                    "expires_at": "25.09.2026 13:00",
+                    "note": "",
+                },
+                {
+                    "name": "Данияр",
+                    "email": "d@example.kz",
+                    "role": UserRole.mentor,
+                    "mentor_specialties": [],
+                    "invite_url": "",
+                    "invite_code": "",
+                    "expires_at": "",
+                    "note": "Аккаунт не активирован — сначала одобрите заявку",
+                },
+            ],
+            [{"name": "Данияр", "email": "d@example.kz", "reason": "Аккаунт не активирован"}],
+        )
+        ws = wb["Ссылки"]
+        self.assertEqual(ws.max_row, 3)  # шапка + двое
+        skipped_row = [cell.value for cell in ws[3]]
+        self.assertEqual(skipped_row[0], "Данияр")
+        self.assertFalse(skipped_row[4])  # ссылки нет
+        self.assertEqual(skipped_row[7], "Аккаунт не активирован — сначала одобрите заявку")
 
     def test_skipped_people_carry_a_reason(self) -> None:
         wb = self._book([], [{"name": "Данияр", "email": "d@example.kz", "reason": "Аккаунт не активирован"}])

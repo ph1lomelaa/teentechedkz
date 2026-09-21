@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Clock, Link2, Search, UserPlus, X } from 'lucide-react'
 import { accessRequestsApi } from '@/api/accessRequests'
 import { useAuth } from '@/contexts/AuthContext'
-import type { AccessRequestItem, ApprovedStaff } from '@/api/accessRequests'
+import type { AccessRequestItem, ApprovedStaff, StudentCandidate } from '@/api/accessRequests'
 import { studentsApi } from '@/api/students'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
+import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 
@@ -123,13 +123,35 @@ export function SettingsAccessRequestsPage() {
     onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
   })
 
+  // Заявка, для которой просят новую карточку, хотя похожие в базе уже есть.
+  // Спрашиваем явно: молча созданная карточка и была тем дублем, который
+  // потом соединяли в «Рисках».
+  const [confirmCreate, setConfirmCreate] = useState<{
+    item: AccessRequestItem
+    candidates: StudentCandidate[]
+  } | null>(null)
+
   const createStudent = useMutation({
-    mutationFn: (id: string) => accessRequestsApi.createStudent(id),
+    mutationFn: ({ id, force }: { id: string; force: boolean }) =>
+      accessRequestsApi.createStudent(id, force),
     onSuccess: () => {
+      setConfirmCreate(null)
       toast({ title: 'Карточка создана, кабинет открыт' })
       invalidate()
     },
-    onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
+    onError: (e, { id }) => {
+      // Похожая карточка могла появиться уже после загрузки очереди — сервер
+      // скажет об этом 409 со списком, и показываем тот же выбор.
+      const detail = (e as { response?: { data?: { detail?: { code?: string; candidates?: StudentCandidate[] } } } })
+        .response?.data?.detail
+      const item = items.find((i) => i.id === id)
+      if (getErrorStatus(e) === 409 && detail?.code === 'possible_duplicate' && item) {
+        setConfirmCreate({ item, candidates: detail.candidates ?? [] })
+        void queryClient.invalidateQueries({ queryKey: ['access-requests'] })
+        return
+      }
+      toast({ variant: 'destructive', title: getErrorMessage(e) })
+    },
   })
 
   const bulk = useMutation({
@@ -188,12 +210,13 @@ export function SettingsAccessRequestsPage() {
   // настоящее решение всё равно принимается на бэкенде.
   const autoReady = useMemo(
     () =>
-      visibleItems.filter(
-        (i) =>
-          i.requested_role === 'student' &&
-          i.method === 'phone_exact' &&
-          i.suggested_student?.is_free,
-      ),
+      visibleItems.filter((i) => {
+        if (i.requested_role !== 'student') return false
+        // Ровно одна карточка с этим телефоном и без кабинета. Две карточки
+        // на номер — семейный телефон, угадывать нельзя.
+        const byPhone = (i.candidates ?? []).filter((c) => c.reason === 'phone')
+        return byPhone.length === 1 && byPhone[0].is_free
+      }),
     [visibleItems],
   )
 
@@ -372,7 +395,11 @@ export function SettingsAccessRequestsPage() {
                 approve.mutate({ id: item.id, role: 'student', studentId })
               }
               onApproveMentor={() => approve.mutate({ id: item.id, role: 'mentor' })}
-              onCreateStudent={() => createStudent.mutate(item.id)}
+              onCreateStudent={() =>
+                item.candidates?.length
+                  ? setConfirmCreate({ item, candidates: item.candidates })
+                  : createStudent.mutate({ id: item.id, force: false })
+              }
               onReject={() => reject.mutate(item.id)}
               onPickOther={() => setPickerFor(item)}
             />
@@ -393,6 +420,45 @@ export function SettingsAccessRequestsPage() {
         password={issuedPassword}
         onClose={() => setIssuedPassword(null)}
       />
+
+      <Dialog open={Boolean(confirmCreate)} onOpenChange={(open) => !open && setConfirmCreate(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>В базе уже есть похожие карточки</DialogTitle>
+            <DialogDescription>
+              Если это тот же студент, привяжите заявку к его карточке — новая станет дублем.
+              Создавайте новую, только если это другой человек.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-64 space-y-3 overflow-y-auto rounded-ctl border border-ds-border bg-ds-surface-muted p-3 text-sm">
+            {confirmCreate?.candidates.map((candidate) => (
+              <CandidateLine
+                key={candidate.id}
+                candidate={candidate}
+                canLink
+                busy={busy}
+                onLink={() => {
+                  approve.mutate({ id: confirmCreate.item.id, role: 'student', studentId: candidate.id })
+                  setConfirmCreate(null)
+                }}
+              />
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCreate(null)}>
+              Отмена
+            </Button>
+            <Button
+              variant="outline"
+              disabled={createStudent.isPending}
+              onClick={() => confirmCreate && createStudent.mutate({ id: confirmCreate.item.id, force: true })}
+            >
+              <UserPlus className="mr-1.5 h-4 w-4" />
+              Это другой человек — создать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmStaff} onOpenChange={(open) => !open && setConfirmStaff(false)}>
         <DialogContent className="max-w-md">
@@ -580,7 +646,7 @@ function RequestRow({
   onReject: () => void
   onPickOther: () => void
 }) {
-  const card = item.suggested_student
+  const candidates = item.candidates ?? []
   const isStudent = item.requested_role === 'student'
 
   return (
@@ -613,21 +679,24 @@ function RequestRow({
 
           {isStudent && (
             <div className="mt-3 rounded-ctl border border-ds-border bg-ds-surface-muted p-3 text-sm">
-              {card ? (
+              {candidates.length > 0 ? (
                 <>
-                  <span className="text-ds-text-muted">Похоже на карточку: </span>
-                  <span className="font-medium text-ds-text">{card.full_name}</span>
-                  <span className="text-ds-text-muted">, {card.phone}</span>
-                  <div className="mt-1 text-xs text-ds-text-muted">
-                    {item.method_label}
-                    {!card.is_free && (
-                      // Занятая карточка — не кандидат, и молчать об этом нельзя:
-                      // «Привязать» на ней всё равно откажет.
-                      <span className="ml-2 font-medium text-red-500">
-                        у этой карточки уже есть кабинет
-                      </span>
-                    )}
-                  </div>
+                  <p className="mb-2 text-xs font-medium text-ds-text-muted">
+                    {candidates.length === 1
+                      ? 'В базе есть похожая карточка'
+                      : `В базе есть похожие карточки: ${candidates.length}`}
+                  </p>
+                  <ul className="space-y-3">
+                    {candidates.map((candidate) => (
+                      <CandidateLine
+                        key={candidate.id}
+                        candidate={candidate}
+                        canLink={canDecide}
+                        busy={busy}
+                        onLink={() => onLink(candidate.id)}
+                      />
+                    ))}
+                  </ul>
                 </>
               ) : (
                 <span className="text-ds-text-muted">
@@ -641,19 +710,13 @@ function RequestRow({
           <div className="mt-3 flex flex-wrap gap-2">
             {isStudent ? (
               <>
-                {card && card.is_free && (
-                  <Button size="sm" disabled={busy} onClick={() => onLink(card.id)}>
-                    <Link2 className="mr-1.5 h-4 w-4" />
-                    Привязать к этой карточке
-                  </Button>
-                )}
                 <Button size="sm" variant="outline" disabled={busy} onClick={onPickOther}>
                   <Search className="mr-1.5 h-4 w-4" />
-                  Выбрать другую
+                  {candidates.length > 0 ? 'Найти другую' : 'Найти карточку'}
                 </Button>
                 <Button size="sm" variant="outline" disabled={busy} onClick={onCreateStudent}>
                   <UserPlus className="mr-1.5 h-4 w-4" />
-                  Создать карточку
+                  Создать новую карточку
                 </Button>
               </>
             ) : (
@@ -674,6 +737,44 @@ function RequestRow({
   )
 }
 
+/** Похожая карточка: кто, почему попала в список и можно ли к ней привязать. */
+function CandidateLine({
+  candidate,
+  canLink,
+  busy,
+  onLink,
+}: {
+  candidate: StudentCandidate
+  canLink: boolean
+  busy: boolean
+  onLink: () => void
+}) {
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        <span className="font-medium text-ds-text">{candidate.full_name}</span>
+        <span className="text-ds-text-muted">
+          {[candidate.phone, candidate.intake_year].filter(Boolean).map((v) => `, ${v}`).join('')}
+        </span>
+        <div className="mt-0.5 text-xs text-ds-text-muted">
+          {candidate.reason_label}
+          {!candidate.is_free && (
+            // Занятую карточку не прячем: скорее всего человек завёл второй
+            // аккаунт, и админу это надо увидеть, а не создавать третью.
+            <span className="ml-2 font-medium text-red-500">у этой карточки уже есть кабинет</span>
+          )}
+        </div>
+      </div>
+      {canLink && candidate.is_free && (
+        <Button size="sm" disabled={busy} onClick={onLink}>
+          <Link2 className="mr-1.5 h-4 w-4" />
+          Привязать
+        </Button>
+      )}
+    </li>
+  )
+}
+
 /** Поиск карточки руками — когда подсказки нет или она не та. */
 function StudentPicker({
   request,
@@ -685,8 +786,12 @@ function StudentPicker({
   onPick: (studentId: string) => void
 }) {
   // Предзаполняем телефоном, а не именем: по нему находится ровно один
-  // человек, а по фамилии — половина потока.
+  // человек, а по фамилии — половина потока. Формат номера не важен —
+  // поиск сравнивает цифры.
   const [search, setSearch] = useState('')
+  useEffect(() => {
+    setSearch(request?.phone ?? '')
+  }, [request])
   const query = useQuery({
     queryKey: ['students', 'picker', search],
     queryFn: () => studentsApi.list({ search, size: 20 }),
@@ -718,11 +823,15 @@ function StudentPicker({
             <button
               key={s.id}
               type="button"
+              disabled={s.has_portal_access}
               onClick={() => onPick(s.id)}
-              className="flex w-full items-baseline justify-between gap-3 rounded-ctl px-3 py-2 text-left text-sm hover:bg-ds-surface-muted"
+              className="flex w-full items-baseline justify-between gap-3 rounded-ctl px-3 py-2 text-left text-sm hover:bg-ds-surface-muted disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
             >
               <span className="font-medium text-ds-text">{s.full_name}</span>
-              <span className="text-ds-text-muted">{s.phone}</span>
+              <span className="text-ds-text-muted">
+                {s.phone}
+                {s.has_portal_access && <span className="ml-2 text-xs text-red-500">есть кабинет</span>}
+              </span>
             </button>
           ))}
           {query.isFetched && (query.data?.items?.length ?? 0) === 0 && search.trim().length >= 2 && (

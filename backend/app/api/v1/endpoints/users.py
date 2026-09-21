@@ -285,23 +285,32 @@ async def export_login_links_xlsx(
     if not users:
         raise HTTPException(status_code=404, detail="Некому выдавать ссылки — список пуст")
 
+    # Одним списком, в порядке запроса: пропущенные остаются строками с пустой
+    # ссылкой, а не исчезают. Раньше их выкидывало на отдельный лист, файл
+    # приходил на 14 строк вместо 16, и при переносе в общую таблицу блоком всё
+    # ниже первого пропущенного съезжало на строку — человек получал в своей
+    # графе чужой инвайт, то есть право задать пароль чужому аккаунту.
     rows: list[dict] = []
     skipped: list[dict] = []
     for user in users:
         # Те же два отказа, что и в create_login_link, но пачку они не роняют:
         # 15 живых ссылок полезнее, чем 409 на весь запрос из-за одного.
+        reason = None
         if user.role == UserRole.student:
-            skipped.append({
+            reason = "Аккаунт ученика — ссылка выдаётся из карточки студента"
+        elif not user.is_active:
+            reason = "Аккаунт не активирован — сначала одобрите заявку"
+        if reason:
+            skipped.append({"name": user.name, "email": user.email, "reason": reason})
+            rows.append({
                 "name": user.name,
                 "email": user.email,
-                "reason": "Аккаунт ученика — ссылка выдаётся из карточки студента",
-            })
-            continue
-        if not user.is_active:
-            skipped.append({
-                "name": user.name,
-                "email": user.email,
-                "reason": "Аккаунт не активирован — сначала одобрите заявку",
+                "role": user.role,
+                "mentor_specialties": list(user.mentor_specialties or []),
+                "invite_url": "",
+                "invite_code": "",
+                "expires_at": "",
+                "note": reason,
             })
             continue
 
@@ -331,6 +340,7 @@ async def export_login_links_xlsx(
             "invite_url": invite_url(raw_token),
             "invite_code": raw_code,
             "expires_at": invite.expires_at.strftime("%d.%m.%Y %H:%M"),
+            "note": "",
         })
 
     await db.commit()
@@ -343,7 +353,7 @@ async def export_login_links_xlsx(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             # Фронту нужно показать, кого пропустили: тела у файла не почитаешь.
-            "X-Links-Issued": str(len(rows)),
+            "X-Links-Issued": str(len(rows) - len(skipped)),
             "X-Links-Skipped": str(len(skipped)),
             "Access-Control-Expose-Headers": "X-Links-Issued, X-Links-Skipped",
         },

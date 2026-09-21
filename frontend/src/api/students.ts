@@ -133,6 +133,11 @@ export const studentsApi = {
     await apiClient.delete(`/students/${id}`)
   },
 
+  /** Удалить карточку насовсем, со всем зависимым. Необратимо. */
+  deletePermanent: async (id: string): Promise<void> => {
+    await apiClient.delete(`/students/${id}/permanent`)
+  },
+
   duplicates: async (): Promise<{
     pairs: {
       reason: 'phone' | 'name'

@@ -20,21 +20,23 @@ const boardCalls: unknown[] = []
 
 const BOARD = {
   role: 'mzk',
-  totals: { students: 3, assigned: 2, unassigned: 1 },
+  totals: { students: 4, assigned: 2, unassigned: 2 },
   columns: [
     {
       staff_id: 'zira',
       name: 'Зира Сатпаева',
       user_role: 'mzk_manager',
       students: [
-        { id: 's1', full_name: 'Мерей А.', pipeline_status: null, assignment_id: 'a1', assignment_status: 'active' },
-        { id: 's2', full_name: 'Айгерим Б.', pipeline_status: null, assignment_id: 'a2', assignment_status: 'active' },
+        { id: 's1', full_name: 'Мерей А.', pipeline_status: 'active_work', assignment_id: 'a1', assignment_status: 'active' },
+        { id: 's2', full_name: 'Айгерим Б.', pipeline_status: 'active_work', assignment_id: 'a2', assignment_status: 'active' },
       ],
     },
     { staff_id: 'alia', name: 'Алия Ким', user_role: 'mzk_manager', students: [] },
   ],
   unassigned: [
-    { id: 's3', full_name: 'Дана К.', pipeline_status: null, assignment_id: null, assignment_status: null },
+    { id: 's3', full_name: 'Дана К.', pipeline_status: 'active_work', assignment_id: null, assignment_status: null },
+    // С «передумавшими» уже не работают — по умолчанию их на доске нет.
+    { id: 's4', full_name: 'Ерлан П.', pipeline_status: 'changed_mind', assignment_id: null, assignment_status: null },
   ],
 }
 
@@ -161,5 +163,35 @@ describe('доска распределения', () => {
     await screen.findByText('Зира Сатпаева')
     expect(screen.getByText('Никого не ведёт')).toBeInTheDocument()
     expect(screen.queryByText('Никого не ведёт. Перетащите сюда студента')).not.toBeInTheDocument()
+  })
+
+  it('по умолчанию показывает только активную работу', async () => {
+    // Без фильтра колонка «Без ответственного» тонула в тех, с кем уже не
+    // работают, и настоящих нераспределённых было не найти.
+    renderPage()
+    await screen.findByText('Дана К.')
+
+    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
+    expect(screen.getByText('1 из 2')).toBeInTheDocument()
+    // Сводка считает видимых, а не всех.
+    expect(screen.getByText(/3 студентов/)).toBeInTheDocument()
+  })
+
+  it('фильтр по статусу возвращает скрытых', async () => {
+    renderPage()
+    await screen.findByText('Дана К.')
+
+    fireEvent.click(screen.getByText('Фильтры'))
+    fireEvent.click(screen.getByText('Передумали'))
+
+    expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
+  })
+
+  it('читает статусы из адреса', async () => {
+    renderPage('/students/distribution?status=changed_mind')
+    await screen.findByText('Ерлан П.')
+
+    expect(screen.queryByText('Дана К.')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Нет студентов с выбранным статусом').length).toBeGreaterThan(0)
   })
 })

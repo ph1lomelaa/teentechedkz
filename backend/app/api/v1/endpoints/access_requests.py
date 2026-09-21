@@ -39,9 +39,12 @@ from app.services.access_requests import (
     BLOCKED_REASON_TEXT,
     backfill_pending_without_request,
     backfill_unlinked_student_requests,
+    CANDIDATE_REASON_TEXT,
     decide,
+    find_student_candidates,
     link_user_to_student,
     load_students_index,
+    prepare_candidate_index,
     suggest_student,
 )
 from app.services.audit import record_audit
@@ -58,11 +61,26 @@ _METHOD_LABEL = {
     "name_translit": "совпадение по ФИО (транслит)",
     "name_fuzzy": "похожее ФИО",
     "name_partial": "частичное совпадение ФИО",
+    "word_partial": "частичное совпадение ФИО",
     "none": "совпадений нет",
 }
 
 
-def _request_to_dict(req: AccessRequest, *, index_by_id: dict) -> dict:
+def _candidate_to_dict(card: dict, reason: str) -> dict:
+    return {
+        "id": str(card["id"]),
+        "full_name": card["full_name"],
+        "phone": card["phone"],
+        "intake_year": card["intake_year"],
+        "is_free": card.get("user_id") is None,
+        "reason": reason,
+        "reason_label": CANDIDATE_REASON_TEXT[reason],
+    }
+
+
+def _request_to_dict(
+    req: AccessRequest, *, index_by_id: dict, candidates: list[tuple[dict, str]] | None = None
+) -> dict:
     card = index_by_id.get(req.suggested_student_id) if req.suggested_student_id else None
     suggested = None
     if card is not None:
@@ -88,6 +106,7 @@ def _request_to_dict(req: AccessRequest, *, index_by_id: dict) -> dict:
         "phone": req.phone_raw,
         "city": req.city,
         "direction": req.direction,
+        "candidates": [_candidate_to_dict(card, reason) for card, reason in (candidates or [])],
         "suggested_student": suggested,
         "confidence": float(req.suggested_confidence) if req.suggested_confidence else None,
         "method": req.suggested_method,
@@ -152,6 +171,10 @@ async def list_requests(
 
     index = await load_students_index(db)
     index_by_id = {s["id"]: s for s in index}
+    # Кандидатов считаем заново при каждом открытии, а не берём сохранённую
+    # на /join подсказку: карточка могла появиться, освободиться или уйти
+    # в архив уже после заявки — и тогда кнопки «Привязать» не было.
+    prepared = prepare_candidate_index(index)
 
     total_new = (
         await db.execute(
@@ -159,10 +182,16 @@ async def list_requests(
         )
     ).scalar_one()
 
-    return {
-        "items": [_request_to_dict(r, index_by_id=index_by_id) for r in requests],
-        "total_new": total_new,
-    }
+    items = []
+    for r in requests:
+        candidates = (
+            find_student_candidates(r.full_name, r.phone_raw, prepared)
+            if r.status == STATUS_NEW and r.requested_role == "student"
+            else None
+        )
+        items.append(_request_to_dict(r, index_by_id=index_by_id, candidates=candidates))
+
+    return {"items": items, "total_new": total_new}
 
 
 @router.get("/count")
@@ -319,21 +348,44 @@ async def reject_request(
     return {"ok": True, "status": STATUS_REJECTED}
 
 
+class CreateStudentRequest(BaseModel):
+    #: Админ видел похожие карточки и всё равно создаёт новую.
+    force: bool = False
+
+
 @router.post("/{request_id}/create-student")
 async def create_student_for_request(
     request_id: uuid.UUID,
     request: Request,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
+    body: CreateStudentRequest | None = None,
 ):
     """Завести карточку из данных заявки и сразу привязать к ней аккаунт.
 
     Для тех, кого в базе не было вовсе. Заполняем только то, что человек сам
     указал в форме; остальное — как у карточки, заведённой из анкеты: год
     набора по умолчанию следующий, услуги по умолчанию проставляются.
+
+    Если в базе есть похожие карточки, отвечаем 409 со списком: так появился
+    дубль, который потом соединяли в «Рисках». Создать всё равно можно —
+    с `force`, осознанно.
     """
     require_access(current_user, "access_requests", Action.manage)
     req = await _load_open(db, request_id)
+
+    if not (body and body.force):
+        prepared = prepare_candidate_index(await load_students_index(db))
+        candidates = find_student_candidates(req.full_name, req.phone_raw, prepared)
+        if candidates:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "possible_duplicate",
+                    "message": "В базе уже есть похожие карточки — проверьте, не этот ли студент",
+                    "candidates": [_candidate_to_dict(card, reason) for card, reason in candidates],
+                },
+            )
 
     from datetime import datetime, timezone
 

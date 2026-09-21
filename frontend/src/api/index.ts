@@ -436,12 +436,14 @@ export const pendingInsightsApi = {
     const response = await apiClient.post(`/communications/pending-insights/${id}/review`, { action })
     return response.data
   },
+  /** `status: 'resolved'` — подтверждённые и отклонённые вместе; `limit` — последние N. */
   listAll: async (
     status?: string,
-    scope?: 'all' | 'mine'
+    scope?: 'all' | 'mine',
+    limit?: number,
   ): Promise<InsightWithDiff[]> => {
     const response = await apiClient.get<InsightWithDiff[]>('/communications/pending-insights', {
-      params: { ...(status ? { status } : {}), ...(scope ? { scope } : {}) },
+      params: { ...(status ? { status } : {}), ...(scope ? { scope } : {}), ...(limit ? { limit } : {}) },
     })
     return response.data
   },

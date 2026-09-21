@@ -1,6 +1,7 @@
 from __future__ import annotations
 import uuid
 import math
+import re
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from typing import Annotated
@@ -28,6 +29,7 @@ from app.models.application import Application
 from app.models.country_reference import CountryReference
 from app.models.service import Service, ServiceStatus, ServiceType
 from app.services.default_services import ensure_default_services
+from app.services.student_purge import delete_stored_files, document_storage_paths, purge_student
 from app.services import contract_finance
 from app.core.config import settings
 from app.services.people_facets import build_people_index
@@ -49,6 +51,7 @@ from app.models.telegram_chat_session import TelegramChatSession, TelegramSessio
 from app.models.telegram_message import TelegramMessage
 from app.models.telegram_pairing_code import TelegramPairingCode
 from app.models.intake_submission import IntakeSubmission
+from app.models.access_request import AccessRequest
 from app.models.notion_snapshot import NotionSnapshot
 from app.models.user import User, UserRole
 from app.schemas.student import StudentCreate, StudentUpdate
@@ -159,12 +162,12 @@ def _compute_duplicate_pairs(students: list[dict]) -> list[dict]:
     Вызывается в thread pool, чтобы не блокировать event loop."""
     import sys
     sys.path.insert(0, "/app") if "/app" not in sys.path else None
-    from migration.transformers.normalize import normalize_phone, squash_name, squashed_words_match
+    from migration.transformers.normalize import squashed_words_match
+    from app.services.access_requests import prepare_candidate_index
 
-    for s in students:
-        phone = normalize_phone(s["phone"] or "")
-        s["_phone"] = phone if len(phone) >= 10 else ""
-        s["_words"] = squash_name(s["full_name"]).split()
+    # Та же нормализация, что у кандидатов в очереди заявок: пары, которые
+    # находятся здесь, должны были всплыть ещё при одобрении заявки.
+    students = prepare_candidate_index(students)
 
     def brief(s: dict) -> dict:
         return {"id": s["id"], "full_name": s["full_name"], "phone": s["phone"], "intake_year": s["intake_year"]}
@@ -293,6 +296,13 @@ async def merge_student(
         raise HTTPException(status_code=400, detail="Источник уже архивирован")
     if target.is_archived:
         raise HTTPException(status_code=400, detail="Нельзя соединять в архивированного студента")
+    if source.user_id and target.user_id and source.user_id != target.user_id:
+        # Два разных аккаунта на одного человека — решать, какой оставить,
+        # должен админ: молча выбросив один, мы отняли бы у кого-то вход.
+        raise HTTPException(
+            status_code=409,
+            detail="У обеих карточек есть кабинет студента — сначала отвяжите один из них",
+        )
 
     now = datetime.now(timezone.utc)
 
@@ -443,12 +453,23 @@ async def merge_student(
         moved_counts["mentor_assignments"] += 1
 
     # Подсказки-кандидаты в инбоксах не должны указывать на архивируемый дубль
-    for model in (IntakeSubmission, NotionSnapshot):
+    for model in (IntakeSubmission, NotionSnapshot, AccessRequest):
         await db.execute(
             update(model)
             .where(getattr(model, "suggested_student_id") == source.id)
             .values(suggested_student_id=target.id)
         )
+
+    # Кабинет студента переезжает на основную карточку. Без этого дубль,
+    # заведённый из заявки на доступ, уносил вход с собой в архив: студент
+    # продолжал видеть архивную карточку, а у основной кабинета не было.
+    if source.user_id and target.user_id is None:
+        portal_user_id = source.user_id
+        source.user_id = None
+        # user_id уникален — сначала освободить, потом занять.
+        await db.flush()
+        target.user_id = portal_user_id
+        moved_counts["portal_access"] += 1
 
     source.is_archived = True
     source.updated_at = now
@@ -549,12 +570,18 @@ async def list_students(
         query = query.where(Student.id.in_(assigned_subquery))
 
     if search:
-        query = query.where(
-            or_(
-                Student.full_name.ilike(f"%{search}%"),
-                Student.phone.ilike(f"%{search}%"),
+        search_conditions = [
+            Student.full_name.ilike(f"%{search}%"),
+            Student.phone.ilike(f"%{search}%"),
+        ]
+        # Телефон ищем по цифрам: «8 906…» должен находить «+7906…».
+        # Последние 10 цифр — номер без кода страны и без 8/+7.
+        digits = re.sub(r"\D", "", search)
+        if len(digits) >= 7:
+            search_conditions.append(
+                func.regexp_replace(Student.phone, r"\D", "", "g").like(f"%{digits[-10:]}%")
             )
-        )
+        query = query.where(or_(*search_conditions))
 
     if intake_year:
         query = query.where(Student.intake_year == intake_year)
@@ -1650,6 +1677,32 @@ async def archive_student(
     await log_change(db, "student", student.id, "is_archived", "false", "true", str(current_user.id))
     await db.commit()
     return {"message": "Студент архивирован"}
+
+
+@router.delete("/{student_id}/permanent")
+async def delete_student_permanently(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Удалить карточку насовсем — для мусора из импортов. Необратимо.
+
+    Архивация (`DELETE /{id}`) остаётся для настоящих студентов, которых
+    нужно убрать с глаз; эта ручка — для тех, кого в базе быть не должно.
+    """
+    require_access(current_user, "students", Action.delete)
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+
+    # Запись в журнал — до удаления и в той же транзакции: после удаления
+    # от карточки не останется ничего, кроме этой строки.
+    await log_change(db, "student", student.id, "deleted", student.full_name, None, str(current_user.id))
+    storage_paths = await document_storage_paths(db, student.id)
+    await purge_student(db, student)
+    await db.commit()
+    await delete_stored_files(storage_paths)
+    return {"message": "Студент удалён"}
 
 
 def student_card_loaders() -> tuple:

@@ -17,7 +17,11 @@ import uuid
 from unittest import mock
 
 from app.api.v1.endpoints.public import _mentor_code_matches
-from app.services.access_requests import suggest_student
+from app.services.access_requests import (
+    find_student_candidates,
+    prepare_candidate_index,
+    suggest_student,
+)
 
 FREE_CARD = uuid.uuid4()
 TAKEN_CARD = uuid.uuid4()
@@ -102,6 +106,72 @@ class AutoLinkTests(unittest.TestCase):
         s = suggest_student("Иванов Иван", PHONE, [])
         self.assertFalse(s.auto_linkable)
         self.assertIsNone(s.student_id)
+
+
+class CandidateTests(unittest.TestCase):
+    """Кандидаты в очереди: все похожие карточки, а не одна первая.
+
+    Регрессия: заявка Казимировой не показала кнопку «Привязать», админ создал
+    новую карточку, дубль потом соединяли в «Рисках». Очередь обязана находить
+    те же пары, что поиск дублей.
+    """
+
+    def _find(self, name: str, phone: str, *cards: dict) -> list[tuple]:
+        found = find_student_candidates(name, phone, prepare_candidate_index(list(cards)))
+        return [(card["id"], reason) for card, reason in found]
+
+    def test_phone_with_8_matches_plus_7_card(self) -> None:
+        found = self._find(
+            "Казимирова София",
+            "89068811555",
+            _card(FREE_CARD, "Казимирова София Александровна2027", "+79068811555"),
+        )
+        self.assertEqual(found, [(FREE_CARD, "phone")])
+
+    def test_name_with_year_suffix_and_translit(self) -> None:
+        # Цифры в ФИО из таблиц и латиница в форме — всё ещё тот же человек.
+        found = self._find(
+            "Kazimirova Sofia",
+            "+7 700 000 00 00",
+            _card(FREE_CARD, "Казимирова София Александровна2027", "+79068811555"),
+        )
+        self.assertEqual(found, [(FREE_CARD, "name")])
+
+    def test_taken_card_is_listed_after_free_ones(self) -> None:
+        found = self._find(
+            "Иванов Иван",
+            PHONE,
+            _card(TAKEN_CARD, "Иванов Иван", PHONE, user_id=uuid.uuid4()),
+            _card(FREE_CARD, "Иванов Иван Петрович", PHONE),
+        )
+        self.assertEqual(found, [(FREE_CARD, "phone"), (TAKEN_CARD, "phone")])
+
+    def test_phone_and_name_matches_are_both_shown_phone_first(self) -> None:
+        found = self._find(
+            "Иванов Иван",
+            PHONE,
+            _card(TWIN_B, "Иванов Иван", OTHER_PHONE),
+            _card(TWIN_A, "Совсем Другое Имя", PHONE),
+        )
+        self.assertEqual(found, [(TWIN_A, "phone"), (TWIN_B, "name")])
+
+    def test_short_phone_is_not_a_match(self) -> None:
+        found = self._find("Петров Пётр", "0", _card(FREE_CARD, "Сидоров Сидор", "0"))
+        self.assertEqual(found, [])
+
+    def test_single_word_name_needs_exact_word(self) -> None:
+        self.assertEqual(
+            self._find("Аймин", "", _card(FREE_CARD, "Аймин", OTHER_PHONE)),
+            [(FREE_CARD, "name")],
+        )
+        self.assertEqual(
+            self._find("Аймин", "", _card(FREE_CARD, "Аймин Серикова", OTHER_PHONE)),
+            [],
+        )
+
+    def test_no_candidates(self) -> None:
+        found = self._find("Сидоров Сидор", "+7 777 999 88 77", _card(FREE_CARD, "Петров Пётр", OTHER_PHONE))
+        self.assertEqual(found, [])
 
 
 class MentorCodeTests(unittest.TestCase):

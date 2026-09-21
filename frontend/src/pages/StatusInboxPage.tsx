@@ -11,19 +11,38 @@ import { useCallback, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
-import { DEGREE_LEVEL_LABELS, DegreeLevel } from '@/types'
+import { DEGREE_LEVEL_LABELS, DegreeLevel, InsightWithDiff } from '@/types'
 import { QueryError } from '@/components/shared/QueryState'
+import { getErrorMessage } from '@/lib/errorMessage'
 
+/** Сколько разобранных показывать: история растёт без конца, смотрят последние. */
+const RESOLVED_LIMIT = 30
+
+/**
+ * «Статус» — изменения в карточках студентов, которые ИИ нашёл в Telegram-чатах,
+ * и черновики конспектов. Ничего не попадает в карточку без подтверждения.
+ *
+ * Предложения сгруппированы по студенту: раньше каждое было отдельной карточкой
+ * со своей кнопкой «Взять студента» под ней, и у одного студента их набиралось
+ * по три-четыре подряд.
+ */
 export default function StatusInboxPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [scope, setScope] = useState<'all' | 'mine'>('all')
+  const [showResolved, setShowResolved] = useState(false)
   const [directoryFilters, setDirectoryFilters] = useState<StudentDirectoryFilters>(EMPTY_DIRECTORY_FILTERS)
   const directory = useStudentDirectory()
 
   const { data: insights = [], isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['pending-insights', 'all', scope],
-    queryFn: () => pendingInsightsApi.listAll(undefined, scope),
+    queryKey: ['pending-insights', 'pending', scope],
+    queryFn: () => pendingInsightsApi.listAll('pending', scope),
+  })
+
+  const resolvedQuery = useQuery({
+    queryKey: ['pending-insights', 'resolved', scope],
+    queryFn: () => pendingInsightsApi.listAll('resolved', scope, RESOLVED_LIMIT),
+    enabled: showResolved,
   })
 
   const { data: draftNotes = [], isLoading: notesLoading } = useQuery({
@@ -34,12 +53,12 @@ export default function StatusInboxPage() {
   const reviewMutation = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
       pendingInsightsApi.review(id, action),
-    onSuccess: () => {
+    onSuccess: (_data, { action }) => {
       qc.invalidateQueries({ queryKey: ['pending-insights'] })
       qc.invalidateQueries({ queryKey: ['student-notes'] })
-      toast({ title: 'Инсайт обработан' })
+      toast({ title: action === 'approve' ? 'Изменение внесено в карточку' : 'Предложение отклонено' })
     },
-    onError: () => toast({ title: 'Ошибка', variant: 'destructive' }),
+    onError: (e) => toast({ title: 'Не получилось', description: getErrorMessage(e), variant: 'destructive' }),
   })
 
   const noteReviewMutation = useMutation({
@@ -53,18 +72,38 @@ export default function StatusInboxPage() {
     onError: () => toast({ title: 'Ошибка', description: 'Не удалось обработать конспект', variant: 'destructive' }),
   })
 
+  const assignSelfMutation = useMutation({
+    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-insights'] })
+      toast({ title: 'Студент добавлен в ваши' })
+    },
+    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
+  })
+
   const matchesDirectory = useCallback(
     (studentId: string | null | undefined) =>
       matchesDirectoryFilters(studentId ? directory.byId.get(studentId) : undefined, directoryFilters),
     [directory.byId, directoryFilters],
   )
 
-  const filteredInsights = useMemo(() => insights.filter((i) => matchesDirectory(i.student_id)), [insights, matchesDirectory])
+  const pending = useMemo(() => insights.filter((i) => matchesDirectory(i.student_id)), [insights, matchesDirectory])
+  const resolved = useMemo(
+    () => (resolvedQuery.data ?? []).filter((i) => matchesDirectory(i.student_id)),
+    [resolvedQuery.data, matchesDirectory],
+  )
   const filteredDraftNotes = useMemo(() => draftNotes.filter((n) => matchesDirectory(n.student_id)), [draftNotes, matchesDirectory])
 
-  const pending = filteredInsights.filter((i) => i.status === 'pending')
-  const resolved = filteredInsights.filter((i) => i.status !== 'pending')
-  const actionableCount = pending.length + filteredDraftNotes.length
+  // Порядок групп — по самому свежему предложению (сервер отдаёт новые первыми).
+  const groups = useMemo(() => {
+    const byStudent = new Map<string, InsightWithDiff[]>()
+    for (const insight of pending) {
+      const list = byStudent.get(insight.student_id)
+      if (list) list.push(insight)
+      else byStudent.set(insight.student_id, [insight])
+    }
+    return [...byStudent.entries()].map(([studentId, items]) => ({ studentId, items }))
+  }, [pending])
 
   const activeFiltersCount =
     (directoryFilters.year ? 1 : 0) +
@@ -88,21 +127,12 @@ export default function StatusInboxPage() {
     },
   ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
-  const assignSelfMutation = useMutation({
-    mutationFn: (studentId: string) => mentorAssignmentsApi.assignSelf(studentId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-insights'] })
-      toast({ title: 'Студент добавлен в ваши' })
-    },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
-  })
-
   return (
     <div className="fade-in">
       <PageHeader
         eyebrow="Кабинет ментора"
         title="Статус"
-        description="Единая очередь изменений по студентам: Telegram-инсайты, контекстные заметки и черновики конспектов. Подтверждённые структурные изменения попадут в карточку, а планы и неподтверждённые детали сохранятся как заметки."
+        description="Изменения в карточках студентов, которые ИИ нашёл в Telegram-чатах, и черновики конспектов. Ничего не попадает в карточку без вашего подтверждения."
         colorPrefix="w"
       />
 
@@ -188,45 +218,97 @@ export default function StatusInboxPage() {
         </div>
       )}
 
-      {/* Пустые состояния здесь у каждой секции свои («Ничего не ждёт разбора»),
-          поэтому isEmpty не передаём — иначе они подменились бы одним общим. */}
+      {/* Пустые состояния здесь у каждой секции свои, поэтому isEmpty не передаём —
+          иначе они подменились бы одним общим. */}
       {isError || directory.isError ? (
         <QueryError colorPrefix="w" error={error} onRetry={refetch} />
       ) : isLoading || notesLoading ? (
         <p className="text-sm text-w-muted">Загрузка…</p>
       ) : (
-        <AppCard colorPrefix="w" className="space-y-6 p-5">
+        <div className="space-y-8">
           <section className="space-y-3">
-            <h2 className="text-sm font-bold text-w-ink">На проверке ({actionableCount})</h2>
-            {actionableCount === 0 ? (
-              <div className="rounded-panel border border-w-line bg-w-panel2 p-6 text-center text-sm text-w-muted">Ничего не ждёт разбора</div>
+            <SectionTitle
+              title="Изменения в карточках"
+              count={pending.length}
+              hint={groups.length > 0 ? `у ${groups.length} ${pluralStudents(groups.length)}` : undefined}
+            />
+            {groups.length === 0 ? (
+              <EmptyBlock text="Новых изменений нет" />
+            ) : (
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {groups.map(({ studentId, items }) => {
+                  const first = items[0]
+                  const responsibles = (first.responsibles ?? [])
+                    .filter((r) => r.is_active && r.name)
+                    .map((r) => r.name)
+                  return (
+                    <AppCard key={studentId} colorPrefix="w" className="space-y-3 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <Link to={`/students/${studentId}`} className="font-bold text-w-ink hover:underline">
+                            {first.student_name || 'Студент'}
+                          </Link>
+                          <p className="text-xs text-w-muted">
+                            {responsibles.length > 0 ? `Ответственные: ${responsibles.join(', ')}` : 'Нет ответственного'}
+                          </p>
+                        </div>
+                        {!first.is_mine && (
+                          <AppButton
+                            colorPrefix="w"
+                            variant="subtle"
+                            size="sm"
+                            disabled={assignSelfMutation.isPending}
+                            onClick={() => assignSelfMutation.mutate(studentId)}
+                          >
+                            Взять студента
+                          </AppButton>
+                        )}
+                      </div>
+                      <div className="space-y-3">
+                        {items.map((insight) => (
+                          <InsightCard
+                            key={insight.id}
+                            insight={insight}
+                            embedded
+                            isPending={reviewMutation.isPending}
+                            onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
+                            onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
+                          />
+                        ))}
+                      </div>
+                    </AppCard>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <SectionTitle title="Черновики конспектов" count={filteredDraftNotes.length} />
+            {filteredDraftNotes.length === 0 ? (
+              <EmptyBlock text="Черновиков нет" />
             ) : (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {filteredDraftNotes.map((note) => (
-                  <AppCard key={note.id} colorPrefix="w" className="space-y-2 border-w-line bg-w-panel2 p-3 text-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Link to={`/notes/${note.id}`} className="text-w-accentText hover:underline">
-                          {note.student_name || 'Без студента'}
-                        </Link>
-                        <p className="mt-1 font-bold text-w-ink">{note.title}</p>
-                      </div>
-                      <span className="rounded-pill border border-w-accentDim/40 bg-w-accent/10 px-1.5 py-0.5 text-[11px] text-w-accentText">
-                        конспект
-                      </span>
+                  <AppCard key={note.id} colorPrefix="w" className="space-y-2 p-4 text-sm">
+                    <div>
+                      <Link to={`/notes/${note.id}`} className="text-xs text-w-accentText hover:underline">
+                        {note.student_name || 'Без студента'}
+                      </Link>
+                      <p className="mt-1 font-bold text-w-ink">{note.title}</p>
                     </div>
-                    <p className="line-clamp-4 text-xs text-w-muted">
-                      {stripMarkdown(note.summary_markdown)}
-                    </p>
+                    <p className="line-clamp-3 text-xs text-w-muted">{stripMarkdown(note.summary_markdown)}</p>
                     {Object.keys(note.suggested_changes || {}).length > 0 && (
-                      <p className="text-xs text-w-muted2">
-                        Есть предложения к полям карточки: {Object.keys(note.suggested_changes).join(', ')}
-                      </p>
+                      <p className="text-xs text-w-muted2">Есть предложения к полям карточки — откройте, чтобы проверить</p>
                     )}
-                    <div className="flex gap-1.5 pt-1">
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <AppButton size="sm" variant="ghost" colorPrefix="w" onClick={() => navigate(`/notes/${note.id}`)}>
+                        Открыть
+                      </AppButton>
                       <AppButton
                         size="sm"
                         variant="subtle"
+                        colorPrefix="w"
                         disabled={noteReviewMutation.isPending}
                         onClick={() => noteReviewMutation.mutate({ id: note.id, action: 'approve' })}
                       >
@@ -235,62 +317,66 @@ export default function StatusInboxPage() {
                       <AppButton
                         size="sm"
                         variant="subtle"
+                        colorPrefix="w"
                         disabled={noteReviewMutation.isPending}
                         onClick={() => noteReviewMutation.mutate({ id: note.id, action: 'reject' })}
                       >
                         Отклонить
                       </AppButton>
-                      <AppButton size="sm" variant="subtle" onClick={() => navigate(`/notes/${note.id}`)}>
-                        Открыть
-                      </AppButton>
                     </div>
                   </AppCard>
-                ))}
-                {pending.map((insight) => (
-                  <div key={insight.id} className="space-y-2">
-                    <InsightCard
-                      insight={insight}
-                      showStudentLink
-                      isPending={reviewMutation.isPending}
-                      onApprove={() => reviewMutation.mutate({ id: insight.id, action: 'approve' })}
-                      onReject={() => reviewMutation.mutate({ id: insight.id, action: 'reject' })}
-                    />
-                    {!insight.is_mine && (
-                      <AppButton
-                        variant="subtle"
-                        size="sm"
-                        disabled={assignSelfMutation.isPending}
-                        onClick={() => assignSelfMutation.mutate(insight.student_id)}
-                      >
-                        Взять студента
-                      </AppButton>
-                    )}
-                  </div>
                 ))}
               </div>
             )}
           </section>
 
-          {resolved.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-bold text-w-ink">Разобранные ({resolved.length})</h2>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {resolved.map((insight) => (
-                  <InsightCard
-                    key={insight.id}
-                    insight={insight}
-                    showStudentLink
-                    onApprove={() => {}}
-                    onReject={() => {}}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </AppCard>
+          <section className="space-y-3">
+            <button
+              type="button"
+              className="text-sm font-bold text-w-muted hover:text-w-ink"
+              onClick={() => setShowResolved((value) => !value)}
+              aria-expanded={showResolved}
+            >
+              {showResolved ? '▾' : '▸'} Разобранные — последние {RESOLVED_LIMIT}
+            </button>
+            {showResolved &&
+              (resolvedQuery.isLoading ? (
+                <p className="text-sm text-w-muted">Загрузка…</p>
+              ) : resolved.length === 0 ? (
+                <EmptyBlock text="Пока ничего не разобрано" />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {resolved.map((insight) => (
+                    <InsightCard key={insight.id} insight={insight} showStudentLink onApprove={() => {}} onReject={() => {}} />
+                  ))}
+                </div>
+              ))}
+          </section>
+        </div>
       )}
     </div>
   )
+}
+
+function SectionTitle({ title, count, hint }: { title: string; count: number; hint?: string }) {
+  return (
+    <h2 className="flex flex-wrap items-baseline gap-x-2 text-sm font-bold text-w-ink">
+      {title}
+      <span className="tabular-nums text-w-muted">{count}</span>
+      {hint && <span className="text-xs font-normal text-w-muted">{hint}</span>}
+    </h2>
+  )
+}
+
+function EmptyBlock({ text }: { text: string }) {
+  return <div className="rounded-panel border border-w-line bg-w-panel2 p-5 text-center text-sm text-w-muted">{text}</div>
+}
+
+function pluralStudents(n: number) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'студента'
+  return 'студентов'
 }
 
 function stripMarkdown(value: string) {

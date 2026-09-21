@@ -22,6 +22,15 @@ import { cn } from '@/lib/utils'
 export const UNASSIGNED_COLUMN = 'unassigned'
 
 /**
+ * Статус карточки для фильтра доски. Студент без договора приходит с
+ * `pipeline_status = null` — для фильтра это то же «Нет статуса», иначе его
+ * нельзя было бы ни показать, ни скрыть.
+ */
+export function boardStatusKey(student: BoardStudent): string {
+  return student.pipeline_status || 'no_status'
+}
+
+/**
  * Куда уехала карточка.
  *
  * Вынесено отдельной чистой функцией: перетаскивание в jsdom не
@@ -125,8 +134,8 @@ interface ColumnProps {
   subtitle?: string
   students: BoardStudent[]
   totalCount: number
-  /** Доля от самой загруженной колонки — полоса нагрузки. */
-  loadRatio: number
+  /** Что спрятало карточки, если видно не всех, — для текста пустой колонки. */
+  hiddenBy: 'search' | 'status'
   emphasis?: 'default' | 'warning'
   canDrag: boolean
   href: string
@@ -144,7 +153,7 @@ function Column({
   subtitle,
   students,
   totalCount,
-  loadRatio,
+  hiddenBy,
   emphasis = 'default',
   canDrag,
   href,
@@ -182,23 +191,12 @@ function Column({
               warning ? 'border-p-accent/45 text-p-accent' : 'border-p-line text-p-muted',
             )}
           >
-            {/* При активном поиске показываем «видно из всего», иначе кажется,
-                что студенты пропали из колонки. */}
+            {/* При поиске или фильтре показываем «видно из всего», иначе
+                кажется, что студенты пропали из колонки. */}
             {filtered ? `${students.length} из ${totalCount}` : totalCount}
           </span>
         </div>
         {subtitle && <div className="mt-0.5 truncate text-[10px] text-p-muted2">{subtitle}</div>}
-
-        {/* Полоса показывает долю от самой загруженной колонки — и только.
-            Отдельной пометки «перегружен» здесь нет намеренно: порог считался
-            от средней по команде, а решение о перегрузе принимает человек,
-            глядя на числа, — цветной ярлык за него это решал. */}
-        <div className="mt-2 h-1 overflow-hidden rounded-pill bg-p-line">
-          <div
-            className={cn('h-full rounded-pill', warning ? 'bg-p-accent/50' : 'bg-p-accent')}
-            style={{ width: `${Math.round(loadRatio * 100)}%` }}
-          />
-        </div>
       </div>
 
       <div className="min-h-[70px] flex-1 space-y-1 overflow-y-auto px-2 py-2 max-h-[calc(100vh-21rem)]">
@@ -220,7 +218,9 @@ function Column({
               ? canDrag
                 ? 'Никого не ведёт. Перетащите сюда студента'
                 : 'Никого не ведёт'
-              : 'Никто не подходит под поиск'}
+              : hiddenBy === 'search'
+                ? 'Никто не подходит под поиск'
+                : 'Нет студентов с выбранным статусом'}
           </div>
         )}
       </div>
@@ -247,6 +247,9 @@ interface DistributionBoardProps {
   board: AssignmentBoard
   /** Клиентский поиск по студентам — прячет карточки во всех колонках сразу. */
   search: string
+  /** Какие статусы показывать (`boardStatusKey`). Применяется ко всей доске:
+   *  иначе колонки сотрудников забиты «передумавшими», и сравнивать их нельзя. */
+  statuses: ReadonlySet<string>
   canDrag: boolean
   onMove: (move: { studentId: string; from: string; to: string }) => void
 }
@@ -254,6 +257,7 @@ interface DistributionBoardProps {
 export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   board,
   search,
+  statuses,
   canDrag,
   onMove,
 }) => {
@@ -266,13 +270,12 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
 
   const query = search.trim().toLowerCase()
   const visible = (students: BoardStudent[]) =>
-    query ? students.filter((s) => s.full_name.toLowerCase().includes(query)) : students
-
-  // Полоса нагрузки — доля от самой большой колонки.
-  const maxLoad = useMemo(
-    () => Math.max(1, ...board.columns.map((c) => c.students.length)),
-    [board.columns],
-  )
+    students.filter(
+      (s) =>
+        statuses.has(boardStatusKey(s)) &&
+        (!query || s.full_name.toLowerCase().includes(query)),
+    )
+  const hiddenBy = query ? 'search' : 'status'
 
   const byId = useMemo(() => {
     const map = new Map<string, BoardStudent>()
@@ -308,7 +311,7 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
         title="Без ответственного"
         students={visible(board.unassigned)}
         totalCount={board.unassigned.length}
-        loadRatio={board.unassigned.length / maxLoad}
+        hiddenBy={hiddenBy}
         emphasis="warning"
         canDrag={false}
         href={`/students?missing_role=${board.role}`}
@@ -321,7 +324,7 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
           subtitle={ROLE_LABELS[column.user_role] ?? column.user_role}
           students={visible(column.students)}
           totalCount={column.students.length}
-          loadRatio={column.students.length / maxLoad}
+          hiddenBy={hiddenBy}
           canDrag={canDrag}
           href={columnHref(column)}
         />

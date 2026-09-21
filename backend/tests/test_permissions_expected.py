@@ -110,6 +110,8 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("students", Action.create): ("admin", "mzk_manager", "mentor"),
     ("students", Action.edit): ("admin", "mzk_manager", "mentor"),
     ("students", Action.manage): ("admin", "mzk_manager"),
+    # Полное удаление карточки — необратимо, только управление.
+    ("students", Action.delete): ("admin", "mzk_manager"),
     ("students", Action.view): ("admin", "mzk_manager", "mentor", "student"),
     ("sync", Action.create): ("admin",),
     ("sync", Action.manage): ("admin", "mzk_manager", "mentor"),

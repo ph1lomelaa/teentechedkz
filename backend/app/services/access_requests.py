@@ -221,6 +221,72 @@ def suggest_student(full_name: str, phone: str, index: list[dict]) -> Suggestion
     return Suggestion(match.student_id, match.confidence, match.method, True)
 
 
+#: Подписи к причине, по которой карточка попала в кандидаты.
+CANDIDATE_REASON_TEXT = {
+    "phone": "совпадает телефон",
+    "name": "похожее ФИО",
+}
+
+
+def prepare_candidate_index(index: list[dict]) -> list[dict]:
+    """Нормализовать карточки один раз на запрос, а не на каждую пару.
+
+    Телефон короче 10 цифр не считается: «0», «нет», обрезки из таблиц давали
+    бы ложные совпадения между незнакомыми людьми. Это же правило у поиска
+    дублей в «Рисках» — очередь и «Риски» обязаны видеть одни и те же пары,
+    иначе дубль, найденный потом, можно было не создавать сразу.
+    """
+    from migration.transformers.normalize import squash_name
+
+    prepared = []
+    for card in index:
+        phone = normalize_phone(card.get("phone") or "")
+        prepared.append({
+            **card,
+            "_phone": phone if len(phone) >= 10 else "",
+            "_words": squash_name(card.get("full_name") or "").split(),
+        })
+    return prepared
+
+
+def find_student_candidates(
+    full_name: str, phone: str, prepared: list[dict], limit: int = 5
+) -> list[tuple[dict, str]]:
+    """Все карточки, похожие на заявку, а не одна первая.
+
+    Ради чего
+    ---------
+    `suggest_student` отдаёт одну карточку, и её сохраняют в момент /join.
+    Если та карточка занята, архивирована или появилась в базе позже, кнопки
+    «Привязать» нет — и админ жмёт «Создать карточку», получая дубль, который
+    потом соединяют в «Рисках». Здесь — все совпадения по тем же правилам, что
+    у поиска дублей: телефон по цифрам, ФИО с транслитом и без цифр в имени.
+
+    `prepared` — результат `prepare_candidate_index`. Порядок: сначала телефон,
+    внутри — свободные карточки раньше занятых.
+    """
+    from migration.transformers.normalize import squash_name, squashed_words_match
+
+    phone_norm = normalize_phone(phone)
+    phone_norm = phone_norm if len(phone_norm) >= 10 else ""
+    words = squash_name(full_name or "").split()
+
+    found: list[tuple[dict, str]] = []
+    for card in prepared:
+        if phone_norm and card["_phone"] == phone_norm:
+            found.append((card, "phone"))
+        elif words and card["_words"] and (
+            squashed_words_match(words, card["_words"])
+            # Однословное имя («Аймин») правило двух слов не пропускает,
+            # но полное совпадение единственного слова — всё ещё повод показать.
+            or (len(words) == 1 and words == card["_words"])
+        ):
+            found.append((card, "name"))
+
+    found.sort(key=lambda pair: (pair[1] != "phone", pair[0].get("user_id") is not None))
+    return found[:limit]
+
+
 #: Человеческие причины отказа — уходят админу в ответе на массовое одобрение.
 BLOCKED_REASON_TEXT = {
     "no_match": "Совпадений в базе нет — нужна новая карточка",

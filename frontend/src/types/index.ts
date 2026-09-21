@@ -612,6 +612,10 @@ export interface InsightWithDiff extends PendingInsight {
   student_name?: string
   is_mine?: boolean
   responsibles?: ResponsibleUser[]
+  /** Начало сообщения, из которого ИИ взял предложение (есть только в общей очереди). */
+  source_excerpt?: string | null
+  source_sender?: string | null
+  source_created_at?: string | null
 }
 
 export type TelegramChatStatus = 'unbound' | 'active' | 'paused' | 'closed'

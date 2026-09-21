@@ -151,6 +151,58 @@ def sanitize_suggested_changes(
     return cleaned, unmatched
 
 
+_ANY_LINK_RE = re.compile(r"https?://|www\.|t\.me/|teenteched\.kz", re.IGNORECASE)
+#: Наши собственные ссылки: кабинет, приглашения, группы. Документом студента
+#: они не бывают никогда.
+_OWN_LINK_RE = re.compile(r"teenteched\.kz|/welcome/|t\.me/", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"^\d{1,3}(?:[.,]\d{1,2})?$")
+
+
+def validate_proposed_changes(
+    proposed_changes: dict[str, Any] | None,
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Отбросить значения, которые не могут быть правдой для своего поля.
+
+    Ради чего
+    ---------
+    ИИ разбирает всё, что пишут в группе, включая ссылки-приглашения и наши же
+    welcome-ссылки. Без проверки код приглашения становился «телефоном»
+    (`+7777… → dgUc5AoywU`), ссылка на кабинет — «транскриптом», имя из
+    приветствия — новым ФИО, и одно нажатие «Подтвердить» писало это в карточку.
+    Проверка грубая намеренно: пропустить настоящее изменение дешевле, чем
+    испортить карточку.
+    """
+    clean: dict[str, Any] = {}
+    for field, value in (proposed_changes or {}).items():
+        if field not in NOTEABLE_FIELDS or value is None or isinstance(value, (dict, list)):
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+
+        if field == "phone":
+            digits = re.sub(r"\D", "", text)
+            if not 10 <= len(digits) <= 15 or re.search(r"[^\d\s()+\-]", text):
+                continue
+        elif field == "transcript_resume_url":
+            if not re.match(r"^https?://", text, re.IGNORECASE) or _OWN_LINK_RE.search(text):
+                continue
+        elif _ANY_LINK_RE.search(text):
+            # Ссылка вместо города, специальности или GPA — это не значение поля.
+            continue
+        elif field == "gpa":
+            if not _NUMBER_RE.match(text) or float(text.replace(",", ".")) <= 0:
+                continue
+        elif field == "full_name":
+            # «Assetuly Alim → Аймин»: одно слово из приветствия не заменяет ФИО.
+            if len(text.split()) < 2 and len(str(snapshot.get("full_name") or "").split()) >= 2:
+                continue
+
+        clean[field] = value
+    return clean
+
+
 FIELD_LABELS_RU: dict[str, str] = {
     "full_name": "ФИО",
     "phone": "Телефон",

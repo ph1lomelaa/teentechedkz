@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock, Download } from 'lucide-react'
+import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock, Download, Link2 } from 'lucide-react'
 import { usersApi } from '@/api/index'
 import { User, UserRole, ROLE_LABELS, ASSIGNABLE_MENTOR_ROLES, MENTOR_ROLE_LABELS } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -398,6 +398,112 @@ function UserModal({
   )
 }
 
+/**
+ * Персональная ссылка входа для уже заведённого сотрудника.
+ *
+ * Зачем отдельной кнопкой
+ * -----------------------
+ * Ручка `/users/{id}/login-link` есть с самого начала, а кнопки не было:
+ * единственным способом дать ссылку действующему ментору оставалась выгрузка
+ * xlsx на всю роль. Дальше её переносили в общую таблицу руками — и строки
+ * разъезжались, человек видел в своей графе чужой инвайт. Инвайт — это право
+ * задать пароль, то есть чужая строка была чужим аккаунтом. Здесь ссылка
+ * выдаётся по одному человеку и показывается рядом с его именем: переносить
+ * нечего и перепутать нечего.
+ */
+function LoginLinkDialog({ user, onClose }: { user: User; onClose: () => void }) {
+  const [issued, setIssued] = useState<{
+    invite_url: string
+    invite_code: string
+    invite_expires_at: string
+  } | null>(null)
+  const [copied, setCopied] = useState<'link' | 'code' | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () => usersApi.createLoginLink(user.id),
+    onSuccess: (res) => setIssued(res),
+    onError: (err) => {
+      toast({
+        title: 'Не удалось выдать ссылку',
+        description: getErrorMessage(err, 'Попробуйте ещё раз'),
+        variant: 'destructive',
+      })
+    },
+  })
+
+  const copy = async (value: string, what: 'link' | 'code') => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(what)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      toast({ title: 'Не удалось скопировать', variant: 'destructive' })
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{issued ? 'Ссылка для входа' : 'Выдать ссылку для входа?'}</DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              {/* Имя и почта видны и до выдачи, и рядом с готовой ссылкой:
+                  сверить адресата глазами дешевле, чем разбирать потом, кто
+                  кому задал пароль. */}
+              <p>
+                <span className="font-medium text-p-text">{user.name}</span> — {user.email}
+              </p>
+              {!issued && (
+                <>
+                  <p>Пароль он задаст сам, перейдя по ссылке. Ссылка действует 72 часа.</p>
+                  <p className="text-amber-700">
+                    Ранее выданная ссылка этого человека перестанет работать — у каждого живёт
+                    только одна.
+                  </p>
+                </>
+              )}
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+
+        {issued ? (
+          <div className="space-y-3">
+            <div className="rounded-panel border border-p-line bg-p-bg p-3 text-sm break-all">
+              {issued.invite_url}
+            </div>
+            <p className="text-sm text-p-muted">
+              Код для ручного ввода:{' '}
+              <span className="font-mono font-medium text-p-text">{issued.invite_code}</span>
+            </p>
+            <p className="text-xs text-p-muted2">
+              Отправьте ссылку лично — в общей таблице или чате по ней войдёт кто угодно.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => copy(issued.invite_code, 'code')}>
+                {copied === 'code' ? 'Скопирован' : 'Скопировать код'}
+              </Button>
+              <Button variant="outline" onClick={() => copy(issued.invite_url, 'link')}>
+                {copied === 'link' ? 'Скопировано' : 'Скопировать ссылку'}
+              </Button>
+              <Button onClick={onClose}>Готово</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              Отмена
+            </Button>
+            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending ? 'Выдаём...' : 'Выдать ссылку'}
+            </Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export const SettingsUsersPage: React.FC = () => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -405,6 +511,7 @@ export const SettingsUsersPage: React.FC = () => {
   const [editUser, setEditUser] = useState<User | undefined>()
   const [addOpen, setAddOpen] = useState(false)
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
+  const [linkTarget, setLinkTarget] = useState<User | null>(null)
   const [linksExportOpen, setLinksExportOpen] = useState(false)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
@@ -682,6 +789,21 @@ export const SettingsUsersPage: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
+                      {can('users', 'manage') && user.role !== 'student' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLinkTarget(user)}
+                          disabled={!user.is_active}
+                          title={
+                            user.is_active
+                              ? 'Ссылка для входа'
+                              : 'Сначала активируйте аккаунт — ссылка не заменяет одобрение заявки'
+                          }
+                        >
+                          <Link2 className="w-3 h-3" />
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -725,6 +847,9 @@ export const SettingsUsersPage: React.FC = () => {
           onClose={() => setEditUser(undefined)}
         />
       )}
+      {linkTarget && (
+        <LoginLinkDialog user={linkTarget} onClose={() => setLinkTarget(null)} />
+      )}
 
       {/* Подтверждение обязательно: выгрузка не читает данные, а выдаёт новые
           ссылки и тем самым гасит выданные раньше. Нажавший вслепую ломает
@@ -745,8 +870,12 @@ export const SettingsUsersPage: React.FC = () => {
                   одна.
                 </p>
                 <p className="text-p-muted">
-                  Неактивные аккаунты пропускаются: ссылка не заменяет одобрение заявки. Их список
-                  будет на отдельном листе.
+                  Неактивные аккаунты пропускаются: ссылка не заменяет одобрение заявки. В файле
+                  они останутся строкой с пустой ссылкой и причиной в примечании.
+                </p>
+                <p className="text-p-muted">
+                  Одному человеку ссылку удобнее выдать кнопкой в его строке — не придётся
+                  переносить её из файла.
                 </p>
               </div>
             </DialogDescription>

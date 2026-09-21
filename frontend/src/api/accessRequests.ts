@@ -10,6 +10,12 @@ export interface SuggestedStudent {
   is_free: boolean
 }
 
+/** Похожая карточка из базы. Считается заново при каждом открытии очереди. */
+export interface StudentCandidate extends SuggestedStudent {
+  reason: 'phone' | 'name'
+  reason_label: string
+}
+
 export interface AccessRequestItem {
   id: string
   user: { id: string; email: string; name: string; is_active: boolean }
@@ -18,6 +24,8 @@ export interface AccessRequestItem {
   phone: string
   city: string | null
   direction: string | null
+  /** Все похожие карточки: телефон первым, свободные раньше занятых. */
+  candidates: StudentCandidate[]
   suggested_student: SuggestedStudent | null
   confidence: number | null
   method: string | null
@@ -89,8 +97,9 @@ export const accessRequestsApi = {
     const response = await apiClient.post(`/access-requests/${id}/reject`)
     return response.data
   },
-  createStudent: async (id: string) => {
-    const response = await apiClient.post(`/access-requests/${id}/create-student`)
+  /** Без `force` сервер отвечает 409 `possible_duplicate`, если в базе есть похожие карточки. */
+  createStudent: async (id: string, force = false) => {
+    const response = await apiClient.post(`/access-requests/${id}/create-student`, { force })
     return response.data
   },
   bulkApprove: async (ids: string[]): Promise<BulkApproveResult> => {

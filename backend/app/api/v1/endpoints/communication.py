@@ -25,6 +25,7 @@ from app.services.student_notes import (
     build_insight_note_markdown,
     build_profile_diff,
     snapshot_student,
+    validate_proposed_changes,
 )
 
 router = APIRouter(prefix="/communications", tags=["communications"])
@@ -80,28 +81,81 @@ async def list_all_pending_insights(
     current_user: CurrentUser,
     status: str | None = None,
     scope: str = "all",
+    limit: int | None = None,
 ):
+    """Очередь «Статус».
+
+    `status=resolved` — всё разобранное (подтверждённое и отклонённое);
+    `limit` нужен как раз ему: история растёт без конца, а смотрят последние.
+    Студенты, назначения и исходные сообщения грузятся пачкой — раньше на
+    каждую карточку уходило по несколько запросов.
+    """
     require_access(current_user, "communication", Action.manage)
     query = select(PendingInsight).order_by(PendingInsight.created_at.desc())
-    if status:
+    if status == "resolved":
+        query = query.where(PendingInsight.status != InsightStatus.pending)
+    elif status:
         try:
             query = query.where(PendingInsight.status == InsightStatus(status))
         except ValueError:
             raise HTTPException(status_code=422, detail="Неверный статус")
+    if limit:
+        query = query.limit(max(1, min(limit, 200)))
 
     result = await db.execute(query)
     insights = result.scalars().all()
 
+    student_ids = {i.student_id for i in insights}
+    message_ids = {i.source_telegram_message_id for i in insights if i.source_telegram_message_id}
+    students = (
+        {s.id: s for s in (await db.execute(select(Student).where(Student.id.in_(student_ids)))).scalars()}
+        if student_ids else {}
+    )
+    assignments_by_student: dict[uuid.UUID, list[MentorAssignment]] = {}
+    if student_ids:
+        for a in (await db.execute(
+            select(MentorAssignment).where(MentorAssignment.student_id.in_(student_ids))
+        )).scalars():
+            assignments_by_student.setdefault(a.student_id, []).append(a)
+    mentor_ids = {a.mentor_id for rows in assignments_by_student.values() for a in rows}
+    mentor_names = (
+        dict((await db.execute(select(User.id, User.name).where(User.id.in_(mentor_ids)))).all())
+        if mentor_ids else {}
+    )
+    messages = (
+        {m.id: m for m in (await db.execute(
+            select(TelegramMessage).where(TelegramMessage.id.in_(message_ids))
+        )).scalars()}
+        if message_ids else {}
+    )
+
     out = []
     for insight in insights:
-        responsibles, is_mine = await _student_responsibles(db, insight.student_id, current_user.id)
+        assignments = assignments_by_student.get(insight.student_id, [])
+        is_mine = any(a.mentor_id == current_user.id and a.is_active for a in assignments)
         if scope == "mine" and not is_mine:
             continue
-        student = await db.get(Student, insight.student_id)
+        responsibles = [
+            {
+                "id": str(a.mentor_id),
+                "assignment_id": str(a.id),
+                "name": mentor_names.get(a.mentor_id),
+                "role": a.role.value,
+                "is_active": a.is_active,
+            }
+            for a in assignments
+        ]
+        student = students.get(insight.student_id)
+        source = messages.get(insight.source_telegram_message_id)
         insight_dict = _insight_to_dict(insight)
         insight_dict["student_name"] = student.full_name if student else None
         insight_dict["responsibles"] = responsibles
         insight_dict["is_mine"] = is_mine
+        # Откуда взялось предложение: без исходной фразы «GPA 3.9 → 4.5»
+        # не проверить, не открывая чат.
+        insight_dict["source_excerpt"] = (source.raw_text or "")[:300] if source else None
+        insight_dict["source_sender"] = source.sender_name if source else None
+        insight_dict["source_created_at"] = source.created_at.isoformat() if source else None
         if insight.status == InsightStatus.pending and student:
             insight_dict["diff"] = build_profile_diff(snapshot_student(student), insight.proposed_changes or {})
         else:
@@ -161,11 +215,20 @@ async def review_insight(
         await db.refresh(insight)
         return _insight_to_dict(insight)
 
-    insight.status = InsightStatus.approved
     student = await db.get(Student, insight.student_id)
     if student:
         snapshot = snapshot_student(student)
-        applied_changes = apply_student_updates(student, insight.proposed_changes or {})
+        # Та же проверка, что при создании: карточки, накопленные до неё,
+        # могут нести код приглашения вместо телефона — такое в профиль не пишем.
+        valid_changes = validate_proposed_changes(insight.proposed_changes or {}, snapshot)
+        if insight.proposed_changes and not valid_changes and not insight.unmatched_fields:
+            raise HTTPException(
+                status_code=422,
+                detail="Предложенные значения не похожи на настоящие — отклоните эту карточку",
+            )
+    insight.status = InsightStatus.approved
+    if student:
+        applied_changes = apply_student_updates(student, valid_changes)
         for change in applied_changes:
             await log_change(
                 db,

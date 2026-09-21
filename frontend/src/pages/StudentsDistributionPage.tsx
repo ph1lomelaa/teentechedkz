@@ -4,17 +4,44 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Search } from 'lucide-react'
 import { mentorAssignmentsApi } from '@/api/index'
 import { useAuth } from '@/contexts/AuthContext'
-import { ASSIGNABLE_MENTOR_ROLES, AssignmentBoard, MENTOR_ROLE_LABELS } from '@/types'
+import {
+  ASSIGNABLE_MENTOR_ROLES,
+  AssignmentBoard,
+  BoardStudent,
+  MENTOR_ROLE_LABELS,
+  PIPELINE_COLUMNS,
+  PIPELINE_STATUS_LABELS,
+} from '@/types'
 import { PageHeader, SegmentedTabs } from '@/components/ui'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { QueryState } from '@/components/shared/QueryState'
-import { DistributionBoard } from '@/components/students/DistributionBoard'
+import { FilterField, FilterPopover } from '@/components/shared/FilterPopover'
+import { Checkbox } from '@/components/ui/primitives/checkbox'
+import { DistributionBoard, boardStatusKey } from '@/components/students/DistributionBoard'
 import { ReplacementReasonDialog } from '@/components/students/ReplacementReasonDialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 
 const DEFAULT_ROLE = 'mzk'
+
+/**
+ * Статусы доски по умолчанию — только «Активная работа».
+ *
+ * Без фильтра колонка «Без ответственного» состояла в основном из тех, с кем
+ * уже не работают (передумали, возврат, подвешено), и настоящих
+ * нераспределённых в ней было не найти. Остальные статусы — через фильтр.
+ */
+export const DEFAULT_BOARD_STATUSES: readonly string[] = ['active_work']
+
+/**
+ * Статусы из URL. Параметра нет — значение по умолчанию; пустой параметр —
+ * пустой выбор (человек снял все галочки, и это не то же самое, что «сброс»).
+ */
+export function parseBoardStatuses(param: string | null): Set<string> {
+  if (param === null) return new Set(DEFAULT_BOARD_STATUSES)
+  return new Set(param.split(',').filter((v) => (PIPELINE_COLUMNS as string[]).includes(v)))
+}
 
 /**
  * Доска распределения: кто из сотрудников ведёт каких студентов.
@@ -48,6 +75,30 @@ export const StudentsDistributionPage: React.FC = () => {
     const params = new URLSearchParams(searchParams)
     params.set('role', next)
     setSearchParams(params, { replace: true })
+  }
+
+  // Фильтр живёт в URL, как и роль: ссылкой на доску можно поделиться, и
+  // после перезагрузки выбор не слетает обратно к умолчанию.
+  const statusParam = searchParams.get('status')
+  const statuses = useMemo(() => parseBoardStatuses(statusParam), [statusParam])
+  const isDefaultStatuses =
+    statuses.size === DEFAULT_BOARD_STATUSES.length &&
+    DEFAULT_BOARD_STATUSES.every((s) => statuses.has(s))
+
+  const setStatuses = (next: Set<string>) => {
+    const params = new URLSearchParams(searchParams)
+    const isDefault =
+      next.size === DEFAULT_BOARD_STATUSES.length && DEFAULT_BOARD_STATUSES.every((s) => next.has(s))
+    if (isDefault) params.delete('status')
+    else params.set('status', PIPELINE_COLUMNS.filter((s) => next.has(s)).join(','))
+    setSearchParams(params, { replace: true })
+  }
+
+  const toggleStatus = (status: string) => {
+    const next = new Set(statuses)
+    if (next.has(status)) next.delete(status)
+    else next.add(status)
+    setStatuses(next)
   }
 
   // Смотреть доску может управление, а передавать студентов — тот, кто и так
@@ -123,6 +174,16 @@ export const StudentsDistributionPage: React.FC = () => {
 
   const roleLabel = MENTOR_ROLE_LABELS[role] ?? role
 
+  // Сводка — по тем, кто прошёл фильтр статуса: иначе «120 без МЗК» при
+  // пяти видимых карточках читалось бы как ошибка доски.
+  const summary = useMemo(() => {
+    if (!data) return null
+    const shown = (list: BoardStudent[]) => list.filter((s) => statuses.has(boardStatusKey(s))).length
+    const unassigned = shown(data.unassigned)
+    const assigned = data.columns.reduce((sum, c) => sum + shown(c.students), 0)
+    return { students: assigned + unassigned, unassigned }
+  }, [data, statuses])
+
   return (
     <div>
       <PageHeader
@@ -156,14 +217,36 @@ export const StudentsDistributionPage: React.FC = () => {
               className="h-9 pl-8 text-sm"
             />
           </div>
-          {data && (
+          {summary && (
             <span className="whitespace-nowrap text-xs text-p-muted">
-              {data.totals.students} студентов ·{' '}
-              <span className={data.totals.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
-                {data.totals.unassigned} без «{roleLabel}»
+              {summary.students} студентов ·{' '}
+              <span className={summary.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
+                {summary.unassigned} без «{roleLabel}»
               </span>
             </span>
           )}
+          <FilterPopover
+            activeCount={isDefaultStatuses ? 0 : statuses.size}
+            onReset={() => setStatuses(new Set(DEFAULT_BOARD_STATUSES))}
+          >
+            <FilterField label="Статус студента">
+              <div className="space-y-1.5">
+                {PIPELINE_COLUMNS.map((status) => (
+                  <label key={status} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
+                    <Checkbox checked={statuses.has(status)} onCheckedChange={() => toggleStatus(status)} />
+                    {PIPELINE_STATUS_LABELS[status]}
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-[12px] text-p-muted underline underline-offset-4 hover:text-black"
+                onClick={() => setStatuses(new Set(PIPELINE_COLUMNS))}
+              >
+                Выбрать все
+              </button>
+            </FilterField>
+          </FilterPopover>
         </div>
       </div>
 
@@ -179,6 +262,7 @@ export const StudentsDistributionPage: React.FC = () => {
           <DistributionBoard
             board={data as AssignmentBoard}
             search={search}
+            statuses={statuses}
             canDrag={canDrag}
             onMove={(move) =>
               assignMutation.mutate({ studentId: move.studentId, mentorId: move.to })
