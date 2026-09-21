@@ -6,8 +6,10 @@ export interface SuggestedStudent {
   full_name: string
   phone: string
   intake_year: number | null
-  /** У карточки ещё нет кабинета. Занятую привязывать нельзя. */
+  /** У карточки ещё нет кабинета. Занятую можно только перепривязать. */
   is_free: boolean
+  /** Чей кабинет у занятой карточки — чтобы админ видел, кого заменяет. */
+  portal_owner?: { email: string; last_login_at: string | null; is_active: boolean } | null
 }
 
 /** Похожая карточка из базы. Считается заново при каждом открытии очереди. */
@@ -89,7 +91,10 @@ export const accessRequestsApi = {
     const response = await apiClient.get('/access-requests/mine')
     return response.data
   },
-  approve: async (id: string, body: { role: string; student_id?: string }): Promise<ApproveResult> => {
+  approve: async (
+    id: string,
+    body: { role: string; student_id?: string; replace_existing?: boolean },
+  ): Promise<ApproveResult> => {
     const response = await apiClient.post<ApproveResult>(`/access-requests/${id}/approve`, body)
     return response.data
   },

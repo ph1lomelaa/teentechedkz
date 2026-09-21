@@ -66,20 +66,49 @@ _METHOD_LABEL = {
 }
 
 
-def _candidate_to_dict(card: dict, reason: str) -> dict:
+def _portal_owner(card: dict, owners: dict | None) -> dict | None:
+    """Чей кабинет у занятой карточки — чтобы админ видел, кого заменяет."""
+    user_id = card.get("user_id")
+    if user_id is None or not owners:
+        return None
+    return owners.get(user_id)
+
+
+def _candidate_to_dict(card: dict, reason: str, owners: dict | None = None) -> dict:
     return {
         "id": str(card["id"]),
         "full_name": card["full_name"],
         "phone": card["phone"],
         "intake_year": card["intake_year"],
         "is_free": card.get("user_id") is None,
+        "portal_owner": _portal_owner(card, owners),
         "reason": reason,
         "reason_label": CANDIDATE_REASON_TEXT[reason],
     }
 
 
+async def _load_portal_owners(db: AsyncSession, user_ids: set) -> dict:
+    if not user_ids:
+        return {}
+    rows = await db.execute(
+        select(User.id, User.email, User.last_login_at, User.is_active).where(User.id.in_(user_ids))
+    )
+    return {
+        uid: {
+            "email": email,
+            "last_login_at": last_login.isoformat() if last_login else None,
+            "is_active": is_active,
+        }
+        for uid, email, last_login, is_active in rows.all()
+    }
+
+
 def _request_to_dict(
-    req: AccessRequest, *, index_by_id: dict, candidates: list[tuple[dict, str]] | None = None
+    req: AccessRequest,
+    *,
+    index_by_id: dict,
+    candidates: list[tuple[dict, str]] | None = None,
+    owners: dict | None = None,
 ) -> dict:
     card = index_by_id.get(req.suggested_student_id) if req.suggested_student_id else None
     suggested = None
@@ -92,6 +121,7 @@ def _request_to_dict(
             # Карточка, у которой уже есть кабинет, — не кандидат. Показываем
             # это прямо в строке, чтобы админ не жал «Привязать» вслепую.
             "is_free": card.get("user_id") is None,
+            "portal_owner": _portal_owner(card, owners),
         }
     return {
         "id": str(req.id),
@@ -106,7 +136,9 @@ def _request_to_dict(
         "phone": req.phone_raw,
         "city": req.city,
         "direction": req.direction,
-        "candidates": [_candidate_to_dict(card, reason) for card, reason in (candidates or [])],
+        "candidates": [
+            _candidate_to_dict(card, reason, owners) for card, reason in (candidates or [])
+        ],
         "suggested_student": suggested,
         "confidence": float(req.suggested_confidence) if req.suggested_confidence else None,
         "method": req.suggested_method,
@@ -182,14 +214,33 @@ async def list_requests(
         )
     ).scalar_one()
 
-    items = []
+    candidates_by_request = {
+        r.id: find_student_candidates(r.full_name, r.phone_raw, prepared)
+        for r in requests
+        if r.status == STATUS_NEW and r.requested_role == "student"
+    }
+    # Владельцев занятых карточек — одним запросом на всю очередь.
+    owner_ids = {
+        card["user_id"]
+        for found in candidates_by_request.values()
+        for card, _ in found
+        if card.get("user_id") is not None
+    }
     for r in requests:
-        candidates = (
-            find_student_candidates(r.full_name, r.phone_raw, prepared)
-            if r.status == STATUS_NEW and r.requested_role == "student"
-            else None
+        card = index_by_id.get(r.suggested_student_id) if r.suggested_student_id else None
+        if card is not None and card.get("user_id") is not None:
+            owner_ids.add(card["user_id"])
+    owners = await _load_portal_owners(db, owner_ids)
+
+    items = [
+        _request_to_dict(
+            r,
+            index_by_id=index_by_id,
+            candidates=candidates_by_request.get(r.id),
+            owners=owners,
         )
-        items.append(_request_to_dict(r, index_by_id=index_by_id, candidates=candidates))
+        for r in requests
+    ]
 
     return {"items": items, "total_new": total_new}
 
@@ -235,6 +286,9 @@ async def _load_open(db: AsyncSession, request_id: uuid.UUID) -> AccessRequest:
 class ApproveRequest(BaseModel):
     role: Literal["student", "mentor", "mzk_manager"]
     student_id: uuid.UUID | None = None
+    #: Карточка уже с кабинетом: перепривязать к этому аккаунту, старый
+    #: отключить. Только явным решением админа из очереди.
+    replace_existing: bool = False
 
 
 def _grant_staff_role(
@@ -309,7 +363,13 @@ async def approve_request(
         if student is None:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
         await link_user_to_student(
-            db, student=student, user=user, actor=current_user, request=request, via="queue"
+            db,
+            student=student,
+            user=user,
+            actor=current_user,
+            request=request,
+            via="queue_replace" if body.replace_existing else "queue",
+            replace_existing=body.replace_existing,
         )
     else:
         temp_password = _grant_staff_role(

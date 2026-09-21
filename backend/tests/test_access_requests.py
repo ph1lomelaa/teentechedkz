@@ -17,8 +17,12 @@ import uuid
 from unittest import mock
 
 from app.api.v1.endpoints.public import _mentor_code_matches
+from fastapi import HTTPException
+
+from app.models.user import UserRole
 from app.services.access_requests import (
     find_student_candidates,
+    link_user_to_student,
     prepare_candidate_index,
     suggest_student,
 )
@@ -172,6 +176,63 @@ class CandidateTests(unittest.TestCase):
     def test_no_candidates(self) -> None:
         found = self._find("Сидоров Сидор", "+7 777 999 88 77", _card(FREE_CARD, "Петров Пётр", OTHER_PHONE))
         self.assertEqual(found, [])
+
+
+def _user(role=UserRole.student, email="new@mail.com"):
+    return mock.Mock(id=uuid.uuid4(), role=role, is_active=True, email=email)
+
+
+def _db(previous_owner):
+    db = mock.Mock()
+    db.get = mock.AsyncMock(return_value=previous_owner)
+    # «Этот аккаунт уже привязан к другой карточке?» — нет.
+    db.execute = mock.AsyncMock(return_value=mock.Mock(scalar_one_or_none=lambda: None))
+    return db
+
+
+class ReplaceExistingCabinetTests(unittest.IsolatedAsyncioTestCase):
+    """Карточка с кабинетом: без явного решения — 409, с решением — перепривязка.
+
+    Раньше у занятой карточки не было кнопки вообще, и админ заводил вторую
+    карточку тому же человеку, вошедшему с другой почты.
+    """
+
+    async def _link(self, student, user, db, replace):
+        with mock.patch("app.services.access_requests.record_audit"), mock.patch(
+            "app.services.access_requests.revoke_all_sessions", new=mock.AsyncMock(return_value=1)
+        ) as revoke:
+            await link_user_to_student(
+                db, student=student, user=user, actor=None, via="test", replace_existing=replace
+            )
+            return revoke
+
+    async def test_taken_card_without_flag_is_conflict(self) -> None:
+        old = _user(UserRole.student, "old@mail.com")
+        student = mock.Mock(id=uuid.uuid4(), user_id=old.id)
+        with self.assertRaises(HTTPException) as ctx:
+            await self._link(student, _user(), _db(old), replace=False)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(student.user_id, old.id)
+
+    async def test_replace_moves_card_and_disables_old_account(self) -> None:
+        old = _user(UserRole.student, "old@mail.com")
+        new = _user()
+        student = mock.Mock(id=uuid.uuid4(), user_id=old.id)
+
+        revoke = await self._link(student, new, _db(old), replace=True)
+
+        self.assertEqual(student.user_id, new.id)
+        self.assertEqual(new.role, UserRole.student)
+        self.assertFalse(old.is_active)
+        revoke.assert_awaited_once()
+
+    async def test_staff_account_is_never_replaced(self) -> None:
+        staff = _user(UserRole.mentor, "mentor@mail.com")
+        student = mock.Mock(id=uuid.uuid4(), user_id=staff.id)
+        with self.assertRaises(HTTPException) as ctx:
+            await self._link(student, _user(), _db(staff), replace=True)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertTrue(staff.is_active)
 
 
 class MentorCodeTests(unittest.TestCase):

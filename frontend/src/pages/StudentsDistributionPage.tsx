@@ -217,14 +217,6 @@ export const StudentsDistributionPage: React.FC = () => {
               className="h-9 pl-8 text-sm"
             />
           </div>
-          {summary && (
-            <span className="whitespace-nowrap text-xs text-p-muted">
-              {summary.students} студентов ·{' '}
-              <span className={summary.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
-                {summary.unassigned} без «{roleLabel}»
-              </span>
-            </span>
-          )}
           <FilterPopover
             activeCount={isDefaultStatuses ? 0 : statuses.size}
             onReset={() => setStatuses(new Set(DEFAULT_BOARD_STATUSES))}
@@ -249,6 +241,17 @@ export const StudentsDistributionPage: React.FC = () => {
           </FilterPopover>
         </div>
       </div>
+
+      {/* Отдельной строкой над колонками: в тулбаре счётчик терялся между
+          поиском и фильтром, а относится он к доске, а не к ним. */}
+      {summary && (
+        <div className="mb-2 text-xs text-p-muted">
+          {summary.students} студентов ·{' '}
+          <span className={summary.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
+            {summary.unassigned} без «{roleLabel}»
+          </span>
+        </div>
+      )}
 
       <QueryState
         colorPrefix="p"

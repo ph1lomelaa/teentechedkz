@@ -40,6 +40,7 @@ from app.models.student import Student
 from app.models.student_invite import StudentInvite
 from app.models.user import User, UserRole
 from app.services.audit import record_audit
+from app.services.sessions import revoke_all_sessions
 from app.services.sheets_sync import load_students_index
 
 # Матчинг живёт в пакете `migration`, который лежит рядом с приложением, а не
@@ -304,18 +305,28 @@ async def link_user_to_student(
     actor: User | None,
     request: Request | None = None,
     via: str,
+    replace_existing: bool = False,
 ) -> None:
     """Выдать существующему аккаунту кабинет этой карточки.
 
     Роль и привязка ставятся вместе и только здесь: `role=student` без
     `students.user_id` — это аккаунт, который получает 404 на каждом экране
     портала (`get_current_student` в core/deps.py).
+
+    `replace_existing` — перепривязка карточки, у которой кабинет уже есть.
+    Обычно это тот же человек, вошедший с другой почты: без перепривязки
+    админу оставалось только завести вторую карточку, то есть дубль.
+    Старый аккаунт отключается, а не удаляется — за ним могут числиться
+    сообщения и подписи регламентов. Только по явному решению админа:
+    массовое одобрение этот флаг не передаёт.
     """
-    if student.user_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="У этой карточки уже есть кабинет",
-        )
+    if student.user_id is not None and student.user_id != user.id:
+        if not replace_existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="У этой карточки уже есть кабинет",
+            )
+        await _detach_previous_owner(db, student=student, new_user=user, actor=actor, request=request)
     existing = (
         await db.execute(select(Student.id).where(Student.user_id == user.id))
     ).scalar_one_or_none()
@@ -337,6 +348,39 @@ async def link_user_to_student(
         target_id=str(student.id),
         request=request,
         meta={"via": via, "email": user.email},
+    )
+
+
+async def _detach_previous_owner(
+    db: AsyncSession,
+    *,
+    student: Student,
+    new_user: User,
+    actor: User | None,
+    request: Request | None,
+) -> None:
+    previous = await db.get(User, student.user_id)
+    if previous is not None and previous.role != UserRole.student:
+        # К карточке привязан сотрудник — это не «второй аккаунт ученика»,
+        # и выключать сотрудника из очереди заявок нельзя.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Карточка привязана к аккаунту сотрудника — перепривязка недоступна",
+        )
+    student.user_id = None
+    if previous is None:
+        return
+    previous.is_active = False
+    await revoke_all_sessions(db, previous.id)
+    record_audit(
+        db,
+        action=AuditAction.access_toggled,
+        actor=actor,
+        target_user_id=previous.id,
+        target_type="student",
+        target_id=str(student.id),
+        request=request,
+        meta={"is_active": False, "email": previous.email, "replaced_by": new_user.email},
     )
 
 

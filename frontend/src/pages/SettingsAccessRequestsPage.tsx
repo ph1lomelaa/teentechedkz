@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/primitives/select'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
+import { formatDate } from '@/lib/utils'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 
@@ -100,8 +101,17 @@ export function SettingsAccessRequestsPage() {
   const [issuedPassword, setIssuedPassword] = useState<string | null>(null)
 
   const approve = useMutation({
-    mutationFn: ({ id, role, studentId }: { id: string; role: string; studentId?: string }) =>
-      accessRequestsApi.approve(id, { role, student_id: studentId }),
+    mutationFn: ({
+      id,
+      role,
+      studentId,
+      replaceExisting,
+    }: {
+      id: string
+      role: string
+      studentId?: string
+      replaceExisting?: boolean
+    }) => accessRequestsApi.approve(id, { role, student_id: studentId, replace_existing: replaceExisting }),
     onSuccess: (result) => {
       // Сотрудник, пришедший через Google, пароля не имел вовсе. Одобрение
       // выдаёт ему временный — и это единственный момент, когда пароль виден:
@@ -122,6 +132,15 @@ export function SettingsAccessRequestsPage() {
     },
     onError: (e) => toast({ variant: 'destructive', title: getErrorMessage(e) }),
   })
+
+  // Перепривязка карточки, у которой кабинет уже есть. Отдельное
+  // подтверждение: старый аккаунт при этом отключается.
+  const [confirmReplace, setConfirmReplace] = useState<{
+    item: AccessRequestItem
+    studentId: string
+    studentName: string
+    ownerEmail: string | null
+  } | null>(null)
 
   // Заявка, для которой просят новую карточку, хотя похожие в базе уже есть.
   // Спрашиваем явно: молча созданная карточка и была тем дублем, который
@@ -394,6 +413,14 @@ export function SettingsAccessRequestsPage() {
               onLink={(studentId) =>
                 approve.mutate({ id: item.id, role: 'student', studentId })
               }
+              onReplace={(candidate) =>
+                setConfirmReplace({
+                  item,
+                  studentId: candidate.id,
+                  studentName: candidate.full_name,
+                  ownerEmail: candidate.portal_owner?.email ?? null,
+                })
+              }
               onApproveMentor={() => approve.mutate({ id: item.id, role: 'mentor' })}
               onCreateStudent={() =>
                 item.candidates?.length
@@ -410,11 +437,57 @@ export function SettingsAccessRequestsPage() {
       <StudentPicker
         request={pickerFor}
         onClose={() => setPickerFor(null)}
-        onPick={(studentId) => {
-          if (pickerFor) approve.mutate({ id: pickerFor.id, role: 'student', studentId })
+        onPick={(student) => {
+          if (!pickerFor) return
+          if (student.has_portal_access) {
+            setConfirmReplace({
+              item: pickerFor,
+              studentId: student.id,
+              studentName: student.full_name,
+              ownerEmail: null,
+            })
+          } else {
+            approve.mutate({ id: pickerFor.id, role: 'student', studentId: student.id })
+          }
           setPickerFor(null)
         }}
       />
+
+      <Dialog open={Boolean(confirmReplace)} onOpenChange={(open) => !open && setConfirmReplace(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Прикрепить к карточке с кабинетом?</DialogTitle>
+            <DialogDescription>
+              Карточка «{confirmReplace?.studentName}» сейчас привязана к{' '}
+              {confirmReplace?.ownerEmail ? <b>{confirmReplace.ownerEmail}</b> : 'другому аккаунту'}.
+              Этот аккаунт будет отключён, а кабинет перейдёт к{' '}
+              <b>{confirmReplace?.item.user.email}</b>. Обычно это тот же человек, вошедший с
+              другой почты.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmReplace(null)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={approve.isPending}
+              onClick={() => {
+                if (!confirmReplace) return
+                approve.mutate({
+                  id: confirmReplace.item.id,
+                  role: 'student',
+                  studentId: confirmReplace.studentId,
+                  replaceExisting: true,
+                })
+                setConfirmReplace(null)
+              }}
+            >
+              <Link2 className="mr-1.5 h-4 w-4" />
+              Прикрепить и отключить старый
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <IssuedPasswordDialog
         password={issuedPassword}
@@ -439,6 +512,15 @@ export function SettingsAccessRequestsPage() {
                 busy={busy}
                 onLink={() => {
                   approve.mutate({ id: confirmCreate.item.id, role: 'student', studentId: candidate.id })
+                  setConfirmCreate(null)
+                }}
+                onReplace={() => {
+                  setConfirmReplace({
+                    item: confirmCreate.item,
+                    studentId: candidate.id,
+                    studentName: candidate.full_name,
+                    ownerEmail: candidate.portal_owner?.email ?? null,
+                  })
                   setConfirmCreate(null)
                 }}
               />
@@ -630,6 +712,7 @@ function RequestRow({
   busy,
   onToggle,
   onLink,
+  onReplace,
   onApproveMentor,
   onCreateStudent,
   onReject,
@@ -641,6 +724,7 @@ function RequestRow({
   busy: boolean
   onToggle: () => void
   onLink: (studentId: string) => void
+  onReplace: (candidate: StudentCandidate) => void
   onApproveMentor: () => void
   onCreateStudent: () => void
   onReject: () => void
@@ -648,6 +732,9 @@ function RequestRow({
 }) {
   const candidates = item.candidates ?? []
   const isStudent = item.requested_role === 'student'
+  // Совпал телефон — это тот же человек, и новая карточка стала бы дублем.
+  // При совпадении только по ФИО кнопку оставляем: однофамильцы бывают.
+  const hasPhoneMatch = candidates.some((c) => c.reason === 'phone')
 
   return (
     <div className="rounded-card border border-ds-border bg-ds-surface p-4">
@@ -694,6 +781,7 @@ function RequestRow({
                         canLink={canDecide}
                         busy={busy}
                         onLink={() => onLink(candidate.id)}
+                        onReplace={() => onReplace(candidate)}
                       />
                     ))}
                   </ul>
@@ -714,10 +802,12 @@ function RequestRow({
                   <Search className="mr-1.5 h-4 w-4" />
                   {candidates.length > 0 ? 'Найти другую' : 'Найти карточку'}
                 </Button>
-                <Button size="sm" variant="outline" disabled={busy} onClick={onCreateStudent}>
-                  <UserPlus className="mr-1.5 h-4 w-4" />
-                  Создать новую карточку
-                </Button>
+                {!hasPhoneMatch && (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={onCreateStudent}>
+                    <UserPlus className="mr-1.5 h-4 w-4" />
+                    Создать новую карточку
+                  </Button>
+                )}
               </>
             ) : (
               <Button size="sm" disabled={busy} onClick={onApproveMentor}>
@@ -743,12 +833,16 @@ function CandidateLine({
   canLink,
   busy,
   onLink,
+  onReplace,
 }: {
   candidate: StudentCandidate
   canLink: boolean
   busy: boolean
   onLink: () => void
+  /** Карточка уже с кабинетом — перепривязать через подтверждение. */
+  onReplace: () => void
 }) {
+  const owner = candidate.portal_owner
   return (
     <li className="flex flex-wrap items-center justify-between gap-2">
       <div className="min-w-0">
@@ -760,17 +854,29 @@ function CandidateLine({
           {candidate.reason_label}
           {!candidate.is_free && (
             // Занятую карточку не прячем: скорее всего человек завёл второй
-            // аккаунт, и админу это надо увидеть, а не создавать третью.
-            <span className="ml-2 font-medium text-red-500">у этой карточки уже есть кабинет</span>
+            // аккаунт. Показываем, чей кабинет, — админ решает, заменять ли.
+            <span className="ml-2 font-medium text-amber-600">
+              {owner
+                ? `кабинет: ${owner.email} · ${
+                    owner.last_login_at ? `входил ${formatDate(owner.last_login_at)}` : 'ни разу не входил'
+                  }`
+                : 'у этой карточки уже есть кабинет'}
+            </span>
           )}
         </div>
       </div>
-      {canLink && candidate.is_free && (
-        <Button size="sm" disabled={busy} onClick={onLink}>
-          <Link2 className="mr-1.5 h-4 w-4" />
-          Привязать
-        </Button>
-      )}
+      {canLink &&
+        (candidate.is_free ? (
+          <Button size="sm" disabled={busy} onClick={onLink}>
+            <Link2 className="mr-1.5 h-4 w-4" />
+            Прикрепить
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" disabled={busy} onClick={onReplace}>
+            <Link2 className="mr-1.5 h-4 w-4" />
+            Прикрепить
+          </Button>
+        ))}
     </li>
   )
 }
@@ -783,7 +889,7 @@ function StudentPicker({
 }: {
   request: AccessRequestItem | null
   onClose: () => void
-  onPick: (studentId: string) => void
+  onPick: (student: { id: string; full_name: string; has_portal_access?: boolean }) => void
 }) {
   // Предзаполняем телефоном, а не именем: по нему находится ровно один
   // человек, а по фамилии — половина потока. Формат номера не важен —
@@ -823,14 +929,15 @@ function StudentPicker({
             <button
               key={s.id}
               type="button"
-              disabled={s.has_portal_access}
-              onClick={() => onPick(s.id)}
+              onClick={() => onPick(s)}
               className="flex w-full items-baseline justify-between gap-3 rounded-ctl px-3 py-2 text-left text-sm hover:bg-ds-surface-muted disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
             >
               <span className="font-medium text-ds-text">{s.full_name}</span>
               <span className="text-ds-text-muted">
                 {s.phone}
-                {s.has_portal_access && <span className="ml-2 text-xs text-red-500">есть кабинет</span>}
+                {s.has_portal_access && (
+                  <span className="ml-2 text-xs text-amber-600">есть кабинет — перепривязать</span>
+                )}
               </span>
             </button>
           ))}
