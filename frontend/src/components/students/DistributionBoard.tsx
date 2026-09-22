@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   DndContext,
@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, ArrowRight } from 'lucide-react'
+import { AlertTriangle, ArrowRight, MoreHorizontal, Repeat, UserMinus, UserPlus } from 'lucide-react'
 import { AssignmentBoard, BoardColumn, BoardStudent, PIPELINE_STATUS_LABELS, ROLE_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -60,9 +60,8 @@ export function resolveDrop(
 
   // Вернули туда же, откуда взяли — не назначение, а промах мышью.
   if (from === to) return null
-  // В «без ответственного» не перетаскивают: снятие ответственного — не то же
-  // самое, что передача, и делается из карточки студента с указанием причины.
-  if (to === UNASSIGNED_COLUMN) return null
+  // `to === UNASSIGNED_COLUMN` — снятие ответственного. Страница спрашивает
+  // причину до запроса, так что промах в первую колонку отменяется там же.
   return { studentId: activeId, from, to }
 }
 
@@ -75,7 +74,8 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
         isDragging && 'opacity-40',
       )}
     >
-      <div className="text-[13px] font-medium leading-snug text-p-text line-clamp-2">
+      {/* Справа место под кнопку «⋯» (CardMenu). */}
+      <div className="pr-5 text-[13px] font-medium leading-snug text-p-text line-clamp-2">
         {student.full_name}
       </div>
       <div className="mt-1.5 flex items-center gap-1.5">
@@ -99,15 +99,99 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
   )
 }
 
-function CardLink({ student, isDragging }: { student: BoardStudent; isDragging?: boolean }) {
+/** Действие из меню «⋯» карточки — то же, что перетаскивание, но без мыши. */
+export type BoardCardAction =
+  | { type: 'transfer'; student: BoardStudent; from: string }
+  | { type: 'unassign'; student: BoardStudent; from: string }
+
+const CardActionsContext = createContext<((action: BoardCardAction) => void) | null>(null)
+
+/**
+ * Меню «⋯» на карточке. Перетаскивание неудобно с тачпада и с телефона, а
+ * передать или снять студента должно быть можно всегда — поэтому то же самое
+ * продублировано кнопками. Нажатие не должно ни открывать карточку (она
+ * ссылка), ни начинать перетаскивание (сенсоры dnd-kit на обёртке).
+ */
+function CardMenu({ student, columnId }: { student: BoardStudent; columnId: string }) {
+  const onAction = useContext(CardActionsContext)
+  const [open, setOpen] = useState(false)
+  if (!onAction) return null
+  const unassigned = columnId === UNASSIGNED_COLUMN
+  const stop = (e: React.SyntheticEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  const run = (e: React.SyntheticEvent, type: BoardCardAction['type']) => {
+    stop(e)
+    setOpen(false)
+    onAction({ type, student, from: columnId })
+  }
   return (
-    <Link to={`/students/${student.id}`} className="block" draggable={false}>
-      <StudentCard student={student} isDragging={isDragging} />
-    </Link>
+    <div
+      className="absolute right-1 top-1"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label={`Действия: ${student.full_name}`}
+        onClick={(e) => {
+          stop(e)
+          setOpen((v) => !v)
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="rounded-ctl p-0.5 text-p-muted2 opacity-60 hover:bg-p-line hover:text-p-text hover:opacity-100 focus:opacity-100"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-30 w-40 rounded-panel border border-p-line bg-white py-1 text-xs shadow-lg">
+          <button
+            type="button"
+            onMouseDown={(e) => run(e, 'transfer')}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-p-text hover:bg-p-bg"
+          >
+            {unassigned ? <UserPlus className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
+            {unassigned ? 'Назначить…' : 'Передать…'}
+          </button>
+          {!unassigned && student.assignment_id && (
+            <button
+              type="button"
+              onMouseDown={(e) => run(e, 'unassign')}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+            >
+              <UserMinus className="h-3.5 w-3.5" />
+              Снять
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
-function DraggableCard({ student }: { student: BoardStudent }) {
+function CardLink({
+  student,
+  isDragging,
+  columnId,
+}: {
+  student: BoardStudent
+  isDragging?: boolean
+  columnId?: string
+}) {
+  return (
+    <div className="relative">
+      <Link to={`/students/${student.id}`} className="block" draggable={false}>
+        <StudentCard student={student} isDragging={isDragging} />
+      </Link>
+      {columnId && !isDragging && <CardMenu student={student} columnId={columnId} />}
+    </div>
+  )
+}
+
+function DraggableCard({ student, columnId }: { student: BoardStudent; columnId: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: student.id,
   })
@@ -123,7 +207,7 @@ function DraggableCard({ student }: { student: BoardStudent }) {
       {...listeners}
       className="cursor-grab active:cursor-grabbing"
     >
-      <CardLink student={student} isDragging={isDragging} />
+      <CardLink student={student} isDragging={isDragging} columnId={columnId} />
     </div>
   )
 }
@@ -149,6 +233,7 @@ function DroppableColumn(props: ColumnProps) {
 }
 
 function Column({
+  id,
   title,
   subtitle,
   students,
@@ -206,7 +291,7 @@ function Column({
         {canDrag ? (
           <SortableContext items={students.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {students.map((student) => (
-              <DraggableCard key={student.id} student={student} />
+              <DraggableCard key={student.id} student={student} columnId={id} />
             ))}
           </SortableContext>
         ) : (
@@ -215,7 +300,9 @@ function Column({
         {students.length === 0 && (
           <div className="px-1 py-4 text-center text-[11px] leading-snug text-p-muted2">
             {totalCount === 0
-              ? canDrag
+              ? id === UNASSIGNED_COLUMN
+                ? 'Все распределены'
+                : canDrag
                 ? 'Никого не ведёт. Перетащите сюда студента'
                 : 'Никого не ведёт'
               : hiddenBy === 'search'
@@ -252,6 +339,8 @@ interface DistributionBoardProps {
   statuses: ReadonlySet<string>
   canDrag: boolean
   onMove: (move: { studentId: string; from: string; to: string }) => void
+  /** Меню «⋯» на карточке: передать или снять без перетаскивания. */
+  onCardAction?: (action: BoardCardAction) => void
 }
 
 export const DistributionBoard: React.FC<DistributionBoardProps> = ({
@@ -260,6 +349,7 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   statuses,
   canDrag,
   onMove,
+  onCardAction,
 }) => {
   const [dragging, setDragging] = useState<BoardStudent | null>(null)
 
@@ -313,7 +403,7 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
         totalCount={board.unassigned.length}
         hiddenBy={hiddenBy}
         emphasis="warning"
-        canDrag={false}
+        canDrag={canDrag}
         href={`/students?missing_role=${board.role}`}
       />
       {board.columns.map((column) => (
@@ -335,6 +425,7 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   if (!canDrag) return <div className="overflow-x-auto pb-2">{content}</div>
 
   return (
+    <CardActionsContext.Provider value={onCardAction ?? null}>
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
@@ -345,5 +436,6 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
       <div className="overflow-x-auto pb-2">{content}</div>
       <DragOverlay>{dragging ? <StudentCard student={dragging} /> : null}</DragOverlay>
     </DndContext>
+    </CardActionsContext.Provider>
   )
 }

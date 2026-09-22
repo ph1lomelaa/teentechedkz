@@ -48,19 +48,43 @@ async def get_assignment_history(
         .where(MentorAssignmentHistory.student_id == student_id)
         .order_by(MentorAssignmentHistory.created_at.desc())
     )
+    items = result.scalars().all()
+    # Имена одним запросом: история показывается людям, а не идентификаторы.
+    user_ids = {
+        uid
+        for item in items
+        for uid in (item.previous_mentor_id, item.replacement_mentor_id, item.changed_by)
+        if uid is not None
+    }
+    names: dict = {}
+    if user_ids:
+        rows = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        names = dict(rows.all())
     return [
         {
             "id": str(item.id),
             "student_id": str(item.student_id),
             "role": item.role,
             "previous_mentor_id": str(item.previous_mentor_id) if item.previous_mentor_id else None,
+            "previous_mentor_name": names.get(item.previous_mentor_id),
             "replacement_mentor_id": str(item.replacement_mentor_id) if item.replacement_mentor_id else None,
+            "replacement_mentor_name": names.get(item.replacement_mentor_id),
             "reason": item.reason,
-            "changed_by": str(item.changed_by),
+            "changed_by": str(item.changed_by) if item.changed_by else None,
+            "changed_by_name": names.get(item.changed_by),
             "created_at": item.created_at.isoformat(),
         }
-        for item in result.scalars()
+        for item in items
     ]
+
+
+def self_assign_role(user: User) -> MentorRole:
+    """Роль, в которой сотрудник «добавляет себя» к студенту.
+
+    Раньше всегда была `lead`: МЗК-менеджер, нажавший «Добавить себя»,
+    становился ментором по УП вместо МЗК.
+    """
+    return MentorRole.mzk if user.role == UserRole.mzk_manager else MentorRole.lead
 
 
 @router.post("/student/{student_id}/self")
@@ -70,26 +94,50 @@ async def assign_self(
     current_user: CurrentUser,
 ):
     require_access(current_user, "mentor_assignments", Action.manage)
+    role = self_assign_role(current_user)
+
+    # Роль занята другим — молча вставать вторым нельзя: так у студентов и
+    # появлялись два «ментора по УП» сразу, а следующая замена падала на них.
+    occupied = await db.execute(
+        select(MentorAssignment.id).where(
+            MentorAssignment.student_id == student_id,
+            MentorAssignment.role == role,
+            MentorAssignment.is_active == True,  # noqa: E712
+            MentorAssignment.mentor_id.is_not(None),
+            MentorAssignment.mentor_id != current_user.id,
+        ).limit(1)
+    )
+    if occupied.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Роль уже занята — замените ответственного в «Команде ученика»",
+        )
+
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))
         .where(
             MentorAssignment.student_id == student_id,
-            MentorAssignment.role == MentorRole.lead,
+            MentorAssignment.role == role,
             (MentorAssignment.mentor_id == current_user.id) | (MentorAssignment.mentor_id.is_(None)),
         )
     )
-    ma = result.scalar_one_or_none()
+    # Своя строка важнее плейсхолдера «требуется назначение».
+    rows = sorted(result.scalars().all(), key=lambda a: a.mentor_id is None)
+    ma = rows[0] if rows else None
     if ma:
+        ma.mentor_id = current_user.id
         ma.is_active = True
     else:
         ma = MentorAssignment(
             student_id=student_id,
             mentor_id=current_user.id,
-            role=MentorRole.lead,
+            role=role,
             is_active=True,
         )
         db.add(ma)
+    if role == MentorRole.mzk:
+        await _mirror_mzk_to_contract(db, student_id, current_user.id)
     ma.assignment_status = "awaiting_signature" if await has_pending_agreement_signature(db, current_user) else "active"
     await db.commit()
     await db.refresh(ma)
@@ -115,9 +163,12 @@ async def update_self_assignment(
         .where(
             MentorAssignment.student_id == student_id,
             MentorAssignment.mentor_id == current_user.id,
+            # Без роли запрос находил две строки у того, кто ведёт студента
+            # в двух ролях (МЗК и ментор по УП), и падал с 500.
+            MentorAssignment.role == self_assign_role(current_user),
         )
     )
-    ma = result.scalar_one_or_none()
+    ma = result.scalars().first()
     if not ma:
         raise HTTPException(status_code=404, detail="Назначение не найдено")
     if "is_active" in body:
@@ -227,14 +278,8 @@ async def _assign_one(
         )
     )
     same = same_result.scalars().first()
-    if same is not None:
-        if same.is_active:
-            return "already", same
-        same.is_active = True
-        same.assignment_status = assignment_status
-        if role == MentorRole.mzk:
-            await _mirror_mzk_to_contract(db, student_id, mentor_id)
-        return "created", same
+    if same is not None and same.is_active:
+        return "already", same
 
     active_result = await db.execute(
         select(MentorAssignment)
@@ -247,12 +292,15 @@ async def _assign_one(
         )
         .with_for_update()
     )
-    previous = active_result.scalar_one_or_none()
-    if previous and not replacement_reason.strip():
+    # Все, а не один: старые двойники в роли (два активных сразу) роняли
+    # scalar_one_or_none() с MultipleResultsFound, и замена отвечала 500.
+    # Замена снимает всех — после неё в роли снова один человек.
+    previous_all = active_result.scalars().all()
+    if previous_all and not replacement_reason.strip():
         return "needs_reason", None
 
     outcome = "created"
-    if previous:
+    for previous in previous_all:
         previous.is_active = False
         previous.assignment_status = "replaced"
         db.add(MentorAssignmentHistory(
@@ -264,6 +312,16 @@ async def _assign_one(
             changed_by=actor_id,
         ))
         outcome = "replaced"
+
+    # Снятая строка на этого же специалиста включается обратно — но только
+    # после того, как текущий в роли снят выше. Раньше включение шло первым и
+    # мимо замены, и в роли оказывалось двое активных.
+    if same is not None:
+        same.is_active = True
+        same.assignment_status = assignment_status
+        if role == MentorRole.mzk:
+            await _mirror_mzk_to_contract(db, student_id, mentor_id)
+        return outcome, same
 
     required_result = await db.execute(
         select(MentorAssignment).where(
@@ -498,6 +556,71 @@ async def update_assignment(
         .where(MentorAssignment.id == ma.id)
     )
     return _ma_to_dict(result.scalar_one())
+
+
+async def _clear_mzk_mirror(db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID) -> None:
+    """Пара к `_mirror_mzk_to_contract`: снятого МЗК убрать и из договора.
+
+    Только если в договоре стоит именно он — чужое значение не трогаем.
+    """
+    from app.models.contract import Contract
+
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.student_id == student_id)
+        .order_by(Contract.created_at.desc())
+        .limit(1)
+    )
+    contract = result.scalar_one_or_none()
+    if contract is not None and contract.mzk_manager_id == mentor_id:
+        contract.mzk_manager_id = None
+
+
+async def unassign_one(
+    db: AsyncSession, *, ma: MentorAssignment, reason: str, actor_id: uuid.UUID
+) -> None:
+    """Снять ответственного без замены. Коммит — на вызывающем.
+
+    Строку не удаляем, а выключаем: снятие должно оставить след в истории, и
+    повторное назначение того же человека включит эту же строку обратно
+    (см. `_assign_one`).
+    """
+    ma.is_active = False
+    ma.assignment_status = "removed"
+    db.add(MentorAssignmentHistory(
+        student_id=ma.student_id,
+        role=ma.role.value,
+        previous_mentor_id=ma.mentor_id,
+        replacement_mentor_id=None,
+        reason=reason,
+        changed_by=actor_id,
+    ))
+    if ma.role == MentorRole.mzk and ma.mentor_id is not None:
+        await _clear_mzk_mirror(db, ma.student_id, ma.mentor_id)
+
+
+@router.post("/{assignment_id}/unassign")
+async def unassign_assignment(
+    assignment_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Снять ответственного: из «Команды ученика» или броском в «Без
+    ответственного» на доске. Раньше снять было нельзя вообще — назначение
+    делалось один раз и навсегда."""
+    require_access(current_user, "mentor_assignments", Action.manage)
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Укажите причину снятия")
+    ma = await db.get(MentorAssignment, assignment_id)
+    if ma is None:
+        raise HTTPException(status_code=404, detail="Назначение не найдено")
+    if not ma.is_active:
+        raise HTTPException(status_code=409, detail="Ответственный уже снят")
+    await unassign_one(db, ma=ma, reason=reason, actor_id=current_user.id)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.delete("/{assignment_id}")

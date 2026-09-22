@@ -369,6 +369,17 @@ export interface BulkAssignResult {
   assignment_status: string
 }
 
+export interface AssignmentHistoryEntry {
+  id: string
+  role: string
+  previous_mentor_name: string | null
+  /** null — сняли без замены. */
+  replacement_mentor_name: string | null
+  reason: string
+  changed_by_name: string | null
+  created_at: string
+}
+
 export const mentorAssignmentsApi = {
   listByStudent: async (studentId: string): Promise<MentorAssignment[]> => {
     const response = await apiClient.get<MentorAssignment[]>(
@@ -378,7 +389,7 @@ export const mentorAssignmentsApi = {
   },
   create: async (
     studentId: string,
-    data: Partial<MentorAssignment>
+    data: Partial<MentorAssignment> & { replacement_reason?: string }
   ): Promise<MentorAssignment> => {
     const response = await apiClient.post<MentorAssignment>(
       `/mentor-assignments`,
@@ -415,6 +426,17 @@ export const mentorAssignmentsApi = {
     const response = await apiClient.patch<MentorAssignment>(
       `/mentor-assignments/student/${studentId}/self`,
       { is_active: isActive }
+    )
+    return response.data
+  },
+  /** Снять ответственного без замены. Причина обязательна — уходит в историю. */
+  unassign: async (assignmentId: string, reason: string): Promise<void> => {
+    await apiClient.post(`/mentor-assignments/${assignmentId}/unassign`, { reason })
+  },
+  /** Кто кого заменял и снимал, с причинами — новые сверху. */
+  history: async (studentId: string): Promise<AssignmentHistoryEntry[]> => {
+    const response = await apiClient.get<AssignmentHistoryEntry[]>(
+      `/mentor-assignments/student/${studentId}/history`
     )
     return response.data
   },

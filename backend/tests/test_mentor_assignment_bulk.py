@@ -52,6 +52,12 @@ class _Result:
     def first(self):
         return self._row
 
+    def all(self):
+        # Ответ может быть списком — так задаются двойники в одной роли.
+        if isinstance(self._row, list):
+            return self._row
+        return [self._row] if self._row is not None else []
+
 
 class FakeSession:
     """Отдаёт заранее заданные ответы на три SELECT'а внутри `_assign_one`.
@@ -171,6 +177,38 @@ class AssignOneTests(unittest.TestCase):
         self.assertTrue(ma.is_active)
         self.assertEqual(ma.assignment_status, "active")
         self.assertEqual(session.added, [], "создана вторая строка вместо возврата прежней")
+
+    def test_two_active_in_one_role_are_both_replaced(self) -> None:
+        # Двойники остались от старого «Добавить себя». Раньше
+        # scalar_one_or_none() на них падал с MultipleResultsFound (500), и
+        # заменить ответственного у такого студента было нельзя вообще.
+        first, second = _existing(uuid.uuid4()), _existing(uuid.uuid4())
+        session = FakeSession(active=[first, second])
+
+        outcome, _ = _call(session, reason="разбор двойников")
+
+        self.assertEqual(outcome, "replaced")
+        self.assertFalse(first.is_active)
+        self.assertFalse(second.is_active)
+        history = [x for x in session.added if isinstance(x, MentorAssignmentHistory)]
+        self.assertEqual(len(history), 2)
+
+    def test_reactivation_replaces_current_holder(self) -> None:
+        # «Сняли Мерей → назначили Аружан → вернули Мерей»: Аружан обязана
+        # сняться. Раньше включение прежней строки шло мимо замены, и в роли
+        # оказывалось двое активных.
+        mentor_id = uuid.uuid4()
+        removed = _existing(mentor_id)
+        removed.is_active = False
+        holder = _existing(uuid.uuid4())
+        session = FakeSession(same=removed, active=holder)
+
+        outcome, ma = _call(session, mentor_id=mentor_id, reason="вернули")
+
+        self.assertEqual(outcome, "replaced")
+        self.assertIs(ma, removed)
+        self.assertTrue(removed.is_active)
+        self.assertFalse(holder.is_active)
 
     def test_placeholder_assignment_is_filled_instead_of_duplicated(self) -> None:
         # Строка «ответственный требуется, но не назначен» должна заполняться,

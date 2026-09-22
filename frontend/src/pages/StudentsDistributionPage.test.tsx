@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * экране: колонки, счётчики, поиск и гейт по правам.
  */
 const boardCalls: unknown[] = []
+const unassignCalls: unknown[] = []
 
 const BOARD = {
   role: 'mzk',
@@ -47,6 +48,10 @@ vi.mock('@/api/index', () => ({
       return Promise.resolve(BOARD)
     },
     bulkAssign: () => Promise.resolve({ assigned: 1, replaced: 0, already: 0, skipped: [], assignment_status: 'active' }),
+    unassign: (assignmentId: string, reason: string) => {
+      unassignCalls.push({ assignmentId, reason })
+      return Promise.resolve()
+    },
   },
 }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
@@ -77,6 +82,7 @@ describe('доска распределения', () => {
   beforeEach(() => {
     localStorage.clear()
     boardCalls.length = 0
+    unassignCalls.length = 0
     canManage = true
   })
 
@@ -193,5 +199,31 @@ describe('доска распределения', () => {
 
     expect(screen.queryByText('Дана К.')).not.toBeInTheDocument()
     expect(screen.getAllByText('Нет студентов с выбранным статусом').length).toBeGreaterThan(0)
+  })
+
+  it('снимает ответственного из меню карточки — с причиной', async () => {
+    // Раньше назначение делалось один раз: снять было негде, ни с доски,
+    // ни из карточки.
+    renderPage()
+    await screen.findByText('Мерей А.')
+
+    fireEvent.click(screen.getByLabelText('Действия: Мерей А.'))
+    fireEvent.mouseDown(screen.getByText('Снять'))
+
+    expect(await screen.findByText('Снять ответственного')).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText(/студент перешёл/), { target: { value: 'перешёл к Алие' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Снять' }))
+
+    await waitFor(() =>
+      expect(unassignCalls).toContainEqual({ assignmentId: 'a1', reason: 'перешёл к Алие' }),
+    )
+  })
+
+  it('без права назначать меню на карточках нет', async () => {
+    canManage = false
+    renderPage()
+    await screen.findByText('Мерей А.')
+
+    expect(screen.queryByLabelText('Действия: Мерей А.')).not.toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -51,6 +51,7 @@ import { ContractAddendaSection } from '@/components/shared/ContractAddendaSecti
 import { PortalAccessSection } from '@/components/shared/PortalAccessSection'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { DeleteStudentSection } from '@/components/students/DeleteStudentSection'
+import { StudentTeamSection } from '@/components/students/StudentTeamSection'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DOC_TYPE_LABELS,
@@ -67,10 +68,6 @@ import {
   Document,
   NoteVisibility,
   StudentTimelineItem,
-  MENTOR_ROLE_LABELS,
-  ASSIGNABLE_MENTOR_ROLES,
-  splitAssignCandidates,
-  ROLE_USER_SOURCE,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -613,17 +610,6 @@ export const StudentCardPage: React.FC = () => {
   const [pushNotionConfirm, setPushNotionConfirm] = useState<NotionComparisonRow | null>(null)
   // Предложение записать в Notion после правки поля договора (см. CONTRACT_PUSH_FIELDS).
   const [pendingNotionPush, setPendingNotionPush] = useState<{ field: string; label: string } | null>(null)
-  const [mentorToAssign, setMentorToAssign] = useState('')
-  const [assignmentRole, setAssignmentRole] = useState('lead')
-  // Смена роли обнуляет выбранного человека: на МЗК назначают менеджера, на
-  // остальные роли — ментора, и оставшийся в поле ментор уехал бы как МЗК.
-  const changeAssignmentRole = (role: string) => {
-    setAssignmentRole(role)
-    setMentorToAssign('')
-  }
-  const [assignmentZone, setAssignmentZone] = useState('')
-  const [assignmentCountry, setAssignmentCountry] = useState('')
-  const [assignmentDueDate, setAssignmentDueDate] = useState('')
 
   const { data: student, isLoading, error, refetch } = useQuery<StudentFull>({
     queryKey: studentKeys.detail(id),
@@ -647,22 +633,6 @@ export const StudentCardPage: React.FC = () => {
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
     enabled: can('users', 'view'),
   })
-
-  // Кого предлагать под выбранную роль: МЗК ведёт студента целиком, и назначают
-  // на неё менеджера, а не ментора. Правило общее с общей базой (ROLE_USER_SOURCE).
-  const assignsManager = ROLE_USER_SOURCE[assignmentRole] === 'mzk_manager'
-  const assignableForRole = assignsManager ? mzkManagers : mentors
-  // Заявленные на эту специализацию — сверху, остальные ниже и по-прежнему
-  // выбираемы (splitAssignCandidates объясняет, почему не жёсткий фильтр).
-  const assignCandidateGroups = useMemo(() => {
-    const { matching, others } = splitAssignCandidates(assignableForRole, assignmentRole)
-    // Заголовок группы рисуем, только если групп две: когда специализации ещё
-    // ни у кого не проставлены, «Другие сотрудники» над всем списком — шум.
-    return [
-      { title: MENTOR_ROLE_LABELS[assignmentRole] ?? 'Эта роль', users: matching },
-      { title: 'Другие сотрудники', users: others },
-    ].filter((group) => group.users.length > 0)
-  }, [assignableForRole, assignmentRole])
 
   const { data: history = [] } = useQuery({
     queryKey: studentKeys.history(id),
@@ -785,39 +755,8 @@ export const StudentCardPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       toast({ title: 'Студент добавлен в ваши' })
     },
-    onError: () => toast({ title: 'Ошибка', description: 'Не удалось взять студента', variant: 'destructive' }),
-  })
-
-  const assignMentorMutation = useMutation({
-    mutationFn: (mentorId: string) =>
-      mentorAssignmentsApi.create(id!, {
-        mentor_id: mentorId,
-        role: assignmentRole,
-        functional_zone: assignmentZone || null,
-        country_scope: assignmentCountry || null,
-        first_task_due_date: assignmentDueDate || null,
-        is_active: true,
-      }),
-    onSuccess: () => {
-      invalidateStudent(queryClient, id)
-      queryClient.invalidateQueries({ queryKey: ['students'] })
-      queryClient.invalidateQueries({ queryKey: ['my-students'] })
-      setMentorToAssign('')
-      setAssignmentRole('lead')
-      setAssignmentZone('')
-      setAssignmentCountry('')
-      setAssignmentDueDate('')
-      toast({
-        title: 'Ментор назначен',
-        description: 'Студент появится у этого ментора в CRM «Мои студенты» и в личном кабинете.',
-      })
-    },
-    onError: () =>
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось назначить ментора',
-        variant: 'destructive',
-      }),
+    // 409 «роль уже занята» — показываем текст бэкенда: он говорит, что делать.
+    onError: (err) => toast({ title: 'Не удалось взять студента', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const unassignSelfMutation = useMutation({
@@ -1219,130 +1158,13 @@ export const StudentCardPage: React.FC = () => {
             Команда ученика
           </AccordionTrigger>
           <AccordionContent>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-p-muted">МЗК:</span>
-                <span className="font-medium text-p-text">{contract?.mzk_manager_name || '—'}</span>
-              </div>
-              {(() => {
-                const requiredRoles: Array<'career' | 'ielts' | 'lead' | 'country'> = ['career', 'ielts', 'lead', 'country']
-                const missingRoles = student.team_readiness?.missing_roles ?? requiredRoles.filter(
-                  (role) => !student.responsibles?.some((r) => r.role === role && r.is_active)
-                )
-                if (missingRoles.length === 0) return null
-                return (
-                  <div className="flex flex-wrap gap-2">
-                    {missingRoles.map((role) => (
-                      <span
-                        key={role}
-                        className="inline-flex items-center gap-1.5 rounded-pill border border-amber-300 bg-amber-50 px-2 py-1 text-2xs font-semibold uppercase tracking-wide text-amber-700"
-                      >
-                        {MENTOR_ROLE_LABELS[role]}: требуется назначение
-                      </span>
-                    ))}
-                  </div>
-                )
-              })()}
-              {student.responsibles && student.responsibles.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {student.responsibles.map((responsible) => (
-                    <span
-                      key={responsible.assignment_id || responsible.id}
-                      className={`inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 text-xs ${
-                        responsible.is_active
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : 'border-p-line bg-p-bg text-p-muted2'
-                      }`}
-                    >
-                      {responsible.name || 'Без имени'}
-                      {responsible.role && (
-                        <span className="text-2xs uppercase tracking-wide opacity-70">
-                          {MENTOR_ROLE_LABELS[responsible.role] || responsible.role}
-                        </span>
-                      )}
-                      <span className="text-2xs uppercase tracking-wide opacity-70">
-                        {responsible.assignment_status === 'awaiting_signature'
-                          ? 'ожидает подписи'
-                          : responsible.is_active ? 'активен' : 'снят'}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-p-muted">Ответственные не назначены</p>
-              )}
-              <Button
-                variant={student.is_mine ? 'outline' : 'default'}
-                size="sm"
-                disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
-                onClick={() => {
-                  if (student.is_mine) unassignSelfMutation.mutate()
-                  else assignSelfMutation.mutate()
-                }}
-              >
-                {student.is_mine ? 'Снять с моих' : 'Добавить себя'}
-              </Button>
-              {can('mentor_assignments', 'manage') && (
-                <div className="rounded-panel border border-p-line bg-p-bg p-3">
-                  <div className="mb-2">
-                    <p className="text-sm font-medium text-p-text">Назначить ответственного</p>
-                    <p className="text-xs text-p-muted">
-                      После назначения студент появится у выбранного сотрудника в CRM «Мои студенты» и в его личном кабинете.
-                    </p>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    <Select value={assignmentRole} onValueChange={changeAssignmentRole}>
-                      <SelectTrigger className="bg-white"><SelectValue placeholder="Роль" /></SelectTrigger>
-                      <SelectContent>
-                        {ASSIGNABLE_MENTOR_ROLES.map((role) => (
-                          <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={mentorToAssign} onValueChange={setMentorToAssign}>
-                      <SelectTrigger className="sm:max-w-xs bg-white">
-                        <SelectValue placeholder={assignsManager ? 'Выберите менеджера' : 'Выберите ментора'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {assignableForRole.length === 0 ? (
-                          <div className="px-2 py-1.5 text-xs text-p-muted">Нет сотрудников с этой ролью</div>
-                        ) : (
-                          assignCandidateGroups.map((group) => (
-                            <React.Fragment key={group.title}>
-                              {assignCandidateGroups.length > 1 && (
-                                <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-p-muted2">
-                                  {group.title}
-                                </div>
-                              )}
-                              {group.users.map((mentor) => {
-                                const alreadyActive = student.responsibles?.some(
-                                  (responsible) => responsible.id === mentor.id && responsible.is_active
-                                )
-                                return (
-                                  <SelectItem key={mentor.id} value={mentor.id} disabled={alreadyActive}>
-                                    {mentor.name}{alreadyActive ? ' · уже назначен' : ''}
-                                  </SelectItem>
-                                )
-                              })}
-                            </React.Fragment>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <Input value={assignmentZone} onChange={(event) => setAssignmentZone(event.target.value)} placeholder="Функциональная зона" className="bg-white" />
-                    <Input value={assignmentCountry} onChange={(event) => setAssignmentCountry(event.target.value)} placeholder="Страна / область" className="bg-white" />
-                    <Input type="date" value={assignmentDueDate} onChange={(event) => setAssignmentDueDate(event.target.value)} className="bg-white" />
-                    <Button
-                      size="sm"
-                      disabled={!mentorToAssign || assignMentorMutation.isPending}
-                      onClick={() => assignMentorMutation.mutate(mentorToAssign)}
-                    >
-                      {assignMentorMutation.isPending ? 'Назначаем...' : 'Назначить'}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <StudentTeamSection
+              studentId={student.id}
+              responsibles={student.responsibles ?? []}
+              canManage={can('mentor_assignments', 'manage')}
+              mentors={mentors}
+              mzkManagers={mzkManagers}
+            />
           </AccordionContent>
         </AccordionItem>
 

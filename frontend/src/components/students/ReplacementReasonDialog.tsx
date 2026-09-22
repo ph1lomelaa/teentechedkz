@@ -24,6 +24,10 @@ import { Input } from '@/components/ui/primitives/input'
  *
  * Компонент отвечает только за текст и ввод: запрос делает вызывающий, он же
  * решает, по каким студентам его повторять.
+ *
+ * `mode="unassign"` — тот же вопрос для снятия без замены (кнопка «Снять» в
+ * «Команде ученика», бросок в «Без ответственного» на доске): снятие тоже
+ * пишется в историю, и причина там так же обязательна.
  */
 interface ReplacementReasonDialogProps {
   /** Кого заменяем. null — диалог закрыт. */
@@ -31,6 +35,9 @@ interface ReplacementReasonDialogProps {
   /** Имя нового ответственного, если известно, — иначе спрашиваем «вслепую». */
   targetName?: string | null
   isPending?: boolean
+  mode?: 'replace' | 'unassign'
+  /** Кого снимаем — для текста в режиме снятия. */
+  currentName?: string | null
   onConfirm: (reason: string) => void
   onCancel: () => void
 }
@@ -39,9 +46,12 @@ export const ReplacementReasonDialog: React.FC<ReplacementReasonDialogProps> = (
   studentCount,
   targetName,
   isPending,
+  mode = 'replace',
+  currentName,
   onConfirm,
   onCancel,
 }) => {
+  const unassign = mode === 'unassign'
   const [reason, setReason] = useState('')
   const open = studentCount !== null
 
@@ -55,19 +65,21 @@ export const ReplacementReasonDialog: React.FC<ReplacementReasonDialogProps> = (
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Нужна причина замены</DialogTitle>
+          <DialogTitle>{unassign ? 'Снять ответственного' : 'Нужна причина замены'}</DialogTitle>
           <DialogDescription>
-            {studentCount === 1
+            {unassign
+              ? `${currentName ? `${currentName} перестанет` : 'Ответственный перестанет'} вести этого студента, роль станет «требуется назначение». Снятие попадёт в историю — укажите причину.`
+              : studentCount === 1
               ? 'У этого студента уже есть ответственный этой роли. Замена попадёт в историю — укажите причину.'
               : `У ${studentCount} студентов уже есть ответственный этой роли. Замена попадёт в историю — укажите причину.`}
-            {targetName ? ` Новый ответственный — ${targetName}.` : ''}
+            {!unassign && targetName ? ` Новый ответственный — ${targetName}.` : ''}
           </DialogDescription>
         </DialogHeader>
         <Input
           autoFocus
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Например: ментор ушёл в отпуск"
+          placeholder={unassign ? 'Например: студент перешёл к другому МЗК' : 'Например: ментор ушёл в отпуск'}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && reason.trim() && !isPending) onConfirm(reason.trim())
           }}
@@ -77,7 +89,7 @@ export const ReplacementReasonDialog: React.FC<ReplacementReasonDialogProps> = (
             Отмена
           </Button>
           <Button disabled={!reason.trim() || isPending} onClick={() => onConfirm(reason.trim())}>
-            {isPending ? 'Заменяем…' : 'Заменить'}
+            {unassign ? (isPending ? 'Снимаем…' : 'Снять') : isPending ? 'Заменяем…' : 'Заменить'}
           </Button>
         </DialogFooter>
       </DialogContent>

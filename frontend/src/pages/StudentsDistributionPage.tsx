@@ -18,7 +18,27 @@ import { Input } from '@/components/ui/primitives/input'
 import { QueryState } from '@/components/shared/QueryState'
 import { FilterField, FilterPopover } from '@/components/shared/FilterPopover'
 import { Checkbox } from '@/components/ui/primitives/checkbox'
-import { DistributionBoard, boardStatusKey } from '@/components/students/DistributionBoard'
+import {
+  BoardCardAction,
+  DistributionBoard,
+  UNASSIGNED_COLUMN,
+  boardStatusKey,
+} from '@/components/students/DistributionBoard'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/primitives/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/primitives/select'
 import { ReplacementReasonDialog } from '@/components/students/ReplacementReasonDialog'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
@@ -158,6 +178,54 @@ export const StudentsDistributionPage: React.FC = () => {
     },
   })
 
+  // Снятие ответственного: бросок в «Без ответственного» или «Снять» в меню
+  // карточки. Сначала причина — отмена диалога ничего не меняет.
+  const [pendingUnassign, setPendingUnassign] = useState<{
+    assignmentId: string
+    studentName: string
+    staffName: string | null
+  } | null>(null)
+
+  const unassignMutation = useMutation({
+    mutationFn: (vars: { assignmentId: string; reason: string }) =>
+      mentorAssignmentsApi.unassign(vars.assignmentId, vars.reason),
+    onSuccess: () => {
+      setPendingUnassign(null)
+      qc.invalidateQueries({ queryKey: ['assignment-board'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Ответственный снят' })
+    },
+    onError: (err) => {
+      setPendingUnassign(null)
+      toast({ title: 'Не удалось снять', description: getErrorMessage(err), variant: 'destructive' })
+    },
+  })
+
+  // «Передать…» / «Назначить…» из меню карточки — выбор сотрудника вместо броска.
+  const [transferFor, setTransferFor] = useState<{ studentId: string; studentName: string; from: string } | null>(null)
+  const [transferTo, setTransferTo] = useState('')
+
+  const askUnassign = (studentId: string, from: string) => {
+    const column = data?.columns.find((c) => c.staff_id === from)
+    const student = column?.students.find((s) => s.id === studentId)
+    if (!student?.assignment_id) return
+    setPendingUnassign({
+      assignmentId: student.assignment_id,
+      studentName: student.full_name,
+      staffName: column?.name ?? null,
+    })
+  }
+
+  const handleCardAction = (action: BoardCardAction) => {
+    if (action.type === 'unassign') {
+      askUnassign(action.student.id, action.from)
+      return
+    }
+    setTransferTo('')
+    setTransferFor({ studentId: action.student.id, studentName: action.student.full_name, from: action.from })
+  }
+
   const roleTabs = useMemo(
     () =>
       ASSIGNABLE_MENTOR_ROLES.map((value) => ({
@@ -268,11 +336,67 @@ export const StudentsDistributionPage: React.FC = () => {
             statuses={statuses}
             canDrag={canDrag}
             onMove={(move) =>
-              assignMutation.mutate({ studentId: move.studentId, mentorId: move.to })
+              move.to === UNASSIGNED_COLUMN
+                ? askUnassign(move.studentId, move.from)
+                : assignMutation.mutate({ studentId: move.studentId, mentorId: move.to })
             }
+            onCardAction={handleCardAction}
           />
         )}
       </QueryState>
+
+      <ReplacementReasonDialog
+        mode="unassign"
+        studentCount={pendingUnassign ? 1 : null}
+        currentName={pendingUnassign?.staffName}
+        isPending={unassignMutation.isPending}
+        onCancel={() => setPendingUnassign(null)}
+        onConfirm={(reason) =>
+          pendingUnassign && unassignMutation.mutate({ assignmentId: pendingUnassign.assignmentId, reason })
+        }
+      />
+
+      <Dialog open={Boolean(transferFor)} onOpenChange={(open) => !open && setTransferFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {transferFor?.from === UNASSIGNED_COLUMN ? 'Назначить' : 'Передать'}: «{roleLabel}»
+            </DialogTitle>
+            <DialogDescription>{transferFor?.studentName}</DialogDescription>
+          </DialogHeader>
+          <Select value={transferTo} onValueChange={setTransferTo}>
+            <SelectTrigger>
+              <SelectValue placeholder="Кому" />
+            </SelectTrigger>
+            <SelectContent>
+              {data?.columns
+                .filter((c) => c.staff_id !== transferFor?.from)
+                .map((c) => (
+                  <SelectItem key={c.staff_id} value={c.staff_id}>
+                    {c.name} · {c.students.length}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferFor(null)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={!transferTo || assignMutation.isPending}
+              onClick={() => {
+                if (!transferFor) return
+                // Тот же путь, что у броска: если нужна причина замены,
+                // assignMutation сам переспросит её диалогом ниже.
+                assignMutation.mutate({ studentId: transferFor.studentId, mentorId: transferTo })
+                setTransferFor(null)
+              }}
+            >
+              {transferFor?.from === UNASSIGNED_COLUMN ? 'Назначить' : 'Передать'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ReplacementReasonDialog
         studentCount={pendingMove ? 1 : null}
