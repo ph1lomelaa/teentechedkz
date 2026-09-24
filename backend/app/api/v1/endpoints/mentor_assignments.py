@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -17,6 +18,8 @@ from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.mentor_assignment_history import MentorAssignmentHistory
 from app.models.user import User, UserRole
 from app.services.agreements import has_pending_agreement_signature
+from app.services.assignment_candidates import candidates_query
+from app.services.mentor_scope import default_assignment_role
 
 router = APIRouter(prefix="/mentor-assignments", tags=["mentor_assignments"])
 
@@ -81,10 +84,12 @@ async def get_assignment_history(
 def self_assign_role(user: User) -> MentorRole:
     """Роль, в которой сотрудник «добавляет себя» к студенту.
 
-    Раньше всегда была `lead`: МЗК-менеджер, нажавший «Добавить себя»,
-    становился ментором по УП вместо МЗК.
+    Правило одно на всю систему и живёт в mentor_scope: им же определяется роль,
+    когда сотрудник появляется у студента через встречу или роадмап. Пока копий
+    было две, «Взять в работу» и «завести встречу» давали одному человеку разные
+    роли у одного студента.
     """
-    return MentorRole.mzk if user.role == UserRole.mzk_manager else MentorRole.lead
+    return default_assignment_role(user)
 
 
 @router.post("/student/{student_id}/self")
@@ -163,12 +168,22 @@ async def update_self_assignment(
         .where(
             MentorAssignment.student_id == student_id,
             MentorAssignment.mentor_id == current_user.id,
-            # Без роли запрос находил две строки у того, кто ведёт студента
-            # в двух ролях (МЗК и ментор по УП), и падал с 500.
-            MentorAssignment.role == self_assign_role(current_user),
         )
     )
-    ma = result.scalars().first()
+    rows = result.scalars().all()
+    # Строк может быть несколько: человек ведёт студента и как МЗК, и как ментор
+    # по УП. Без выбора запрос падал с 500 (MultipleResultsFound), а по жёсткому
+    # равенству роли — промахивался: роль «Взять в работу» выводится из
+    # специализаций, а их админ меняет в настройках, и после правки сотрудник не
+    # мог снять с себя студента, которого сам же и взял.
+    #
+    # Берём ту, в которой он встал бы сейчас; если её нет — любую активную.
+    preferred = self_assign_role(current_user)
+    ma = (
+        next((row for row in rows if row.role == preferred), None)
+        or next((row for row in rows if row.is_active), None)
+        or (rows[0] if rows else None)
+    )
     if not ma:
         raise HTTPException(status_code=404, detail="Назначение не найдено")
     if "is_active" in body:
@@ -313,6 +328,14 @@ async def _assign_one(
         ))
         outcome = "replaced"
 
+    if previous_all:
+        # Снятие прежних должно дойти до БД раньше, чем появится новый активный.
+        # Без этого flush порядок определяет unit of work SQLAlchemy, а он внутри
+        # одного маппера делает INSERT до UPDATE — то есть новая строка вставлялась
+        # бы, пока прежняя ещё активна, и уникальный индекс на (student_id, role)
+        # (миграция 093) отклонял бы штатную замену.
+        await db.flush()
+
     # Снятая строка на этого же специалиста включается обратно — но только
     # после того, как текущий в роли снят выше. Раньше включение шло первым и
     # мимо замены, и в роли оказывалось двое активных.
@@ -357,8 +380,17 @@ async def _assign_one(
 
 
 def _parse_role(raw) -> MentorRole:
+    """Роль назначения из тела запроса — обязательна и явная.
+
+    Раньше пустое поле молча означало `lead`, и запрос, забывший роль, тихо
+    делал человека «Ментором по УП». Роль ответственного — не то, что стоит
+    угадывать по умолчанию: ошибку видно только в карточке студента и только
+    тому, кого назначили не туда.
+    """
+    if not raw:
+        raise HTTPException(status_code=422, detail="Укажите роль назначения")
     try:
-        return MentorRole(raw or "lead")
+        return MentorRole(raw)
     except ValueError:
         raise HTTPException(status_code=422, detail="Неверная роль ментора")
 
@@ -398,7 +430,20 @@ async def create_assignment(
     )
     if outcome == "needs_reason":
         raise HTTPException(status_code=422, detail="Для замены специалиста укажите причину")
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Роль заняли, пока шёл этот запрос. `with_for_update` выше держит
+        # существующие строки, но не пустую роль: два одновременных назначения на
+        # свободную роль доходят до вставки оба, и второго отсекает уникальный
+        # индекс (миграция 093). Для назначающего это не сбой сервера, а «вас
+        # опередили», и повторять запрос молча нельзя — он бы затёр чужое
+        # назначение без причины и записи в истории.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Роль только что занял другой сотрудник — обновите карточку",
+        )
     # mentor нужен для _ma_to_dict — грузим его явно (иначе ленивая загрузка в
     # async-контексте падает с MissingGreenlet).
     result = await db.execute(
@@ -514,8 +559,12 @@ async def update_assignment(
             reason = (body.get("replacement_reason") or "").strip()
             if not reason:
                 raise HTTPException(status_code=422, detail="Для замены специалиста укажите причину")
-            new_mentor = await db.get(User, new_mentor_id)
-            if not new_mentor or not new_mentor.is_active or new_mentor.role not in (UserRole.mentor, UserRole.mzk_manager):
+            # Правило «кого можно назначить» одно — _load_assignable_mentor.
+            # Здесь оно было своим и строже: админ не проходил, хотя через
+            # «Назначить» его назначить было можно, и та же замена из другого
+            # окна работала.
+            new_mentor = await _load_assignable_mentor(db, new_mentor_id)
+            if not new_mentor.is_active:
                 raise HTTPException(status_code=422, detail="Новый специалист недоступен")
             old_mentor_id = ma.mentor_id
             ma.mentor_id = new_mentor_id
@@ -656,12 +705,9 @@ def _ma_to_dict(a: MentorAssignment) -> dict:
 
 
 # ------------------------------------------------------------------ доска
-# Роли, для которых доска берёт колонки не из менторов. Совпадает с
-# ROLE_USER_SOURCE на фронте (frontend/src/types/index.ts): МЗК назначают из
-# mzk_manager, остальные роли — из менторов.
-_BOARD_STAFF_ROLE: dict[MentorRole, UserRole] = {
-    MentorRole.mzk: UserRole.mzk_manager,
-}
+# Кого доска показывает колонками — то же правило, что наполняет выпадашку
+# «кого назначить»: services/assignment_candidates.py. Раньше здесь была своя
+# карта ролей и свой фильтр, и доска с выпадашкой предлагали разных людей.
 
 
 def _board_student(student, pipeline_status: str | None, assignment=None) -> dict:
@@ -799,31 +845,13 @@ async def assignment_board(
         .order_by(Student.full_name)
     )
 
-    staff_role = _BOARD_STAFF_ROLE.get(mentor_role, UserRole.mentor)
-    staff_query = select(User).where(
-        User.role.in_([staff_role, UserRole.admin]),
-        User.is_active == True,  # noqa: E712
-    )
-    # Колонки — те, кто на эту роль и заявлен (users.mentor_specialties).
-    # Пока специализации не проставлены, фильтр дал бы доску без единой
-    # колонки, поэтому он включается, только если размечен хоть кто-то.
-    # Сотрудник с уже существующими назначениями колонку не теряет в любом
-    # случае — её создаёт сам assignment_rows в _build_board.
-    marked_exists = (
-        await db.execute(
-            select(User.id)
-            .where(
-                User.is_active == True,  # noqa: E712
-                User.mentor_specialties.any(mentor_role.value),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if marked_exists is not None:
-        staff_query = staff_query.where(
-            User.mentor_specialties.any(mentor_role.value)
-        )
-    staff_result = await db.execute(staff_query)
+    # Колонки — тот же пул, что в выпадашке «кого назначить»: специализация,
+    # либо соответствующая должность, либо админ. Прежний фильтр был уже — он
+    # требовал совпадения учётной роли И специализации, поэтому МЗК-менеджер,
+    # заведённый как ментор, на доску МЗК не попадал, хотя назначить его было
+    # можно. Сотрудник с уже существующими назначениями колонку не теряет в
+    # любом случае — её создаёт сам assignment_rows в _build_board.
+    staff_result = await db.execute(candidates_query(mentor_role))
 
     students_result = await db.execute(
         select(Student)

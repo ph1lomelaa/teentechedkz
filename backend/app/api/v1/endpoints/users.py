@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 import uuid
 
 from app.core.database import get_db
@@ -18,7 +18,9 @@ from app.models.mentor_assignment import MentorRole
 from app.models.student import Student
 from app.models.user import User, UserRole
 from app.services.agreements import audience_for_role
+from app.services.assignment_candidates import candidates_query
 from app.services.audit import record_audit
+from app.services.user_deletion import describe_blockers, user_blockers
 from app.services.excel_export import export_login_links
 from app.services.invites import issue_invite, invite_url
 from app.services.passwords import gen_password
@@ -120,6 +122,35 @@ async def list_users(
         query = query.where(User.mentor_specialties.any(specialty))
 
     result = await db.execute(query.order_by(User.name))
+    users = result.scalars().all()
+    agreement_statuses = await _agreement_status_by_user(db, users)
+    return [_user_to_dict(u, agreement_status=agreement_statuses.get(u.id)) for u in users]
+
+
+@router.get("/assignable")
+async def list_assignable_users(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+    role: str,
+):
+    """Кого можно назначить на роль в «Команде ученика».
+
+    Отдельная ручка, а не параметры `list_users`: правило «кто подходит роли»
+    сложнее одного фильтра (специализация ИЛИ должность ИЛИ админ, и только
+    активные), и пока его собирал фронт, список в карточке студента и колонки
+    доски распределения расходились. Правило целиком в
+    services/assignment_candidates.py, читают его оба экрана.
+
+    Путь объявлен до `/{user_id}`: иначе FastAPI примет «assignable» за uuid.
+    """
+    require_access(current_user, "users", Action.view)
+
+    try:
+        mentor_role = MentorRole(role)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Неизвестная роль: {role}")
+
+    result = await db.execute(candidates_query(mentor_role))
     users = result.scalars().all()
     agreement_statuses = await _agreement_status_by_user(db, users)
     return [_user_to_dict(u, agreement_status=agreement_statuses.get(u.id)) for u in users]
@@ -562,12 +593,17 @@ async def update_user(
     return _user_to_dict(user)
 
 
-@router.delete("/{user_id}")
+@router.post("/{user_id}/deactivate")
 async def deactivate_user(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    """Закрыть доступ, оставив всё, что человек сделал.
+
+    Раньше это был `DELETE /users/{id}` — имя обещало удаление, а метод снимал
+    `is_active`. Удаление теперь ниже и делает ровно то, что написано.
+    """
     require_access(current_user, "users", Action.manage)
 
     if user_id == current_user.id:
@@ -580,6 +616,91 @@ async def deactivate_user(
     await revoke_all_sessions(db, user.id)
     await db.commit()
     return {"message": "Пользователь деактивирован"}
+
+
+@router.get("/{user_id}/deletion-check")
+async def check_user_deletion(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Можно ли удалить аккаунт насовсем и что этому мешает.
+
+    Отдельная ручка, чтобы кнопка «Удалить» знала ответ до нажатия: узнать об
+    отказе из ошибки после подтверждения — худший момент для этого.
+    """
+    require_access(current_user, "users", Action.manage)
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    blockers = await user_blockers(db, user_id)
+    return {"can_delete": not blockers and user_id != current_user.id, "blockers": blockers}
+
+
+@router.delete("/{user_id}")
+async def delete_user(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Удалить аккаунт насовсем — только если за ним ничего не стоит.
+
+    Смысл ручки — убирать мусор: заведённые по ошибке дубли и приглашения,
+    которыми не воспользовались. Всё, что успело поработать, удалению не
+    подлежит: половина внешних ключей на `users.id` стоит с `CASCADE`, и
+    удаление унесло бы за собой чекины, оценки ОКК, штрафы, вознаграждения и
+    переписку. Для таких — деактивация, она и так закрывает доступ.
+    """
+    require_access(current_user, "users", Action.manage)
+
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # Последнего админа удалять нельзя: систему некому будет администрировать, а
+    # роль себе не выдашь — смена собственной роли запрещена (PATCH выше).
+    if user.role == UserRole.admin:
+        others = await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == UserRole.admin, User.id != user_id, User.is_active == True)  # noqa: E712
+        )
+        if not others:
+            raise HTTPException(
+                status_code=409, detail="Это последний администратор — сначала назначьте другого"
+            )
+
+    blockers = await user_blockers(db, user_id)
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Нельзя удалить: за сотрудником числится {describe_blockers(blockers)}. "
+                "Такого сотрудника можно только деактивировать."
+            ),
+        )
+
+    await revoke_all_sessions(db, user_id)
+    # Аудит переживает удаление: у audit_logs нет внешнего ключа на users, там
+    # только идентификатор и meta. Имя и почту кладём туда же — после DELETE
+    # восстановить их будет неоткуда, а вопрос «кто был этот id» возникнет.
+    record_audit(
+        db,
+        action=AuditAction.user_deleted,
+        actor=current_user,
+        target_user_id=user_id,
+        request=request,
+        meta={"name": user.name, "email": user.email, "role": user.role.value},
+    )
+    await db.delete(user)
+    await db.commit()
+    return {"message": "Пользователь удалён"}
 
 
 def _parse_specialties(raw) -> list[str]:

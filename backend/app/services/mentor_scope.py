@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mentor_assignment import MentorAssignment, MentorRole
+from app.models.mentor_assignment import ASSIGNABLE_ROLES, MentorAssignment, MentorRole
 from app.models.user import User, UserRole
 
 
@@ -82,29 +82,131 @@ async def primary_mentor_id(db: AsyncSession, student_id: uuid.UUID) -> uuid.UUI
     return any_active.scalar_one_or_none()
 
 
-async def ensure_lead_assignment(db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID) -> None:
-    """Ensure a mentor used by portal workflows is also visible in mentor scope.
+def default_assignment_role(user: User) -> MentorRole:
+    """Роль, в которой сотрудник по умолчанию встаёт к студенту.
 
-    This keeps roadmap.mentor_id / meeting.mentor_id / chat contacts aligned
-    with mentor_assignments, which is the access-control source for mentors.
+    Раньше роль выводилась из одного только `user.role`, и всё, что не
+    `mzk_manager`, становилось `lead`. Из-за этого профориентолог, заводивший
+    студенту встречу, оказывался в карточке «Ментором по УП» — не той ролью, в
+    которой он работает, и не той, за которую отвечает по регламенту.
+
+    Теперь спрашиваем сначала `mentor_specialties` — поле, где и написано, кем
+    человек работает. Если специализация ровно одна, это и есть ответ. Если их
+    несколько, угадывать нельзя: остаётся `lead`, а правильную роль выберут
+    руками через «Команду ученика».
+
+    Это подпись, а не право доступа: `mentor_specialties` по-прежнему не
+    участвует в require_access (см. models/user.py).
+    """
+    if user.role == UserRole.mzk_manager:
+        return MentorRole.mzk
+
+    assignable = {role.value for role in ASSIGNABLE_ROLES}
+    declared = [s for s in (user.mentor_specialties or []) if s in assignable]
+    if len(declared) == 1:
+        return MentorRole(declared[0])
+
+    return MentorRole.lead
+
+
+async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID) -> None:
+    """Сотрудник, которого портальные сценарии уже используют, должен быть виден
+    в назначениях — но ровно один раз и в своей роли.
+
+    Держит roadmap.mentor_id / meeting.mentor_id / контакты чата согласованными с
+    mentor_assignments.
+
+    Два правила, которых тут раньше не было:
+
+    1. Если у сотрудника уже есть ЛЮБОЕ активное назначение на этого студента —
+       не трогаем ничего. Прежняя версия смотрела только на роль `lead` и потому
+       заводила профориентологу вторую строку «Ментор по УП» при первой же
+       встрече: в «Команде ученика» человек начинал числиться дважды и в чужой
+       роли, а в истории замен об этом не было ни слова.
+    2. Новую строку заводим в роли из `default_assignment_role`, а не всегда в
+       `lead`.
+
+    Это по-прежнему тихая запись в обход `_assign_one` (без причины и истории) —
+    осознанно: тут не замена ответственного, а фиксация того, что и так
+    произошло. Замена чужого назначения этим путём невозможна: занятую роль
+    закрывает пункт 1 и уникальный индекс на (student_id, role).
     """
     existing = await db.execute(
         select(MentorAssignment).where(
             MentorAssignment.student_id == student_id,
             MentorAssignment.mentor_id == mentor_id,
-            MentorAssignment.role == MentorRole.lead,
         )
     )
-    assignment = existing.scalar_one_or_none()
-    if assignment:
-        assignment.is_active = True
+    rows = existing.scalars().all()
+    if any(row.is_active for row in rows):
+        return
+
+    mentor = (await db.execute(select(User).where(User.id == mentor_id))).scalar_one_or_none()
+    if mentor is None:
+        return
+    role = default_assignment_role(mentor)
+
+    # Снятое назначение включаем обратно, а не плодим второе — ровно так же
+    # ведут себя assign_self и _assign_one.
+    for row in rows:
+        if row.role == role:
+            row.is_active = True
+            await _mirror_mzk(db, student_id, mentor_id, role)
+            return
+
+    # Роль занята другим — молча вставать вторым нельзя, это работа «Команды
+    # ученика» с причиной и историей. Сотрудник останется mentor_id у встречи,
+    # но ответственным не станет.
+    occupied = await db.execute(
+        select(MentorAssignment.id).where(
+            MentorAssignment.student_id == student_id,
+            MentorAssignment.role == role,
+            MentorAssignment.is_active == True,  # noqa: E712
+            MentorAssignment.mentor_id.is_not(None),
+        ).limit(1)
+    )
+    if occupied.scalar_one_or_none() is not None:
+        return
+
+    # Плейсхолдер «требуется назначение» заполняем, а не дублируем.
+    placeholder = await db.execute(
+        select(MentorAssignment).where(
+            MentorAssignment.student_id == student_id,
+            MentorAssignment.role == role,
+            MentorAssignment.mentor_id.is_(None),
+        ).limit(1)
+    )
+    slot = placeholder.scalar_one_or_none()
+    if slot is not None:
+        slot.mentor_id = mentor_id
+        slot.is_active = True
+        slot.assignment_status = "active"
+        await _mirror_mzk(db, student_id, mentor_id, role)
         return
 
     db.add(
         MentorAssignment(
             student_id=student_id,
             mentor_id=mentor_id,
-            role=MentorRole.lead,
+            role=role,
             is_active=True,
         )
     )
+    await _mirror_mzk(db, student_id, mentor_id, role)
+
+
+async def _mirror_mzk(
+    db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID, role: MentorRole
+) -> None:
+    """Продублировать назначение МЗК в договор, если роль оказалась `mzk`.
+
+    Шесть мест до сих пор читают `contracts.mzk_manager_id` (задачи, платежи,
+    уведомления), поэтому МЗК, попавший в назначения этим путём, без зеркала не
+    увидел бы своих студентов. Импорт локальный: `mentor_assignments` — это
+    endpoints, и на уровне модуля он бы замкнул цикл через этот же сервис.
+    """
+    if role != MentorRole.mzk:
+        return
+    from app.api.v1.endpoints.mentor_assignments import _mirror_mzk_to_contract
+
+    await _mirror_mzk_to_contract(db, student_id, mentor_id)

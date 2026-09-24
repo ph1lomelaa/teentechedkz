@@ -49,6 +49,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   DEGREE_LEVEL_LABELS,
   DOC_TYPE_LABELS,
+  MENTOR_ROLE_LABELS,
   PIPELINE_STATUS_LABELS,
   SERVICE_STATUS_LABELS,
   SERVICE_TYPE_LABELS,
@@ -494,7 +495,11 @@ function CardListView({
           ) : (
             <div className="flex flex-wrap gap-2">
               {responsibles.map((person) => (
-                <Badge key={`${person.id}-${person.role}`}>{person.name || 'Сотрудник'} · {person.role}</Badge>
+                // Роль назначения — подписью, а не ключом: здесь печаталось
+                // сырое 'lead' / 'career' вместо «Ментор по УП» и «Профориентолог».
+                <Badge key={`${person.id}-${person.role}`}>
+                  {person.name || 'Сотрудник'} · {(person.role && MENTOR_ROLE_LABELS[person.role]) || person.role || '—'}
+                </Badge>
               ))}
             </div>
           )}

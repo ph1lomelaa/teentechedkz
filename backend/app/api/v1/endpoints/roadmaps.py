@@ -28,7 +28,7 @@ from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.services import background_jobs
 from app.services.country_flags import attach_flags
-from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
+from app.services.mentor_scope import ensure_assignment_exists, primary_mentor_id, require_student_access
 from app.services.notify import dismiss_unread, has_unread, notify, push_notification, push_ws
 from app.services.questionnaire_seed import seed_questionnaire_for_task
 from app.services.roadmap_rules import (
@@ -315,7 +315,7 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
     if mentor_id is None:
         mentor_id = await primary_mentor_id(db, body.student_id)
     if mentor_id is not None:
-        await ensure_lead_assignment(db, body.student_id, mentor_id)
+        await ensure_assignment_exists(db, body.student_id, mentor_id)
 
     roadmap = Roadmap(
         student_id=body.student_id, mentor_id=mentor_id, template_id=tpl.id,

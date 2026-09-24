@@ -482,8 +482,21 @@ export const historyApi = {
 }
 
 export const usersApi = {
-  list: async (params?: { role?: string; specialty?: string }): Promise<User[]> => {
+  list: async (params?: { role?: string; specialty?: string; is_active?: boolean }): Promise<User[]> => {
     const response = await apiClient.get<User[]>('/users', { params })
+    return response.data
+  },
+  /**
+   * Кого можно назначить на роль в «Команде ученика».
+   *
+   * Правило целиком на бэкенде (services/assignment_candidates.py): активные
+   * сотрудники, у которых эта роль в специализациях, либо соответствующая
+   * должность, либо админ. Раньше список собирал фронт запросом
+   * `list({ role: 'mzk_manager' })`, и МЗК-менеджер с учётной ролью «Ментор» в
+   * выпадашку МЗК не попадал вовсе.
+   */
+  listAssignable: async (role: string): Promise<User[]> => {
+    const response = await apiClient.get<User[]>('/users/assignable', { params: { role } })
     return response.data
   },
   create: async (data: Partial<User> & { password?: string }): Promise<User> => {
@@ -567,6 +580,32 @@ export const usersApi = {
     const response = await apiClient.post<{ temp_password: string }>(`/users/${id}/reset-password`)
     return response.data
   },
+  /**
+   * Можно ли удалить аккаунт насовсем и что этому мешает.
+   *
+   * Спрашиваем до нажатия «Удалить»: узнать об отказе из ошибки после
+   * подтверждения — худший момент.
+   */
+  deletionCheck: async (id: string): Promise<{ can_delete: boolean; blockers: UserDeletionBlocker[] }> => {
+    const response = await apiClient.get<{ can_delete: boolean; blockers: UserDeletionBlocker[] }>(
+      `/users/${id}/deletion-check`,
+    )
+    return response.data
+  },
+  /**
+   * Удалить аккаунт насовсем. Необратимо и разрешено только для аккаунтов, за
+   * которыми ничего не числится: всё остальное бэкенд отклоняет 409-м, потому
+   * что удаление унесло бы за собой историю по деньгам и регламентам.
+   */
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/users/${id}`)
+  },
+}
+
+/** Что держит аккаунт и не даёт его удалить: «3 назначения на студентов». */
+export interface UserDeletionBlocker {
+  entity: string
+  count: number
 }
 
 export interface Notification {

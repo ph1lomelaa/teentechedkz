@@ -72,8 +72,8 @@ export const MentorTasksBoard: React.FC<Props> = ({
     queryKey: ['users', 'assignable'],
     queryFn: async () => {
       const [m, z] = await Promise.all([
-        usersApi.list({ role: 'mentor' }),
-        usersApi.list({ role: 'mzk_manager' }),
+        usersApi.list({ role: 'mentor', is_active: true }),
+        usersApi.list({ role: 'mzk_manager', is_active: true }),
       ])
       return [...m, ...z]
     },

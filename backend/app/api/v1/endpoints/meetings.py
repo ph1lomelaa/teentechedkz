@@ -21,7 +21,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.services.ai_client import complete_with_fallback, provider_chain
-from app.services.mentor_scope import ensure_lead_assignment, primary_mentor_id, require_student_access
+from app.services.mentor_scope import ensure_assignment_exists, primary_mentor_id, require_student_access
 from app.services.note_sessions import generate_note_draft
 from app.services.student_notes import snapshot_student
 from app.models.student import Student
@@ -232,7 +232,7 @@ async def create_meeting(body: MeetingCreate, current_user: CurrentUser, db: Ann
     if mentor_id is None:
         mentor_id = await primary_mentor_id(db, body.student_id)
     if mentor_id is not None:
-        await ensure_lead_assignment(db, body.student_id, mentor_id)
+        await ensure_assignment_exists(db, body.student_id, mentor_id)
     meeting = Meeting(
         student_id=body.student_id, service_id=body.service_id, mentor_id=mentor_id, title=body.title,
         meeting_type=body.meeting_type, description=body.description, outcome=body.outcome,

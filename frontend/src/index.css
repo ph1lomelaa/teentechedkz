@@ -428,6 +428,17 @@ html[data-crm-theme='dark'] {
   --ring: 50 100% 50%;
 }
 
+/* Светлая тема для порталов. Без этого --primary в диалоге оставался дефолтным
+   чёрным (:root), а правило ниже про .bg-primary («жёлтый читается только с
+   чёрным текстом») красило подпись в #000 — кнопка «Снять»/«Назначить» в
+   диалоге выходила чёрным по чёрному. Кнопки в диалогах — тот же фирменный
+   жёлтый, что и на страницах (.crm-shell[data-theme='light']). */
+html[data-crm-theme='light'] {
+  --primary: 50 100% 50%;
+  --primary-foreground: 0 0% 4%;
+  --ring: 44 100% 32%;
+}
+
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.bg-white) { background-color: #141414 !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.bg-gray-50, .bg-gray-100, .bg-slate-50, .bg-slate-100) { background-color: #1C1C1C !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-slate-100, .border-slate-200, .border-slate-300) { border-color: #2A2A2A !important; }

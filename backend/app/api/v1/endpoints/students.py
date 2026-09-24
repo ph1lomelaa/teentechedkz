@@ -21,7 +21,7 @@ from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
 from app.models.contract import Contract
 from app.models.payment import PaymentType, PaymentStatus
-from app.models.mentor_assignment import MentorAssignment, MentorRole
+from app.models.mentor_assignment import REQUIRED_ROLES, MentorAssignment, MentorRole
 from app.models.guardian import Guardian
 from app.models.confidential_note import ConfidentialNote, note_visible_to_role
 from app.models.complaint import Complaint, ComplaintStatus
@@ -122,7 +122,7 @@ async def _student_responsibles(
     db: AsyncSession,
     student_id: uuid.UUID,
     current_user_id: uuid.UUID,
-) -> tuple[list[dict], bool]:
+) -> tuple[list[dict], bool, dict]:
     result = await db.execute(
         select(MentorAssignment)
         .options(selectinload(MentorAssignment.mentor))
@@ -130,7 +130,6 @@ async def _student_responsibles(
         .order_by(MentorAssignment.assigned_at.desc())
     )
     assignments = result.scalars().all()
-    required_roles = ("career", "ielts", "lead", "country")
     responsibles = [
         {
             "id": str(a.mentor_id),
@@ -148,10 +147,10 @@ async def _student_responsibles(
     is_mine = any(a.mentor_id == current_user_id and a.is_active for a in assignments)
     active_roles = {a.role.value for a in assignments if a.is_active and a.assignment_status == "active"}
     readiness = {
-        "required_roles": list(required_roles),
-        "ready_roles": [role for role in required_roles if role in active_roles],
-        "missing_roles": [role for role in required_roles if role not in active_roles],
-        "is_ready": all(role in active_roles for role in required_roles),
+        "required_roles": list(REQUIRED_ROLES),
+        "ready_roles": [role for role in REQUIRED_ROLES if role in active_roles],
+        "missing_roles": [role for role in REQUIRED_ROLES if role not in active_roles],
+        "is_ready": all(role in active_roles for role in REQUIRED_ROLES),
     }
     return responsibles, is_mine, readiness
 
@@ -1100,8 +1099,7 @@ async def create_student(
 
     # Create explicit placeholders so the case cannot look team-ready before
     # the mandatory roles have actually been assigned.
-    required_roles = (MentorRole.career, MentorRole.ielts, MentorRole.lead, MentorRole.country)
-    for role in required_roles:
+    for role in (MentorRole(value) for value in REQUIRED_ROLES):
         db.add(MentorAssignment(
             student_id=student.id,
             mentor_id=None,

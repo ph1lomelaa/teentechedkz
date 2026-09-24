@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock, Download, Link2 } from 'lucide-react'
+import { Plus, Edit2, UserX, UserCheck, LogOut, Users, Clock, Download, Link2, Trash2 } from 'lucide-react'
 import { usersApi } from '@/api/index'
 import { User, UserRole, ROLE_LABELS, ASSIGNABLE_MENTOR_ROLES, MENTOR_ROLE_LABELS } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -67,11 +67,16 @@ interface UserForm {
 const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
 
 /**
- * Специализации, которые проставляют ментору руками. Берём общий список
- * назначаемых ролей и убираем 'mzk': эту роль ведёт менеджер МЗК, а не ментор
- * (ROLE_USER_SOURCE), и в форме ментора она означала бы не то, что написано.
+ * Специализации, которые проставляют сотруднику руками — весь список
+ * назначаемых ролей, включая 'mzk'.
+ *
+ * Раньше 'mzk' отсюда выбрасывали, считая, что эту роль ведёт только менеджер
+ * МЗК по учётной роли. На практике человек может работать МЗК с учётной ролью
+ * «Ментор» — и тогда он не попадал в список «Назначить: МЗК» вообще, потому что
+ * список фильтровался по учётной роли. Теперь список кандидатов собирает бэкенд
+ * по специализации, и отметить её здесь — единственный способ это сказать.
  */
-const MENTOR_SPECIALTY_OPTIONS = ASSIGNABLE_MENTOR_ROLES.filter((role) => role !== 'mzk')
+const MENTOR_SPECIALTY_OPTIONS = ASSIGNABLE_MENTOR_ROLES
 
 /** Бейджи специализаций в строке таблицы и в карточке. */
 function SpecialtyBadges({ values }: { values?: string[] }) {
@@ -286,11 +291,12 @@ function UserModal({
                   <p className="text-xs text-p-muted mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
                 )}
               </div>
-              {/* Специализация только у ментора: у админа и МЗК своя роль в
-                  назначениях, и предлагать им «Профориентолог» — вводить в
-                  заблуждение. Список множественный: один ментор реально ведёт
-                  и IELTS, и страну. */}
-              {form.role === 'mentor' && (
+              {/* Специализация у любого сотрудника, а не только у ментора:
+                  именно она говорит, кем человек работает, и именно по ней
+                  собирается список «кого назначить». Ученику она не нужна —
+                  он в назначениях не участвует. Список множественный: один
+                  сотрудник реально ведёт и IELTS, и страну. */}
+              {form.role !== 'student' && (
                 <div>
                   <Label>Специализация</Label>
                   <div className="mt-1 space-y-2 rounded-panel border border-p-line p-3">
@@ -318,7 +324,8 @@ function UserModal({
                     })}
                   </div>
                   <p className="text-xs text-p-muted mt-1">
-                    Определяет, в каком списке «кого назначить» ментор появится. На права доступа не влияет.
+                    Определяет, в каком списке «кого назначить» сотрудник появится и в какой роли
+                    встанет к студенту, когда возьмёт его в работу. На права доступа не влияет.
                   </p>
                 </div>
               )}
@@ -511,6 +518,7 @@ export const SettingsUsersPage: React.FC = () => {
   const [editUser, setEditUser] = useState<User | undefined>()
   const [addOpen, setAddOpen] = useState(false)
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [linkTarget, setLinkTarget] = useState<User | null>(null)
   const [linksExportOpen, setLinksExportOpen] = useState(false)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
@@ -552,6 +560,30 @@ export const SettingsUsersPage: React.FC = () => {
     },
     onError: () => {
       toast({ title: 'Ошибка', variant: 'destructive' })
+    },
+  })
+
+  // Что держит аккаунт — спрашиваем при открытии диалога, чтобы кнопка
+  // «Удалить» была недоступна до подтверждения, а не отвечала отказом после.
+  const deletionCheck = useQuery({
+    queryKey: ['users', 'deletion-check', deleteTarget?.id],
+    queryFn: () => usersApi.deletionCheck(deleteTarget!.id),
+    enabled: Boolean(deleteTarget),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (user: User) => usersApi.remove(user.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setDeleteTarget(null)
+      toast({ title: 'Пользователь удалён' })
+    },
+    onError: (err) => {
+      toast({
+        title: 'Не удалось удалить',
+        description: getErrorMessage(err, 'Попробуйте ещё раз'),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -828,6 +860,20 @@ export const SettingsUsersPage: React.FC = () => {
                           <UserCheck className="w-3 h-3 text-emerald-700" />
                         )}
                       </Button>
+                      {/* Удаление — только у уже деактивированного аккаунта.
+                          Оно необратимо, и второй осознанный шаг тут дешевле
+                          любого диалога: сначала человек теряет доступ, и уже
+                          потом решается, нужен ли аккаунт вообще. */}
+                      {!user.is_active && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDeleteTarget(user)}
+                          title="Удалить аккаунт насовсем"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-600" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -913,6 +959,47 @@ export const SettingsUsersPage: React.FC = () => {
             >
               Деактивировать
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Удалить пользователя?</DialogTitle>
+            <DialogDescription>
+              {deletionCheck.isLoading && 'Проверяем, что за сотрудником числится...'}
+              {deletionCheck.data?.can_delete && (
+                <>
+                  {deleteTarget?.name} будет удалён насовсем. Это необратимо — в отличие от
+                  деактивации, аккаунт восстановить будет нельзя.
+                </>
+              )}
+              {deletionCheck.data && !deletionCheck.data.can_delete && (
+                <>
+                  Удалить нельзя: за сотрудником числится{' '}
+                  {deletionCheck.data.blockers
+                    .map((blocker) => `${blocker.count} ${blocker.entity}`)
+                    .join(', ') || 'незавершённая работа'}
+                  . Удаление унесло бы это с собой, поэтому такой аккаунт остаётся
+                  деактивированным — доступа у него уже нет.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              {deletionCheck.data && !deletionCheck.data.can_delete ? 'Понятно' : 'Отмена'}
+            </Button>
+            {deletionCheck.data?.can_delete && (
+              <Button
+                variant="destructive"
+                onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+                disabled={deleteMutation.isPending}
+              >
+                Удалить насовсем
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

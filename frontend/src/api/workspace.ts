@@ -22,6 +22,8 @@ export interface WorkspaceStudentBrief {
 export interface WorkspaceStudentSummary {
   student: WorkspaceStudentBrief
   primary_mentor: { id: string; name: string } | null
+  /** Роли (MentorRole), в которых смотрящий назначен на этого студента. */
+  my_roles: string[]
   roadmap: {
     id: string | null
     name: string | null

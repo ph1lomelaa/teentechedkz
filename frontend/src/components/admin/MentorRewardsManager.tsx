@@ -282,7 +282,7 @@ const CreateStageRewardDialog: React.FC<{ colorPrefix: AdminColorPrefix; onClose
   // Действующая ставка: именно она применится к этому начислению.
   const { stageLabel } = useRewardRules()
 
-  const { data: mentors = [] } = useQuery({ queryKey: ['users', 'mentor'], queryFn: () => usersApi.list({ role: 'mentor' }) })
+  const { data: mentors = [] } = useQuery({ queryKey: ['users', 'mentor'], queryFn: () => usersApi.list({ role: 'mentor', is_active: true }) })
   const { data: students = [] } = useQuery({ queryKey: ['students', 'all'], queryFn: () => studentsApi.getAll() })
 
   const mutation = useMutation({
@@ -348,7 +348,7 @@ const CreateTaskPenaltyDialog: React.FC<{ colorPrefix: AdminColorPrefix; onClose
   const [mentorId, setMentorId] = useState('')
   const [color, setColor] = useState<PenaltyColor>('yellow')
 
-  const { data: mentors = [] } = useQuery({ queryKey: ['users', 'mentor'], queryFn: () => usersApi.list({ role: 'mentor' }) })
+  const { data: mentors = [] } = useQuery({ queryKey: ['users', 'mentor'], queryFn: () => usersApi.list({ role: 'mentor', is_active: true }) })
   const { penaltyLabel } = useRewardRules()
 
   const mutation = useMutation({

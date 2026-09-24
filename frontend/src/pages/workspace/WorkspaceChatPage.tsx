@@ -21,7 +21,9 @@ import { QueryError } from '@/components/shared/QueryState'
 // else — student/client/unknown — renders on the client side (left). Keyed off
 // sender_role so the layout is consistent for every viewer, not just the person
 // whose own messages happen to be theirs (is_current_user).
-const STAFF_SIDE_ROLES = new Set(['mentor', 'admin', 'mzk_manager', 'staff'])
+// Роли сотрудников — те, что есть в UserRole. 'staff' здесь была лишней:
+// такого значения в системе нет, и проверка на неё никогда не срабатывала.
+const STAFF_SIDE_ROLES = new Set(['mentor', 'admin', 'mzk_manager'])
 function isStaffSide(senderRole?: string | null): boolean {
   return senderRole ? STAFF_SIDE_ROLES.has(senderRole) : false
 }

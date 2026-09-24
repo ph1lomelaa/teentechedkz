@@ -77,6 +77,12 @@ class FakeSession:
     def add(self, obj):
         self.added.append(obj)
 
+    async def flush(self):
+        """`_assign_one` сбрасывает снятие прежних до вставки нового: иначе
+        SQLAlchemy сделала бы INSERT раньше UPDATE и уникальный индекс на
+        (student_id, role) отклонил бы штатную замену. Здесь достаточно
+        заглушки — порядок SQL фейк не моделирует."""
+
 
 def _existing(mentor_id):
     ma = MentorAssignment(

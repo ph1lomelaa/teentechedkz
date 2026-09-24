@@ -1,13 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, History, Repeat, UserMinus, UserPlus } from 'lucide-react'
-import { mentorAssignmentsApi } from '@/api/index'
+import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import {
   ASSIGNABLE_MENTOR_ROLES,
   MENTOR_ROLE_LABELS,
-  ROLE_USER_SOURCE,
   ResponsibleUser,
-  User,
   splitAssignCandidates,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
@@ -54,9 +52,7 @@ export const StudentTeamSection: React.FC<{
   studentId: string
   responsibles: ResponsibleUser[]
   canManage: boolean
-  mentors: User[]
-  mzkManagers: User[]
-}> = ({ studentId, responsibles, canManage, mentors, mzkManagers }) => {
+}> = ({ studentId, responsibles, canManage }) => {
   const qc = useQueryClient()
   const [assignFor, setAssignFor] = useState<{ role: string; current: ResponsibleUser[] } | null>(null)
   const [unassignTarget, setUnassignTarget] = useState<ResponsibleUser | null>(null)
@@ -213,8 +209,6 @@ export const StudentTeamSection: React.FC<{
       <AssignRoleDialog
         target={assignFor}
         studentId={studentId}
-        mentors={mentors}
-        mzkManagers={mzkManagers}
         onClose={() => setAssignFor(null)}
         onDone={invalidate}
       />
@@ -238,15 +232,11 @@ export const StudentTeamSection: React.FC<{
 function AssignRoleDialog({
   target,
   studentId,
-  mentors,
-  mzkManagers,
   onClose,
   onDone,
 }: {
   target: { role: string; current: ResponsibleUser[] } | null
   studentId: string
-  mentors: User[]
-  mzkManagers: User[]
   onClose: () => void
   onDone: () => void
 }) {
@@ -272,7 +262,16 @@ function AssignRoleDialog({
     setDueDate('')
   }
 
-  const pool = ROLE_USER_SOURCE[role] === 'mzk_manager' ? mzkManagers : mentors
+  // Кандидатов спрашиваем по роли, а не выбираем из двух заранее загруженных
+  // пулов: правило «кто подходит роли» живёт на бэкенде и учитывает не только
+  // учётную роль, но и специализацию — иначе МЗК-менеджер, заведённый как
+  // ментор, в списке МЗК не появлялся.
+  const { data: pool = [] } = useQuery({
+    queryKey: ['users', 'assignable', role],
+    queryFn: () => usersApi.listAssignable(role),
+    enabled: Boolean(target),
+  })
+
   const groups = useMemo(() => {
     const { matching, others } = splitAssignCandidates(pool, role)
     return [

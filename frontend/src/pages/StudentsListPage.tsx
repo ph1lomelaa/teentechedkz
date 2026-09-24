@@ -16,10 +16,10 @@ import {
   DEGREE_LEVEL_COLORS,
   SERVICE_TYPE_LABELS,
   SERVICE_STATUS_LABELS,
+  ROLE_LABELS,
   MENTOR_ROLE_LABELS,
   ResponsibleUser,
   ASSIGNABLE_MENTOR_ROLES,
-  ROLE_USER_SOURCE,
   splitAssignCandidates,
   ServiceType,
   StudentListItem,
@@ -1115,12 +1115,15 @@ export const StudentsListPage: React.FC = () => {
       toast({ title: 'Не удалось назначить', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
-  // Кого предлагать во втором списке. МЗК ведут студента целиком, и назначают на
-  // эту роль менеджера, а не ментора — правило одно на все экраны (ROLE_USER_SOURCE).
-  const assignableUsers = useMemo(
-    () => (ROLE_USER_SOURCE[assignRole] === 'mzk_manager' ? mzkUsers : mentorUsers),
-    [assignRole, mzkUsers, mentorUsers],
-  )
+  // Кого предлагать во втором списке — спрашиваем по роли. Правило «кто подходит
+  // роли» целиком на бэкенде (services/assignment_candidates.py) и одно на все
+  // экраны: пока его собирал фронт по одной лишь учётной роли, МЗК-менеджер,
+  // заведённый как ментор, не появлялся в списке МЗК ни здесь, ни в карточке.
+  const { data: assignableUsers = [] } = useQuery({
+    queryKey: ['users', 'assignable', assignRole],
+    queryFn: () => usersApi.listAssignable(assignRole),
+    enabled: Boolean(assignRole),
+  })
 
   // Заявленные на эту специализацию — первыми. Правило и причины общие с
   // карточкой студента: splitAssignCandidates в types/index.ts.
@@ -1732,9 +1735,12 @@ export const StudentsListPage: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="any">Любая роль</SelectItem>
-                      <SelectItem value="mzk_manager">MZK</SelectItem>
-                      <SelectItem value="lead_mentor">Lead mentor / ментор</SelectItem>
-                      <SelectItem value="mentor">Ментор</SelectItem>
+                      <SelectItem value="mzk_manager">{ROLE_LABELS.mzk_manager}</SelectItem>
+                      {/* Не роль сотрудника, а ментор заявки в вуз
+                          (applications.lead_mentor_id) — подпись называет это
+                          прямо, иначе пункт читается как дубль «Ментора». */}
+                      <SelectItem value="lead_mentor">Ментор заявки</SelectItem>
+                      <SelectItem value="mentor">{ROLE_LABELS.mentor}</SelectItem>
                     </SelectContent>
                   </Select>
                   {responsibleRole !== 'any' && (

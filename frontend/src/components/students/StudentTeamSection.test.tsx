@@ -9,6 +9,8 @@ import type { ResponsibleUser } from '@/types'
  */
 vi.mock('@/api/index', () => ({
   mentorAssignmentsApi: { unassign: vi.fn(), history: vi.fn(() => Promise.resolve([])), create: vi.fn() },
+  // Кандидатов на роль диалог спрашивает сам — список больше не приходит пропсами.
+  usersApi: { listAssignable: vi.fn(() => Promise.resolve([])) },
 }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
 
@@ -32,8 +34,6 @@ function renderTeam(responsibles: ResponsibleUser[], canManage = true) {
         studentId="s1"
         responsibles={responsibles}
         canManage={canManage}
-        mentors={[]}
-        mzkManagers={[]}
       />
     </QueryClientProvider>,
   )

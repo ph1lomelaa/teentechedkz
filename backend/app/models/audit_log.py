@@ -42,6 +42,9 @@ class AuditAction(str, enum.Enum):
     agreement_signed = "agreement_signed"
     # Правка прав в конструкторе: кто, когда, что было и что стало.
     permission_changed = "permission_changed"
+    # Единственное необратимое действие в разделе пользователей. Имя и почта
+    # уходят в meta: после DELETE восстановить их будет неоткуда.
+    user_deleted = "user_deleted"
 
 
 class AuditLog(Base):

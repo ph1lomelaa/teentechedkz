@@ -23,6 +23,33 @@ class MentorRole(str, enum.Enum):
     mzk = "mzk"
 
 
+# Роли, которые назначают руками. Справочник MentorRole шире: в нём живут и роли
+# из старых данных (sat, portfolio, visa, english), а осознанно назначают только
+# эти — четыре менторские роли из регламента МЗК плюс сам МЗК.
+#
+# Порядок тот же, что на экранах (frontend/src/types/index.ts,
+# ASSIGNABLE_MENTOR_ROLES). Список один на бэкенд: от него зависят и список
+# «кого назначить», и роль по умолчанию при «Взять в работу», и разъехавшись, он
+# дал бы специализацию, под которую нельзя назначить.
+ASSIGNABLE_ROLES: tuple[MentorRole, ...] = (
+    MentorRole.career,
+    MentorRole.ielts,
+    MentorRole.lead,
+    MentorRole.country,
+    MentorRole.mzk,
+)
+
+
+# Роли, без которых команда ученика не считается собранной. МЗК сюда намеренно
+# не входит (см. комментарий к MentorRole.mzk выше).
+#
+# Один кортеж на бэкенд: по нему заводятся плейсхолдеры «требуется назначение»
+# при создании студента и считается team_readiness в карточке. Пока копий было
+# две, любое расхождение означало бы студента, у которого команда «собрана», но
+# плейсхолдер на роль так и не завели.
+REQUIRED_ROLES: tuple[str, ...] = ("career", "ielts", "lead", "country")
+
+
 class MentorAssignment(Base):
     __tablename__ = "mentor_assignments"
 

@@ -7,6 +7,7 @@ import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { debounce } from '@/lib/utils'
 import { Avatar, AppCard, AppInput, EmptyState, PageHeader, ProgressBar, Pill } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
+import { MENTOR_ROLE_LABELS } from '@/types'
 
 export const WorkspaceStudentsPage: React.FC = () => {
   const { params, isPreview } = useWorkspaceScope()
@@ -117,6 +118,20 @@ export const WorkspaceStudentsPage: React.FC = () => {
                   </small>
                 </div>
               </div>
+
+              {/* Кем именно человек числится у этого студента. Список «мои
+                  студенты» отвечал только на «кого я веду», и сотрудник узнавал
+                  свою роль лишь из карточки студента — обычно когда она
+                  оказывалась не той. */}
+              {item.my_roles.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {item.my_roles.map((role) => (
+                    <Pill colorPrefix="w" key={role}>
+                      {MENTOR_ROLE_LABELS[role] ?? role}
+                    </Pill>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-4">
                 {item.roadmap.id ? (

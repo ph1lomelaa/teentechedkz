@@ -45,7 +45,7 @@ export const MzkQualityManager: React.FC<Props> = ({ colorPrefix = 'w', canManag
 
   const { data: mzkManagers = [] } = useQuery({
     queryKey: ['users', 'mzk_manager'],
-    queryFn: () => usersApi.list({ role: 'mzk_manager' }),
+    queryFn: () => usersApi.list({ role: 'mzk_manager', is_active: true }),
     enabled: canManage,
   })
 

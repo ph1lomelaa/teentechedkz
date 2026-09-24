@@ -10,18 +10,13 @@ import { AppButton, EmptyState, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { CreateComplaintDialog } from '@/components/shared/CreateComplaintDialog'
 import { QueryState } from '@/components/shared/QueryState'
+import { ROLE_LABELS } from '@/types'
 
 const STATUS_LABELS: Record<ComplaintStatus, string> = {
   new: 'Новое',
   in_progress: 'В работе',
   answered: 'Отвечено',
   closed: 'Закрыто',
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Администратор',
-  mzk_manager: 'МЗК',
-  mentor: 'Ментор',
 }
 
 const CATEGORY_LABELS: Record<string, string> = {

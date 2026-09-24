@@ -145,7 +145,7 @@ export const NewStudentPage: React.FC = () => {
 
   const { data: mentors = [] } = useQuery({
     queryKey: ['users', 'mentor'],
-    queryFn: () => usersApi.list({ role: 'mentor' }),
+    queryFn: () => usersApi.list({ role: 'mentor', is_active: true }),
   })
 
   const { data: availableCountries = [] } = useQuery({

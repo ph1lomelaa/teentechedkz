@@ -40,6 +40,7 @@ import { useWsEvent } from '@/lib/ws'
 import { cn } from '@/lib/utils'
 import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
 import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
+import { ROLE_LABELS } from '@/types'
 
 interface NavItem {
   label: string
@@ -333,7 +334,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
           <div className="min-w-0 truncate text-xs tracking-wide text-w-muted2">
             TeenTechEd / <b className="text-w-ink">{crumb}</b>
             <div className="mt-1 truncate text-[11.5px] text-w-muted">
-              {user?.name || user?.email} · {user?.role}
+              {user?.name || user?.email} · {user?.role ? ROLE_LABELS[user.role] : '—'}
             </div>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
@@ -341,7 +342,10 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             <NotificationsBell variant="portal" />
             <div className="hidden items-center gap-2 rounded-full border border-w-line bg-w-panel px-2 py-1.5 sm:flex">
               <span className="max-w-[180px] truncate text-[11px] font-semibold text-w-muted">
-                {(user?.role || 'mentor')} · {user?.name || user?.email || 'Пользователь'}
+                {/* Подпись роли — через справочник. Раньше здесь печаталось сырое
+                    значение enum ('mzk_manager' латиницей) с дефолтом 'mentor',
+                    из-за которого МЗК видел в шапке «ментор». */}
+                {(user?.role ? ROLE_LABELS[user.role] : '—')} · {user?.name || user?.email || 'Пользователь'}
               </span>
               <span className="grid h-6 w-6 place-items-center rounded-full bg-w-accent text-[11px] font-black text-black">
                 {(user?.name || 'M').trim().charAt(0).toUpperCase()}

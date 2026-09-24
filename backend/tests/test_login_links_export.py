@@ -304,10 +304,32 @@ class SpecialtyIsNotAPermissionTests(unittest.TestCase):
     def test_the_permission_registry_does_not_read_it(self) -> None:
         self.assertNotIn("mentor_specialties", inspect.getsource(permissions))
 
-    def test_mentor_scope_does_not_read_it(self) -> None:
+    def test_the_access_gate_does_not_read_it(self) -> None:
+        # Проверяем именно функции доступа, а не весь модуль: `mentor_scope`
+        # теперь читает специализацию в `default_assignment_role`, но там это
+        # подпись — в какой роли записать сотрудника, когда он берёт студента.
+        # Кто какие карточки может открывать, решают только эти две.
         from app.services import mentor_scope
 
-        self.assertNotIn("mentor_specialties", inspect.getsource(mentor_scope))
+        for gate in (mentor_scope.mentor_assigned_student_ids, mentor_scope.require_student_access):
+            self.assertNotIn(
+                "mentor_specialties",
+                inspect.getsource(gate),
+                f"{gate.__name__} читает специализацию — подпись стала правом",
+            )
+
+    def test_the_assignment_role_helper_is_not_a_gate(self) -> None:
+        # Единственное место в mentor_scope, которому специализация разрешена.
+        # Если оно начнёт раздавать доступ, это будет видно здесь.
+        from app.services import mentor_scope
+
+        source = inspect.getsource(mentor_scope.default_assignment_role)
+        self.assertIn("mentor_specialties", source)
+        # Докстринг сам объясняет, почему это не право, и упоминает require_access —
+        # смотрим только на код.
+        body = source.replace(mentor_scope.default_assignment_role.__doc__ or "", "")
+        for forbidden in ("require_access", "HTTPException", "student_id"):
+            self.assertNotIn(forbidden, body)
 
     def test_changing_it_does_not_revoke_sessions(self) -> None:
         # Смена роли рвёт сессии намеренно (права изменились). Специализация

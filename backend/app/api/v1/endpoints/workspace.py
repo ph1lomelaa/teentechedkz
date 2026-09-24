@@ -430,8 +430,17 @@ async def _student_summary(db: AsyncSession, student: Student) -> dict:
     }
 
 
-async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[dict]:
-    """Build the workspace list in a fixed number of queries instead of per-student N+1 queries."""
+async def _student_summaries(
+    db: AsyncSession, students: list[Student], viewer_id: uuid.UUID | None = None
+) -> list[dict]:
+    """Build the workspace list in a fixed number of queries instead of per-student N+1 queries.
+
+    `viewer_id` добавляет каждой карточке `my_roles` — роли, в которых этот
+    сотрудник назначен на этого студента. Без него «Мои студенты» отвечали на
+    вопрос «кого я веду», но не «кем я здесь»: человек, назначенный МЗК, видел
+    у себя в шапке учётную роль и не понимал, почему в карточке студента он
+    записан иначе.
+    """
     if not students:
         return []
     student_ids = [student.id for student in students]
@@ -467,10 +476,13 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
     )
     fallback_mentors: dict[uuid.UUID, User] = {}
     lead_mentors: dict[uuid.UUID, User] = {}
+    viewer_roles: dict[uuid.UUID, list[str]] = {}
     for assignment, mentor in assignments_result.all():
         fallback_mentors.setdefault(assignment.student_id, mentor)
         if assignment.role == MentorRole.lead:
             lead_mentors.setdefault(assignment.student_id, mentor)
+        if viewer_id is not None and assignment.mentor_id == viewer_id:
+            viewer_roles.setdefault(assignment.student_id, []).append(assignment.role.value)
 
     async def grouped_counts(stmt) -> dict[uuid.UUID, int]:
         result = await db.execute(stmt)
@@ -598,6 +610,7 @@ async def _student_summaries(db: AsyncSession, students: list[Student]) -> list[
                 "portal_email": portal_user.email if portal_user else None,
             },
             "primary_mentor": {"id": str(mentor.id), "name": mentor.name} if mentor else None,
+            "my_roles": viewer_roles.get(student.id, []),
             "roadmap": roadmap_summary,
             "open_roadmap_tasks": max(roadmap_summary["tasks_total"] - roadmap_summary["tasks_done"], 0),
             "open_internal_tasks": open_tasks.get(student.id, 0),
@@ -898,8 +911,11 @@ async def workspace_students(
 ):
     require_access(current_user, "workspace", Action.view)
     students = await _students_for_workspace(db, current_user, mentor_id, own_only=(scope == "mine" and mentor_id is None))
+    # Роли считаем для того, чьими глазами смотрят: админ в режиме превью ментора
+    # должен видеть роли этого ментора, а не свои.
+    viewer_id = mentor_id or current_user.id
     return {
-        "items": await _student_summaries(db, students),
+        "items": await _student_summaries(db, students, viewer_id=viewer_id),
         "total": len(students),
     }
 

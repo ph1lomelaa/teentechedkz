@@ -55,6 +55,7 @@ import { StudentTeamSection } from '@/components/students/StudentTeamSection'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DOC_TYPE_LABELS,
+  MENTOR_ROLE_LABELS,
   SERVICE_TYPE_LABELS,
   SERVICE_STATUS_LABELS,
   PIPELINE_STATUS_LABELS,
@@ -749,11 +750,17 @@ export const StudentCardPage: React.FC = () => {
 
   const assignSelfMutation = useMutation({
     mutationFn: () => mentorAssignmentsApi.assignSelf(id!),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidateStudent(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
-      toast({ title: 'Студент добавлен в ваши' })
+      // Роль называем вслух: она выводится из специализаций, и молчаливое
+      // «студент добавлен» оставляло человека в уверенности, что он встал в той
+      // роли, в которой работает, — а узнавал он обратное из карточки студента.
+      toast({
+        title: 'Студент добавлен в ваши',
+        description: `Вы записаны как «${MENTOR_ROLE_LABELS[res.role] ?? res.role}». Изменить роль можно в «Команде ученика».`,
+      })
     },
     // 409 «роль уже занята» — показываем текст бэкенда: он говорит, что делать.
     onError: (err) => toast({ title: 'Не удалось взять студента', description: getErrorMessage(err), variant: 'destructive' }),
@@ -1162,8 +1169,6 @@ export const StudentCardPage: React.FC = () => {
               studentId={student.id}
               responsibles={student.responsibles ?? []}
               canManage={can('mentor_assignments', 'manage')}
-              mentors={mentors}
-              mzkManagers={mzkManagers}
             />
           </AccordionContent>
         </AccordionItem>
@@ -2237,13 +2242,16 @@ export const StudentCardPage: React.FC = () => {
                       aria-label="Исполнитель задачи"
                     >
                       <option value="">Без исполнителя</option>
+                      {/* Только активные: списки выше грузятся целиком, потому
+                          что по ним же ищут имя уже назначенного сотрудника, а
+                          предлагать уволенного в исполнители нельзя. */}
                       <optgroup label="Менторы">
-                        {mentors.map((user) => (
+                        {mentors.filter((u) => u.is_active).map((user) => (
                           <option key={user.id} value={user.id}>{user.name}</option>
                         ))}
                       </optgroup>
                       <optgroup label="МЗК">
-                        {mzkManagers.map((user) => (
+                        {mzkManagers.filter((u) => u.is_active).map((user) => (
                           <option key={user.id} value={user.id}>{user.name}</option>
                         ))}
                       </optgroup>

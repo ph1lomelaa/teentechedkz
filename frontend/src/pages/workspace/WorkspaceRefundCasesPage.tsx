@@ -131,7 +131,7 @@ const CreateRefundCaseDialog: React.FC<{ onClose: () => void }> = ({ onClose }) 
 
   const { data: mzkManagers = [] } = useQuery({
     queryKey: ['users', 'mzk_manager'],
-    queryFn: () => usersApi.list({ role: 'mzk_manager' }),
+    queryFn: () => usersApi.list({ role: 'mzk_manager', is_active: true }),
   })
   const [mzkManagerId, setMzkManagerId] = useState('')
 
