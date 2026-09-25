@@ -3,6 +3,14 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X, UserPlus, LayoutGrid } from 'lucide-react'
 import { studentsApi } from '@/api/students'
+// Общие с «Моими студентами»: обе страницы отбирают один и тот же список,
+// и вторая копия «Контроля работы» отвечала бы иначе на том же вопросе.
+import {
+  activeResponsibles,
+  matchesOperationalFilter,
+  OPERATIONAL_FILTER_LABELS,
+  type OperationalFilter,
+} from '@/lib/studentFilters'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import { syncApi, IntakeSubmission, SheetCounters } from '@/api/sync'
 import { notionApi, NotionSnapshotItem } from '@/api/notion'
@@ -18,11 +26,9 @@ import {
   SERVICE_STATUS_LABELS,
   ROLE_LABELS,
   MENTOR_ROLE_LABELS,
-  ResponsibleUser,
   ASSIGNABLE_MENTOR_ROLES,
   splitAssignCandidates,
   ServiceType,
-  StudentListItem,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
 import { PageHeader } from '@/components/ui'
@@ -64,58 +70,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
-export type OperationalFilter = 'all' | 'no_roadmap' | 'no_meeting' | 'telegram_unlinked' | 'open_tasks' | 'docs_review' | 'overdue_tasks' | 'open_complaints' | 'renewal' | 'name_only_mentor'
-/**
- * Один сигнал операционного фильтра «Контроль работы» — чистая функция ради
- * юнит-теста: подмешать сюда что-то новое и забыть проверить границу («0»
- * не равно «есть», null не равно false) — ровно тот класс ошибок, который
- * незаметен в JSX и заметен в тесте.
- */
-/**
- * Действующие ответственные студента, МЗК первым.
- *
- * МЗК ведёт студента целиком и отвечает за него перед клиентом — в колонке из
- * пяти пилюль он должен читаться первым, а не тем, кого раньше назначили.
- * Порядок остальных сохраняем как пришёл: он уже отсортирован по дате.
- */
-export function activeResponsibles(s: StudentListItem): ResponsibleUser[] {
-  const active = (s.responsibles ?? []).filter((r) => r.is_active)
-  return [...active].sort((a, b) => Number(b.role === 'mzk') - Number(a.role === 'mzk'))
-}
 
-export function matchesOperationalFilter(s: StudentListItem, filter: OperationalFilter): boolean {
-  switch (filter) {
-    case 'no_roadmap':
-      return !s.roadmap?.id
-    case 'no_meeting':
-      return !s.next_meeting
-    case 'telegram_unlinked':
-      return !s.telegram?.linked
-    case 'open_tasks':
-      return (s.open_tasks_count ?? 0) > 0
-    case 'overdue_tasks':
-      return !!s.has_overdue_tasks
-    case 'open_complaints':
-      return !!s.has_open_complaints
-    case 'docs_review':
-      return (s.documents_unverified ?? 0) > 0
-    // «Контракт 500»: risk_category уже считается на бэке (students.py,
-    // RENEWAL_THRESHOLD_DAYS = 500) и виден на «Рисках» — здесь его не
-    // было ни разу, хотя это тот же самый список студентов, отобранный
-    // тем же сигналом. Значение то же ('renewal'), что и у AtRiskStudentsPage,
-    // а не отдельная строка 'contract_500' — иначе два места одной и той же
-    // проверки снова разошлись бы по имени.
-    case 'renewal':
-      return s.risk_category === 'renewal'
-    // Ментор есть текстом (импорт из Notion), но настоящего назначения нет —
-    // такой ментор студента у себя не видит. В списке это неотличимо от
-    // нормально назначенного, поэтому нужен способ собрать весь бэклог разом.
-    case 'name_only_mentor':
-      return activeResponsibles(s).length === 0 && (s.mentors?.length ?? 0) > 0
-    default:
-      return true
-  }
-}
 
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
   'proforientation',
@@ -1611,16 +1566,11 @@ export const StudentsListPage: React.FC = () => {
                       <SelectValue placeholder="Все сигналы" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Все</SelectItem>
-                      <SelectItem value="no_roadmap">Нет roadmap</SelectItem>
-                      <SelectItem value="no_meeting">Нет ближайшей встречи</SelectItem>
-                      <SelectItem value="telegram_unlinked">Telegram не привязан</SelectItem>
-                      <SelectItem value="open_tasks">Есть незакрытые задачи</SelectItem>
-                      <SelectItem value="overdue_tasks">Просроченные задачи</SelectItem>
-                      <SelectItem value="open_complaints">Открытые обращения</SelectItem>
-                      <SelectItem value="docs_review">Документы на проверке</SelectItem>
-                      <SelectItem value="renewal">Контракт 500 (перепродление)</SelectItem>
-                      <SelectItem value="name_only_mentor">Ментор только по имени</SelectItem>
+                      {Object.entries(OPERATIONAL_FILTER_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

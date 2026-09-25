@@ -429,6 +429,24 @@ export const mentorAssignmentsApi = {
     )
     return response.data
   },
+  /**
+   * Заменить человека в конкретном назначении.
+   *
+   * Нужно там, где ответственных в роли несколько (ментор по стране): общий
+   * `create` в такой роли добавляет ещё одного, а заменить надо именно этого.
+   * Причина обязательна — уходит в историю, как и при обычной замене.
+   */
+  replaceMentor: async (
+    assignmentId: string,
+    mentorId: string,
+    reason: string,
+  ): Promise<MentorAssignment> => {
+    const response = await apiClient.patch<MentorAssignment>(
+      `/mentor-assignments/${assignmentId}`,
+      { mentor_id: mentorId, replacement_reason: reason },
+    )
+    return response.data
+  },
   /** Снять ответственного без замены. Причина обязательна — уходит в историю. */
   unassign: async (assignmentId: string, reason: string): Promise<void> => {
     await apiClient.post(`/mentor-assignments/${assignmentId}/unassign`, { reason })

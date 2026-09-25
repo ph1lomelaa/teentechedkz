@@ -183,6 +183,20 @@ export interface TeamReadiness {
  */
 export const ASSIGNABLE_MENTOR_ROLES = ['career', 'ielts', 'lead', 'country', 'mzk'] as const
 
+/**
+ * Роли, в которых у ученика может быть несколько ответственных сразу.
+ *
+ * Всё остальное — ровно один человек на роль, и это инвариант, а не привычка:
+ * на нём держатся уникальный индекс в БД, замена прежнего при назначении и
+ * однозначность «главного ментора». `country` здесь потому, что ученик подаётся
+ * в несколько стран, и каждую ведёт свой ментор; различает их страна, которую
+ * со второго ответственного требует бэкенд.
+ *
+ * Копия backend MULTI_ROLES (models/mentor_assignment.py). Разъехавшись, списки
+ * дали бы кнопку «Добавить» там, где сервер отвечает отказом.
+ */
+export const MULTI_MENTOR_ROLES: readonly string[] = ['country']
+
 export const MENTOR_ROLE_LABELS: Record<string, string> = {
   lead: 'Ментор по УП',
   ielts: 'Учитель IELTS',
@@ -227,6 +241,10 @@ export interface BoardStudent {
   id: string
   full_name: string
   pipeline_status?: string | null
+  /** Поля фильтров доски: она приходит целиком и отбирается на клиенте. */
+  intake_year?: number | null
+  degree_level?: string | null
+  country?: string | null
   /** Назначение, которое меняет перетаскивание. null — студент ещё ничей. */
   assignment_id: string | null
   assignment_status: string | null

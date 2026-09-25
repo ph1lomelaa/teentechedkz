@@ -76,7 +76,12 @@ async def primary_mentor_id(db: AsyncSession, student_id: uuid.UUID) -> uuid.UUI
             MentorAssignment.student_id == student_id,
             MentorAssignment.is_active == True,  # noqa: E712
         )
-        .order_by(MentorAssignment.assigned_at.desc())
+        # `id` вторым ключом — не косметика: у ученика с несколькими менторами по
+        # стране (их назначают подряд) `assigned_at` совпадает до долей секунды,
+        # и по одному лишь времени Postgres волен вернуть любого. «Главный
+        # ментор» карточки, адресат уведомления о платеже и контакт чата тогда
+        # менялись бы между запросами без единого действия человека.
+        .order_by(MentorAssignment.assigned_at.desc(), MentorAssignment.id.desc())
         .limit(1)
     )
     return any_active.scalar_one_or_none()
@@ -129,7 +134,7 @@ async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, ment
     Это по-прежнему тихая запись в обход `_assign_one` (без причины и истории) —
     осознанно: тут не замена ответственного, а фиксация того, что и так
     произошло. Замена чужого назначения этим путём невозможна: занятую роль
-    закрывает пункт 1 и уникальный индекс на (student_id, role).
+    закрывает пункт 1 и уникальные индексы на назначениях (см. модель).
     """
     existing = await db.execute(
         select(MentorAssignment).where(
@@ -157,6 +162,11 @@ async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, ment
     # Роль занята другим — молча вставать вторым нельзя, это работа «Команды
     # ученика» с причиной и историей. Сотрудник останется mentor_id у встречи,
     # но ответственным не станет.
+    #
+    # Для мультироли проверка тоже остаётся, хотя второй ответственный там
+    # штатен: страну этот путь не знает, а без неё уникальный индекс отклонит
+    # вторую строку. Первого ментора по стране он заведёт как раньше, второго
+    # добавят руками в «Команде ученика», указав страну.
     occupied = await db.execute(
         select(MentorAssignment.id).where(
             MentorAssignment.student_id == student_id,

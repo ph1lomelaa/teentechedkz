@@ -5,6 +5,7 @@ import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import {
   ASSIGNABLE_MENTOR_ROLES,
   MENTOR_ROLE_LABELS,
+  MULTI_MENTOR_ROLES,
   ResponsibleUser,
   splitAssignCandidates,
 } from '@/types'
@@ -56,6 +57,9 @@ export const StudentTeamSection: React.FC<{
   const qc = useQueryClient()
   const [assignFor, setAssignFor] = useState<{ role: string; current: ResponsibleUser[] } | null>(null)
   const [unassignTarget, setUnassignTarget] = useState<ResponsibleUser | null>(null)
+  // Замена конкретного человека — только в мультироли: там общая кнопка
+  // добавляет ещё одного, и «заменить» обязано указывать, кого именно.
+  const [replaceTarget, setReplaceTarget] = useState<{ role: string; person: ResponsibleUser } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 
   const activeByRole = useMemo(() => {
@@ -101,7 +105,11 @@ export const StudentTeamSection: React.FC<{
       <div className="divide-y divide-p-line rounded-panel border border-p-line">
         {roles.map((role) => {
           const current = activeByRole.get(role) ?? []
-          const doubled = current.length > 1
+          const multi = MULTI_MENTOR_ROLES.includes(role)
+          // Для мультироли несколько ответственных — штатное состояние, а не
+          // авария данных: ученик подаётся в несколько стран. Предупреждение
+          // остаётся там, где роль обязана быть одна.
+          const doubled = current.length > 1 && !multi
           return (
             <div key={role} className="flex flex-wrap items-start gap-x-4 gap-y-2 px-3 py-2.5">
               <div className="w-36 shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-p-muted">
@@ -122,6 +130,12 @@ export const StudentTeamSection: React.FC<{
                 {current.map((person) => (
                   <div key={person.assignment_id ?? person.id} className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-p-text">{person.name}</span>
+                    {/* Страна — единственное, что различает двух менторов по
+                        стране. Без неё строки выглядят одинаково, и непонятно,
+                        кто какую страну ведёт. */}
+                    {person.country_scope && (
+                      <span className="text-xs text-p-muted">· {person.country_scope}</span>
+                    )}
                     <span
                       className={
                         person.assignment_status === 'awaiting_signature'
@@ -132,14 +146,29 @@ export const StudentTeamSection: React.FC<{
                       {person.assignment_status === 'awaiting_signature' ? 'ждёт подписи' : 'активен'}
                     </span>
                     {canManage && person.assignment_id && (
-                      <button
-                        type="button"
-                        onClick={() => setUnassignTarget(person)}
-                        className="inline-flex items-center gap-1 text-xs text-p-muted hover:text-red-600"
-                      >
-                        <UserMinus className="h-3.5 w-3.5" />
-                        Снять
-                      </button>
+                      <>
+                        {/* В мультироли «Заменить» относится к конкретному
+                            человеку: общая кнопка справа теперь добавляет
+                            ещё одного, а не меняет всех разом. */}
+                        {multi && (
+                          <button
+                            type="button"
+                            onClick={() => setReplaceTarget({ role, person })}
+                            className="inline-flex items-center gap-1 text-xs text-p-muted hover:text-p-text"
+                          >
+                            <Repeat className="h-3.5 w-3.5" />
+                            Заменить
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setUnassignTarget(person)}
+                          className="inline-flex items-center gap-1 text-xs text-p-muted hover:text-red-600"
+                        >
+                          <UserMinus className="h-3.5 w-3.5" />
+                          Снять
+                        </button>
+                      </>
                     )}
                   </div>
                 ))}
@@ -157,9 +186,10 @@ export const StudentTeamSection: React.FC<{
                   className="h-8 gap-1.5"
                   onClick={() => setAssignFor({ role, current })}
                 >
-                  {current.length === 0 ? (
+                  {current.length === 0 || multi ? (
                     <>
-                      <UserPlus className="h-3.5 w-3.5" /> Назначить
+                      <UserPlus className="h-3.5 w-3.5" />
+                      {current.length === 0 ? 'Назначить' : 'Добавить'}
                     </>
                   ) : (
                     <>
@@ -213,6 +243,14 @@ export const StudentTeamSection: React.FC<{
         onDone={invalidate}
       />
 
+      <AssignRoleDialog
+        target={replaceTarget && { role: replaceTarget.role, current: [replaceTarget.person] }}
+        studentId={studentId}
+        replaceAssignmentId={replaceTarget?.person.assignment_id ?? null}
+        onClose={() => setReplaceTarget(null)}
+        onDone={invalidate}
+      />
+
       <ReplacementReasonDialog
         mode="unassign"
         studentCount={unassignTarget ? 1 : null}
@@ -228,15 +266,26 @@ export const StudentTeamSection: React.FC<{
   )
 }
 
-/** Назначить на роль или заменить того, кто в ней. При замене причина обязательна. */
+/**
+ * Назначить на роль, добавить ещё одного или заменить конкретного человека.
+ *
+ * Три режима, а не два, потому что в мультироли «назначить второго» и
+ * «заменить первого» — разные действия: первое никого не снимает и причины не
+ * требует, второе снимает и требует. Раньше действие было одно («Заменить»), и
+ * добавить второго ментора по стране было нечем.
+ *
+ * `replaceAssignmentId` — строка, которую меняем. Задан → режим замены.
+ */
 function AssignRoleDialog({
   target,
   studentId,
+  replaceAssignmentId = null,
   onClose,
   onDone,
 }: {
   target: { role: string; current: ResponsibleUser[] } | null
   studentId: string
+  replaceAssignmentId?: string | null
   onClose: () => void
   onDone: () => void
 }) {
@@ -248,7 +297,14 @@ function AssignRoleDialog({
   const [dueDate, setDueDate] = useState('')
 
   const role = target?.role ?? ''
-  const replacing = (target?.current.length ?? 0) > 0
+  const multi = MULTI_MENTOR_ROLES.includes(role)
+  const occupied = (target?.current.length ?? 0) > 0
+  // Замена — либо точечная (мультироль, передан id строки), либо обычная: в
+  // одиночной роли назначение на занятую роль и есть замена.
+  const replacing = replaceAssignmentId !== null || (occupied && !multi)
+  // Добавление второго и далее: страна — единственное, что различит строки, и
+  // бэкенд без неё отвечает отказом. У первого её ещё может не быть.
+  const countryRequired = multi && occupied && !replacing
 
   // Диалог переиспользуется для разных ролей — поля от прошлой роли не тащим.
   const [openedFor, setOpenedFor] = useState<typeof target>(null)
@@ -283,15 +339,19 @@ function AssignRoleDialog({
 
   const mutation = useMutation({
     mutationFn: () =>
-      mentorAssignmentsApi.create(studentId, {
-        mentor_id: personId,
-        role,
-        functional_zone: zone || null,
-        country_scope: country || null,
-        first_task_due_date: dueDate || null,
-        is_active: true,
-        replacement_reason: replacing ? reason.trim() : undefined,
-      }),
+      // Точечная замена идёт своей ручкой: общий `create` в мультироли добавил
+      // бы ещё одного человека вместо того, чтобы поменять этого.
+      replaceAssignmentId
+        ? mentorAssignmentsApi.replaceMentor(replaceAssignmentId, personId, reason.trim())
+        : mentorAssignmentsApi.create(studentId, {
+            mentor_id: personId,
+            role,
+            functional_zone: zone || null,
+            country_scope: country || null,
+            first_task_due_date: dueDate || null,
+            is_active: true,
+            replacement_reason: replacing ? reason.trim() : undefined,
+          }),
     onSuccess: (res) => {
       onDone()
       onClose()
@@ -307,19 +367,26 @@ function AssignRoleDialog({
       toast({ title: 'Не удалось назначить', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
-  const canSubmit = Boolean(personId) && (!replacing || reason.trim().length > 0) && !mutation.isPending
+  const canSubmit =
+    Boolean(personId) &&
+    (!replacing || reason.trim().length > 0) &&
+    (!countryRequired || country.trim().length > 0) &&
+    !mutation.isPending
 
   return (
     <Dialog open={Boolean(target)} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {replacing ? 'Заменить' : 'Назначить'}: {MENTOR_ROLE_LABELS[role] ?? role}
+            {replacing ? 'Заменить' : countryRequired ? 'Добавить' : 'Назначить'}:{' '}
+            {MENTOR_ROLE_LABELS[role] ?? role}
           </DialogTitle>
           <DialogDescription>
             {replacing
               ? `Сейчас: ${target?.current.map((c) => c.name).join(', ')}. Замена попадёт в историю.`
-              : 'Студент появится у сотрудника в «Моих студентах» и в личном кабинете.'}
+              : countryRequired
+                ? `Уже ведут: ${target?.current.map((c) => c.name).join(', ')}. Прежние ответственные остаются — укажите страну нового.`
+                : 'Студент появится у сотрудника в «Моих студентах» и в личном кабинете.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -351,6 +418,16 @@ function AssignRoleDialog({
             </SelectContent>
           </Select>
 
+          {/* Страна поднята из «Дополнительно» наверх и обязательна: со второго
+              ответственного она единственное, что различает строки в карточке. */}
+          {countryRequired && (
+            <Input
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              placeholder="Страна, например: США"
+            />
+          )}
+
           {replacing && (
             <Input
               value={reason}
@@ -359,23 +436,33 @@ function AssignRoleDialog({
             />
           )}
 
-          <button
-            type="button"
-            onClick={() => setShowExtra((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs text-p-muted hover:text-p-text"
-          >
-            Дополнительно
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showExtra ? 'rotate-180' : ''}`} />
-          </button>
-          {showExtra && (
-            <div className="grid gap-2">
-              <Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="Функциональная зона" />
-              <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна / область" />
-              <label className="grid gap-1 text-xs text-p-muted">
-                Срок первой задачи
-                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-              </label>
-            </div>
+          {/* При точечной замене дополнительных полей нет: зона, страна и срок
+              принадлежат самому назначению и остаются от прежнего человека. */}
+          {!replaceAssignmentId && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowExtra((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs text-p-muted hover:text-p-text"
+              >
+                Дополнительно
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showExtra ? 'rotate-180' : ''}`} />
+              </button>
+              {showExtra && (
+                <div className="grid gap-2">
+                  <Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="Функциональная зона" />
+                  {/* Когда страна обязательна, её поле уже наверху — второе такое
+                      же здесь писало бы в то же состояние и выглядело бы поломкой. */}
+                  {!countryRequired && (
+                    <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Страна / область" />
+                  )}
+                  <label className="grid gap-1 text-xs text-p-muted">
+                    Срок первой задачи
+                    <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                  </label>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -384,7 +471,13 @@ function AssignRoleDialog({
             Отмена
           </Button>
           <Button disabled={!canSubmit} onClick={() => mutation.mutate()}>
-            {mutation.isPending ? 'Сохраняем…' : replacing ? 'Заменить' : 'Назначить'}
+            {mutation.isPending
+              ? 'Сохраняем…'
+              : replacing
+                ? 'Заменить'
+                : countryRequired
+                  ? 'Добавить'
+                  : 'Назначить'}
           </Button>
         </DialogFooter>
       </DialogContent>

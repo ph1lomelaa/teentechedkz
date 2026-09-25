@@ -3,9 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Search } from 'lucide-react'
 import { mentorAssignmentsApi } from '@/api/index'
+import { studentsApi } from '@/api/students'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   ASSIGNABLE_MENTOR_ROLES,
+  DEGREE_LEVEL_LABELS,
+  MULTI_MENTOR_ROLES,
   AssignmentBoard,
   BoardStudent,
   MENTOR_ROLE_LABELS,
@@ -22,7 +25,7 @@ import {
   BoardCardAction,
   DistributionBoard,
   UNASSIGNED_COLUMN,
-  boardStatusKey,
+  matchesBoardFilters,
 } from '@/components/students/DistributionBoard'
 import {
   Dialog,
@@ -58,6 +61,11 @@ export const DEFAULT_BOARD_STATUSES: readonly string[] = ['active_work']
  * Статусы из URL. Параметра нет — значение по умолчанию; пустой параметр —
  * пустой выбор (человек снял все галочки, и это не то же самое, что «сброс»).
  */
+/** Множество из CSV-параметра адреса. Пусто — «не ограничивать». */
+export function parseCsvSet(param: string | null): Set<string> {
+  return new Set((param || '').split(',').filter(Boolean))
+}
+
 export function parseBoardStatuses(param: string | null): Set<string> {
   if (param === null) return new Set(DEFAULT_BOARD_STATUSES)
   return new Set(param.split(',').filter((v) => (PIPELINE_COLUMNS as string[]).includes(v)))
@@ -91,6 +99,10 @@ export const StudentsDistributionPage: React.FC = () => {
     ? roleParam
     : DEFAULT_ROLE
 
+  // В мультироли ответственных несколько, и это меняет смысл перетаскивания:
+  // не «назначить вместо», а «перенести это назначение».
+  const isMultiRole = MULTI_MENTOR_ROLES.includes(role)
+
   const setRole = (next: string) => {
     const params = new URLSearchParams(searchParams)
     params.set('role', next)
@@ -111,6 +123,50 @@ export const StudentsDistributionPage: React.FC = () => {
       next.size === DEFAULT_BOARD_STATUSES.length && DEFAULT_BOARD_STATUSES.every((s) => next.has(s))
     if (isDefault) params.delete('status')
     else params.set('status', PIPELINE_COLUMNS.filter((s) => next.has(s)).join(','))
+    setSearchParams(params, { replace: true })
+  }
+
+  // Год, ступень и страна — та же механика, что у статусов: множество в URL,
+  // чтобы ссылкой на отфильтрованную доску можно было поделиться. Отличие одно:
+  // умолчания нет, пустой выбор означает «все».
+  const setParam = (key: string, next: Set<string>) => {
+    const params = new URLSearchParams(searchParams)
+    if (next.size === 0) params.delete(key)
+    else params.set(key, [...next].sort().join(','))
+    setSearchParams(params, { replace: true })
+  }
+
+  const years = useMemo(() => parseCsvSet(searchParams.get('year')), [searchParams])
+  const degrees = useMemo(() => parseCsvSet(searchParams.get('degree')), [searchParams])
+  const countries = useMemo(() => parseCsvSet(searchParams.get('country')), [searchParams])
+
+  const toggleIn = (key: string, current: ReadonlySet<string>, value: string) => {
+    const next = new Set(current)
+    if (next.has(value)) next.delete(value)
+    else next.add(value)
+    setParam(key, next)
+  }
+
+  const filters = useMemo(
+    () => ({ statuses, years, degrees, countries }),
+    [statuses, years, degrees, countries],
+  )
+
+  // Опции — только то, что есть в данных, со счётчиками. Тот же справочник, что
+  // питает фильтры общей базы.
+  const { data: facets } = useQuery({
+    queryKey: ['students', 'facets'],
+    queryFn: studentsApi.facets,
+    staleTime: 60_000,
+  })
+
+  const activeFilterCount =
+    (isDefaultStatuses ? 0 : statuses.size) + years.size + degrees.size + countries.size
+
+  const resetFilters = () => {
+    const params = new URLSearchParams(searchParams)
+    params.delete('status')
+    for (const key of ['year', 'degree', 'country']) params.delete(key)
     setSearchParams(params, { replace: true })
   }
 
@@ -135,12 +191,14 @@ export const StudentsDistributionPage: React.FC = () => {
   // диалога оставила бы доску в состоянии, которого нет в базе.
   const [pendingMove, setPendingMove] = useState<{
     studentId: string
+    /** Назначение, которое переносим. null — студент был без ответственного. */
+    assignmentId: string | null
     to: string
     fromUnassigned: boolean
   } | null>(null)
 
   const assignMutation = useMutation({
-    mutationFn: (vars: { studentId: string; mentorId: string; reason?: string }) =>
+    mutationFn: (vars: { studentId: string; assignmentId?: string | null; mentorId: string; reason?: string }) =>
       mentorAssignmentsApi.bulkAssign({
         student_ids: [vars.studentId],
         mentor_id: vars.mentorId,
@@ -151,7 +209,12 @@ export const StudentsDistributionPage: React.FC = () => {
       const needsReason = res.skipped.some((s) => s.reason === 'needs_reason')
       if (needsReason) {
         // Студент уже кому-то назначен — спрашиваем причину и повторяем.
-        setPendingMove({ studentId: vars.studentId, to: vars.mentorId, fromUnassigned: false })
+        setPendingMove({
+          studentId: vars.studentId,
+          assignmentId: vars.assignmentId ?? null,
+          to: vars.mentorId,
+          fromUnassigned: false,
+        })
         return
       }
 
@@ -185,6 +248,25 @@ export const StudentsDistributionPage: React.FC = () => {
     studentName: string
     staffName: string | null
   } | null>(null)
+
+  // Перенос в мультироли — правка конкретного назначения, а не пересборка
+  // роли. `bulkAssign` там добавил бы второго и оставил первого на месте, то
+  // есть перетаскивание «удваивало» бы ответственных вместо переноса.
+  const transferMutation = useMutation({
+    mutationFn: (vars: { assignmentId: string; mentorId: string; reason: string }) =>
+      mentorAssignmentsApi.replaceMentor(vars.assignmentId, vars.mentorId, vars.reason),
+    onSuccess: () => {
+      setPendingMove(null)
+      qc.invalidateQueries({ queryKey: ['assignment-board'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['my-students'] })
+      toast({ title: 'Ответственный заменён' })
+    },
+    onError: (err) => {
+      setPendingMove(null)
+      toast({ title: 'Не удалось передать', description: getErrorMessage(err), variant: 'destructive' })
+    },
+  })
 
   const unassignMutation = useMutation({
     mutationFn: (vars: { assignmentId: string; reason: string }) =>
@@ -246,11 +328,11 @@ export const StudentsDistributionPage: React.FC = () => {
   // пяти видимых карточках читалось бы как ошибка доски.
   const summary = useMemo(() => {
     if (!data) return null
-    const shown = (list: BoardStudent[]) => list.filter((s) => statuses.has(boardStatusKey(s))).length
+    const shown = (list: BoardStudent[]) => list.filter((s) => matchesBoardFilters(s, filters)).length
     const unassigned = shown(data.unassigned)
     const assigned = data.columns.reduce((sum, c) => sum + shown(c.students), 0)
     return { students: assigned + unassigned, unassigned }
-  }, [data, statuses])
+  }, [data, filters])
 
   return (
     <div>
@@ -285,10 +367,7 @@ export const StudentsDistributionPage: React.FC = () => {
               className="h-9 pl-8 text-sm"
             />
           </div>
-          <FilterPopover
-            activeCount={isDefaultStatuses ? 0 : statuses.size}
-            onReset={() => setStatuses(new Set(DEFAULT_BOARD_STATUSES))}
-          >
+          <FilterPopover activeCount={activeFilterCount} onReset={resetFilters}>
             <FilterField label="Статус студента">
               <div className="space-y-1.5">
                 {PIPELINE_COLUMNS.map((status) => (
@@ -305,6 +384,51 @@ export const StudentsDistributionPage: React.FC = () => {
               >
                 Выбрать все
               </button>
+            </FilterField>
+
+            {/* Год — то, ради чего фильтры и понадобились: в колонке «Без
+                ответственного» лежат пять лет набора сразу. Галочками, а не
+                выпадашкой: разбирают обычно текущий и следующий год вместе. */}
+            <FilterField label="Год набора">
+              <div className="max-h-36 space-y-1.5 overflow-auto pr-1">
+                {(facets?.years ?? []).map((opt) => (
+                  <label key={opt.value} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
+                    <Checkbox
+                      checked={years.has(opt.value)}
+                      onCheckedChange={() => toggleIn('year', years, opt.value)}
+                    />
+                    {opt.value} · {opt.count}
+                  </label>
+                ))}
+              </div>
+            </FilterField>
+
+            <FilterField label="Ступень">
+              <div className="space-y-1.5">
+                {(facets?.degrees ?? []).map((opt) => (
+                  <label key={opt.value} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
+                    <Checkbox
+                      checked={degrees.has(opt.value)}
+                      onCheckedChange={() => toggleIn('degree', degrees, opt.value)}
+                    />
+                    {DEGREE_LEVEL_LABELS[opt.value as keyof typeof DEGREE_LEVEL_LABELS] ?? opt.value} · {opt.count}
+                  </label>
+                ))}
+              </div>
+            </FilterField>
+
+            <FilterField label="Страна поступления">
+              <div className="max-h-44 space-y-1.5 overflow-auto pr-1">
+                {(facets?.countries ?? []).map((opt) => (
+                  <label key={opt.value} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
+                    <Checkbox
+                      checked={countries.has(opt.value)}
+                      onCheckedChange={() => toggleIn('country', countries, opt.value)}
+                    />
+                    {opt.value} · {opt.count}
+                  </label>
+                ))}
+              </div>
             </FilterField>
           </FilterPopover>
         </div>
@@ -333,13 +457,31 @@ export const StudentsDistributionPage: React.FC = () => {
           <DistributionBoard
             board={data as AssignmentBoard}
             search={search}
-            statuses={statuses}
+            filters={filters}
             canDrag={canDrag}
-            onMove={(move) =>
-              move.to === UNASSIGNED_COLUMN
-                ? askUnassign(move.studentId, move.from)
-                : assignMutation.mutate({ studentId: move.studentId, mentorId: move.to })
-            }
+            onMove={(move) => {
+              if (move.to === UNASSIGNED_COLUMN) {
+                askUnassign(move.studentId, move.from)
+                return
+              }
+              // В мультироли у студента несколько ответственных, и «назначить»
+              // добавило бы ещё одного вместо переноса. Причину спрашиваем
+              // сразу: перенос там всегда замена конкретного человека.
+              if (isMultiRole && move.assignmentId) {
+                setPendingMove({
+                  studentId: move.studentId,
+                  assignmentId: move.assignmentId,
+                  to: move.to,
+                  fromUnassigned: false,
+                })
+                return
+              }
+              assignMutation.mutate({
+                studentId: move.studentId,
+                assignmentId: move.assignmentId,
+                mentorId: move.to,
+              })
+            }}
             onCardAction={handleCardAction}
           />
         )}
@@ -401,12 +543,27 @@ export const StudentsDistributionPage: React.FC = () => {
       <ReplacementReasonDialog
         studentCount={pendingMove ? 1 : null}
         targetName={targetName}
-        isPending={assignMutation.isPending}
+        isPending={assignMutation.isPending || transferMutation.isPending}
         onCancel={() => setPendingMove(null)}
-        onConfirm={(reason) =>
-          pendingMove &&
-          assignMutation.mutate({ studentId: pendingMove.studentId, mentorId: pendingMove.to, reason })
-        }
+        onConfirm={(reason) => {
+          if (!pendingMove) return
+          // В мультироли меняем ровно ту строку, которую тащили; в одиночной
+          // назначение на занятую роль и есть замена, там путь прежний.
+          if (isMultiRole && pendingMove.assignmentId) {
+            transferMutation.mutate({
+              assignmentId: pendingMove.assignmentId,
+              mentorId: pendingMove.to,
+              reason,
+            })
+            return
+          }
+          assignMutation.mutate({
+            studentId: pendingMove.studentId,
+            assignmentId: pendingMove.assignmentId,
+            mentorId: pendingMove.to,
+            reason,
+          })
+        }}
       />
     </div>
   )

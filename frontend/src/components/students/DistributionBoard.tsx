@@ -31,6 +31,45 @@ export function boardStatusKey(student: BoardStudent): string {
 }
 
 /**
+ * Чем фильтруют доску. Пустое множество — «не ограничивать»: так фильтр,
+ * которым не пользовались, не прячет всё подряд.
+ *
+ * Год, ступень и страна добавились потому, что доска приходит целиком, без
+ * пагинации: у МЗК в колонке «Без ответственного» лежало 253 человека за пять
+ * лет набора, и отобрать среди них нужный год было нечем.
+ */
+export interface BoardFilters {
+  statuses: ReadonlySet<string>
+  years: ReadonlySet<string>
+  degrees: ReadonlySet<string>
+  countries: ReadonlySet<string>
+}
+
+/** Проходит ли карточка фильтры. Чистая функция — её же зовёт счётчик страницы. */
+export function matchesBoardFilters(student: BoardStudent, filters: BoardFilters): boolean {
+  if (!filters.statuses.has(boardStatusKey(student))) return false
+  if (filters.years.size && !filters.years.has(String(student.intake_year ?? ''))) return false
+  if (filters.degrees.size && !filters.degrees.has(student.degree_level ?? '')) return false
+  if (filters.countries.size && !filters.countries.has(student.country ?? '')) return false
+  return true
+}
+
+/**
+ * Идентификатор карточки на доске — назначение, а не ученик.
+ *
+ * В мультироли (ментор по стране) ответственных несколько, и карточка одного
+ * ученика честно лежит в двух колонках. По `student.id` это дало бы два
+ * draggable с одинаковым id: dnd-kit перепутал бы их между собой, React
+ * пожаловался бы на дублирующийся key, а `resolveDrop` находил бы колонку
+ * первого попавшегося — то есть перенос одной карточки снимал бы вторую.
+ *
+ * У «забытых» назначения нет, поэтому им синтетический ключ.
+ */
+export function boardCardKey(student: BoardStudent): string {
+  return student.assignment_id ?? `unassigned:${student.id}`
+}
+
+/**
  * Куда уехала карточка.
  *
  * Вынесено отдельной чистой функцией: перетаскивание в jsdom не
@@ -45,24 +84,40 @@ export function resolveDrop(
   board: AssignmentBoard,
   activeId: string,
   overId: string | null,
-): { studentId: string; from: string; to: string } | null {
+): { studentId: string; assignmentId: string | null; from: string; to: string } | null {
   if (!overId) return null
 
-  const ownerOf = (studentId: string): string => {
-    const column = board.columns.find((c) => c.students.some((s) => s.id === studentId))
-    return column ? column.staff_id : UNASSIGNED_COLUMN
+  const find = (cardKey: string): { student: BoardStudent; column: string } | null => {
+    for (const column of board.columns) {
+      const student = column.students.find((s) => boardCardKey(s) === cardKey)
+      if (student) return { student, column: column.staff_id }
+    }
+    const orphan = board.unassigned.find((s) => boardCardKey(s) === cardKey)
+    return orphan ? { student: orphan, column: UNASSIGNED_COLUMN } : null
   }
+
+  const active = find(activeId)
+  if (!active) return null
 
   const isColumn =
     overId === UNASSIGNED_COLUMN || board.columns.some((c) => c.staff_id === overId)
-  const to = isColumn ? overId : ownerOf(overId)
-  const from = ownerOf(activeId)
+  const to = isColumn ? overId : find(overId)?.column
+  if (!to) return null
+  const from = active.column
 
   // Вернули туда же, откуда взяли — не назначение, а промах мышью.
   if (from === to) return null
   // `to === UNASSIGNED_COLUMN` — снятие ответственного. Страница спрашивает
   // причину до запроса, так что промах в первую колонку отменяется там же.
-  return { studentId: activeId, from, to }
+  //
+  // `assignmentId` отдаём наружу: в мультироли перенос обязан менять именно эту
+  // строку, а не пересобирать роль целиком.
+  return {
+    studentId: active.student.id,
+    assignmentId: active.student.assignment_id ?? null,
+    from,
+    to,
+  }
 }
 
 function StudentCard({ student, isDragging }: { student: BoardStudent; isDragging?: boolean }) {
@@ -193,7 +248,7 @@ function CardLink({
 
 function DraggableCard({ student, columnId }: { student: BoardStudent; columnId: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: student.id,
+    id: boardCardKey(student),
   })
 
   // Карточка — одновременно ссылка на студента и ручка перетаскивания. Порог
@@ -219,7 +274,7 @@ interface ColumnProps {
   students: BoardStudent[]
   totalCount: number
   /** Что спрятало карточки, если видно не всех, — для текста пустой колонки. */
-  hiddenBy: 'search' | 'status'
+  hiddenBy: 'search' | 'filters'
   emphasis?: 'default' | 'warning'
   canDrag: boolean
   href: string
@@ -289,13 +344,13 @@ function Column({
             DndContext вокруг они работают на значениях по умолчанию, и это
             слишком тонкая опора для колонки, которую видит вся команда. */}
         {canDrag ? (
-          <SortableContext items={students.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={students.map(boardCardKey)} strategy={verticalListSortingStrategy}>
             {students.map((student) => (
-              <DraggableCard key={student.id} student={student} columnId={id} />
+              <DraggableCard key={boardCardKey(student)} student={student} columnId={id} />
             ))}
           </SortableContext>
         ) : (
-          students.map((student) => <CardLink key={student.id} student={student} />)
+          students.map((student) => <CardLink key={boardCardKey(student)} student={student} />)
         )}
         {students.length === 0 && (
           <div className="px-1 py-4 text-center text-[11px] leading-snug text-p-muted2">
@@ -307,7 +362,7 @@ function Column({
                 : 'Никого не ведёт'
               : hiddenBy === 'search'
                 ? 'Никто не подходит под поиск'
-                : 'Нет студентов с выбранным статусом'}
+                : 'Нет студентов по выбранным фильтрам'}
           </div>
         )}
       </div>
@@ -334,11 +389,11 @@ interface DistributionBoardProps {
   board: AssignmentBoard
   /** Клиентский поиск по студентам — прячет карточки во всех колонках сразу. */
   search: string
-  /** Какие статусы показывать (`boardStatusKey`). Применяется ко всей доске:
-   *  иначе колонки сотрудников забиты «передумавшими», и сравнивать их нельзя. */
-  statuses: ReadonlySet<string>
+  /** Применяется ко всей доске: иначе колонки сотрудников забиты
+   *  «передумавшими», и сравнивать нагрузку нельзя. */
+  filters: BoardFilters
   canDrag: boolean
-  onMove: (move: { studentId: string; from: string; to: string }) => void
+  onMove: (move: { studentId: string; assignmentId: string | null; from: string; to: string }) => void
   /** Меню «⋯» на карточке: передать или снять без перетаскивания. */
   onCardAction?: (action: BoardCardAction) => void
 }
@@ -346,7 +401,7 @@ interface DistributionBoardProps {
 export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   board,
   search,
-  statuses,
+  filters,
   canDrag,
   onMove,
   onCardAction,
@@ -361,16 +416,16 @@ export const DistributionBoard: React.FC<DistributionBoardProps> = ({
   const query = search.trim().toLowerCase()
   const visible = (students: BoardStudent[]) =>
     students.filter(
-      (s) =>
-        statuses.has(boardStatusKey(s)) &&
-        (!query || s.full_name.toLowerCase().includes(query)),
+      (s) => matchesBoardFilters(s, filters) && (!query || s.full_name.toLowerCase().includes(query)),
     )
-  const hiddenBy = query ? 'search' : 'status'
+  const hiddenBy = query ? 'search' : 'filters'
 
+  // Индекс по ключу карточки, а не по ученику: в мультироли у одного ученика
+  // две карточки, и по `student.id` в наложении показывалась бы не та.
   const byId = useMemo(() => {
     const map = new Map<string, BoardStudent>()
-    for (const column of board.columns) for (const s of column.students) map.set(s.id, s)
-    for (const s of board.unassigned) map.set(s.id, s)
+    for (const column of board.columns) for (const s of column.students) map.set(boardCardKey(s), s)
+    for (const s of board.unassigned) map.set(boardCardKey(s), s)
     return map
   }, [board])
 

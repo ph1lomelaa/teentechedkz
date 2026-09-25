@@ -54,6 +54,40 @@ describe('команда ученика', () => {
     expect(screen.getByText(/Два ответственных в одной роли/)).toBeInTheDocument()
   })
 
+  it('двое менторов по стране — норма, а не авария', () => {
+    // Ученик подаётся в несколько стран, и каждую ведёт свой человек. Пока
+    // предупреждение висело на любой роли, штатное состояние выглядело ошибкой
+    // данных и подсказывало «снимите лишнего».
+    renderTeam([
+      person({ role: 'country', name: 'Айана Ділмағанбет', country_scope: 'США' }),
+      person({ id: 'u2', assignment_id: 'a2', name: 'Кызжибек', role: 'country', country_scope: 'Канада' }),
+    ])
+    expect(screen.queryByText(/Два ответственных в одной роли/)).not.toBeInTheDocument()
+  })
+
+  it('страна показана рядом с именем — иначе строки не различить', () => {
+    renderTeam([
+      person({ role: 'country', name: 'Айана Ділмағанбет', country_scope: 'США' }),
+      person({ id: 'u2', assignment_id: 'a2', name: 'Кызжибек', role: 'country', country_scope: 'Канада' }),
+    ])
+    expect(screen.getByText('· США')).toBeInTheDocument()
+    expect(screen.getByText('· Канада')).toBeInTheDocument()
+  })
+
+  it('в мультироли кнопка добавляет, а не заменяет', () => {
+    // Общая кнопка справа: для занятой одиночной роли это «Заменить», а для
+    // страны — «Добавить», иначе второго ментора нечем завести.
+    renderTeam([person({ role: 'country', name: 'Айана Ділмағанбет', country_scope: 'США' })])
+    expect(screen.getByText('Добавить')).toBeInTheDocument()
+    expect(screen.queryAllByText('Заменить').length).toBeGreaterThan(0)
+  })
+
+  it('в одиночной роли занятая роль по-прежнему заменяется', () => {
+    renderTeam([person({ role: 'lead' })])
+    expect(screen.getByText('Заменить')).toBeInTheDocument()
+    expect(screen.queryByText('Добавить')).not.toBeInTheDocument()
+  })
+
   it('снятые и плейсхолдеры не показываются как люди', () => {
     renderTeam([
       person({ is_active: false, name: 'Снятый Человек' }),

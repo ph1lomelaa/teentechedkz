@@ -70,8 +70,10 @@ class FakeSession:
     def __init__(self, same=None, active=None, required=None):
         self._answers = [same, active, required]
         self.added = []
+        self.queries = 0
 
     async def execute(self, _query):
+        self.queries += 1
         return _Result(self._answers.pop(0) if self._answers else None)
 
     def add(self, obj):
@@ -183,6 +185,61 @@ class AssignOneTests(unittest.TestCase):
         self.assertTrue(ma.is_active)
         self.assertEqual(ma.assignment_status, "active")
         self.assertEqual(session.added, [], "создана вторая строка вместо возврата прежней")
+
+    def test_a_second_country_mentor_is_added_not_swapped_in(self) -> None:
+        """Мультироль: назначение никого не снимает и не пишет замену в историю.
+
+        Ученик подаётся в несколько стран, и каждую ведёт свой человек. Пока
+        назначение в любой роли означало замену, второго ментора по стране
+        нельзя было завести вообще: он вставал вместо первого.
+
+        Проверяем и число запросов: в мультироли «кто сейчас в роли» не
+        спрашивается вовсе — именно этот запрос и находил прежнего, чтобы его
+        погасить. Без счётчика тест прошёл бы и на старом коде: `FakeSession`
+        отвечает по порядку, и лишний запрос просто съел бы чужой ответ.
+        """
+        session = FakeSession()
+
+        outcome, ma = _call(session, role=MentorRole.country, mentor_id=uuid.uuid4())
+
+        self.assertEqual(outcome, "created", "добавление превратилось в замену")
+        self.assertEqual(session.queries, 2, "прежние в роли всё ещё разыскиваются")
+        self.assertEqual(
+            [x for x in session.added if isinstance(x, MentorAssignmentHistory)],
+            [],
+            "добавление второго не должно писаться в историю как замена",
+        )
+        self.assertIsNotNone(ma)
+        self.assertIn(ma, session.added)
+
+    def test_a_second_country_mentor_needs_no_reason(self) -> None:
+        # Причину спрашивают, когда кого-то снимают. Здесь никого не снимают,
+        # и требование причины было бы препятствием на ровном месте.
+        session = FakeSession()
+
+        outcome, _ = _call(session, role=MentorRole.country, reason="")
+
+        self.assertEqual(outcome, "created")
+
+    def test_a_single_role_still_looks_for_the_current_holder(self) -> None:
+        # Зеркало к счётчику выше: в одиночной роли запрос «кто сейчас в роли»
+        # обязан остаться, иначе замена перестанет снимать прежнего.
+        session = FakeSession()
+
+        _call(session, role=MentorRole.lead)
+
+        self.assertEqual(session.queries, 3)
+
+    def test_single_roles_still_replace(self) -> None:
+        # Страховка от расползания: множественность включена адресно, и для
+        # ментора по УП назначение обязано остаться заменой.
+        previous = _existing(uuid.uuid4())
+        session = FakeSession(active=previous)
+
+        outcome, _ = _call(session, role=MentorRole.lead, reason="замена")
+
+        self.assertEqual(outcome, "replaced")
+        self.assertFalse(previous.is_active)
 
     def test_two_active_in_one_role_are_both_replaced(self) -> None:
         # Двойники остались от старого «Добавить себя». Раньше

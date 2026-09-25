@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchesOperationalFilter } from './StudentsListPage'
+import { matchesOperationalFilter } from '@/lib/studentFilters'
 import type { StudentListItem } from '@/types'
 
 /**

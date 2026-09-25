@@ -472,7 +472,10 @@ async def _student_summaries(
             MentorAssignment.student_id.in_(student_ids),
             MentorAssignment.is_active == True,  # noqa: E712
         )
-        .order_by(MentorAssignment.assigned_at.desc())
+        # `id` вторым ключом: у ученика с несколькими менторами по стране
+        # `assigned_at` совпадает до долей секунды, и «главный ментор» карточки
+        # иначе менялся бы между перерисовками сам по себе.
+        .order_by(MentorAssignment.assigned_at.desc(), MentorAssignment.id.desc())
     )
     fallback_mentors: dict[uuid.UUID, User] = {}
     lead_mentors: dict[uuid.UUID, User] = {}
@@ -482,7 +485,11 @@ async def _student_summaries(
         if assignment.role == MentorRole.lead:
             lead_mentors.setdefault(assignment.student_id, mentor)
         if viewer_id is not None and assignment.mentor_id == viewer_id:
-            viewer_roles.setdefault(assignment.student_id, []).append(assignment.role.value)
+            # Без проверки на повтор сотрудник, ведущий две страны одного
+            # ученика, получал бы бейдж «Ментор по стране» дважды.
+            roles = viewer_roles.setdefault(assignment.student_id, [])
+            if assignment.role.value not in roles:
+                roles.append(assignment.role.value)
 
     async def grouped_counts(stmt) -> dict[uuid.UUID, int]:
         result = await db.execute(stmt)

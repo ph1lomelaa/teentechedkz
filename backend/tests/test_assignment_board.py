@@ -27,16 +27,23 @@ import uuid
 
 from app.api.v1.endpoints.mentor_assignments import _build_board, _mirror_mzk_to_contract
 from app.models.mentor_assignment import MentorAssignment, MentorRole
+from app.models.student import DegreeLevel
 from app.models.user import User, UserRole
 
 
 class _Student:
-    """Минимальный дубль: доске от студента нужны только id и имя."""
+    """Минимальный дубль ученика для доски.
 
-    def __init__(self, name: str):
+    Год и ступень нужны не для показа, а для фильтров доски: она приходит
+    целиком, без пагинации, и отбирается на клиенте.
+    """
+
+    def __init__(self, name: str, intake_year: int = 2027, degree=DegreeLevel.undergraduate):
         self.id = uuid.uuid4()
         self.full_name = name
         self.is_archived = False
+        self.intake_year = intake_year
+        self.degree_level = degree
 
 
 def _staff(name: str, role: UserRole = UserRole.mzk_manager) -> User:
@@ -54,13 +61,14 @@ def _assignment(student, person, role=MentorRole.mzk, status="active") -> Mentor
     )
 
 
-def _board(*, rows=(), staff=(), students=(), pipeline=None, role=MentorRole.mzk):
+def _board(*, rows=(), staff=(), students=(), pipeline=None, role=MentorRole.mzk, countries=None):
     return _build_board(
         role=role,
         assignment_rows=list(rows),
         staff=list(staff),
         students=list(students),
         pipeline_by_student=pipeline or {},
+        country_by_student=countries or {},
     )
 
 
@@ -100,6 +108,58 @@ class BoardShapeTests(unittest.TestCase):
 
         self.assertEqual([s["full_name"] for s in board["unassigned"]], ["Дана К."])
         self.assertEqual(board["totals"], {"students": 2, "assigned": 1, "unassigned": 1})
+
+    def test_a_student_with_two_country_mentors_is_counted_once(self) -> None:
+        """Мультироль: карточка честно в двух колонках, ученик в счётчике — один.
+
+        Ученик подаётся в несколько стран, и каждую ведёт свой ментор. Показать
+        его в обеих колонках правильно: доска отвечает на вопрос «кто кого
+        ведёт». Но `totals.assigned` считает учеников, а не карточки — иначе
+        «340 студентов» в шапке разойдётся с базой на ровном месте.
+        """
+        zira, alia = _staff("Зира", UserRole.mentor), _staff("Алия", UserRole.mentor)
+        student = _Student("Мерей А.")
+        rows = [
+            (_assignment(student, zira, role=MentorRole.country), student, zira),
+            (_assignment(student, alia, role=MentorRole.country), student, alia),
+        ]
+        board = _board(rows=rows, staff=[zira, alia], students=[student], role=MentorRole.country)
+
+        cards = [s for c in board["columns"] for s in c["students"]]
+        self.assertEqual(len(cards), 2, "ученик пропал из одной из колонок")
+        self.assertEqual(board["totals"], {"students": 1, "assigned": 1, "unassigned": 0})
+        self.assertEqual(board["unassigned"], [], "ученик с двумя менторами попал в «забытых»")
+
+    def test_each_card_of_one_student_carries_its_own_assignment(self) -> None:
+        # На этом держится перетаскивание: две карточки одного ученика обязаны
+        # различаться, иначе перенос одной снимет и вторую.
+        zira, alia = _staff("Зира", UserRole.mentor), _staff("Алия", UserRole.mentor)
+        student = _Student("Мерей А.")
+        rows = [
+            (_assignment(student, zira, role=MentorRole.country), student, zira),
+            (_assignment(student, alia, role=MentorRole.country), student, alia),
+        ]
+        board = _board(rows=rows, staff=[zira, alia], students=[student], role=MentorRole.country)
+
+        ids = {s["assignment_id"] for c in board["columns"] for s in c["students"]}
+        self.assertEqual(len(ids), 2, "карточки одного ученика неразличимы")
+
+    def test_filter_fields_reach_the_card(self) -> None:
+        # Год, ступень и страна — то, чем фильтруют доску на клиенте. Без них
+        # отсеять пять лет набора нечем.
+        zira = _staff("Зира")
+        student = _Student("Мерей А.", intake_year=2026)
+        board = _board(
+            rows=[(_assignment(student, zira), student, zira)],
+            staff=[zira],
+            students=[student],
+            countries={student.id: "США"},
+        )
+
+        card = board["columns"][0]["students"][0]
+        self.assertEqual(card["intake_year"], 2026)
+        self.assertEqual(card["degree_level"], "undergraduate")
+        self.assertEqual(card["country"], "США")
 
     def test_columns_and_unassigned_together_cover_every_student(self) -> None:
         # Главное свойство доски: сумма колонок и «забытых» равна базе. Если оно

@@ -431,8 +431,11 @@ def main() -> None:
             mentor.get("/workspace/dashboard", headers=mentor_auth).status_code == 200,
             "mentor reaches staff workspace",
         )
-        deleted = admin.delete(f"/users/{mentor_user_id}", headers=admin_auth)
-        require(deleted.status_code == 200, "admin deactivates mentor", deleted)
+        # Деактивация переехала с DELETE на свою ручку: DELETE теперь
+        # действительно удаляет аккаунт, а здесь проверяется именно закрытие
+        # доступа — человек остаётся в базе вместе со всем, что сделал.
+        deactivated = admin.post(f"/users/{mentor_user_id}/deactivate", headers=admin_auth)
+        require(deactivated.status_code == 200, "admin deactivates mentor", deactivated)
         require(mentor.post("/auth/refresh").status_code == 401, "admin deactivation revokes mentor session")
 
         staff_invite = admin.post(

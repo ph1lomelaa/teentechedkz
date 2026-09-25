@@ -28,16 +28,16 @@ const BOARD = {
       name: 'Зира Сатпаева',
       user_role: 'mzk_manager',
       students: [
-        { id: 's1', full_name: 'Мерей А.', pipeline_status: 'active_work', assignment_id: 'a1', assignment_status: 'active' },
-        { id: 's2', full_name: 'Айгерим Б.', pipeline_status: 'active_work', assignment_id: 'a2', assignment_status: 'active' },
+        { id: 's1', full_name: 'Мерей А.', pipeline_status: 'active_work', intake_year: 2027, degree_level: 'undergraduate', country: 'США', assignment_id: 'a1', assignment_status: 'active' },
+        { id: 's2', full_name: 'Айгерим Б.', pipeline_status: 'active_work', intake_year: 2026, degree_level: 'undergraduate', country: 'Канада', assignment_id: 'a2', assignment_status: 'active' },
       ],
     },
     { staff_id: 'alia', name: 'Алия Ким', user_role: 'mzk_manager', students: [] },
   ],
   unassigned: [
-    { id: 's3', full_name: 'Дана К.', pipeline_status: 'active_work', assignment_id: null, assignment_status: null },
+    { id: 's3', full_name: 'Дана К.', pipeline_status: 'active_work', intake_year: 2027, degree_level: 'undergraduate', country: 'США', assignment_id: null, assignment_status: null },
     // С «передумавшими» уже не работают — по умолчанию их на доске нет.
-    { id: 's4', full_name: 'Ерлан П.', pipeline_status: 'changed_mind', assignment_id: null, assignment_status: null },
+    { id: 's4', full_name: 'Ерлан П.', pipeline_status: 'changed_mind', intake_year: 2026, degree_level: 'undergraduate', country: 'Канада', assignment_id: null, assignment_status: null },
   ],
 }
 
@@ -198,7 +198,32 @@ describe('доска распределения', () => {
     await screen.findByText('Ерлан П.')
 
     expect(screen.queryByText('Дана К.')).not.toBeInTheDocument()
-    expect(screen.getAllByText('Нет студентов с выбранным статусом').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Нет студентов по выбранным фильтрам').length).toBeGreaterThan(0)
+  })
+
+  it('фильтр по году отсеивает чужой набор', async () => {
+    // Ради этого фильтры и появились: в колонке «Без ответственного» лежали
+    // все пять лет набора сразу, и найти нужный год было нечем.
+    renderPage('/students/distribution?year=2027')
+    await screen.findByText('Мерей А.')
+
+    expect(screen.queryByText('Айгерим Б.')).not.toBeInTheDocument()
+    expect(screen.getByText('Дана К.')).toBeInTheDocument()
+  })
+
+  it('фильтр по стране отсеивает остальных', async () => {
+    renderPage('/students/distribution?country=Канада')
+    await screen.findByText('Айгерим Б.')
+
+    expect(screen.queryByText('Мерей А.')).not.toBeInTheDocument()
+  })
+
+  it('несколько годов складываются, а не сужают друг друга', async () => {
+    // Галочки, а не выпадашка: разбирают обычно текущий и следующий год вместе.
+    renderPage('/students/distribution?year=2026,2027')
+    await screen.findByText('Мерей А.')
+
+    expect(screen.getByText('Айгерим Б.')).toBeInTheDocument()
   })
 
   it('снимает ответственного из меню карточки — с причиной', async () => {

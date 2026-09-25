@@ -14,12 +14,13 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.body import required_uuid
-from app.models.mentor_assignment import MentorAssignment, MentorRole
+from app.models.mentor_assignment import MULTI_ROLES, MentorAssignment, MentorRole
 from app.models.mentor_assignment_history import MentorAssignmentHistory
 from app.models.user import User, UserRole
 from app.services.agreements import has_pending_agreement_signature
 from app.services.assignment_candidates import candidates_query
 from app.services.mentor_scope import default_assignment_role
+from app.services.student_countries import primary_country_by_student
 
 router = APIRouter(prefix="/mentor-assignments", tags=["mentor_assignments"])
 
@@ -103,20 +104,22 @@ async def assign_self(
 
     # Роль занята другим — молча вставать вторым нельзя: так у студентов и
     # появлялись два «ментора по УП» сразу, а следующая замена падала на них.
-    occupied = await db.execute(
-        select(MentorAssignment.id).where(
-            MentorAssignment.student_id == student_id,
-            MentorAssignment.role == role,
-            MentorAssignment.is_active == True,  # noqa: E712
-            MentorAssignment.mentor_id.is_not(None),
-            MentorAssignment.mentor_id != current_user.id,
-        ).limit(1)
-    )
-    if occupied.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Роль уже занята — замените ответственного в «Команде ученика»",
+    # В мультироли второй ответственный штатен, и запрет здесь не нужен.
+    if role not in MULTI_ROLES:
+        occupied = await db.execute(
+            select(MentorAssignment.id).where(
+                MentorAssignment.student_id == student_id,
+                MentorAssignment.role == role,
+                MentorAssignment.is_active == True,  # noqa: E712
+                MentorAssignment.mentor_id.is_not(None),
+                MentorAssignment.mentor_id != current_user.id,
+            ).limit(1)
         )
+        if occupied.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Роль уже занята — замените ответственного в «Команде ученика»",
+            )
 
     result = await db.execute(
         select(MentorAssignment)
@@ -296,23 +299,30 @@ async def _assign_one(
     if same is not None and same.is_active:
         return "already", same
 
-    active_result = await db.execute(
-        select(MentorAssignment)
-        .where(
-            MentorAssignment.student_id == student_id,
-            MentorAssignment.role == role,
-            MentorAssignment.is_active == True,  # noqa: E712
-            MentorAssignment.assignment_status != "required",
-            MentorAssignment.mentor_id != mentor_id,
+    # В мультироли назначение второго человека — это добавление, а не замена:
+    # ученик подаётся в несколько стран, и каждую ведёт свой ментор. Прежних
+    # поэтому не ищем и не гасим, и причина не нужна — её спрашивают, когда
+    # кого-то снимают с роли, а здесь никого не снимают. Замена конкретного
+    # человека в мультироли идёт через PATCH /mentor-assignments/{id}.
+    previous_all: list[MentorAssignment] = []
+    if role not in MULTI_ROLES:
+        active_result = await db.execute(
+            select(MentorAssignment)
+            .where(
+                MentorAssignment.student_id == student_id,
+                MentorAssignment.role == role,
+                MentorAssignment.is_active == True,  # noqa: E712
+                MentorAssignment.assignment_status != "required",
+                MentorAssignment.mentor_id != mentor_id,
+            )
+            .with_for_update()
         )
-        .with_for_update()
-    )
-    # Все, а не один: старые двойники в роли (два активных сразу) роняли
-    # scalar_one_or_none() с MultipleResultsFound, и замена отвечала 500.
-    # Замена снимает всех — после неё в роли снова один человек.
-    previous_all = active_result.scalars().all()
-    if previous_all and not replacement_reason.strip():
-        return "needs_reason", None
+        # Все, а не один: старые двойники в роли (два активных сразу) роняли
+        # scalar_one_or_none() с MultipleResultsFound, и замена отвечала 500.
+        # Замена снимает всех — после неё в роли снова один человек.
+        previous_all = list(active_result.scalars().all())
+        if previous_all and not replacement_reason.strip():
+            return "needs_reason", None
 
     outcome = "created"
     for previous in previous_all:
@@ -347,14 +357,20 @@ async def _assign_one(
         return outcome, same
 
     required_result = await db.execute(
-        select(MentorAssignment).where(
+        select(MentorAssignment)
+        .where(
             MentorAssignment.student_id == student_id,
             MentorAssignment.role == role,
             MentorAssignment.assignment_status == "required",
             MentorAssignment.mentor_id.is_(None),
         )
+        .limit(1)
     )
-    ma = required_result.scalar_one_or_none()
+    # `.first()`, а не `scalar_one_or_none()`: плейсхолдер на роль заводится один
+    # (students.py), но уникальностью это не подкреплено, а в мультироли «два
+    # плейсхолдера» перестало быть невозможным состоянием. Прежний вызов упал бы
+    # на них MultipleResultsFound, то есть 500 вместо назначения.
+    ma = required_result.scalars().first()
     if ma:
         ma.mentor_id = mentor_id
         ma.country_scope = country_scope
@@ -406,6 +422,28 @@ async def create_assignment(
 
     mentor_id = required_uuid(body, "mentor_id")
     mentor = await _load_assignable_mentor(db, mentor_id)
+    student_id = required_uuid(body, "student_id")
+    country_scope = (body.get("country_scope") or "").strip() or None
+
+    # Со второго ответственного в мультироли страна обязательна: без неё две
+    # строки в карточке выглядят одинаково, и непонятно, кто какую страну ведёт.
+    # Первого пускаем без неё — на старте страна часто ещё не выбрана, и
+    # требовать её сразу значило бы блокировать обычное назначение.
+    if role in MULTI_ROLES and not country_scope:
+        taken = await db.execute(
+            select(MentorAssignment.id).where(
+                MentorAssignment.student_id == student_id,
+                MentorAssignment.role == role,
+                MentorAssignment.is_active == True,  # noqa: E712
+                MentorAssignment.mentor_id.is_not(None),
+                MentorAssignment.mentor_id != mentor_id,
+            ).limit(1)
+        )
+        if taken.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Укажите страну — у ученика уже есть ментор по стране",
+            )
 
     first_task_due_date = None
     if body.get("first_task_due_date"):
@@ -417,13 +455,13 @@ async def create_assignment(
     assignment_status = "awaiting_signature" if await has_pending_agreement_signature(db, mentor) else "active"
     outcome, ma = await _assign_one(
         db,
-        student_id=required_uuid(body, "student_id"),
+        student_id=student_id,
         mentor_id=mentor_id,
         role=role,
         replacement_reason=body.get("replacement_reason") or "",
         actor_id=current_user.id,
         assignment_status=assignment_status,
-        country_scope=body.get("country_scope"),
+        country_scope=country_scope,
         functional_zone=body.get("functional_zone"),
         first_task_due_date=first_task_due_date,
         is_active=body.get("is_active", True),
@@ -436,13 +474,21 @@ async def create_assignment(
         # Роль заняли, пока шёл этот запрос. `with_for_update` выше держит
         # существующие строки, но не пустую роль: два одновременных назначения на
         # свободную роль доходят до вставки оба, и второго отсекает уникальный
-        # индекс (миграция 093). Для назначающего это не сбой сервера, а «вас
+        # индекс (миграции 093/095). Для назначающего это не сбой сервера, а «вас
         # опередили», и повторять запрос молча нельзя — он бы затёр чужое
         # назначение без причины и записи в истории.
+        #
+        # В мультироли тот же индекс ловит другое: на эту страну ментор уже есть.
+        # Текст обязан различать два случая, иначе «роль занял другой сотрудник»
+        # при добавлении второй страны выглядит как ошибка системы.
         await db.rollback()
         raise HTTPException(
             status_code=409,
-            detail="Роль только что занял другой сотрудник — обновите карточку",
+            detail=(
+                f"Для страны «{country_scope}» ментор уже назначен"
+                if role in MULTI_ROLES and country_scope
+                else "Роль только что занял другой сотрудник — обновите карточку"
+            ),
         )
     # mentor нужен для _ma_to_dict — грузим его явно (иначе ленивая загрузка в
     # async-контексте падает с MissingGreenlet).
@@ -710,11 +756,17 @@ def _ma_to_dict(a: MentorAssignment) -> dict:
 # карта ролей и свой фильтр, и доска с выпадашкой предлагали разных людей.
 
 
-def _board_student(student, pipeline_status: str | None, assignment=None) -> dict:
+def _board_student(student, pipeline_status: str | None, assignment=None, country: str | None = None) -> dict:
+    # Год, ступень и страна — не для показа на карточке, а для фильтров доски:
+    # у неё нет пагинации и серверных фильтров, отбор идёт на клиенте, и нечем
+    # было отсеять пять лет набора сразу.
     return {
         "id": str(student.id),
         "full_name": student.full_name,
         "pipeline_status": pipeline_status,
+        "intake_year": student.intake_year,
+        "degree_level": student.degree_level.value if student.degree_level else None,
+        "country": country,
         "assignment_id": str(assignment.id) if assignment is not None else None,
         "assignment_status": assignment.assignment_status if assignment is not None else None,
     }
@@ -727,6 +779,7 @@ def _build_board(
     staff: list,
     students: list,
     pipeline_by_student: dict,
+    country_by_student: dict | None = None,
 ) -> dict:
     """Разложить назначения по колонкам-сотрудникам. Чистая функция.
 
@@ -739,14 +792,21 @@ def _build_board(
     колонка «без ответственного»); `staff` — сотрудники, чьи колонки должны быть
     даже пустыми.
     """
+    countries = country_by_student or {}
     by_staff: dict = defaultdict(list)
     staff_by_id: dict = {}
     assigned_student_ids: set = set()
     for assignment, student, person in assignment_rows:
         staff_by_id[person.id] = person
+        # Множество, а не счётчик: в мультироли (ментор по стране) у ученика
+        # несколько ответственных, и его карточка честно лежит в нескольких
+        # колонках. `totals.assigned` обязан считать самого ученика один раз,
+        # иначе «340 студентов» разойдётся с суммой по доске.
         assigned_student_ids.add(student.id)
         by_staff[person.id].append(
-            _board_student(student, pipeline_by_student.get(student.id), assignment)
+            _board_student(
+                student, pipeline_by_student.get(student.id), assignment, countries.get(student.id)
+            )
         )
 
     for person in staff:
@@ -771,7 +831,7 @@ def _build_board(
     columns.sort(key=lambda c: (c["name"] or "").lower())
 
     unassigned = [
-        _board_student(student, pipeline_by_student.get(student.id))
+        _board_student(student, pipeline_by_student.get(student.id), None, countries.get(student.id))
         for student in students
         if student.id not in assigned_student_ids
     ]
@@ -858,11 +918,18 @@ async def assignment_board(
         .where(Student.is_archived == False)  # noqa: E712
         .order_by(Student.full_name)
     )
+    students = list(students_result.scalars())
+
+    # Страна для фильтра доски — тем же правилом, что в общей базе, иначе один
+    # и тот же ученик попадал бы под фильтр «США» на одном экране и не попадал
+    # на другом.
+    country_by_student = await primary_country_by_student(db, [s.id for s in students])
 
     return _build_board(
         role=mentor_role,
         assignment_rows=list(assignments_result.all()),
         staff=list(staff_result.scalars()),
-        students=list(students_result.scalars()),
+        students=students,
         pipeline_by_student=pipeline_by_student,
+        country_by_student=country_by_student,
     )

@@ -33,6 +33,7 @@ from app.services.student_purge import delete_stored_files, document_storage_pat
 from app.services import contract_finance
 from app.core.config import settings
 from app.services.people_facets import build_people_index
+from app.services.student_countries import primary_country_by_student
 from app.services.task_sla import SLA_TRACKED_STATUSES
 from app.services.task_urgency import task_urgency
 from app.models.document import Document
@@ -682,14 +683,15 @@ async def list_students(
     result = await db.execute(query)
     students = result.scalars().all()
 
-    # Страна для карточек дашборда — основная заявка (fallback: любая).
-    # Один батч-запрос вместо N+1 по студентам.
-    country_map: dict[uuid.UUID, str] = {}
+    # Страна для карточек дашборда — основная заявка (fallback: любая). Правило
+    # вынесено в сервис: его же читает доска распределения, и своя копия здесь
+    # означала бы, что фильтр «страна» на двух экранах находит разных учеников.
+    student_ids = [s.id for s in students]
+    country_map = await primary_country_by_student(db, student_ids)
     # Блок F (ОС 30/07): полный список стран студента с флагом is_primary —
     # разделение main/доп. уже есть в данных (Application.is_primary), просто
     # не было отдано наружу (country_map схлопывал до одной строки).
     countries_by_student: dict[uuid.UUID, list[dict]] = {}
-    student_ids = [s.id for s in students]
     if student_ids:
         app_result = await db.execute(
             select(Application.student_id, Application.country, Application.is_primary)
@@ -698,8 +700,6 @@ async def list_students(
         )
         distinct_country_names: set[str] = set()
         for sid, app_country, is_primary in app_result.all():
-            if sid not in country_map and app_country:
-                country_map[sid] = app_country
             if app_country:
                 countries_by_student.setdefault(sid, []).append(
                     {"country": app_country, "is_primary": is_primary}
