@@ -43,6 +43,13 @@ class User(Base):
     mentor_specialties: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
+    # Точечные исключения поверх роли, например доступ одного ментора к доске
+    # распределения. Формат тот же, что в payload: "resource:action".
+    # Это только дополнительные разрешения; запреты по пользователю здесь не
+    # хранятся, поэтому роль остаётся понятным базовым уровнем доступа.
+    permission_grants: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

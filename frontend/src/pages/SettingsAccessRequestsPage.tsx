@@ -36,6 +36,15 @@ const REQUEST_ROLE_FILTERS: Array<{ value: RequestRoleFilter; label: string }> =
   { value: 'all', label: 'Все' },
 ]
 
+/** Массовое одобрение безопасно только при единственном точном совпадении
+ * телефона со свободной карточкой. Экспортировано ради регрессионного теста:
+ * UI не должен снова обещать автоодобрение занятой карточки. */
+export function isAutoApprovable(item: AccessRequestItem): boolean {
+  if (item.requested_role !== 'student') return false
+  const byPhone = (item.candidates ?? []).filter((candidate) => candidate.reason === 'phone')
+  return byPhone.length === 1 && byPhone[0].is_free
+}
+
 /**
  * Очередь самозаписи: кто пришёл через /join и ждёт привязки к карточке.
  *
@@ -228,16 +237,30 @@ export function SettingsAccessRequestsPage() {
   // здесь только чтобы не предлагать кнопку, которая ничего не сделает;
   // настоящее решение всё равно принимается на бэкенде.
   const autoReady = useMemo(
-    () =>
-      visibleItems.filter((i) => {
-        if (i.requested_role !== 'student') return false
-        // Ровно одна карточка с этим телефоном и без кабинета. Две карточки
-        // на номер — семейный телефон, угадывать нельзя.
-        const byPhone = (i.candidates ?? []).filter((c) => c.reason === 'phone')
-        return byPhone.length === 1 && byPhone[0].is_free
-      }),
+    () => visibleItems.filter(isAutoApprovable),
     [visibleItems],
   )
+
+  // Галочка имеет смысл только там, где над выбранной строкой существует
+  // массовое действие. Раньше можно было отметить семь заявок, ни одна из
+  // которых не проходила безопасный автомэтчинг, нажать «Одобрить выбранные»
+  // и получить красное «Открыт доступ: 0». Это выглядело как поломка прав
+  // администратора, хотя каждая заявка на самом деле требовала ручного выбора.
+  const autoReadyIds = useMemo(() => new Set(autoReady.map((item) => item.id)), [autoReady])
+  const selectableItems = useMemo(
+    () =>
+      visibleItems.filter(
+        (item) => item.requested_role !== 'student' || autoReadyIds.has(item.id),
+      ),
+    [visibleItems, autoReadyIds],
+  )
+  const selectedAutoReadyIds = useMemo(
+    () => [...selected].filter((id) => autoReadyIds.has(id)),
+    [selected, autoReadyIds],
+  )
+  const manualStudentCount = visibleItems.filter(
+    (item) => item.requested_role === 'student' && !autoReadyIds.has(item.id),
+  ).length
 
   /**
    * Сколько отмеченных заявок массовое одобрение точно не возьмёт.
@@ -316,27 +339,46 @@ export function SettingsAccessRequestsPage() {
         ))}
       </div>
 
-      {visibleItems.length > 0 && canDecide && (
+      {manualStudentCount > 0 && canDecide && (
+        <div className="mb-3 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          <p className="font-semibold">
+            Вручную проверить: {manualStudentCount}
+          </p>
+          <p className="mt-1">
+            Общая кнопка берёт только заявки с одним точным совпадением телефона и свободной
+            карточкой. Если кабинет уже есть, нажмите «Прикрепить» у найденной карточки и
+            подтвердите замену старого аккаунта. Если совпадений нет — найдите карточку вручную
+            или создайте новую.
+          </p>
+        </div>
+      )}
+
+      {selectableItems.length > 0 && canDecide && (
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               className="h-4 w-4 accent-amber-500"
-              checked={selected.size > 0 && selected.size === visibleItems.length}
+              checked={
+                selectableItems.length > 0 &&
+                selectableItems.every((item) => selected.has(item.id))
+              }
               onChange={(e) =>
-                setSelected(e.target.checked ? new Set(visibleItems.map((i) => i.id)) : new Set())
+                setSelected(e.target.checked ? new Set(selectableItems.map((i) => i.id)) : new Set())
               }
             />
-            Выбрать все
+            {roleFilter === 'student' ? 'Выбрать доступных для автоодобрения' : 'Выбрать все'}
           </label>
-          <Button
-            size="sm"
-            disabled={selected.size === 0 || busy}
-            onClick={() => bulk.mutate([...selected])}
-          >
-            <Check className="mr-1.5 h-4 w-4" />
-            Одобрить выбранные ({selected.size})
-          </Button>
+          {selectedAutoReadyIds.length > 0 && (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => bulk.mutate(selectedAutoReadyIds)}
+            >
+              <Check className="mr-1.5 h-4 w-4" />
+              Одобрить автоматически ({selectedAutoReadyIds.length})
+            </Button>
+          )}
           {/* Отдельная кнопка, а не общая: у ученика решение опирается на
               совпадение телефона с карточкой, а здесь проверять нечего —
               доступ сотрудника выдаётся целиком под ответственность человека.
@@ -407,6 +449,7 @@ export function SettingsAccessRequestsPage() {
               key={item.id}
               item={item}
               canDecide={canDecide}
+              selectable={item.requested_role !== 'student' || autoReadyIds.has(item.id)}
               checked={selected.has(item.id)}
               busy={busy}
               onToggle={() => toggle(item.id)}
@@ -708,6 +751,7 @@ function IssuedPasswordDialog({
 function RequestRow({
   item,
   canDecide,
+  selectable,
   checked,
   busy,
   onToggle,
@@ -720,6 +764,7 @@ function RequestRow({
 }: {
   item: AccessRequestItem
   canDecide: boolean
+  selectable: boolean
   checked: boolean
   busy: boolean
   onToggle: () => void
@@ -739,7 +784,7 @@ function RequestRow({
   return (
     <div className="rounded-card border border-ds-border bg-ds-surface p-4">
       <div className="flex items-start gap-3">
-        {canDecide && (
+        {canDecide && selectable && (
           <input
             type="checkbox"
             className="mt-1 h-4 w-4 shrink-0 accent-amber-500"

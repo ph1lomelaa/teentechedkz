@@ -45,7 +45,7 @@ ALL_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.stu
 
 
 def _user(role: UserRole) -> User:
-    return User(id=uuid.uuid4(), role=role)
+    return User(id=uuid.uuid4(), role=role, permission_grants=[])
 
 
 class StructureTests(unittest.TestCase):
@@ -108,6 +108,12 @@ class DecisionTests(unittest.TestCase):
         # нему перечитывает профиль после смены роли админом. Контракт пришпилен
         # здесь, чтобы его нельзя было поменять «заодно».
         self.assertEqual(ctx.exception.headers["X-Error-Code"], "FORBIDDEN")
+
+    def test_require_accepts_individual_grant_without_role_change(self) -> None:
+        user = _user(UserRole.mentor)
+        user.permission_grants = ["assignment_overview:view"]
+        require_access(user, "assignment_overview", Action.view)
+        self.assertEqual(user.role, UserRole.mentor)
 
     def test_role_denial_is_always_403_never_404(self) -> None:
         """404 — свойство скоуп-слоя, не проверки роли.

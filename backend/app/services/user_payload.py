@@ -49,7 +49,7 @@ def build_user_payload(user: User, *, agreement_signature_required: bool) -> dic
         # У неоткрытого аккаунта прав нет ни одного, хотя роль у него уже есть:
         # права появляются вместе с активацией. `can()` на той стороне
         # закрывает по пустому списку всё, включая меню и роуты.
-        "permissions": [] if not user.is_active else list(permissions.granted_for(user.role)),
+        "permissions": [] if not user.is_active else list(permissions.granted_for_user(user)),
     }
 
 

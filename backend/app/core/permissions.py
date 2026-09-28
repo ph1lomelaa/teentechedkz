@@ -584,7 +584,11 @@ def require_access(user: User, resource: str, action: Action) -> None:
             detail="Доступ не описан в реестре прав",
             headers={"X-Error-Code": "PERMISSION_UNDEFINED"},
         )
-    if user.role in (_roles_for((resource, action)) or frozenset()):
+    key = f"{resource}:{action.value}"
+    if (
+        user.role in (_roles_for((resource, action)) or frozenset())
+        or key in (getattr(user, "permission_grants", None) or [])
+    ):
         return
     # Код по умолчанию FORBIDDEN, а не PERMISSION_REQUIRED: это общая конвенция
     # отказа по роли (deps.require_roles, universities._FORBIDDEN и др.), и на неё
@@ -633,6 +637,22 @@ def granted_for(role: UserRole) -> tuple[str, ...]:
         for rule in RULES
         if role in (_roles_for(rule.key) or frozenset())
     )
+
+
+def granted_for_user(user: User) -> tuple[str, ...]:
+    """Права конкретного пользователя: роль плюс проверенные точечные гранты.
+
+    Неизвестные ключи отбрасываются. Даже если в БД останется старое имя права
+    после рефакторинга, фронт не покажет несуществующий раздел, а бэкенд его не
+    признает в ``require_access``.
+    """
+    known = {f"{rule.resource}:{rule.action.value}" for rule in RULES}
+    extra = {
+        value
+        for value in (getattr(user, "permission_grants", None) or [])
+        if value in known
+    }
+    return tuple(sorted(set(granted_for(user.role)) | extra))
 
 
 def resources() -> tuple[str, ...]:

@@ -52,6 +52,7 @@ def _user(role: UserRole = UserRole.mentor) -> User:
         role=role,
         is_active=True,
         must_change_password=False,
+        permission_grants=[],
     )
 
 
@@ -122,6 +123,19 @@ class PermissionsInPayloadTests(unittest.TestCase):
         payload = build_user_payload(_user(UserRole.mentor), agreement_signature_required=False)
         self.assertTrue(all(entry.count(":") == 1 for entry in payload["permissions"]))
         self.assertIn(f"students:{Action.view.value}", payload["permissions"])
+
+    def test_individual_grant_is_added_without_changing_role(self) -> None:
+        user = _user(UserRole.mentor)
+        user.permission_grants = ["assignment_overview:view"]
+        payload = build_user_payload(user, agreement_signature_required=False)
+        self.assertEqual(payload["role"], "mentor")
+        self.assertIn("assignment_overview:view", payload["permissions"])
+
+    def test_unknown_individual_grant_is_ignored(self) -> None:
+        user = _user(UserRole.mentor)
+        user.permission_grants = ["made_up:view"]
+        payload = build_user_payload(user, agreement_signature_required=False)
+        self.assertNotIn("made_up:view", payload["permissions"])
 
 
 class SingleBuilderWiringTests(unittest.TestCase):

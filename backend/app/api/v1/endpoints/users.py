@@ -11,7 +11,7 @@ import uuid
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.core.deps import CurrentUser
-from app.core.permissions import Action, require_access
+from app.core.permissions import Action, all_rules, require_access
 from app.models.agreement import Agreement, AgreementSignature, AgreementStatus
 from app.models.audit_log import AuditAction
 from app.models.mentor_assignment import MentorRole
@@ -573,6 +573,11 @@ async def update_user(
         # Сессии не рвём: специализация не влияет на права (см. models/user.py),
         # она меняет только то, в каком списке «кого назначить» человек виден.
         user.mentor_specialties = _parse_specialties(body["mentor_specialties"])
+    if "permission_grants" in body:
+        # Персональный грант открывает только указанное действие и не меняет
+        # должность пользователя. Так исключение для одного ментора не выдаёт
+        # права всем менторам и не превращает его в МЗК во всех разделах.
+        user.permission_grants = _parse_permission_grants(body["permission_grants"])
     if "is_active" in body:
         user.is_active = body["is_active"]
         if not user.is_active:
@@ -728,6 +733,22 @@ def _parse_specialties(raw) -> list[str]:
     return cleaned
 
 
+def _parse_permission_grants(raw) -> list[str]:
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=422, detail="permission_grants: ожидается список")
+    known = {
+        f"{rule.resource}:{rule.action.value}"
+        for rule in all_rules()
+    }
+    cleaned: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or item not in known:
+            raise HTTPException(status_code=422, detail=f"Неизвестное право: {item}")
+        if item not in cleaned:
+            cleaned.append(item)
+    return cleaned
+
+
 def _user_to_dict(u: User, agreement_status: dict | None = None) -> dict:
     return {
         "id": str(u.id),
@@ -740,6 +761,7 @@ def _user_to_dict(u: User, agreement_status: dict | None = None) -> dict:
         "is_active": u.is_active,
         "must_change_password": u.must_change_password,
         "mentor_specialties": list(u.mentor_specialties or []),
+        "permission_grants": list(u.permission_grants or []),
         "created_at": u.created_at.isoformat() if u.created_at else None,
         "agreement_status": agreement_status or {"status": "not_applicable"},
     }
