@@ -1207,9 +1207,19 @@ export const StudentCardPage: React.FC = () => {
         </div>
       </div>
 
-      <Accordion type="multiple" defaultValue={['profile', 'shortlist', 'applications', 'services', 'tasks']} className="space-y-2">
+      <Accordion type="multiple" defaultValue={['credentials', 'profile', 'shortlist', 'applications', 'services', 'tasks']} className="space-y-2">
         {/* Команда: МЗК и менторы по специализациям (IELTS, виза, профориентация).
             Кто чем занимается ПО ПРЕДМЕТУ. Участки работы — в блоке ниже. */}
+        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
+        <AccordionItem value="credentials" className="border border-p-line rounded-card px-4">
+          <AccordionTrigger className="text-base font-semibold">
+            Доступы к порталам (admission)
+          </AccordionTrigger>
+          <AccordionContent>
+            <PortalCredentialsSection mode="staff" studentId={student.id} />
+          </AccordionContent>
+        </AccordionItem>
+
         <AccordionItem value="responsibles" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
             Команда ученика
@@ -1713,16 +1723,6 @@ export const StudentCardPage: React.FC = () => {
             {/* Раньше здесь была таблица, которая не показывала вуз вообще —
                 только страну, а статус визы выводила сырым значением из БД. */}
             <ApplicationsSection mode="staff" studentId={student.id} basePath="/universities" />
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
-        <AccordionItem value="credentials" className="border border-p-line rounded-card px-4">
-          <AccordionTrigger className="text-base font-semibold">
-            Доступы к порталам (admission)
-          </AccordionTrigger>
-          <AccordionContent>
-            <PortalCredentialsSection mode="staff" studentId={student.id} />
           </AccordionContent>
         </AccordionItem>
 

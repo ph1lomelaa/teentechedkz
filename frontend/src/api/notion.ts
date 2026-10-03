@@ -90,6 +90,8 @@ export interface NotionSyncCounters {
   updated: number
   auto_linked: number
   needs_review: number
+  /** Страницы, удалённые или перенесённые в Notion и убранные из зеркала. */
+  removed?: number
 }
 
 export interface NotionStatusInfo {

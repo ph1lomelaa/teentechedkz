@@ -1,3 +1,5 @@
+import { notionTagClass } from '@/lib/notionColors'
+
 export type UserRole = 'admin' | 'mzk_manager' | 'academic_head' | 'mentor' | 'student'
 export type NoteVisibility = 'admin_only' | 'admin_and_mzk' | 'all_mentors'
 
@@ -1055,17 +1057,17 @@ export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {
   no_status: 'Нет статуса',
 }
 
-// Цвета как у опций «Статус выплат» в Notion — менеджеры привыкли к ним там,
-// поэтому палитра повторяет Notion один в один (светлая и тёмная тема).
+// Цвета как у опций «Статус выплат» в Notion — менеджеры привыкли к ним там.
+// Сама палитра (обе темы, контраст под тестом) — в lib/notionColors.ts.
 const NOTION_TAG = {
-  default: 'bg-[#E3E2E080] text-[#32302C] dark:bg-[#373737] dark:text-white/80',
-  gray: 'bg-[#E3E2E0] text-[#32302C] dark:bg-[#5A5A5A] dark:text-white/80',
-  orange: 'bg-[#FADEC9] text-[#49290E] dark:bg-[#854C1D] dark:text-white/80',
-  yellow: 'bg-[#FDECC8] text-[#402C1B] dark:bg-[#89632A] dark:text-white/80',
-  green: 'bg-[#DBEDDB] text-[#1C3829] dark:bg-[#2B593F] dark:text-white/80',
-  blue: 'bg-[#D3E5EF] text-[#183347] dark:bg-[#28456C] dark:text-white/80',
-  purple: 'bg-[#E8DEEE] text-[#412454] dark:bg-[#492F64] dark:text-white/80',
-  red: 'bg-[#FFE2DD] text-[#5D1715] dark:bg-[#6E3630] dark:text-white/80',
+  default: notionTagClass('default'),
+  gray: notionTagClass('gray'),
+  orange: notionTagClass('orange'),
+  yellow: notionTagClass('yellow'),
+  green: notionTagClass('green'),
+  blue: notionTagClass('blue'),
+  purple: notionTagClass('purple'),
+  red: notionTagClass('red'),
 }
 
 export const PIPELINE_STATUS_COLORS: Record<PipelineStatus, string> = {

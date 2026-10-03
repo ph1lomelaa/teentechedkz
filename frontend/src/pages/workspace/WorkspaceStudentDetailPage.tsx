@@ -104,7 +104,6 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromHash(location.hash))
   const [creatingTask, setCreatingTask] = useState(false)
 
-
   useEffect(() => {
     setActiveTab(tabFromHash(location.hash))
   }, [location.hash])
@@ -492,7 +491,9 @@ function CardListView({
     responsibles.find((r) => r.id === mentorId)?.name || (mentorId ? 'Назначен' : 'Не назначен')
 
   // «Что уже открыто» — как в CRM: профиль/заявки/услуги + сверки, если они есть.
-  const defaultOpen = ['applications', 'services']
+  // admission-доступы — первыми и раскрыты: без них не отметить оффер, а внизу
+  // страницы их не находили.
+  const defaultOpen = ['credentials', 'applications', 'services']
   if (showIntake) defaultOpen.push('intake')
 
   return (
@@ -513,6 +514,11 @@ function CardListView({
       )}
 
       <Accordion type="multiple" defaultValue={defaultOpen} className="space-y-3">
+        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
+        <WSection value="credentials" title="Доступы к порталам (admission)" icon={<KeyRound className="h-4 w-4" />}>
+          <PortalCredentialsSection mode="staff" studentId={student.id} />
+        </WSection>
+
         <WSection value="responsibles" title="Ответственные" icon={<Users className="h-4 w-4" />}>
           {responsibles.length === 0 ? (
             <p className="text-sm text-w-muted">Нет активных назначений</p>
@@ -635,11 +641,6 @@ function CardListView({
             добавить заявку, ни привязать вуз — хотя бэкенд ему это разрешает. */}
         <WSection value="applications" title="Заявки на поступление" icon={<ExternalLink className="h-4 w-4" />}>
           <ApplicationsSection mode="staff" studentId={student.id} basePath="/workspace/universities" />
-        </WSection>
-
-        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
-        <WSection value="credentials" title="Доступы к порталам (admission)" icon={<KeyRound className="h-4 w-4" />}>
-          <PortalCredentialsSection mode="staff" studentId={student.id} />
         </WSection>
 
         <WSection value="guardians" title="Родители и контакты" icon={<UserRound className="h-4 w-4" />}>

@@ -210,6 +210,38 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
         reconcile_baseline(snapshot, student, contracts.get(snapshot.student_id))
 
 
+def _normalize_id(value: str | None) -> str:
+    return (value or "").replace("-", "").lower()
+
+
+def _page_left_source(page_id: str) -> bool:
+    """Ушла ли страница из нашей базы Notion на самом деле.
+
+    True — Notion подтвердил: страница удалена, в корзине, недоступна (404) или
+    перенесена в другую базу. False — страница на месте (значит, выдача пришла
+    обрезанной) или спросить не удалось; в обоих случаях синк надо остановить,
+    а не терять записи.
+    """
+    from app.services import notion_write
+
+    try:
+        resp = notion_write._request("GET", f"{notion_write._API}/pages/{page_id}")
+    except Exception:
+        logger.warning("Notion: не удалось проверить пропавшую страницу %s", page_id, exc_info=True)
+        return False
+    if resp.status_code == 404:
+        return True
+    if resp.status_code != 200:
+        return False
+    page = resp.json()
+    if page.get("archived") or page.get("in_trash"):
+        return True
+    parent = page.get("parent") or {}
+    source = _normalize_id(settings.NOTION_DATABASE_ID)
+    parent_ids = {_normalize_id(parent.get("data_source_id")), _normalize_id(parent.get("database_id"))}
+    return source not in parent_ids
+
+
 async def run_sync(db: AsyncSession) -> dict:
     """Полный проход: чтение Notion → upsert снапшотов → матчинг непривязанных."""
     if not is_configured():
@@ -237,11 +269,28 @@ async def run_sync(db: AsyncSession) -> dict:
             # silently truncated rows.
             incoming_ids = {row["notion_page_id"] for row in rows}
             missing_ids = set(existing) - incoming_ids
+            removed = 0
             if missing_ids:
-                raise RuntimeError(
-                    f"Notion не вернул {len(missing_ids)} ранее известных страниц "
-                    f"({len(rows)} строк сейчас, {len(existing)} ранее)"
+                # Каждую пропавшую страницу спрашиваем у Notion напрямую.
+                # Удалённые/перенесённые убираем из зеркала (на Обзоре их больше
+                # нет — как и в Notion). Карточка ученика, его назначения и
+                # кабинет при этом не трогаются: у снапшота нет зависимых
+                # таблиц, а студент — отдельная запись CRM.
+                gone = await loop.run_in_executor(
+                    None, lambda: {pid for pid in missing_ids if _page_left_source(pid)}
                 )
+                still_there = missing_ids - gone
+                if still_there:
+                    raise RuntimeError(
+                        f"Notion не вернул {len(still_there)} страниц, которые в Notion на месте — "
+                        f"выдача неполная, синк остановлен ({len(rows)} строк сейчас, {len(existing)} ранее)"
+                    )
+                for page_id in gone:
+                    snapshot = existing.pop(page_id)
+                    logger.info("Notion: страница удалена или перенесена — убираем из зеркала: %s (%s)",
+                                snapshot.full_name, page_id)
+                    await db.delete(snapshot)
+                removed = len(gone)
             students_index = await _load_students_index(db)
 
             now = datetime.now(timezone.utc)
@@ -318,10 +367,8 @@ async def run_sync(db: AsyncSession) -> dict:
 
             await db.commit()
 
-            pipeline_result = None
-            if settings.ENABLE_NOTION_PIPELINE_APPLY:
-                from app.services.notion_pipeline import apply_report
-                pipeline_result = await apply_report(db)
+            # Перенос Notion → CRM из синка не запускается никогда (решение
+            # 03.10.2026): ручное распределение, аккаунты и карточки — в CRM.
 
             needs_review = await unmatched_count(db)
             counters = {
@@ -331,7 +378,7 @@ async def run_sync(db: AsyncSession) -> dict:
                 "unchanged": unchanged,
                 "auto_linked": auto_linked,
                 "needs_review": needs_review,
-                "pipeline": pipeline_result,
+                "removed": removed,
             }
             await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Notion sync done: {counters}")

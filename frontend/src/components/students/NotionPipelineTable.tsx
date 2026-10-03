@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/ui'
 import { Button } from '@/components/ui/primitives/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/primitives/sheet'
 import { MENTOR_ROLE_LABELS } from '@/types'
+import { notionDotClass, notionSoftClass, notionTagClass } from '@/lib/notionColors'
 import { StudentPeekPanel } from '@/components/students/StudentPeekPanel'
 import { StudentAssignmentBar, useCanSelectStudents } from '@/components/students/StudentAssignmentBar'
 import { PipelineToolbar, type OptionCount } from '@/components/students/pipeline/PipelineToolbar'
@@ -26,18 +27,6 @@ const NOT_SET = 'Не заполнено'
 const STATUS_ORDER = ['Активная работа', 'На визе', 'На возврате', 'Не оплачено', 'Пауза',
   'Перевели на другой продукт', 'Передумали', 'Пересдача IELTS', 'Подвешено',
   'Проблема', 'Пропал абитуриент', 'Работа окончена', 'Работа окончена- Поступил', 'Переподача']
-const OPTION_COLORS: Record<string, string> = {
-  default: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-100',
-  gray: 'bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100',
-  brown: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
-  orange: 'bg-orange-100 text-orange-900 dark:bg-orange-900 dark:text-orange-100',
-  yellow: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-100',
-  green: 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100',
-  blue: 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100',
-  purple: 'bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100',
-  pink: 'bg-pink-100 text-pink-900 dark:bg-pink-900 dark:text-pink-100',
-  red: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
-}
 
 function cellValues(row: NotionPipelineRow, field: string): string[] {
   if (field === ASSIGNED) return row.responsibles.map((person) => `${person.role}: ${person.name}`)
@@ -74,6 +63,15 @@ function matches(row: NotionPipelineRow, filters: Filters): boolean {
 function displayValue(row: NotionPipelineRow, field: string): string {
   return cellValues(row, field).join(', ') || '—'
 }
+
+// Как в Notion пишут «пусто»: опция «none», прочерк, «нет». В данных и в
+// фильтрах они остаются как есть — не показываем их только на экране, чтобы
+// «Mentors: none» не выглядело как имя ментора.
+const BLANK_VALUES = new Set(['none', '-', '—', 'нет'])
+function shownValues(row: NotionPipelineRow, field: string): string[] {
+  return cellValues(row, field).filter((value) => !BLANK_VALUES.has(value.trim().toLowerCase()))
+}
+const EMPTY_CELL = <span className="text-p-muted2">—</span>
 
 /** Ключ группы строки: первое значение поля, пустое — «Не заполнено». */
 function groupKey(row: NotionPipelineRow, field: string): string {
@@ -135,7 +133,7 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
     mutationFn: notionApi.run,
     onSuccess: ({ counters }) => {
       queryClient.invalidateQueries({ queryKey: ['notion'] })
-      toast({ title: 'Notion синхронизирован', description: `Записей: ${counters.total} · новых: ${counters.created} · обновлено: ${counters.updated}` })
+      toast({ title: 'Notion синхронизирован', description: `Записей: ${counters.total} · новых: ${counters.created} · обновлено: ${counters.updated}${counters.removed ? ` · удалено в Notion: ${counters.removed}` : ''}` })
     },
     onError: (error: unknown) => {
       // Ошибка видна и в строке статуса: после неудачи бэкенд пишет её в last_run.
@@ -335,14 +333,15 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
     return displayValue(row, field)
   }
   const renderCell = (row: NotionPipelineRow, field: string) => {
-    const values = cellValues(row, field)
+    const values = shownValues(row, field)
     if (field === 'е') return <span className="flex items-center gap-2">
       {selectionMode && selectMark(row)}
       <button type="button" className="font-medium underline" onClick={() => openRow(row)}>{displayValue(row, field)}</button>
     </span>
+    if (!values.length) return EMPTY_CELL
     const colors = data?.option_colors?.[field]
-    if (colors && values.length) return <div className="flex gap-1">{values.map((value, index) =>
-      <span key={`${value}-${index}`} className={`rounded-pill px-2 py-0.5 ${OPTION_COLORS[colors[value]] || OPTION_COLORS.default}`}>{value}</span>
+    if (colors) return <div className="flex gap-1">{values.map((value, index) =>
+      <span key={`${value}-${index}`} className={`rounded-pill px-2 py-0.5 font-medium ${notionTagClass(colors[value])}`}>{value}</span>
     )}</div>
     return formatted(row, field)
   }
@@ -356,6 +355,23 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
   const fieldInputType = (field: string): 'date' | 'number' | 'text' => data?.field_meta?.[field]?.type === 'date' ? 'date' :
     data?.field_meta?.[field]?.type === 'number' || sourceRows.some((row) => typeof row.values[field] === 'number') ? 'number' : 'text'
 
+  // Числовые колонки (Дни в работе, Себес, суммы) — вправо и моноширинными цифрами.
+  const numericFields = useMemo(() => new Set(columns.filter((field) =>
+    data?.field_meta?.[field]?.type === 'number' || sourceRows.some((row) => typeof row.values[field] === 'number'))),
+  [columns, data, sourceRows])
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
+  const toggleGroup = (key: string) => setCollapsedGroups((current) => {
+    const next = new Set(current)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+  // Таблица всегда открывается с левого края: иначе браузер мог вернуть старую
+  // горизонтальную прокрутку, и колонка с именем оказывалась за краем.
+  const tableScrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (tableScrollRef.current) tableScrollRef.current.scrollLeft = 0
+  }, [view, tableGroup, data])
   const recordsTotal = syncStatus?.last_run?.counters?.total ?? sourceRows.length
   const tableFields = [TITLE_FIELD, ...visibleFields]
 
@@ -443,18 +459,23 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
             const cards = filtered.filter((row) => sectionOf(row) === intake && groupKey(row, group) === status)
             const color = data.option_colors?.[group]?.[status] || 'default'
             return <div key={status} className="w-64 flex-none rounded-card border border-p-line bg-p-bg p-2">
-              <div className={`mb-2 rounded-panel px-3 py-2 text-sm font-semibold ${OPTION_COLORS[color] || OPTION_COLORS.default}`}>{status} · {cards.length}</div>
+              <div className={`mb-2 flex items-center gap-2 rounded-panel px-3 py-2 text-sm font-semibold ${notionSoftClass(color)}`}>
+                <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${notionDotClass(color)}`} />
+                <span className="min-w-0">{status} <span className="font-normal">· {cards.length}</span></span>
+              </div>
               <div className="space-y-2">{cards.map((row) => <div key={row.id} role="button" tabIndex={0} onClick={() => openRow(row)}
                 onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openRow(row) } }}
-                className={`block w-full cursor-pointer rounded-panel border bg-p-panel p-3 text-left text-xs shadow-sm hover:border-p-accent ${selectedIds.has(row.id) ? 'border-brand bg-brand/10' : 'border-p-line'}`}>
+                className={`block w-full cursor-pointer rounded-panel border bg-p-panel p-3 text-left text-xs text-p-text shadow-sm hover:border-p-accent ${selectedIds.has(row.id) ? 'border-brand bg-brand/10' : 'border-p-line'}`}>
                 <div className="mb-2 flex items-start gap-2 font-semibold">{selectionMode && selectMark(row)}<span className="min-w-0 flex-1">{displayValue(row, 'е')}</span></div>
-                {visibleFields.filter((field) => field !== ASSIGNED).map((field) => cellValues(row, field).length > 0 &&
-                  <div key={field} className="mt-1 flex flex-wrap gap-1">
-                    {overview && <span className="text-p-muted">{fieldLabel(field)}:</span>}{renderCell(row, field)}
+                {visibleFields.filter((field) => field !== ASSIGNED).map((field) => shownValues(row, field).length > 0 &&
+                  <div key={field} className="mt-1.5 flex flex-wrap items-center gap-1">
+                    {overview && <span className="text-p-muted">{fieldLabel(field)}</span>}{renderCell(row, field)}
                   </div>)}
-                {visibleFields.includes(ASSIGNED) && <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-p-line pt-2">
-                  <span className="text-p-muted">Ответственные:</span><ResponsibleChips row={row} />
-                </div>}
+                {visibleFields.includes(ASSIGNED) && (row.responsibles.length
+                  ? <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-p-line pt-2">
+                      <span className="text-p-muted">Ответственные</span><ResponsibleChips row={row} />
+                    </div>
+                  : <p className="mt-2 truncate border-t border-p-line pt-2 text-p-muted">Ответственные: не назначены</p>)}
                 {row.source === 'crm' && <div className="mt-2 text-p-muted">Без страницы Notion</div>}
               </div>)}</div>
             </div>
@@ -462,9 +483,9 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
         </div>}
       </section>)}
     </div>}
-    {data && !boardView && filtered.length > 0 && <div className="overflow-x-auto rounded-panel border border-p-line">
+    {data && !boardView && filtered.length > 0 && <div ref={tableScrollRef} className="overflow-x-auto rounded-panel border border-p-line bg-p-bg">
       <table className="min-w-max border-collapse text-left text-xs">
-        <thead><tr className="bg-p-bg">{tableFields.map((field) => <th key={field} className="whitespace-nowrap border-b border-r border-p-line px-3 py-2">
+        <thead><tr className="bg-p-bg">{tableFields.map((field) => <th key={field} className={`whitespace-nowrap border-b border-r border-p-line px-3 py-2 ${field === TITLE_FIELD ? 'sticky left-0 z-20 bg-p-bg' : ''} ${numericFields.has(field) ? 'text-right' : ''}`}>
           {field === ASSIGNED ? fieldLabel(field) : <button type="button" onClick={() => updateParams({ [PARAM.sort]: field, [PARAM.dir]: sort === field && direction === 'asc' ? 'desc' : null })}>
             {fieldLabel(field)} {sort === field ? direction === 'asc' ? '↑' : '↓' : ''}
           </button>}
@@ -473,20 +494,25 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
           const key = tableGroup ? groupKey(row, tableGroup) : null
           const startsGroup = key !== null && (index === 0 || groupKey(filtered[index - 1], tableGroup!) !== key)
           const color = tableGroup ? data.option_colors?.[tableGroup]?.[key!] : undefined
+          const collapsed = key !== null && collapsedGroups.has(key)
           return <Fragment key={row.id}>
             {startsGroup && <tr className="bg-p-panel2">
-              <th scope="colgroup" colSpan={tableFields.length + (overview ? 0 : 1)} className="border-b border-p-line px-3 py-2 text-left text-xs font-semibold text-p-text">
-                <span className="text-p-muted">{fieldLabel(tableGroup!)}:</span>{' '}
-                <span className={color ? `rounded-pill px-2 py-0.5 ${OPTION_COLORS[color] || OPTION_COLORS.default}` : ''}>{key}</span>
-                <span className="ml-2 font-normal text-p-muted">{groupCounts.get(key!) ?? 0}</span>
+              <th scope="colgroup" colSpan={tableFields.length + (overview ? 0 : 1)} className="border-b border-p-line p-0 text-left text-xs font-semibold text-p-text">
+                {/* Подпись группы закреплена слева, как колонка имени: при прокрутке вправо не уезжает. */}
+                <button type="button" aria-expanded={!collapsed} onClick={() => toggleGroup(key!)}
+                  className="sticky left-0 inline-flex items-center gap-2 px-3 py-2 hover:text-p-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <span aria-hidden="true" className="w-3 text-center">{collapsed ? '+' : '−'}</span>
+                  {color && <span aria-hidden="true" className={`h-2 w-2 rounded-full ${notionDotClass(color)}`} />}
+                  {fieldLabel(tableGroup!)} {key} <span className="font-normal text-p-muted">· {groupCounts.get(key!) ?? 0}</span>
+                </button>
               </th>
             </tr>}
-            <tr className={`border-b border-p-line hover:bg-p-bg ${selectedIds.has(row.id) ? 'bg-brand/10' : ''}`}>
-              {tableFields.map((field) => <td key={field} className="max-w-64 truncate whitespace-nowrap border-r border-p-line px-3 py-2" title={field === ASSIGNED ? undefined : formatted(row, field)}>
+            {!collapsed && <tr className={`group border-b border-p-line hover:bg-p-panel ${selectedIds.has(row.id) ? 'bg-brand/10' : ''}`}>
+              {tableFields.map((field) => <td key={field} className={`max-w-64 truncate whitespace-nowrap border-r border-p-line px-3 py-2 ${field === TITLE_FIELD ? 'sticky left-0 z-10 bg-p-bg group-hover:bg-p-panel' : ''} ${numericFields.has(field) ? 'text-right tabular-nums' : ''}`} title={field === ASSIGNED ? undefined : formatted(row, field)}>
                 {field === ASSIGNED ? <ResponsibleChips row={row} /> : renderCell(row, field)}
               </td>)}
               {!overview && <td className="px-3 py-2">{row.source === 'crm' ? 'Без страницы Notion' : row.link_status === 'linked' ? 'Связано с карточкой' : 'Карточка при открытии'}</td>}
-            </tr>
+            </tr>}
           </Fragment>
         })}</tbody>
       </table>

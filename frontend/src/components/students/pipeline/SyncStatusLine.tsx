@@ -1,6 +1,7 @@
 import { RefreshCw } from 'lucide-react'
 import type { NotionStatusInfo } from '@/api/notion'
 import { cn } from '@/lib/utils'
+import { notionTagClass } from '@/lib/notionColors'
 import { formatSyncTime, syncHealth, SYNC_STALE_AFTER_HOURS } from './viewState'
 
 const DOT: Record<ReturnType<typeof syncHealth>, string> = {
@@ -52,7 +53,17 @@ export function SyncStatusLine({ status, total, pending, onSync }: {
         )}
       </p>
       {health === 'error' && status?.last_run?.error && (
-        <p role="alert" className="mt-1 text-xs text-p-danger-text">Ошибка синхронизации: {status.last_run.error}</p>
+        // Плашкой из палитры Notion (red): красный текст на фоне страницы в
+        // тёмной теме читался плохо, а у пары фон/текст контраст проверен тестом.
+        <div role="alert" className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-panel px-3 py-2 text-xs', notionTagClass('red'))}>
+          <span className="min-w-0 flex-1">Ошибка синхронизации: {status.last_run.error}</span>
+          {onSync && (
+            <button type="button" onClick={onSync} disabled={pending}
+              className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {pending ? 'Повторяем…' : 'Повторить'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

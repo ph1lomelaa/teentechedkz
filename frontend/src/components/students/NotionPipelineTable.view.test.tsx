@@ -76,7 +76,8 @@ describe('вид пайплайна', () => {
     await waitFor(() => expect(search().get('view')).toBe('board'))
     expect(screen.getByRole('tab', { name: /Доска/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByText('Активная работа · 1')).toBeInTheDocument()
+    // Заголовок колонки: название статуса и счётчик (счётчик — отдельным элементом).
+    expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === 'Активная работа · 1')).toBeInTheDocument()
 
     act(() => navigate(-1))
     await waitFor(() => expect(search().get('view')).toBeNull())

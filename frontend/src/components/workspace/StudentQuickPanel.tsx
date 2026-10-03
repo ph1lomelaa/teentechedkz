@@ -124,10 +124,13 @@ export const StudentQuickPanel: React.FC<{ item: WorkspaceStudentSummary; classN
       )}
 
       <div className="mt-6 grid gap-2 sm:grid-cols-2">
-        <Link to={profile} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-ctl bg-w-ink px-4 text-sm font-extrabold text-w-bg transition hover:-translate-y-px">
+        {/* Не инверсия (bg-w-ink): рядом жёлтая «Назначить roadmap», и белая/чёрная
+            плашка спорила с ней за главную кнопку в обеих темах. Мягкая заливка
+            панели — чуть заметнее «Написать в чат», но не кричит. */}
+        <Link to={profile} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-4 text-sm font-bold text-w-ink transition hover:border-w-accentDim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Открыть профиль <ArrowRight className="h-4 w-4" />
         </Link>
-        <Link to={`/workspace/chat?student_id=${student.id}`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-ctl border border-w-line px-4 text-sm font-bold text-w-ink transition hover:border-w-accentDim">
+        <Link to={`/workspace/chat?student_id=${student.id}`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-ctl border border-w-line px-4 text-sm font-bold text-w-ink transition hover:border-w-accentDim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <MessageCircle className="h-4 w-4" /> Написать в чат
         </Link>
       </div>
