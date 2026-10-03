@@ -58,7 +58,7 @@ export function FollowUpReviewDialog({
           />
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onCopy(clean)} disabled={!clean || isSending}>
             <Copy className="mr-2 h-4 w-4" />
             Скопировать

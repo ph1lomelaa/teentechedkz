@@ -83,7 +83,9 @@ class CredentialOut(BaseModel):
     id: uuid.UUID
     student_id: uuid.UUID
     university_id: uuid.UUID | None = None
+    application_id: uuid.UUID | None = None
     portal_name: str
+    portal_url: str = ""
     login: str          # decrypted login (safe to show)
     notes: str
     created_at: datetime
@@ -91,9 +93,11 @@ class CredentialOut(BaseModel):
 
 
 class CredentialCreate(BaseModel):
-    student_id: uuid.UUID | None = None  # ignored in the portal (self), required from CRM
+    student_id: uuid.UUID  # credentials are entered by staff only
     university_id: uuid.UUID | None = None
+    application_id: uuid.UUID | None = None
     portal_name: str
+    portal_url: str = ""
     login: str
     password: str
     notes: str = ""
@@ -101,7 +105,9 @@ class CredentialCreate(BaseModel):
 
 class CredentialUpdate(BaseModel):
     university_id: uuid.UUID | None = None
+    application_id: uuid.UUID | None = None
     portal_name: str | None = None
+    portal_url: str | None = None
     login: str | None = None
     password: str | None = None
     notes: str | None = None

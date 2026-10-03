@@ -59,7 +59,7 @@ export const CountriesCatalog: React.FC<{
     <div className="animate-fade-in">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">
+          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">
             {eyebrow}
           </p>
           <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-p-text">Страны</h1>
@@ -205,7 +205,7 @@ const CountryCard: React.FC<{
 
         <div className="mt-4 flex items-center gap-3 border-t border-p-line pt-3.5">
           {country.vpp_required && (
-            <span className="whitespace-nowrap rounded-full bg-p-accent/15 px-3 py-1 text-[10.5px] font-bold text-p-accent">
+            <span className="whitespace-nowrap rounded-full bg-p-accent/15 px-3 py-1 text-[10.5px] font-bold text-p-accent-text">
               VPP требуется
             </span>
           )}
@@ -215,7 +215,7 @@ const CountryCard: React.FC<{
                 type="button"
                 aria-label={`Редактировать ${country.country_name}`}
                 onClick={onEdit}
-                className="grid h-9 w-9 flex-none place-items-center rounded-ctl border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-accent"
+                className="grid h-9 w-9 flex-none place-items-center rounded-ctl border border-p-line bg-p-panel2 text-p-muted transition-colors hover:border-brand-dim hover:text-p-accent-text"
               >
                 <Edit2 className="h-4 w-4" />
               </button>

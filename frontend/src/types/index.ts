@@ -1,15 +1,19 @@
-export type UserRole = 'admin' | 'mzk_manager' | 'mentor' | 'student'
+export type UserRole = 'admin' | 'mzk_manager' | 'academic_head' | 'mentor' | 'student'
 export type NoteVisibility = 'admin_only' | 'admin_and_mzk' | 'all_mentors'
 
 export type PipelineStatus =
   | 'active_work'
   | 'on_visa'
   | 'paused'
+  | 'completed_admitted'
   | 'changed_mind'
+  | 'lost_applicant'
   | 'refund'
   | 'unpaid'
   | 'transferred_pipeline'
   | 'ielts_retake'
+  | 'reapplication'
+  | 'problem'
   | 'suspended'
   | 'no_status'
 
@@ -181,7 +185,7 @@ export interface TeamReadiness {
  * карточке на месте, второй экран уехал на все восемь ролей, и одно и то же
  * действие предлагало разный выбор в зависимости от того, откуда его начали.
  */
-export const ASSIGNABLE_MENTOR_ROLES = ['career', 'ielts', 'lead', 'country', 'mzk'] as const
+export const ASSIGNABLE_MENTOR_ROLES = ['career', 'ielts', 'lead', 'country', 'portfolio', 'mzk'] as const
 
 /**
  * Роли, в которых у ученика может быть несколько ответственных сразу.
@@ -479,7 +483,9 @@ export interface MentorAssignment {
 export type CommSource = 'telegram' | 'whatsapp' | 'zoom' | 'manual'
 export type MessageType = 'text_event' | 'attachment' | 'call_transcript' | 'general_chat'
 export type StudentNoteStatus = 'draft' | 'approved' | 'rejected'
-export type NoteSessionStatus = 'active' | 'completed' | 'cancelled'
+export type NoteSessionStatus = 'draft' | 'active' | 'completed' | 'cancelled' | 'interrupted' | 'failed'
+export type NoteSessionLanguage = 'ru' | 'kk' | 'en'
+export type NoteSessionCaptureMode = 'browser' | 'bot' | 'upload'
 
 export interface CommunicationLog {
   id: string
@@ -516,6 +522,20 @@ export interface StudentNote {
   blocks?: { key: string; heading: string }[]
   is_important?: boolean
   source_kind?: 'manual' | 'meeting' | 'telegram'
+  /** Как получена запись встречи (только в GET /notes/{id}). */
+  recording?: NoteRecordingInfo | null
+}
+
+export interface NoteRecordingInfo {
+  session_id: string
+  capture_mode: NoteSessionCaptureMode
+  quality?: 'ok' | 'incomplete' | 'empty' | null
+  quality_reasons: string[]
+  quality_warnings: string[]
+  quality_reason_messages: string[]
+  quality_warning_messages: string[]
+  has_audio: boolean
+  bot_status_reason?: string | null
 }
 
 export interface NoteTranscript {
@@ -538,13 +558,37 @@ export interface NoteSession {
   title: string
   source: string
   status: NoteSessionStatus
+  language: NoteSessionLanguage
+  capture_mode: NoteSessionCaptureMode
   started_at: string
   ended_at?: string | null
   last_heartbeat_at?: string | null
   created_by?: string | null
   transcript_count: number
   latest_transcript?: string | null
+  // Запись ботом
+  meeting_url?: string | null
+  bot_status?: MeetingBotStatus | null
+  bot_status_reason?: string | null
+  /** Готовый текст причины для ментора (с бэкенда, тот же, что в уведомлениях). */
+  bot_status_message?: string | null
+  bot_joined_at?: string | null
+  has_audio?: boolean
+  // Проверка качества перед конспектом
+  quality?: 'ok' | 'incomplete' | 'empty' | null
+  quality_reasons?: string[]
+  quality_warnings?: string[]
 }
+
+export type MeetingBotStatus =
+  | 'joining'
+  | 'waiting_room'
+  | 'waiting_permission'
+  | 'recording'
+  | 'paused'
+  | 'processing'
+  | 'done'
+  | 'failed'
 
 export interface NoteSessionDetail extends NoteSession {
   transcripts: NoteTranscript[]
@@ -993,29 +1037,52 @@ export interface HistoryEntry {
  * не появлялся на доске.
  */
 export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {
+  // Порядок — как у опций «Статус выплат» в Notion: менеджеры сверяют одно
+  // с другим, и в фильтре и на доске статусы стоят там же, где они привыкли.
+  completed_admitted: 'Работа окончена — Поступил',
+  changed_mind: 'Работа окончена — Передумал',
+  lost_applicant: 'Пропал абитуриент',
+  unpaid: 'Не оплачено',
+  refund: 'На возврате',
+  paused: 'Пауза',
   active_work: 'Активная работа',
   on_visa: 'На визе',
-  paused: 'Пауза',
-  ielts_retake: 'Пересдача IELTS',
-  unpaid: 'Не оплачено',
-  changed_mind: 'Передумали',
-  refund: 'На возврате',
+  problem: 'Проблема',
   suspended: 'Подвешено',
-  transferred_pipeline: 'Перевели',
+  ielts_retake: 'Пересдача IELTS',
+  reapplication: 'Переподача',
+  transferred_pipeline: 'Перевели на другой продукт',
   no_status: 'Нет статуса',
 }
 
+// Цвета как у опций «Статус выплат» в Notion — менеджеры привыкли к ним там,
+// поэтому палитра повторяет Notion один в один (светлая и тёмная тема).
+const NOTION_TAG = {
+  default: 'bg-[#E3E2E080] text-[#32302C] dark:bg-[#373737] dark:text-white/80',
+  gray: 'bg-[#E3E2E0] text-[#32302C] dark:bg-[#5A5A5A] dark:text-white/80',
+  orange: 'bg-[#FADEC9] text-[#49290E] dark:bg-[#854C1D] dark:text-white/80',
+  yellow: 'bg-[#FDECC8] text-[#402C1B] dark:bg-[#89632A] dark:text-white/80',
+  green: 'bg-[#DBEDDB] text-[#1C3829] dark:bg-[#2B593F] dark:text-white/80',
+  blue: 'bg-[#D3E5EF] text-[#183347] dark:bg-[#28456C] dark:text-white/80',
+  purple: 'bg-[#E8DEEE] text-[#412454] dark:bg-[#492F64] dark:text-white/80',
+  red: 'bg-[#FFE2DD] text-[#5D1715] dark:bg-[#6E3630] dark:text-white/80',
+}
+
 export const PIPELINE_STATUS_COLORS: Record<PipelineStatus, string> = {
-  active_work: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  on_visa: 'bg-sky-50 text-sky-700 border border-sky-200',
-  paused: 'bg-amber-50 text-amber-700 border border-amber-200',
-  changed_mind: 'bg-gray-50 text-gray-600 border border-gray-200',
-  refund: 'bg-red-50 text-red-700 border border-red-200',
-  unpaid: 'bg-orange-50 text-orange-700 border border-orange-200',
-  ielts_retake: 'bg-violet-50 text-violet-700 border border-violet-200',
-  suspended: 'bg-gray-50 text-gray-500 border border-gray-200',
-  transferred_pipeline: 'bg-teal-50 text-teal-700 border border-teal-200',
-  no_status: 'bg-gray-50 text-gray-500 border border-gray-200',
+  completed_admitted: NOTION_TAG.green,
+  changed_mind: NOTION_TAG.gray,
+  lost_applicant: NOTION_TAG.gray,
+  unpaid: NOTION_TAG.default,
+  refund: NOTION_TAG.red,
+  paused: NOTION_TAG.purple,
+  active_work: NOTION_TAG.green,
+  on_visa: NOTION_TAG.orange,
+  problem: NOTION_TAG.red,
+  suspended: NOTION_TAG.red,
+  ielts_retake: NOTION_TAG.blue,
+  reapplication: NOTION_TAG.blue,
+  transferred_pipeline: NOTION_TAG.yellow,
+  no_status: NOTION_TAG.default,
 }
 
 export const DEGREE_LEVEL_LABELS: Record<DegreeLevel, string> = {
@@ -1071,6 +1138,7 @@ export const VISA_STATUS_LABELS: Record<string, string> = {
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Администратор',
   mzk_manager: 'МЗК',
+  academic_head: 'Академический руководитель',
   mentor: 'Ментор',
   student: 'Студент',
 }

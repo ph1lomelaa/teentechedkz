@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { integrationsApi } from '@/api/integrations'
+import { getErrorCode, getErrorStatus } from '@/lib/errorMessage'
 
 const DEEPGRAM_WS = 'wss://api.deepgram.com/v1/listen'
 const MAX_BUFFER_BYTES = 16000 * 2 * 5 * 60
@@ -9,6 +10,8 @@ const SLOW_RETRY_DELAY_MS = 30000
 export type CaptureSource = 'system' | 'mic'
 
 interface Options {
+  /** Язык распознавания (ru / kk / en). `multi` не покрывает казахский. */
+  language: string
   onFinal: (text: string, speaker: string | null, timestamp: string) => void | Promise<void>
   onInterim: (text: string, speaker?: string | null) => void
   onError: (msg: string) => void
@@ -17,6 +20,15 @@ interface Options {
   onSourceStopped?: () => void
   onVisibilityChange?: (hidden: boolean) => void
   onBackupStreamReady?: (stream: MediaStream) => void
+  /** Сокет распознавания закрылся (для диагностики: код и причина). */
+  onSocketClosed?: (code: number, reason: string) => void
+  /**
+   * Уровни звука по источникам, ~5 раз в секунду: собеседник (вкладка встречи)
+   * и ментор (микрофон). null — источника нет в этой записи.
+   */
+  onLevels?: (levels: { meeting: number | null; mic: number | null }) => void
+  /** Записываем звонок, но микрофон не дали — голос ментора в запись не попадёт. */
+  onMicUnavailable?: (reason: string) => void
 }
 
 interface DeepgramWord {
@@ -67,6 +79,10 @@ export function useDeepgramTranscription(options: Options) {
   const manualStopRef = useRef(false)
   const wsRef = useRef<WebSocket | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // Микрофон ментора в режиме «звонок»: вкладка встречи отдаёт только голос
+  // собеседника, поэтому свой голос подмешиваем отдельно.
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -101,6 +117,11 @@ export function useDeepgramTranscription(options: Options) {
     audioCtxRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+    micStreamRef.current?.getTracks().forEach((track) => track.stop())
+    micStreamRef.current = null
+    if (levelTimerRef.current) clearInterval(levelTimerRef.current)
+    levelTimerRef.current = null
+    callbacksRef.current.onLevels?.({ meeting: null, mic: null })
     audioBufferRef.current = []
     bufferedBytesRef.current = 0
     setIsConnected(false)
@@ -135,7 +156,7 @@ export function useDeepgramTranscription(options: Options) {
       if (!activeRef.current) return
       const params = new URLSearchParams({
         model: 'nova-3',
-        language: 'multi',
+        language: callbacksRef.current.language || 'ru',
         punctuate: 'true',
         smart_format: 'true',
         interim_results: 'true',
@@ -147,7 +168,9 @@ export function useDeepgramTranscription(options: Options) {
         filler_words: 'false',
         diarize: 'true',
       })
-      const ws = new WebSocket(`${DEEPGRAM_WS}?${params}`, ['token', access_token])
+      // Временный JWT из /v1/auth/grant идёт по схеме Bearer — так же делает
+      // официальный SDK Deepgram. Со схемой 'token' Deepgram отклоняет JWT.
+      const ws = new WebSocket(`${DEEPGRAM_WS}?${params}`, ['bearer', access_token])
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
@@ -189,7 +212,8 @@ export function useDeepgramTranscription(options: Options) {
       }
 
       ws.onerror = () => callbacksRef.current.onAudioStatus?.('Сеть нестабильна · сохраняю аудио для переподключения')
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        callbacksRef.current.onSocketClosed?.(event.code, event.reason)
         if (wsRef.current === ws) wsRef.current = null
         openingRef.current = false
         setIsConnected(false)
@@ -216,11 +240,15 @@ export function useDeepgramTranscription(options: Options) {
     } catch (error) {
       openingRef.current = false
       if (!activeRef.current || manualStopRef.current) return
-      const message = (error as Error).message || ''
-      if (message.includes('не настроен на сервере')) {
-        // Our own /integrations/deepgram/token endpoint reports Deepgram isn't
-        // configured at all — retrying will never succeed, say so clearly.
-        callbacksRef.current.onError(message)
+      // Повторы бессмысленны, если ключ не настроен или у пользователя нет
+      // права на распознавание, — говорим об этом сразу, а не крутим
+      // «Подключаем…» бесконечно. Сбой выпуска токена (503) — повторяем.
+      if (getErrorCode(error) === 'DEEPGRAM_NOT_CONFIGURED') {
+        callbacksRef.current.onError('__DG_NOT_CONFIGURED__')
+        return
+      }
+      if (getErrorStatus(error) === 403) {
+        callbacksRef.current.onError('__DG_FORBIDDEN__')
         return
       }
       reconnectAttemptRef.current += 1
@@ -270,13 +298,37 @@ export function useDeepgramTranscription(options: Options) {
       }
     } catch (error) {
       const name = (error as DOMException).name
-      if (name === 'NotAllowedError') callbacksRef.current.onError('Доступ к звуку запрещён. Разрешите его в браузере.')
+      const message = (error as DOMException).message || ''
+      if (name === 'NotAllowedError' && source === 'system') {
+        // Chrome: «Permission denied by system» — запрет ОС (macOS «Запись
+        // экрана»); просто «Permission denied» — ментор закрыл окно выбора.
+        callbacksRef.current.onError(/system/i.test(message) ? '__SCREEN_PERMISSION_SYSTEM__' : '__CAPTURE_CANCELLED__')
+      } else if (name === 'NotAllowedError') callbacksRef.current.onError('Доступ к микрофону запрещён. Разрешите его в настройках браузера.')
       else if (name === 'NotReadableError') callbacksRef.current.onError('__MIC_BUSY__')
       else callbacksRef.current.onError(`Ошибка захвата: ${name || (error as Error).message}`)
       return
     }
 
+    let micStream: MediaStream | null = null
+    if (source === 'system') {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          // Эхоподавление обязательно: иначе голос собеседника из колонок
+          // попадёт в микрофон и задвоится в тексте. Надёжнее всего — наушники.
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        })
+      } catch (error) {
+        const name = (error as DOMException).name
+        callbacksRef.current.onMicUnavailable?.(
+          name === 'NotReadableError'
+            ? 'Микрофон занят другим приложением — ваш голос не попадёт в запись.'
+            : 'Нет доступа к микрофону — запишем только собеседника. Разрешите микрофон в адресной строке, чтобы записать и себя.',
+        )
+      }
+    }
+
     streamRef.current = stream
+    micStreamRef.current = micStream
     activeRef.current = true
     setIsCapturing(true)
     setCaptureSource(source)
@@ -305,7 +357,40 @@ export function useDeepgramTranscription(options: Options) {
       // getDisplayMedia prompt.
       const backupDest = audioCtx.createMediaStreamDestination()
       capturedGain.connect(backupDest)
+
+      // Голос ментора: подмешиваем микрофон в тот же моно-поток для Deepgram
+      // и в резервную запись (вход worklet суммирует оба источника).
+      const capturedAnalyser = audioCtx.createAnalyser()
+      capturedAnalyser.fftSize = 1024
+      capturedGain.connect(capturedAnalyser)
+      let micAnalyser: AnalyserNode | null = null
+      if (micStream) {
+        const micSource = audioCtx.createMediaStreamSource(micStream)
+        const micGain = audioCtx.createGain()
+        micGain.gain.value = 1
+        micSource.connect(micGain)
+        micGain.connect(worklet)
+        micGain.connect(backupDest)
+        micAnalyser = audioCtx.createAnalyser()
+        micAnalyser.fftSize = 1024
+        micGain.connect(micAnalyser)
+      }
       callbacksRef.current.onBackupStreamReady?.(backupDest.stream)
+
+      const readLevel = (analyser: AnalyserNode) => {
+        const buffer = new Float32Array(analyser.fftSize)
+        analyser.getFloatTimeDomainData(buffer)
+        return rms(buffer)
+      }
+      levelTimerRef.current = setInterval(() => {
+        if (!activeRef.current) return
+        const capturedLevel = readLevel(capturedAnalyser)
+        callbacksRef.current.onLevels?.(
+          source === 'system'
+            ? { meeting: capturedLevel, mic: micAnalyser ? readLevel(micAnalyser) : null }
+            : { meeting: null, mic: capturedLevel },
+        )
+      }, 200)
 
       const silent = audioCtx.createGain()
       silent.gain.value = 0
@@ -377,6 +462,15 @@ export function useDeepgramTranscription(options: Options) {
   const startRef = useRef(start)
   startRef.current = start
 
+  /** Подключиться к распознаванию заново сейчас, не дожидаясь таймера повтора. */
+  const retryNow = useCallback(() => {
+    if (!activeRef.current) return
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+    reconnectTimerRef.current = null
+    reconnectAttemptRef.current = 0
+    void openSocketRef.current()
+  }, [])
+
   const stop = useCallback(async () => {
     manualStopRef.current = true
     const ws = wsRef.current
@@ -421,5 +515,6 @@ export function useDeepgramTranscription(options: Options) {
     captureSource,
     start,
     stop,
+    retryNow,
   }
 }

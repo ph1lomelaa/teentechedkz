@@ -30,7 +30,7 @@ export const PortalScholarshipsPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Стипендии</h1>
 
       <QueryState

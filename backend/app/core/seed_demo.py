@@ -61,6 +61,7 @@ DEMO_PREFIX = "Демо"
 ACCOUNTS = [
     ("demo.admin@teenteched.kz", "Демо Администратор", UserRole.admin),
     ("demo.mzk@teenteched.kz", "Демо МЗК-менеджер", UserRole.mzk_manager),
+    ("demo.head@teenteched.kz", "Демо Академический руководитель", UserRole.academic_head),
     ("demo.mentor@teenteched.kz", "Айгерим Демо", UserRole.mentor),
     # Второй ментор — «дубль» для показа гейта регламента: у первого подпись
     # после демонстрации уже стоит, а гейт нужно показывать на неподписанном.

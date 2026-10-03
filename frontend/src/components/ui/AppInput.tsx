@@ -23,7 +23,7 @@ const FIELD_CLASS: Record<ColorPrefix, string> = {
 
 const DANGER_CLASS: Record<ColorPrefix, string> = {
   ds: 'text-ds-danger',
-  p: 'text-p-danger',
+  p: 'text-p-danger-text',
   w: 'text-w-danger',
 }
 

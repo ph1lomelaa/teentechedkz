@@ -45,7 +45,7 @@ function toStageInputs(tpl: RoadmapTemplate): StageInput[] {
       priority: t.priority,
       audience: t.audience,
       due_offset_days: t.due_offset_days,
-      subtasks: t.subtasks.map((st) => ({ title: st.title })),
+      subtasks: t.subtasks.map((st) => ({ title: st.title, due_offset_days: st.due_offset_days })),
     })),
   }))
 }
@@ -493,7 +493,12 @@ const TemplatePreview: React.FC<{ templateId: string | null; onClose: () => void
                                       {task.subtasks.map((subtask) => (
                                         <li key={subtask.id} className="flex gap-2">
                                           <span aria-hidden="true">—</span>
-                                          <span>{subtask.title}</span>
+                                          <span>
+                                            {subtask.title}
+                                            {subtask.due_offset_days != null && (
+                                              <span className="ml-2 text-p-muted2">через {subtask.due_offset_days} дн.</span>
+                                            )}
+                                          </span>
                                         </li>
                                       ))}
                                     </ul>
@@ -561,7 +566,15 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
   }
   const addSubtask = (si: number, ti: number) => {
     const title = window.prompt('Название подзадачи')?.trim()
-    if (title) update((d) => d[si].tasks![ti].subtasks!.push({ title }))
+    if (!title) return
+    const rawOffset = window.prompt('Срок через сколько дней после назначения roadmap? Оставьте пустым, если срока нет.', '')
+    const normalizedOffset = rawOffset?.trim() || ''
+    const dueOffsetDays = normalizedOffset ? Number(normalizedOffset) : null
+    if (dueOffsetDays !== null && (!/^\d+$/.test(normalizedOffset) || !Number.isSafeInteger(dueOffsetDays))) {
+      toast({ title: 'Срок должен быть целым числом дней от 0', variant: 'destructive' })
+      return
+    }
+    update((d) => d[si].tasks![ti].subtasks!.push({ title, due_offset_days: dueOffsetDays }))
   }
 
   return (
@@ -624,7 +637,32 @@ const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ 
                     <div className="mt-2 pl-3 space-y-1">
                       {t.subtasks!.map((st, sti) => (
                         <div key={sti} className="flex items-center gap-2 text-xs text-p-muted">
-                          <span className="flex-1">— {st.title}</span>
+                          <span className="flex-1">
+                            — {st.title}
+                          </span>
+                          <label className="inline-flex items-center gap-1 text-p-muted2">
+                            через
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={st.due_offset_days ?? ''}
+                              onChange={(event) => update((draft) => {
+                                const value = event.target.value
+                                if (value === '') {
+                                  draft[si].tasks![ti].subtasks![sti].due_offset_days = null
+                                  return
+                                }
+                                const parsed = Number(value)
+                                if (/^\d+$/.test(value) && Number.isSafeInteger(parsed)) {
+                                  draft[si].tasks![ti].subtasks![sti].due_offset_days = parsed
+                                }
+                              })}
+                              className="h-7 w-16 rounded-ctl border border-p-line bg-white px-2 text-xs text-p-text"
+                              aria-label={`Срок подзадачи «${st.title}» в днях после назначения`}
+                            />
+                            дн.
+                          </label>
                           <button
                             onClick={() => update((d) => d[si].tasks![ti].subtasks!.splice(sti, 1))}
                             className="text-gray-300 hover:text-red-500"

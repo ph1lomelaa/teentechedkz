@@ -152,7 +152,7 @@ async def load_students_index(db: AsyncSession) -> list[dict]:
     """
     result = await db.execute(
         select(
-            Student.id, Student.full_name, Student.phone, Student.intake_year, Student.user_id
+            Student.id, Student.full_name, Student.phone, Student.intake_year, Student.user_id, Student.city
         ).where(
             Student.is_archived == False  # noqa: E712
         )
@@ -164,6 +164,7 @@ async def load_students_index(db: AsyncSession) -> list[dict]:
             "phone": r.phone or "",
             "intake_year": r.intake_year,
             "user_id": r.user_id,
+            "city": r.city,
         }
         for r in result.all()
     ]

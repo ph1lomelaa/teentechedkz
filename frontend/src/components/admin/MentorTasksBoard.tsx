@@ -1,19 +1,14 @@
 import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { tasksApi, usersApi } from '@/api'
 import type { StudentTask } from '@/types'
-import { studentsApi } from '@/api/students'
-import { AppButton, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
-import { Label } from '@/components/ui/primitives/label'
-import { Textarea } from '@/components/ui/primitives/textarea'
-import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
+import { AppButton, AppSelect, EmptyState, PageHeader, Pill } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { ADMIN_TOKENS, type AdminColorPrefix } from './tokens'
 import { QueryState } from '@/components/shared/QueryState'
+import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
 
 type KindFilter = 'all' | 'student' | 'general'
 type DueFilter = 'all' | 'overdue' | 'on_track'
@@ -230,9 +225,9 @@ export const MentorTasksBoard: React.FC<Props> = ({
       </QueryState>
 
       {creating && (
-        <CreateMentorTaskDialog
+        <CreateTaskDialog
           colorPrefix={colorPrefix}
-          mentors={mentors ?? []}
+          initialKind="staff"
           onClose={() => setCreating(false)}
           onCreated={() => {
             queryClient.invalidateQueries({ queryKey: ['tasks'] })
@@ -241,246 +236,5 @@ export const MentorTasksBoard: React.FC<Props> = ({
         />
       )}
     </div>
-  )
-}
-
-type AssignMode = 'pick' | 'all_mentors' | 'all_mzk'
-
-// Пустая строка — задача без срока (sla_hours отправится как null).
-const SLA_PRESETS = [
-  { label: '24 часа', hours: '24' },
-  { label: '2 дня', hours: '48' },
-  { label: 'Неделя', hours: '168' },
-  { label: 'Без срока', hours: '' },
-] as const
-
-const CreateMentorTaskDialog: React.FC<{
-  colorPrefix: AdminColorPrefix
-  mentors: Array<{ id: string; name: string; role?: string }>
-  onClose: () => void
-  onCreated: () => void
-}> = ({ colorPrefix, mentors, onClose, onCreated }) => {
-  const t = ADMIN_TOKENS[colorPrefix]
-  const [text, setText] = useState('')
-  const [mode, setMode] = useState<AssignMode>('pick')
-  const [picked, setPicked] = useState<string[]>([])
-  const [slaHours, setSlaHours] = useState('24')
-  const [studentId, setStudentId] = useState('')
-  const [search, setSearch] = useState('')
-
-  const visibleMentors = mentors.filter((m) =>
-    m.name.toLowerCase().includes(search.trim().toLowerCase()),
-  )
-
-  const { data: students } = useQuery({
-    queryKey: ['students', 'for-task'],
-    queryFn: () => studentsApi.list({ size: 200 }),
-  })
-
-  const togglePicked = (id: string) =>
-    setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      tasksApi.createBulk({
-        task_text: text.trim(),
-        student_id: studentId || null,
-        assignee_ids: mode === 'pick' ? picked : [],
-        all_mentors: mode === 'all_mentors',
-        all_mzk: mode === 'all_mzk',
-        // Пустое поле — задача без срока; иначе SLA в часах.
-        sla_hours: slaHours.trim() ? Number(slaHours) : null,
-      }),
-    onSuccess: (res) => {
-      // Часть исполнителей могла не подойти (нет назначения на студента,
-      // деактивирован) — рассылка не падает, но об этом надо сказать.
-      toast({
-        title: `Создано задач: ${res.created_count}`,
-        description: res.skipped.length
-          ? `Пропущено ${res.skipped.length}: ${res.skipped[0].reason}`
-          : undefined,
-      })
-      onCreated()
-    },
-    onError: (e) => toast({ title: getErrorMessage(e, 'Не удалось создать задачу'), variant: 'destructive' }),
-  })
-
-  const canSubmit = Boolean(text.trim()) && (mode !== 'pick' || picked.length > 0)
-
-  // Рассылка создаёт по задаче на исполнителя — показываем это до нажатия,
-  // чтобы «Всем менторам» не оказалось неожиданностью на 20 строк.
-  const recipientCount =
-    mode === 'pick'
-      ? picked.length
-      : mentors.filter((m) => (mode === 'all_mzk' ? m.role === 'mzk_manager' : m.role !== 'mzk_manager')).length
-  const summary = recipientCount > 1 ? `Создать ${recipientCount} задачи` : 'Создать задачу'
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Новая задача ментору</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-5">
-          {/* 1. Что сделать */}
-          <section className="space-y-1.5">
-            <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
-              Что нужно сделать
-            </Label>
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Например: связаться со студентом и загрузить документы"
-              className={cn('min-h-[84px] border', t.borderLine, t.panel2, t.ink)}
-              autoFocus
-            />
-          </section>
-
-          {/* 2. Кому — режим рассылки, затем список под выбранный режим. */}
-          <section className="space-y-2">
-            <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
-              Кому назначить
-            </Label>
-            <SegmentedTabs
-              colorPrefix={colorPrefix}
-              value={mode}
-              onChange={(value) => setMode(value as AssignMode)}
-              className="w-full"
-              tabs={[
-                { value: 'pick', label: 'Выбрать вручную' },
-                { value: 'all_mentors', label: 'Всем менторам' },
-                { value: 'all_mzk', label: 'Всем МЗК' },
-              ]}
-            />
-
-            {mode === 'pick' ? (
-              <div className={cn('overflow-hidden rounded-ctl border', t.borderLine)}>
-                {mentors.length > 6 && (
-                  <div className={cn('border-b p-2', t.borderLine, t.panel2)}>
-                    <AppInput
-                      colorPrefix={colorPrefix}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Поиск по имени"
-                      className="h-9"
-                    />
-                  </div>
-                )}
-                <div className={cn('max-h-52 overflow-y-auto p-1.5', t.panel2)}>
-                  {visibleMentors.length === 0 ? (
-                    <p className={cn('px-2 py-3 text-center text-xs', t.muted)}>
-                      {mentors.length === 0 ? 'Нет доступных исполнителей' : 'Никто не найден'}
-                    </p>
-                  ) : (
-                    visibleMentors.map((m) => {
-                      const isPicked = picked.includes(m.id)
-                      return (
-                        <label
-                          key={m.id}
-                          className={cn(
-                            'flex cursor-pointer items-center gap-3 rounded-ctl px-2.5 py-2 text-sm transition',
-                            isPicked ? cn('bg-current/10', t.accentText) : cn(t.ink, 'hover:bg-current/5'),
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isPicked}
-                            onChange={() => togglePicked(m.id)}
-                            className="h-4 w-4 shrink-0"
-                          />
-                          <span className={cn('min-w-0 flex-1 truncate font-bold', t.ink)}>{m.name}</span>
-                          {m.role === 'mzk_manager' && (
-                            <span
-                              className={cn(
-                                'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black',
-                                t.borderLine,
-                                t.muted,
-                              )}
-                            >
-                              МЗК
-                            </span>
-                          )}
-                        </label>
-                      )
-                    })
-                  )}
-                </div>
-                <div className={cn('flex items-center justify-between border-t px-3 py-2 text-xs', t.borderLine, t.panel2)}>
-                  <span className={t.muted}>
-                    {picked.length ? `Выбрано: ${picked.length}` : 'Никто не выбран'}
-                  </span>
-                  {picked.length > 0 && (
-                    <button type="button" onClick={() => setPicked([])} className={cn('font-bold', t.accentText)}>
-                      Сбросить
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className={cn('rounded-ctl border px-3 py-2.5 text-xs leading-5', t.borderLine, t.panel2, t.muted)}>
-                Задача уйдёт каждому активному {mode === 'all_mentors' ? 'ментору' : 'МЗК-менеджеру'}: своя
-                строка и свой срок SLA у каждого.
-              </p>
-            )}
-          </section>
-
-          {/* 3. Контекст и срок — рядом, оба необязательные. */}
-          <section className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
-                По студенту
-              </Label>
-              <AppSelect
-                colorPrefix={colorPrefix}
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                className="w-full"
-              >
-                <option value="">Общая задача</option>
-                {(students?.items ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>{s.full_name}</option>
-                ))}
-              </AppSelect>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className={cn('text-[11px] font-black uppercase tracking-[0.14em]', t.muted)}>
-                Срок
-              </Label>
-              {/* Пресеты вместо ввода часов: «2 дня» читается быстрее, чем «48». */}
-              <div className="grid grid-cols-2 gap-1.5">
-                {SLA_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => setSlaHours(preset.hours)}
-                    className={cn(
-                      'h-9 rounded-ctl border text-xs font-bold transition',
-                      slaHours === preset.hours
-                        ? cn('border-current bg-current/10', t.accentText)
-                        : cn(t.borderLine, t.muted, 'hover:opacity-80'),
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <DialogFooter className="gap-2">
-          <AppButton colorPrefix={colorPrefix} variant="ghost" onClick={onClose}>Отмена</AppButton>
-          <AppButton
-            colorPrefix={colorPrefix}
-            disabled={!canSubmit || mutation.isPending}
-            onClick={() => mutation.mutate()}
-          >
-            {mutation.isPending ? 'Создаём...' : summary}
-          </AppButton>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

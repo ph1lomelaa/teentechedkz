@@ -99,7 +99,7 @@ export const StudentResponsibilitiesSection: React.FC<{ studentId: string }> = (
                   {/* Свой участок помечен и цветом, и словом: цвет в одиночку
                       не читается при дальтонизме и в чёрно-белой печати. */}
                   {isMine && (
-                    <span className="inline-flex items-center gap-1 rounded-pill border border-p-accent/30 bg-p-accent/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-p-accent">
+                    <span className="inline-flex items-center gap-1 rounded-pill border border-p-accent/30 bg-p-accent/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-p-accent-text">
                       <UserCheck className="h-3 w-3" aria-hidden />
                       Ваш участок
                     </span>

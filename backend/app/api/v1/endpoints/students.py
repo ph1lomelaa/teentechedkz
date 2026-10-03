@@ -19,7 +19,7 @@ from app.services.mentor_scope import require_student_access
 from app.core.audit import log_change
 from app.core.encryption import mask_iin, decrypt
 from app.models.student import Student, DegreeLevel, IntakeSeason
-from app.models.contract import Contract
+from app.models.contract import Contract, PipelineStatus
 from app.models.payment import PaymentType, PaymentStatus
 from app.models.mentor_assignment import REQUIRED_ROLES, MentorAssignment, MentorRole
 from app.models.guardian import Guardian
@@ -63,6 +63,42 @@ router = APIRouter(prefix="/students", tags=["students"])
 # Предупреждаем МЗК заранее — за RENEWAL_WARNING_DAYS дней до порога, а не постфактум.
 RENEWAL_THRESHOLD_DAYS = 500
 RENEWAL_WARNING_DAYS = RENEWAL_THRESHOLD_DAYS - 30
+
+
+def _parse_pipeline_status_filter(
+    statuses_csv: str | None,
+    legacy_status: str | None,
+    operator: str,
+) -> tuple[list[PipelineStatus], str]:
+    """Validate the public filter once, before it reaches SQL.
+
+    The CSV parameter is deliberate: Axios' default array encoding differs
+    between versions, while a comma-separated value has one stable wire
+    representation. ``pipeline_status`` remains accepted for old clients.
+    """
+    if operator not in {"is", "is_not"}:
+        raise HTTPException(status_code=422, detail="Unknown pipeline status operator")
+
+    raw_values = statuses_csv.split(",") if statuses_csv is not None else [legacy_status]
+    values: list[PipelineStatus] = []
+    invalid: list[str] = []
+    for raw in raw_values:
+        value = (raw or "").strip()
+        if not value:
+            continue
+        try:
+            parsed = PipelineStatus(value)
+        except ValueError:
+            invalid.append(value)
+            continue
+        if parsed not in values:
+            values.append(parsed)
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown pipeline statuses: {', '.join(invalid)}",
+        )
+    return values, operator
 
 
 class MergeStudentBody(BaseModel):
@@ -511,6 +547,8 @@ async def list_students(
     current_user: CurrentUser,
     search: str | None = None,
     pipeline_status: str | None = None,
+    pipeline_statuses: str | None = None,
+    pipeline_status_operator: str = Query("is", pattern="^(is|is_not)$"),
     intake_year: int | None = None,
     degree_level: str | None = None,
     mzk_manager_id: uuid.UUID | None = None,
@@ -592,13 +630,33 @@ async def list_students(
         except ValueError:
             pass
 
-    if pipeline_status:
-        query = query.join(Contract, Contract.student_id == Student.id, isouter=True)
-        from app.models.contract import PipelineStatus
-        try:
-            query = query.where(Contract.pipeline_status == PipelineStatus(pipeline_status))
-        except ValueError:
-            pass
+    selected_statuses, status_operator = _parse_pipeline_status_filter(
+        pipeline_statuses, pipeline_status, pipeline_status_operator
+    )
+    if selected_statuses:
+        # A student can have several contracts. Filtering a plain join matched
+        # any historical contract, while the row itself displays the latest
+        # one. Use the exact same business record for filtering and display.
+        latest_contract_status = (
+            select(Contract.pipeline_status)
+            .where(Contract.student_id == Student.id)
+            .order_by(Contract.created_at.desc(), Contract.id.desc())
+            .limit(1)
+            .correlate(Student)
+            .scalar_subquery()
+        )
+        includes_no_status = PipelineStatus.no_status in selected_statuses
+        if status_operator == "is":
+            condition = latest_contract_status.in_(selected_statuses)
+            if includes_no_status:
+                condition = or_(condition, latest_contract_status.is_(None))
+        else:
+            condition = latest_contract_status.not_in(selected_statuses)
+            # Empty/no-contract rows are logically "not selected" unless the
+            # user explicitly excluded the "Нет статуса" option.
+            if not includes_no_status:
+                condition = or_(latest_contract_status.is_(None), condition)
+        query = query.where(condition)
 
     if mzk_manager_id:
         # «Кто МЗК студента» живёт в двух местах: новое назначение
@@ -1194,7 +1252,7 @@ async def get_student_timeline(
         raise HTTPException(status_code=404, detail="Студент не найден")
     student_portal_user_id = student_row.user_id
 
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         mentor_student_ids = await _get_mentor_student_ids(db, current_user.id)
         if not _can_see_student(current_user, student_id, mentor_student_ids):
             raise HTTPException(status_code=404, detail="Студент не найден")
@@ -1511,7 +1569,7 @@ async def get_student(
             selectinload(Student.contracts).selectinload(Contract.mzk_manager),
         )
     )
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         query = query.where(Student.is_archived == False)  # noqa: E712
     result = await db.execute(
         query
@@ -1530,7 +1588,7 @@ async def get_student(
         data["days_in_work"] = (date.today() - student.contracts[0].signed_date).days
 
     # Product mode: role is not an access boundary; "mine" is a work filter.
-    if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    if current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor):
         guardian_result = await db.execute(
             select(Guardian).where(Guardian.student_id == student_id)
         )
@@ -1608,7 +1666,7 @@ async def get_student(
 
     # Финансовые предупреждения для баннера в профиле. Выплаты менторам — только для команды.
     alerts = _compute_student_alerts(student.contracts, date.today())
-    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor):
         alerts = [a for a in alerts if a["kind"] != "mentor_unpaid"]
     data["alerts"] = alerts
 

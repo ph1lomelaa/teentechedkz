@@ -8,7 +8,7 @@ One bot handles two roles:
 """
 from __future__ import annotations
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
@@ -21,6 +21,127 @@ logger = logging.getLogger(__name__)
 bot: Bot | None = None
 dp: Dispatcher | None = None
 router = Router()
+
+
+def is_company_working_time(
+    moment: datetime,
+    *,
+    timezone_name: str = "Asia/Almaty",
+    start_hour: int = 10,
+    end_hour: int = 19,
+) -> bool:
+    """Return whether ``moment`` is inside the working window.
+
+    Start is inclusive and end is exclusive: 10:00 is working time, 19:00 is
+    not. Working days come from the company calendar — weekends and Kazakhstan
+    public holidays (with transfers) are off. A timezone-aware input is
+    required so server locale never changes the business schedule.
+    """
+    from app.services.work_calendar import is_working_time
+
+    return is_working_time(moment, timezone_name=timezone_name, start_hour=start_hour, end_hour=end_hour)
+
+
+# Кто в Telegram-чате считается сотрудником: автоответ им не положен, а их
+# сообщение значит, что клиенту уже ответили.
+STAFF_ROLES = frozenset({"admin", "mzk_manager", "academic_head", "mentor"})
+
+
+def is_staff_sender(
+    *,
+    user_role: str | None,
+    user_is_active: bool,
+    chat_identity_role: str | None,
+) -> bool:
+    """Сотрудник — активный админ/МЗК/ментор с этим Telegram id, или участник,
+    которому в этом чате подтвердили роль «ментор».
+
+    Ученик с привязанным telegram_id остаётся клиентом: telegram_id
+    проставляется любому пользователю, и раньше такой ученик молча терял
+    автоответ.
+    """
+    if chat_identity_role == "mentor":
+        return True
+    return bool(user_is_active and user_role in STAFF_ROLES)
+
+
+def should_send_off_hours_reply(
+    *,
+    moment: datetime,
+    last_reply_at: datetime | None,
+    sender_is_staff: bool,
+    sender_is_bot: bool,
+    chat_status: str,
+    enabled: bool = True,
+    cooldown_seconds: int = 3600 * 6,
+    last_staff_message_at: datetime | None = None,
+    staff_quiet_seconds: int = 3600 * 3,
+) -> bool:
+    if not enabled or sender_is_staff or sender_is_bot:
+        return False
+    if chat_status not in {"active", "paused"}:
+        return False
+    if is_company_working_time(
+        moment,
+        timezone_name=settings.COMPANY_TIMEZONE,
+        start_hour=settings.COMPANY_WORKDAY_START_HOUR,
+        end_hour=settings.COMPANY_WORKDAY_END_HOUR,
+    ):
+        return False
+    # Ментор сейчас сам на связи — «мы не работаем» от бота было бы неуместно.
+    # Автоответ уходит, только если сотрудник молчит дольше staff_quiet_seconds.
+    if last_staff_message_at is not None and moment - last_staff_message_at < timedelta(
+        seconds=max(0, staff_quiet_seconds)
+    ):
+        return False
+    if last_reply_at is None:
+        return True
+    return moment - last_reply_at >= timedelta(seconds=max(0, cooldown_seconds))
+
+
+async def _staff_tg_ids_for_chat(db, chat_id) -> set[int]:
+    """Telegram id всех, кто в этом чате считается сотрудником."""
+    from sqlalchemy import select
+    from app.models.telegram_participant_identity import TelegramParticipantIdentity
+    from app.models.user import User, UserRole
+
+    staff_ids: set[int] = set()
+    users = await db.execute(
+        select(User.telegram_id).where(
+            User.telegram_id.is_not(None),
+            User.is_active == True,  # noqa: E712
+            User.role.in_([UserRole(r) for r in STAFF_ROLES]),
+        )
+    )
+    for (tg_id,) in users.all():
+        try:
+            staff_ids.add(int(tg_id))
+        except (TypeError, ValueError):
+            continue  # telegram_id — свободное поле, мусор пропускаем
+    identities = await db.execute(
+        select(TelegramParticipantIdentity.telegram_user_id).where(
+            TelegramParticipantIdentity.chat_id == chat_id,
+            TelegramParticipantIdentity.role == "mentor",
+        )
+    )
+    staff_ids.update(tg for (tg,) in identities.all())
+    return staff_ids
+
+
+async def _last_staff_message_at(db, chat_id, staff_tg_ids: set[int]) -> datetime | None:
+    """Когда сотрудник последний раз писал в чат — из CRM или прямо в Telegram."""
+    from sqlalchemy import func, or_, select
+    from app.models.telegram_message import TelegramMessage
+
+    conditions = [TelegramMessage.sent_by_user_id.is_not(None)]
+    if staff_tg_ids:
+        conditions.append(TelegramMessage.sender_tg_id.in_(staff_tg_ids))
+    result = await db.execute(
+        select(func.max(TelegramMessage.created_at)).where(
+            TelegramMessage.chat_id == chat_id, or_(*conditions),
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 def get_bot() -> Bot:
@@ -551,9 +672,11 @@ async def on_message(message: Message, update_id: int):
     the mentor commands above) get ingested into the client inbox."""
     from sqlalchemy import select
     from app.core.database import AsyncSessionLocal
-    from app.models.telegram_chat import TelegramChatStatus
+    from app.models.telegram_chat import TelegramChat, TelegramChatStatus
     from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
     from app.models.telegram_message import TelegramMessage
+    from app.models.telegram_participant_identity import TelegramParticipantIdentity
+    from app.models.user import User
     from app.services.telegram_ingest import ingest_message
     from app.services.queue import get_arq_pool
 
@@ -563,6 +686,8 @@ async def on_message(message: Message, update_id: int):
         # real content, just skip it instead of storing a blank message row.
         return
 
+    reply_reserved_at: datetime | None = None
+    stored_chat_id = None
     async with AsyncSessionLocal() as db:
         chat = await _upsert_chat(db, message.chat)
 
@@ -571,10 +696,64 @@ async def on_message(message: Message, update_id: int):
             await db.commit()
             return
 
+        # Serialize messages per chat before both the duplicate check and the
+        # reply reservation. This closes two races at once: concurrent webhook
+        # retries cannot insert the same update, and two quick client messages
+        # cannot both reserve an off-hours reply.
+        await db.execute(
+            select(TelegramChat.id).where(TelegramChat.id == chat.id).with_for_update()
+        )
+
         existing = await db.execute(select(TelegramMessage).where(TelegramMessage.update_id == update_id))
         if existing.scalar_one_or_none() is not None:
             logger.info("Duplicate Telegram update_id=%s, skipping (webhook retry)", update_id)
             return
+
+        sender_is_bot = bool(message.from_user and message.from_user.is_bot)
+        sender_is_staff = True  # service messages without a sender never get a reply
+        if message.from_user and not sender_is_bot:
+            staff_result = await db.execute(
+                select(User.role, User.is_active)
+                .where(User.telegram_id == str(message.from_user.id))
+                .order_by(User.is_active.desc())
+                .limit(1)
+            )
+            user_row = staff_result.first()
+            identity_result = await db.execute(
+                select(TelegramParticipantIdentity.role).where(
+                    TelegramParticipantIdentity.chat_id == chat.id,
+                    TelegramParticipantIdentity.telegram_user_id == message.from_user.id,
+                )
+            )
+            sender_is_staff = is_staff_sender(
+                user_role=user_row.role.value if user_row else None,
+                user_is_active=bool(user_row and user_row.is_active),
+                chat_identity_role=identity_result.scalar_one_or_none(),
+            )
+
+        now = datetime.now(timezone.utc)
+        last_staff_at = None
+        if not sender_is_staff and not sender_is_bot and settings.ENABLE_TELEGRAM_OFF_HOURS_REPLY:
+            last_staff_at = await _last_staff_message_at(
+                db, chat.id, await _staff_tg_ids_for_chat(db, chat.id)
+            )
+        if should_send_off_hours_reply(
+            moment=now,
+            last_reply_at=chat.last_off_hours_reply_at,
+            sender_is_staff=sender_is_staff,
+            sender_is_bot=sender_is_bot,
+            chat_status=chat.status.value,
+            enabled=settings.ENABLE_TELEGRAM_OFF_HOURS_REPLY,
+            cooldown_seconds=settings.TELEGRAM_OFF_HOURS_REPLY_COOLDOWN_SECONDS,
+            last_staff_message_at=last_staff_at,
+            staff_quiet_seconds=settings.TELEGRAM_OFF_HOURS_STAFF_QUIET_SECONDS,
+        ):
+            # Reserve before sending. If two web workers process messages from
+            # the same chat close together, the persisted timestamp is the
+            # shared source of truth rather than per-process memory.
+            reply_reserved_at = now
+            chat.last_off_hours_reply_at = now
+            stored_chat_id = chat.id
 
         session_result = await db.execute(
             select(TelegramChatSession)
@@ -594,6 +773,22 @@ async def on_message(message: Message, update_id: int):
         attachment_id = attachment.id if attachment else None
 
         await db.commit()
+
+    if reply_reserved_at is not None:
+        try:
+            await get_bot().send_message(
+                chat_id=message.chat.id,
+                text=settings.TELEGRAM_OFF_HOURS_REPLY_TEXT,
+            )
+        except Exception:
+            # A failed Telegram call must not suppress the next legitimate
+            # attempt for twelve hours. Release only our own reservation.
+            logger.warning("Failed to send Telegram off-hours reply", exc_info=True)
+            async with AsyncSessionLocal() as db:
+                reserved_chat = await db.get(TelegramChat, stored_chat_id)
+                if reserved_chat and reserved_chat.last_off_hours_reply_at == reply_reserved_at:
+                    reserved_chat.last_off_hours_reply_at = None
+                    await db.commit()
 
     # Heavy work (Telegram file download, Deepgram transcription, MinIO
     # upload, AI insight extraction) runs in the separate `worker` process —

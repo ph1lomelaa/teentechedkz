@@ -1,3 +1,5 @@
+import { ActivityPlan } from '@/components/activities/ActivityPlan'
+import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,17 +16,22 @@ import {
   FileText,
   KeyRound,
   Link2Off,
+  Mic,
+  Plus,
   MessageCircle,
   Route,
   Send,
   Shield,
   Star,
+  Upload,
   UserRound,
   Users,
 } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import { roadmapApi, Roadmap, TemplateListItem } from '@/api/roadmap'
 import { meetingsApi } from '@/api/meetings'
+import { useStartNotes } from '@/hooks/useStartNotes'
+import { normalizeMeetingLink } from '@/lib/meetingLink'
 import { telegramApi } from '@/api/telegram'
 import { documentsApi } from '@/api/documents'
 import { chatApi } from '@/api/chat'
@@ -44,6 +51,7 @@ import { WorkspaceNotesPanel } from '@/components/workspace/WorkspaceNotesPanel'
 import { ChatThread } from '@/components/shared/ChatThread'
 import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
+import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -54,6 +62,7 @@ import {
   SERVICE_STATUS_LABELS,
   SERVICE_TYPE_LABELS,
   ResponsibleUser,
+  DocType,
   Service,
   StudentFull,
   TelegramChat,
@@ -61,9 +70,10 @@ import {
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { AppButton, EmptyState, Pill, SegmentedTabs } from '@/components/ui'
+import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 
-type WorkspaceTab = 'card' | 'roadmap' | 'tasks' | 'meetings' | 'documents' | 'telegram' | 'chat' | 'notes' | 'access'
+type WorkspaceTab = 'card' | 'roadmap' | 'tasks' | 'meetings' | 'documents' | 'telegram' | 'chat' | 'notes' | 'activities' | 'access'
 
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ReactNode }> = [
   { id: 'card', label: 'Карточка', icon: <UserRound className="h-4 w-4" /> },
@@ -73,6 +83,7 @@ const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ReactNode }> = 
   { id: 'documents', label: 'Документы', icon: <FileText className="h-4 w-4" /> },
   { id: 'telegram', label: 'Telegram', icon: <Send className="h-4 w-4" /> },
   { id: 'chat', label: 'Чат', icon: <MessageCircle className="h-4 w-4" /> },
+  { id: 'activities', label: 'Portfolio UP', icon: <Star className="h-4 w-4" /> },
   { id: 'notes', label: 'Заметки', icon: <Shield className="h-4 w-4" /> },
   { id: 'access', label: 'Доступ', icon: <KeyRound className="h-4 w-4" /> },
 ]
@@ -91,9 +102,8 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   // Решение 30.08.2026: сверку с интейком и Notion видит и ментор.
   const canReconcile = can('sync', 'manage')
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromHash(location.hash))
-  const [newMeetingTitle, setNewMeetingTitle] = useState('')
-  const [newMeetingStartsAt, setNewMeetingStartsAt] = useState('')
-  const [newMeetingLink, setNewMeetingLink] = useState('')
+  const [creatingTask, setCreatingTask] = useState(false)
+
 
   useEffect(() => {
     setActiveTab(tabFromHash(location.hash))
@@ -221,32 +231,6 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       }),
   })
 
-  const createMeetingMutation = useMutation({
-    mutationFn: () => {
-      const startsAt = new Date(newMeetingStartsAt)
-      const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000)
-      return meetingsApi.create({
-        student_id: studentId!,
-        title: newMeetingTitle.trim(),
-        starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
-        meeting_link: newMeetingLink.trim() || undefined,
-      })
-    },
-    onSuccess: () => {
-      setNewMeetingTitle('')
-      setNewMeetingStartsAt('')
-      setNewMeetingLink('')
-      refreshStudentWorkspace()
-      toast({ title: 'Встреча создана' })
-    },
-    onError: () =>
-      toast({
-        title: 'Не удалось создать встречу',
-        variant: 'destructive',
-      }),
-  })
-
   const roadmapTasks = useMemo(
     () => roadmaps.flatMap((r) => r.stages.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageName: stage.name })))),
     [roadmaps]
@@ -254,6 +238,13 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   const nextMeeting = meetings
     .filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now())
     .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())[0]
+  const startNotes = useStartNotes()
+  // Идёт сейчас или вот-вот начнётся: конспект привяжем к этой встрече.
+  const liveMeeting = meetings.find((meeting) => {
+    if (meeting.status !== 'scheduled') return false
+    const start = new Date(meeting.starts_at).getTime(), end = new Date(meeting.ends_at || meeting.starts_at).getTime()
+    return Date.now() >= start - 30 * 60000 && Date.now() <= end + 30 * 60000
+  })
   const activeResponsibles = student?.responsibles?.filter((r) => r.is_active) ?? []
   const summaryNextMeeting = workspaceSummary?.next_meeting
   const nextMeetingValue = summaryNextMeeting?.starts_at || nextMeeting?.starts_at
@@ -284,7 +275,35 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
           <Badge>{student.intake_year}</Badge>
           {student.country && <Badge>{student.country}</Badge>}
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <AppButton
+            colorPrefix="w"
+            size="sm"
+            disabled={startNotes.isPending}
+            title={liveMeeting ? `Привяжем к встрече «${liveMeeting.title}»` : 'Запись, бот на встречу или загрузка аудио'}
+            onClick={() => startNotes.mutate({ studentId: student.id, studentName: student.full_name, meeting: liveMeeting })}
+          >
+            <Mic className="h-4 w-4" />{startNotes.isPending ? 'Открываем…' : liveMeeting ? 'Конспект встречи' : 'Начать конспект'}
+          </AppButton>
+          {can('tasks', 'manage') && (
+            <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => setCreatingTask(true)}>
+              <Plus className="h-4 w-4" />Поставить задачу
+            </AppButton>
+          )}
+        </div>
       </header>
+      {creatingTask && (
+        <CreateTaskDialog
+          colorPrefix="w"
+          defaultStudent={{ id: student.id, name: student.full_name }}
+          onClose={() => setCreatingTask(false)}
+          onCreated={() => {
+            queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
+            queryClient.invalidateQueries({ queryKey: ['tasks'] })
+            setCreatingTask(false)
+          }}
+        />
+      )}
 
       <div className="mb-5 overflow-x-auto rounded-card border border-w-line bg-w-panel p-2">
         <div className="flex min-w-max gap-1">
@@ -350,24 +369,22 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       )}
 
       {activeTab === 'meetings' && (
+        <div className="space-y-6">
+        <StudentMeetingNotes studentId={student.id} workspace />
         <MeetingsTab
+          studentId={studentId!}
+          studentName={student.full_name}
           meetings={meetings}
-          title={newMeetingTitle}
-          startsAt={newMeetingStartsAt}
-          link={newMeetingLink}
-          setTitle={setNewMeetingTitle}
-          setStartsAt={setNewMeetingStartsAt}
-          setLink={setNewMeetingLink}
-          onCreate={() => {
-            if (newMeetingTitle.trim() && newMeetingStartsAt) createMeetingMutation.mutate()
-          }}
-          isCreating={createMeetingMutation.isPending}
         />
+        </div>
       )}
 
       {activeTab === 'documents' && (
         <DocumentsTab
+          studentId={student.id}
           documents={student.documents ?? []}
+          canUpload={can('documents', 'manage')}
+          onUploaded={refreshStudentWorkspace}
           onToggleVisibility={(doc) => toggleDocumentVisibilityMutation.mutate(doc)}
           pendingDocId={toggleDocumentVisibilityMutation.variables?.id}
         />
@@ -378,7 +395,14 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       )}
 
       {activeTab === 'chat' && (
-        <ChatTab studentId={student.id} studentName={student.full_name} />
+        <ChatTab studentId={student.id} studentName={student.full_name} hasPortalAccess={!!student.user_id} />
+      )}
+
+      {activeTab === 'activities' && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">Личный план активностей</h2><Link className="text-sm underline" to={`/workspace/activities?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
+          <ActivityPlan studentId={student.id} catalogPath={`/workspace/activities?student_id=${student.id}&view=catalog`} />
+        </section>
       )}
 
       {activeTab === 'notes' && (
@@ -611,6 +635,11 @@ function CardListView({
             добавить заявку, ни привязать вуз — хотя бэкенд ему это разрешает. */}
         <WSection value="applications" title="Заявки на поступление" icon={<ExternalLink className="h-4 w-4" />}>
           <ApplicationsSection mode="staff" studentId={student.id} basePath="/workspace/universities" />
+        </WSection>
+
+        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
+        <WSection value="credentials" title="Доступы к порталам (admission)" icon={<KeyRound className="h-4 w-4" />}>
+          <PortalCredentialsSection mode="staff" studentId={student.id} />
         </WSection>
 
         <WSection value="guardians" title="Родители и контакты" icon={<UserRound className="h-4 w-4" />}>
@@ -1225,60 +1254,15 @@ function TasksTab({
   )
 }
 
-function MeetingsTab({
-  meetings,
-  title,
-  startsAt,
-  link,
-  setTitle,
-  setStartsAt,
-  setLink,
-  onCreate,
-  isCreating,
-}: {
-  meetings: Array<{ id: string; title: string; starts_at: string; status: string; meeting_link?: string }>
-  title: string
-  startsAt: string
-  link: string
-  setTitle: (value: string) => void
-  setStartsAt: (value: string) => void
-  setLink: (value: string) => void
-  onCreate: () => void
-  isCreating: boolean
+function MeetingsTab({ studentId, studentName, meetings }: {
+  studentId: string
+  studentName: string
+  meetings: Array<{ id: string; title: string; starts_at: string; status: string; meeting_link?: string; note_session_id?: string | null }>
 }) {
+  const startNotes = useStartNotes()
   return (
     <Panel title="Встречи" icon={<Calendar className="h-4 w-4" />}>
-      <div className="mb-5 rounded-card border border-w-line bg-w-panel2 p-4">
-        <div className="mb-3 text-sm font-black text-w-ink">Быстро создать встречу</div>
-        <div className="grid gap-2 md:grid-cols-[1fr_220px]">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Название встречи"
-            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
-          />
-          <input
-            type="datetime-local"
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none focus:border-w-accentDim"
-          />
-          <input
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="Zoom/Meet ссылка, если есть"
-            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim md:col-span-2"
-          />
-        </div>
-        <button
-          type="button"
-          disabled={!title.trim() || !startsAt || isCreating}
-          onClick={onCreate}
-          className="mt-3 rounded-ctl bg-w-accent px-4 py-2 text-xs font-black text-black transition disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isCreating ? 'Создаем...' : 'Создать встречу'}
-        </button>
-      </div>
+      <Link to={`/workspace/meetings?student_id=${studentId}`} className="mb-5 inline-flex rounded-ctl bg-w-accent px-4 py-2 text-sm font-black text-black">Новая встреча</Link>
       {meetings.length === 0 ? (
         <EmptyState colorPrefix="w" title="Встреч нет" description="Создайте первую встречу прямо здесь." />
       ) : (
@@ -1290,9 +1274,14 @@ function MeetingsTab({
                 <div className="truncate text-sm font-bold text-w-ink">{meeting.title}</div>
                 <div className="text-xs text-w-muted">{formatDate(meeting.starts_at)} · {meeting.status}</div>
               </div>
-              {meeting.meeting_link && (
-                <a href={meeting.meeting_link} target="_blank" rel="noreferrer" className="rounded-ctl bg-w-accent px-3 py-1.5 text-xs font-black text-black">
-                  Join
+              {meeting.status !== 'cancelled' && (
+                <AppButton colorPrefix="w" size="sm" variant="subtle" disabled={startNotes.isPending} onClick={() => startNotes.mutate({ studentId, studentName, meeting })}>
+                  {meeting.note_session_id ? 'Открыть конспект' : 'Конспект'}
+                </AppButton>
+              )}
+              {meeting.status === 'scheduled' && normalizeMeetingLink(meeting.meeting_link) && (
+                <a href={normalizeMeetingLink(meeting.meeting_link)!} target="_blank" rel="noopener noreferrer" className="rounded-ctl bg-w-accent px-3 py-1.5 text-xs font-black text-black">
+                  Войти
                 </a>
               )}
             </div>
@@ -1304,18 +1293,81 @@ function MeetingsTab({
 }
 
 function DocumentsTab({
+  studentId,
   documents,
+  canUpload,
+  onUploaded,
   onToggleVisibility,
   pendingDocId,
 }: {
+  studentId: string
   documents: Array<{ id: string; file_name: string; doc_type: string; source: string; visible_to_student?: boolean; uploaded_at: string }>
+  canUpload: boolean
+  onUploaded: () => void
   onToggleVisibility: (doc: { id: string; visible_to_student?: boolean }) => void
   pendingDocId?: string
 }) {
+  const [docType, setDocType] = useState<DocType>('other')
+  const [file, setFile] = useState<File | null>(null)
+  const uploadMutation = useMutation({
+    mutationFn: () => documentsApi.upload(studentId, file!, docType),
+    onSuccess: () => {
+      setFile(null)
+      onUploaded()
+      toast({ title: 'Документ загружен' })
+    },
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось загрузить документ', description: detail ?? 'Попробуйте ещё раз.', variant: 'destructive' })
+    },
+  })
+
   return (
-    <Panel title="Документы" icon={<FileText className="h-4 w-4" />}>
+    <Panel
+      title="Документы"
+      icon={<FileText className="h-4 w-4" />}
+      action={canUpload ? (
+        <span className="inline-flex items-center gap-1 text-xs font-bold text-w-accentText">
+          <Upload className="h-3.5 w-3.5" /> Загрузка здесь
+        </span>
+      ) : undefined}
+    >
+      {canUpload && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-card border border-w-line bg-w-panel2 p-3">
+          <select
+            aria-label="Тип документа"
+            value={docType}
+            onChange={(event) => setDocType(event.target.value as DocType)}
+            disabled={uploadMutation.isPending}
+            className="min-h-10 rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink"
+          >
+            {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <label className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-ctl border border-w-line bg-w-panel px-3 py-2 text-xs text-w-muted hover:border-w-accentDim">
+            <span className="shrink-0 rounded-ctl bg-w-accent px-3 py-1 font-bold text-black">Выбрать файл</span>
+            <span className="truncate">{file?.name || 'Файл не выбран'}</span>
+            <input
+              type="file"
+              aria-label="Выберите документ для загрузки"
+              disabled={uploadMutation.isPending}
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!file || uploadMutation.isPending}
+            onClick={() => uploadMutation.mutate()}
+            className="min-h-10 rounded-ctl bg-w-accent px-4 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploadMutation.isPending ? 'Загружаем…' : 'Загрузить'}
+          </button>
+        </div>
+      )}
       {documents.length === 0 ? (
-        <EmptyState colorPrefix="w" title="Документов нет" description="Файлы из Telegram, сообщений и кабинета студента будут собираться здесь." />
+        <EmptyState colorPrefix="w" title="Документов нет" description={canUpload ? 'Загрузите первый файл для этого студента.' : 'У этого студента пока нет загруженных файлов.'} />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {documents.map((doc) => (
@@ -1391,11 +1443,12 @@ function TelegramTab({
   )
 }
 
-function ChatTab({ studentId, studentName }: { studentId: string; studentName?: string }) {
+function ChatTab({ studentId, studentName, hasPortalAccess }: { studentId: string; studentName?: string; hasPortalAccess: boolean }) {
   const { user } = useAuth()
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['workspace', 'staff-conversation', studentId],
     queryFn: () => chatApi.staffConversation(studentId),
+    enabled: hasPortalAccess,
     retry: false,
   })
 
@@ -1403,7 +1456,7 @@ function ChatTab({ studentId, studentName }: { studentId: string; studentName?: 
     <Panel title="Чат со студентом" icon={<MessageCircle className="h-4 w-4" />}>
       {isLoading ? (
         <p className="text-sm text-w-muted">Загрузка чата...</p>
-      ) : isError || !data ? (
+      ) : !hasPortalAccess || isError || !data ? (
         // No portal account yet → the internal chat can't exist. Let the mentor
         // grant access right here instead of bouncing to CRM; granting creates
         // the account, then re-opens the chat.

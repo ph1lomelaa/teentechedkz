@@ -41,8 +41,9 @@ class UserCheckin(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    # Дата в таймзоне компании, не UTC: рабочий день сотрудника в Астане не
-    # должен разъезжаться с датой из-за смещения сервера.
+    # Дата в поясе отметки сотрудника (User.checkin_timezone, по умолчанию —
+    # пояс компании), не UTC: рабочий день не должен разъезжаться с датой из-за
+    # смещения сервера.
     checkin_date: Mapped[date] = mapped_column(Date, index=True)
     status: Mapped[CheckinStatus] = mapped_column(SAEnum(CheckinStatus, name="checkin_status"))
     # None у пропусков: проставлены фоном, человек не нажимал кнопку.

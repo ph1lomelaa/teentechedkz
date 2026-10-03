@@ -1,22 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
   AudioLines,
-  Building2,
   Check,
   CheckCircle2,
   ChevronDown,
   AlertCircle,
   Clock3,
   Loader2,
-  MonitorUp,
   RefreshCw,
   AlertTriangle,
   Trash2,
 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
+import { integrationsApi } from '@/api/integrations'
+import { BotRecordPanel } from '@/components/notes/BotRecordPanel'
+import { BotSessionView } from '@/components/notes/BotSessionView'
+import { UploadStatusView } from '@/components/notes/UploadStatusView'
+import { isBotActive } from '@/lib/meetingBotUi'
 import { Button } from '@/components/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/primitives/card'
 import {
@@ -45,6 +48,9 @@ import {
   formatRecordingDuration,
   getRecordingHealth,
   humanizeRecordingError,
+  isRecordingBrowserSupported,
+  NOTE_SESSION_LANGUAGE_OPTIONS,
+  RECOGNITION_FAIL_AFTER_SECONDS,
 } from '@/lib/noteSessionUi'
 
 function playAlertBeep() {
@@ -68,12 +74,11 @@ export const NoteSessionPage: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const inWorkspace = location.pathname.startsWith('/workspace/')
-  const notesHome = inWorkspace ? '/workspace/meetings?tab=notes' : '/notes'
+  const notesHome = inWorkspace ? '/workspace/notes' : '/notes'
   const notePath = useCallback(
     (noteId: string) => inWorkspace ? `/workspace/meetings/notes/${noteId}` : `/notes/${noteId}`,
     [inWorkspace],
   )
-  const studentPath = (studentId: string) => inWorkspace ? `/workspace/students/${studentId}#meetings` : `/students/${studentId}`
   const sessionId = id ?? ''
 
   const [transcripts, setTranscripts] = useState<NoteTranscript[]>([])
@@ -94,6 +99,9 @@ export const NoteSessionPage: React.FC = () => {
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null)
   const [clockNow, setClockNow] = useState(Date.now())
+  const [disconnectedSince, setDisconnectedSince] = useState<number | null>(null)
+  const [lastCloseCode, setLastCloseCode] = useState<number | null>(null)
+  const startedOnServerRef = useRef(false)
 
   const audioBackup = useAudioBackupRecorder(sessionId)
   const originalTitleRef = useRef(document.title)
@@ -106,12 +114,41 @@ export const NoteSessionPage: React.FC = () => {
   const sequenceRef = useRef(0)
   const flushPromiseRef = useRef<Promise<void> | null>(null)
   const lastAudibleAtRef = useRef(Date.now())
+  // Отдельно по источникам: собеседник (вкладка) и ментор (микрофон).
+  const [levels, setLevels] = useState<{ meeting: number | null; mic: number | null }>({ meeting: null, mic: null })
+  const lastMeetingAudibleAtRef = useRef(Date.now())
+  const lastMicAudibleAtRef = useRef(Date.now())
+  const [micWarning, setMicWarning] = useState('')
 
   const { data: session, isLoading, refetch } = useQuery({
     queryKey: ['note-session', sessionId],
     queryFn: () => notesApi.getSession(sessionId),
     enabled: Boolean(sessionId),
+    // Пока бот в звонке — статус и текст обновляются сами.
+    refetchInterval: (query) => (isBotActive(query.state.data?.bot_status) ? 3_000 : false),
   })
+  const { data: zoomStatus, refetch: refetchZoomStatus } = useQuery({
+    queryKey: ['integrations', 'zoom-status'],
+    queryFn: integrationsApi.zoomStatus,
+    retry: false,
+  })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const prefillUrl = searchParams.get('url') ?? undefined
+
+  // Возврат из Zoom после «Разрешить доступ».
+  useEffect(() => {
+    const zoom = searchParams.get('zoom')
+    if (!zoom) return
+    if (zoom === 'connected') {
+      toast({ title: 'Zoom подключён', description: 'Теперь бот может заходить в ваши встречи Zoom.' })
+      void refetchZoomStatus()
+    } else {
+      toast({ title: 'Не удалось подключить Zoom', description: 'Попробуйте ещё раз или запишите микрофоном.', variant: 'destructive' })
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('zoom')
+    setSearchParams(next, { replace: true })
+  }, [refetchZoomStatus, searchParams, setSearchParams])
 
   // A finished session with a конспект already generated has nothing left to
   // show here — every entry point (meeting/student-card buttons, bookmarks)
@@ -230,6 +267,7 @@ export const NoteSessionPage: React.FC = () => {
   }, [handleFinalResult])
 
   const deepgram = useDeepgramTranscription({
+    language: session?.language ?? 'ru',
     onFinal: handleFinalResult,
     onInterim: handleInterim,
     onError: handleError,
@@ -248,13 +286,46 @@ export const NoteSessionPage: React.FC = () => {
     onBackupStreamReady: (stream) => {
       audioBackup.start(stream)
     },
+    onSocketClosed: (code) => setLastCloseCode(code),
+    onLevels: (next) => {
+      setLevels(next)
+      const now = Date.now()
+      if ((next.meeting ?? 0) > 0.008) lastMeetingAudibleAtRef.current = now
+      if ((next.mic ?? 0) > 0.008) lastMicAudibleAtRef.current = now
+    },
+    onMicUnavailable: (reason) => setMicWarning(reason),
   })
   const {
     isConnected: isDeepgramConnected,
     isCapturing: isDeepgramCapturing,
     start: startDeepgram,
     stop: stopDeepgram,
+    retryNow: retryDeepgram,
   } = deepgram
+
+  // Звук пошёл — черновик становится активной записью на сервере (до этого
+  // сессия не видна в списках и удаляется очисткой, если запись не началась).
+  useEffect(() => {
+    if (!isDeepgramCapturing || !session || startedOnServerRef.current) return
+    if (session.status === 'active') {
+      startedOnServerRef.current = true
+      return
+    }
+    startedOnServerRef.current = true
+    notesApi.startSession(sessionId).then(() => refetch()).catch(() => {
+      startedOnServerRef.current = false
+    })
+  }, [isDeepgramCapturing, refetch, session, sessionId])
+
+  // С какого момента звук пишется, а распознавание не подключено: через 10 с —
+  // предупреждение, через 30 с — красная ошибка вместо вечного «Подключаем…».
+  useEffect(() => {
+    if (isDeepgramCapturing && !isDeepgramConnected) {
+      setDisconnectedSince((current) => current ?? Date.now())
+    } else {
+      setDisconnectedSince(null)
+    }
+  }, [isDeepgramCapturing, isDeepgramConnected])
 
   useEffect(() => {
     const pending = readTranscriptOutbox(sessionId)
@@ -279,7 +350,7 @@ export const NoteSessionPage: React.FC = () => {
   }, [flushOutbox, session?.transcripts, sessionId])
 
   useEffect(() => {
-    if (!session || session.status !== 'active') return
+    if (!session || (session.status !== 'active' && session.status !== 'draft')) return
     const send = () => notesApi.heartbeatSession(sessionId).catch(() => undefined)
     send()
     const interval = window.setInterval(send, 20_000)
@@ -398,7 +469,10 @@ export const NoteSessionPage: React.FC = () => {
     setAudioStatus('')
     setCaptureSource(source)
     setSourceStoppedAlert(false)
+    setMicWarning('')
     lastAudibleAtRef.current = Date.now()
+    lastMeetingAudibleAtRef.current = Date.now()
+    lastMicAudibleAtRef.current = Date.now()
     setRecordingStartedAt((current) => current ?? Date.now())
     setClockNow(Date.now())
     await stopDeepgram()
@@ -427,7 +501,8 @@ export const NoteSessionPage: React.FC = () => {
     }
     setFinishing(true)
     try {
-      await notesApi.endSession(sessionId)
+      // finalize сам завершает сессию; отдельный /end раньше оставлял
+      // «завершённую» сессию без конспекта, если сборка падала.
       const result = await notesApi.finalizeSession(sessionId)
       await refetch()
       navigate(notePath(result.note.id))
@@ -457,14 +532,15 @@ export const NoteSessionPage: React.FC = () => {
 
   const captureStatusText = isDeepgramCapturing
     ? captureSource === 'system'
-      ? 'Звук встречи и микрофон подключены'
+      ? levels.mic !== null ? 'Звук встречи и микрофон подключены' : 'Звук встречи подключён, микрофона нет'
       : 'Микрофон подключён'
     : 'Источник звука не активен'
-  const recognitionStatusText = isDeepgramConnected
+  const recognitionStatusText = (isDeepgramConnected
     ? 'Текст распознаётся'
     : isDeepgramCapturing
       ? 'Подключаем распознавание…'
-      : 'Распознавание ожидает запуска'
+      : 'Распознавание ожидает запуска')
+    + (lastCloseCode && !isDeepgramConnected ? ` · код закрытия ${lastCloseCode}` : '')
   const saveStatusText = pendingCount > 0
     ? `${pendingCount} фрагм. сохранены на устройстве`
     : syncStatus
@@ -476,6 +552,11 @@ export const NoteSessionPage: React.FC = () => {
   }
 
   const isReadOnly = Boolean(session.note_id)
+  const botAvailable = Boolean(zoomStatus?.bot_enabled)
+  // Экраны статуса для бота и для загруженного файла. Если ментор после сбоя
+  // выбрал другой способ — показываем подготовку, а не старый статус.
+  const showBotView = session.capture_mode === 'bot' && Boolean(session.bot_status)
+  const showUploadView = session.capture_mode === 'upload' && Boolean(session.bot_status) && session.bot_status !== 'done'
   const pageClass = inWorkspace ? 'space-y-5 text-w-ink' : 'space-y-5'
   const headerBorderClass = inWorkspace ? 'border-w-line' : 'border-p-line'
   const eyebrowClass = inWorkspace ? 'text-w-muted2' : 'text-p-muted2'
@@ -494,6 +575,21 @@ export const NoteSessionPage: React.FC = () => {
     && isDeepgramConnected
     && elapsedSeconds >= 12
     && clockNow - lastAudibleAtRef.current > 12_000
+  // Один из источников молчит дольше 20 секунд — подсказываем, какой именно.
+  const silentChannel: 'meeting' | 'mic' | null = !isDeepgramCapturing || elapsedSeconds < 20
+    ? null
+    : levels.meeting !== null && clockNow - lastMeetingAudibleAtRef.current > 20_000
+      ? 'meeting'
+      : levels.mic !== null && clockNow - lastMicAudibleAtRef.current > 20_000
+        ? 'mic'
+        : null
+
+  const disconnectedSeconds = disconnectedSince ? Math.max(0, Math.floor((clockNow - disconnectedSince) / 1000)) : 0
+  const recognitionFailed = isDeepgramCapturing && !isDeepgramConnected && disconnectedSeconds >= RECOGNITION_FAIL_AFTER_SECONDS
+  const browserSupported = isRecordingBrowserSupported(navigator.userAgent)
+  const hasBackupText = Boolean(session.backup_transcript_text?.trim())
+  const canFinalize = transcripts.length > 0 || pendingCount > 0 || Boolean(interimText.trim()) || hasBackupText
+  const languageLabel = NOTE_SESSION_LANGUAGE_OPTIONS.find((option) => option.value === session.language)?.label ?? 'Русский'
 
   const readableError = humanizeRecordingError(error)
   const health = getRecordingHealth({
@@ -504,6 +600,8 @@ export const NoteSessionPage: React.FC = () => {
     isCapturing: isDeepgramCapturing,
     isConnected: isDeepgramConnected,
     noRecentSound,
+    disconnectedSeconds,
+    silentChannel,
   })
 
   const healthClass = health.tone === 'good'
@@ -535,6 +633,24 @@ export const NoteSessionPage: React.FC = () => {
         </Button>
       </div>
 
+      {showBotView ? (
+        <BotSessionView
+          session={session}
+          inWorkspace={inWorkspace}
+          onChanged={() => void refetch()}
+          onDelete={() => void handleDeleteSession()}
+          deleting={deleting}
+        />
+      ) : showUploadView ? (
+        <UploadStatusView
+          session={session}
+          inWorkspace={inWorkspace}
+          onDelete={() => void handleDeleteSession()}
+          deleting={deleting}
+        />
+      ) : (
+      <>
+      {hasRecording && (
       <div className="grid grid-cols-3 gap-2">
         {[
           { number: 1, label: 'Подготовка', active: !hasRecording, done: hasRecording },
@@ -566,67 +682,33 @@ export const NoteSessionPage: React.FC = () => {
           </div>
         ))}
       </div>
+      )}
 
       {!hasRecording ? (
         <Card className={cn(cardClass, 'w-full')}>
           <CardHeader>
-            <CardTitle className={cn(cardTitleClass, 'text-xl')}>Подготовка к встрече</CardTitle>
+            <CardTitle className={cn(cardTitleClass, 'text-xl')}>Записать встречу</CardTitle>
             <CardDescription className={cardDescriptionClass}>
-              Проверьте ученика и запустите запись разговора.
+              {botAvailable
+                ? 'Вставьте ссылку на Zoom, Google Meet или Teams — бот подключится и начнёт транскрипцию.'
+                : 'Запись встречи по ссылке.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className={cn(panelClass, 'flex flex-wrap items-center justify-between gap-3 p-4')}>
-              <div>
-                <p className={cn('text-xs uppercase tracking-[0.2em]', eyebrowClass)}>Ученик</p>
-                <p className={cn('mt-1 font-semibold', titleClass)}>{session.student_name ?? 'Ученик не выбран'}</p>
-              </div>
-              {session.student_id && (
-                <Button variant="outline" size="sm" className={outlineButtonClass} asChild>
-                  <Link to={studentPath(session.student_id)}>
-                    <Building2 className="mr-2 h-4 w-4" />
-                    Открыть профиль
-                  </Link>
-                </Button>
-              )}
-            </div>
-
-            <div>
-              <p className={cn('mb-2 text-sm font-semibold', titleClass)}>Источник звука</p>
-              <div className={cn(
-                'flex items-start gap-4 rounded-panel border p-4',
-                inWorkspace ? 'border-w-accentDim bg-w-accent/10' : 'border-p-line bg-p-bg',
-              )}>
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#FFD400] text-black">
-                  <MonitorUp className="h-5 w-5" />
-                </span>
-                <div>
-                  <p className={cn('font-semibold', titleClass)}>Звук встречи</p>
-                  <p className={cn('mt-1 text-sm leading-relaxed', mutedClass)}>
-                    Запишем исходный звук Zoom или Google Meet без изменения его громкости. После нажатия выберите вкладку или окно встречи и разрешите передачу аудио.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {readableError && (
-              <div className={cn('flex items-start gap-3 rounded-panel border p-3 text-sm', healthClass)}>
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{readableError}</span>
-              </div>
+            {session.student_name && (
+              <p className={cn('text-sm', mutedClass)}>Встреча со студентом · <span className={cn('font-semibold', titleClass)}>{session.student_name}</span></p>
             )}
-
-            <Button
-              size="lg"
-              className={cn('w-full', primaryButtonClass)}
-              onClick={() => void handleStart('system')}
-            >
-              <MonitorUp className="mr-2 h-5 w-5" />
-              Записать встречу
-            </Button>
-            <p className={cn('text-center text-xs', eyebrowClass)}>
-              Браузер попросит выбрать окно встречи и разрешить звук. Конспект появится после завершения.
-            </p>
+            {botAvailable ? (
+              <BotRecordPanel
+                session={session}
+                inWorkspace={inWorkspace}
+                zoomStatus={zoomStatus}
+                initialUrl={prefillUrl}
+                onSent={() => void refetch()}
+              />
+            ) : (
+              <p className={mutedClass}>Подключение бота пока недоступно.</p>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -645,7 +727,9 @@ export const NoteSessionPage: React.FC = () => {
                   </span>
                   <div>
                     <p className={cn('text-sm font-semibold', titleClass)}>
-                      {isDeepgramCapturing ? 'Запись идёт' : 'Запись приостановлена'}
+                      {isDeepgramCapturing
+                        ? `Запись идёт · ${languageLabel}`
+                        : session.status === 'interrupted' ? 'Запись прервалась' : 'Запись приостановлена'}
                     </p>
                     <div className={cn('mt-1 flex items-center gap-2 font-mono text-3xl font-bold tabular-nums', titleClass)}>
                       <Clock3 className={cn('h-5 w-5', eyebrowClass)} />
@@ -681,6 +765,17 @@ export const NoteSessionPage: React.FC = () => {
                     Возобновить
                   </Button>
                 )}
+                {recognitionFailed && !sourceStoppedAlert && (
+                  <Button size="sm" onClick={retryDeepgram}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Повторить подключение
+                  </Button>
+                )}
+                {!isDeepgramCapturing && !sourceStoppedAlert && (
+                  <Button size="sm" onClick={() => void handleStart(captureSource ?? 'system')} disabled={!browserSupported}>
+                    Продолжить запись
+                  </Button>
+                )}
                 {pendingCount > 0 && !sourceStoppedAlert && (
                   <Button size="sm" variant="outline" className={outlineButtonClass} onClick={() => void flushOutbox()}>
                     Отправить сейчас
@@ -688,15 +783,41 @@ export const NoteSessionPage: React.FC = () => {
                 )}
               </div>
 
-              <div className={cn('mt-4 h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
-                <div
-                  className={cn('h-full rounded-full transition-all duration-150', inWorkspace ? 'bg-w-accent' : 'bg-p-text')}
-                  style={{ width: `${isDeepgramCapturing ? Math.min(100, Math.max(3, audioLevel * 300)) : 0}%` }}
-                />
+              <div className="mt-4 space-y-2">
+                {([
+                  ['Собеседник', levels.meeting],
+                  ['Вы', levels.mic],
+                ] as const)
+                  .filter(([, level]) => level !== null || !isDeepgramCapturing)
+                  .map(([label, level]) => (
+                    <div key={label} className="flex items-center gap-3">
+                      <span className={cn('w-24 shrink-0 text-xs font-semibold', titleClass)}>{label}</span>
+                      <div className={cn('h-2 flex-1 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
+                        <div
+                          className={cn('h-full rounded-full transition-all duration-150', inWorkspace ? 'bg-w-accent' : 'bg-p-text')}
+                          style={{ width: `${isDeepgramCapturing ? Math.min(100, Math.max(3, (level ?? 0) * 300)) : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                {isDeepgramCapturing && levels.meeting === null && levels.mic === null && (
+                  <div className={cn('h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
+                    <div
+                      className={cn('h-full rounded-full transition-all duration-150', inWorkspace ? 'bg-w-accent' : 'bg-p-text')}
+                      style={{ width: `${Math.min(100, Math.max(3, audioLevel * 300))}%` }}
+                    />
+                  </div>
+                )}
               </div>
               <p className={cn('mt-1.5 text-xs', eyebrowClass)}>
-                {isDeepgramCapturing ? 'Полоса двигается, когда система слышит звук.' : 'Возобновите запись, чтобы продолжить.'}
+                {isDeepgramCapturing ? 'Полосы двигаются, когда слышен звук.' : 'Возобновите запись, чтобы продолжить.'}
               </p>
+              {micWarning && isDeepgramCapturing && (
+                <p className={cn('mt-2 flex items-start gap-2 text-xs', inWorkspace ? 'text-w-accentText' : 'text-amber-700')}>
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {micWarning}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -782,6 +903,8 @@ export const NoteSessionPage: React.FC = () => {
           </details>
         </div>
       )}
+      </>
+      )}
 
       {finishing && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
@@ -800,11 +923,11 @@ export const NoteSessionPage: React.FC = () => {
       <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
         <DialogContent className={cn('max-w-md', inWorkspace ? 'border-[#3A3A36] bg-[#181816] text-white shadow-[0_24px_80px_rgba(0,0,0,0.65)]' : undefined)}>
           <DialogHeader>
-            <DialogTitle className={inWorkspace ? 'pr-8 text-white' : undefined}>{transcripts.length ? 'Завершить сессию и собрать конспект?' : 'Завершить сессию без транскрипта?'}</DialogTitle>
+            <DialogTitle className={inWorkspace ? 'pr-8 text-white' : undefined}>{canFinalize ? 'Завершить сессию и собрать конспект?' : 'В записи нет текста'}</DialogTitle>
             <DialogDescription className={inWorkspace ? 'text-white/65' : cardDescriptionClass}>
-              {transcripts.length
+              {canFinalize
                 ? 'Запись остановится, все сохранённые фрагменты останутся в общей базе студента, после этого AI соберёт конспект.'
-                : 'В сессии пока нет фрагментов транскрипта. Конспект будет пустым или неинформативным.'}
+                : 'Распознанного текста нет — собирать конспект не из чего. Удалите пустую сессию или восстановите текст из резервной записи в блоке «Диагностика».'}
             </DialogDescription>
           </DialogHeader>
           <div className={cn('rounded-ctl px-3 py-2 text-sm', inWorkspace ? 'border border-white/15 bg-white/[0.04] text-white/70' : cn(panelClass, mutedClass))}>
@@ -818,7 +941,7 @@ export const NoteSessionPage: React.FC = () => {
               disabled={finishing || deleting}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              {deleting ? 'Удаляем…' : 'Удалить сессию'}
+              {deleting ? 'Удаляем…' : canFinalize ? 'Удалить сессию' : 'Удалить пустую сессию'}
             </Button>
             <Button variant="outline" className={inWorkspace ? 'border-white/25 bg-transparent text-white hover:border-white/50 hover:bg-white/10' : outlineButtonClass} onClick={() => setFinalizeDialogOpen(false)} disabled={deleting}>
               Отмена
@@ -829,7 +952,7 @@ export const NoteSessionPage: React.FC = () => {
                 setFinalizeDialogOpen(false)
                 void handleFinalize()
               }}
-              disabled={finishing || deleting}
+              disabled={finishing || deleting || !canFinalize}
             >
               Завершить
             </Button>

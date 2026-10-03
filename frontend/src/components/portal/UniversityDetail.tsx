@@ -158,7 +158,7 @@ export const UniversityDetail: React.FC<{ basePath?: string; canManage?: boolean
                       removeMutation.mutate()
                     }
                   }}
-                  className="inline-flex items-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-4 py-2 text-sm font-bold text-p-danger transition-colors hover:border-p-danger disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-4 py-2 text-sm font-bold text-p-danger-text transition-colors hover:border-p-danger disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
                   Удалить
@@ -225,7 +225,7 @@ export const UniversityDetail: React.FC<{ basePath?: string; canManage?: boolean
           <div>
             <dt className="text-[10px] uppercase tracking-widest text-p-muted2">Гранты</dt>
             <dd className="mt-1 text-[13.5px] font-bold">
-              {grants === 'yes' && <span className="text-p-good">Есть полный грант для иностранцев</span>}
+              {grants === 'yes' && <span className="text-p-good-text">Есть полный грант для иностранцев</span>}
               {grants === 'no' && <span className="text-p-text">Полного гранта нет</span>}
               {grants === 'unknown' && (
                 <span className="font-normal text-p-muted2">
@@ -249,7 +249,7 @@ export const UniversityDetail: React.FC<{ basePath?: string; canManage?: boolean
         <Section title="Дедлайны (справочно)">
           {deadlineIsStale && (
             <div className="mb-3 flex items-start gap-2 rounded-ctl border border-p-accent/40 bg-p-accent/10 p-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-p-accent" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-none text-p-accent-text" />
               <p className="text-[12.5px] leading-relaxed text-p-text">
                 В источнике указан {u.deadline_year_mentioned} год — даты устарели. Проверьте актуальные
                 сроки на сайте университета.

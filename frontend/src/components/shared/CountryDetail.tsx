@@ -82,7 +82,7 @@ export const CountryDetail: React.FC<{
       <div className="rounded-card border border-p-line bg-p-panel p-8 text-center">
         <Globe className="mx-auto h-6 w-6 text-p-muted2" />
         <h2 className="mt-3 text-base font-extrabold text-p-text">Страна не найдена</h2>
-        <Link to={basePath} className="mt-3 inline-block text-sm font-bold text-p-accent hover:underline">
+        <Link to={basePath} className="mt-3 inline-block text-sm font-bold text-p-accent-text hover:underline">
           Вернуться к списку
         </Link>
       </div>
@@ -121,7 +121,7 @@ export const CountryDetail: React.FC<{
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {country.vpp_required && (
-              <span className="rounded-full bg-p-accent/15 px-3 py-1 text-[10.5px] font-bold text-p-accent">
+              <span className="rounded-full bg-p-accent/15 px-3 py-1 text-[10.5px] font-bold text-p-accent-text">
                 VPP требуется
               </span>
             )}
@@ -141,7 +141,7 @@ export const CountryDetail: React.FC<{
       <section className="mt-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 font-display text-lg font-black text-p-text">
-            <Route className="h-5 w-5 text-p-accent" /> Roadmap
+            <Route className="h-5 w-5 text-p-accent-text" /> Roadmap
           </h2>
           <div className="flex rounded-full border border-p-line bg-p-panel p-1">
             {levels.map((level) => (
@@ -165,7 +165,7 @@ export const CountryDetail: React.FC<{
 
       <section className="mt-6">
         <h2 className="flex items-center gap-2 font-display text-lg font-black text-p-text">
-          <Building2 className="h-5 w-5 text-p-accent" /> Вузы страны
+          <Building2 className="h-5 w-5 text-p-accent-text" /> Вузы страны
           <span className="text-sm font-bold text-p-muted2">({countryUniversities.length})</span>
         </h2>
 
@@ -199,7 +199,7 @@ export const CountryDetail: React.FC<{
                       {[u.city, u.tuition_range].filter(Boolean).join(' · ') || '—'}
                     </span>
                     {typeof u.world_ranking === 'number' && (
-                      <span className="mt-1 inline-block rounded-full bg-p-accent/15 px-2 py-0.5 text-[10px] font-bold text-p-accent">
+                      <span className="mt-1 inline-block rounded-full bg-p-accent/15 px-2 py-0.5 text-[10px] font-bold text-p-accent-text">
                         #{u.world_ranking} в мире
                       </span>
                     )}

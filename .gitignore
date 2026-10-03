@@ -20,6 +20,8 @@ alembic/versions/*.pyc
 .env
 .env.local
 .env.*.local
+# Секреты Attendee на сервере (шаблон — attendee/attendee.env.example)
+attendee/attendee.env
 
 # Local ngrok tunnel state (pid/log)
 .ngrok/
@@ -51,6 +53,8 @@ authorized_user.json
 
 # Excel migration files (sensitive data)
 migration/data/
+backups/
+*.sql.gz
 *.xlsx
 *.xls
 
@@ -80,3 +84,10 @@ monitoring/dashboards/
 # Метрики, которые пишут скрипты для node_exporter (textfile collector)
 monitoring/textfile/
 NEW_SERVER_SETUP.md
+# Локальные инструкции, документы и изолированный seed-проект: production их не читает.
+DEPLOY_MEETING_BOT_PROD.md
+NOTION_PIPELINE_ROLLOUT.md
+docker-compose.seed.yml
+PLAN_PERMISSIONS.md
+STUDENT_REGISTRATION_GUIDE.md
+delete_test_users.sql

@@ -27,7 +27,9 @@ from app.core.permissions import Action, Scope
 from app.main import app
 from app.models.user import User, UserRole
 
-ALL_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.student)
+ALL_ROLES = (
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+)
 
 MATRIX_URL = "/api/v1/permissions/matrix"
 

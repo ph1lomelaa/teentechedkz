@@ -1,15 +1,24 @@
-"""Фоновый цикл чекинов: напоминание в 10:00 и простановка пропусков.
+"""Фоновый цикл чекинов: напоминания и простановка пропусков.
 
 Правила окна — в services/checkins.py (там же тесты). Здесь обход сотрудников,
 уведомления и запись `missed` после закрытия окна.
 
+Всё считается в поясе каждого сотрудника (регламент п.2.1: ментор в Европе
+отмечается в 10:00 по своему времени), поэтому «сегодня», «окно открылось» и
+«окно закрылось» у разных людей разные — общих значений на проход нет.
+
+Напоминаний два: за CHECKIN_REMINDER_LEAD_MINUTES до открытия (`checkin_soon`)
+и в момент открытия (`checkin_due`). Оба идут колокольчиком и WS-пушем; фронт
+показывает их ещё и системным уведомлением браузера.
+
 Идемпотентность: уникальный индекс (user_id, checkin_date) не даёт продублировать
-отметку, а `has_unread` — прислать напоминание дважды за день. Выходные цикл
-пропускает: копить в статистике пропуски за субботу бессмысленно.
+отметку, а `was_sent` — прислать напоминание дважды за день, даже если первое
+уже прочитано (цикл крутится раз в минуту). Выходные
+пропускаются: копить в статистике пропуски за субботу бессмысленно.
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -22,31 +31,40 @@ from app.services.checkins import (
     CHECKIN_ROLES,
     is_workday,
     local_now,
+    reminder_is_due,
+    user_tz,
     window_is_closed,
     window_open_at,
 )
-from app.services.notify import has_unread, notify, push_notification
+from app.services.notify import notify, push_notification, was_sent
 
 logger = logging.getLogger(__name__)
+
+
+def _hhmm() -> str:
+    return f"{settings.CHECKIN_HOUR:02d}:{settings.CHECKIN_MINUTE:02d}"
+
+
+def plan_for_user(now_local: datetime) -> str | None:
+    """Что сделать с сотрудником, который сегодня ещё не отметился:
+    'soon' | 'due' | 'missed' | None. Чистая функция — для тестов."""
+    today = now_local.date()
+    if not is_workday(today):
+        return None
+    kw = {"hour": settings.CHECKIN_HOUR, "minute": settings.CHECKIN_MINUTE}
+    if reminder_is_due(local_now_dt=now_local, lead_minutes=settings.CHECKIN_REMINDER_LEAD_MINUTES, **kw):
+        return "soon"
+    opens_at = window_open_at(today, tz_name=str(now_local.tzinfo), **kw)
+    if now_local < opens_at:
+        return None
+    if window_is_closed(local_now_dt=now_local, window_minutes=settings.CHECKIN_WINDOW_MINUTES, **kw):
+        return "missed"
+    return "due"
 
 
 async def check_daily_checkins() -> None:
     db = AsyncSessionLocal()
     try:
-        now_local = local_now(settings.COMPANY_TIMEZONE)
-        today = now_local.date()
-        if not is_workday(today):
-            return
-
-        opens_at = window_open_at(
-            today,
-            hour=settings.CHECKIN_HOUR,
-            minute=settings.CHECKIN_MINUTE,
-            tz_name=settings.COMPANY_TIMEZONE,
-        )
-        if now_local < opens_at:
-            return  # окно ещё не открылось — ни напоминать, ни закрывать нечего
-
         staff = (
             await db.execute(
                 select(User).where(
@@ -58,28 +76,29 @@ async def check_daily_checkins() -> None:
         if not staff:
             return
 
+        # Отметки за все даты, которые сейчас «сегодня» хоть у кого-то.
+        local_by_user = {u.id: local_now(user_tz(u, settings.COMPANY_TIMEZONE)) for u in staff}
+        dates = {dt.date() for dt in local_by_user.values()}
         marked = (
             await db.execute(
-                select(UserCheckin.user_id).where(UserCheckin.checkin_date == today)
+                select(UserCheckin.user_id, UserCheckin.checkin_date).where(UserCheckin.checkin_date.in_(dates))
             )
-        ).scalars().all()
-        already = set(marked)
-
-        closed = window_is_closed(
-            local_now_dt=now_local,
-            hour=settings.CHECKIN_HOUR,
-            minute=settings.CHECKIN_MINUTE,
-            window_minutes=settings.CHECKIN_WINDOW_MINUTES,
-        )
+        ).all()
+        already = {(uid, d) for uid, d in marked}
 
         fresh_notes = []
         missed = 0
-        day_key = f"[checkin:{today.isoformat()}]"
         for user in staff:
-            if user.id in already:
+            now_local = local_by_user[user.id]
+            today = now_local.date()
+            if (user.id, today) in already:
                 continue
 
-            if closed:
+            action = plan_for_user(now_local)
+            if action is None:
+                continue
+
+            if action == "missed":
                 db.add(UserCheckin(
                     user_id=user.id,
                     checkin_date=today,
@@ -89,14 +108,25 @@ async def check_daily_checkins() -> None:
                 missed += 1
                 continue
 
-            if await has_unread(db, user.id, kind="checkin_due", body_contains=day_key):
+            kind = "checkin_soon" if action == "soon" else "checkin_due"
+            # Метка дня общая для обоих видов — различает их kind. Формат
+            # [слово:значение] фронт вырезает из текста системного уведомления.
+            day_key = f"[checkin:{today.isoformat()}]"
+            if await was_sent(db, user.id, kind=kind, body_contains=day_key):
                 continue
+            if action == "soon":
+                title = f"Через {settings.CHECKIN_REMINDER_LEAD_MINUTES} минут отметка"
+                body = f"В {_hhmm()} нужно нажать «Я на месте» в кабинете {day_key}"
+            else:
+                title = "Отметьтесь на сегодня"
+                body = f"Нажмите «Я на месте» в кабинете {day_key}"
             fresh_notes.append(notify(
                 db, user.id,
-                kind="checkin_due",
-                title="Отметьтесь на сегодня",
-                body=f"Нажмите «Я на месте» в кабинете {day_key}",
-                link="/workspace",
+                kind=kind,
+                title=title,
+                body=body,
+                # Кнопка «Я на месте» живёт на «Моём дне», а не на главной.
+                link="/workspace/my-day",
                 priority="normal",
             ))
 

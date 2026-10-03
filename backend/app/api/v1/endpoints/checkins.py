@@ -23,10 +23,13 @@ from app.models.user import User, UserRole
 from app.models.user_checkin import CheckinStatus, UserCheckin
 from app.services.checkins import (
     CHECKIN_ROLES,
+    CHECKIN_TIMEZONES,
     checkin_status_for,
+    is_allowed_timezone,
     is_checkin_role,
     is_workday,
     local_now,
+    user_tz,
 )
 
 router = APIRouter(prefix="/checkins", tags=["checkins"])
@@ -46,13 +49,17 @@ def _to_dict(c: UserCheckin, *, with_user: bool = False) -> dict:
     return d
 
 
-def _window() -> dict:
+def _window(tz_name: str | None = None) -> dict:
     return {
         "hour": settings.CHECKIN_HOUR,
         "minute": settings.CHECKIN_MINUTE,
         "grace_minutes": settings.CHECKIN_GRACE_MINUTES,
-        "timezone": settings.COMPANY_TIMEZONE,
+        "timezone": tz_name or settings.COMPANY_TIMEZONE,
     }
+
+
+def _my_tz(user) -> str:
+    return user_tz(user, settings.COMPANY_TIMEZONE)
 
 
 @router.get("/me/today")
@@ -62,7 +69,8 @@ async def my_checkin_today(current_user: CurrentUser, db: Annotated[AsyncSession
     Отвечает всем ролям, а не только обязанным: фронт рисует виджет по
     `required`, и отдельная ветка на 403 ему не нужна.
     """
-    now_local = local_now(settings.COMPANY_TIMEZONE)
+    tz_name = _my_tz(current_user)
+    now_local = local_now(tz_name)
     today = now_local.date()
     required = is_checkin_role(current_user.role) and is_workday(today)
 
@@ -79,8 +87,27 @@ async def my_checkin_today(current_user: CurrentUser, db: Annotated[AsyncSession
         "date": today.isoformat(),
         "required": required,
         "checkin": _to_dict(existing) if existing else None,
-        "window": _window(),
+        "window": _window(tz_name),
+        "timezones": [{"value": tz, "label": label} for tz, label in CHECKIN_TIMEZONES],
     }
+
+
+@router.patch("/me/settings")
+async def update_my_checkin_settings(
+    body: dict,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Свой пояс отметки (регламент п.2.1). Время всегда 10:00 — меняется
+    только то, по чьим часам: так регламент нельзя обойти, выбрав себе 15:00."""
+    tz_name = (body or {}).get("timezone")
+    if not isinstance(tz_name, str) or not is_allowed_timezone(tz_name):
+        raise HTTPException(status_code=422, detail="Неизвестный часовой пояс")
+    # Пояс компании храним как NULL: поменяют пояс по умолчанию — человек
+    # переедет вместе со всеми, а не останется на старом.
+    current_user.checkin_timezone = None if tz_name == settings.COMPANY_TIMEZONE else tz_name
+    await db.commit()
+    return {"window": _window(_my_tz(current_user))}
 
 
 @router.post("/me")
@@ -96,7 +123,7 @@ async def check_in(
             headers={"X-Error-Code": "CHECKIN_NOT_REQUIRED"},
         )
 
-    now_local = local_now(settings.COMPANY_TIMEZONE)
+    now_local = local_now(_my_tz(current_user))
     today = now_local.date()
     status = checkin_status_for(
         checked_in_local=now_local,
@@ -192,7 +219,10 @@ async def list_checkins(
         "date_to": end.isoformat(),
         "items": [_to_dict(c, with_user=True) for c in rows],
         "staff": [
-            {"user_id": str(u.id), "user_name": u.name, "user_role": u.role.value}
+            {
+                "user_id": str(u.id), "user_name": u.name, "user_role": u.role.value,
+                "timezone": _my_tz(u),
+            }
             for u in sorted(staff, key=lambda u: u.name or "")
         ],
         "window": _window(),

@@ -72,7 +72,7 @@ export const RoadmapTimeline: React.FC<RoadmapTimelineProps> = ({
                   ) : (
                     <span className={cn(
                       'font-black',
-                      isDone ? 'text-black' : isInProgress ? 'text-p-accent' : textClass
+                      isDone ? 'text-black' : isInProgress ? 'text-p-accent-text' : textClass
                     )}>
                       {stage.number || index + 1}
                     </span>

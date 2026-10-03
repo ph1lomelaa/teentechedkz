@@ -217,7 +217,7 @@ export const UniversitiesCatalog: React.FC<{
         <button
           type="button"
           onClick={() => setGrantsOnly(!grantsOnly)}
-          className={`h-10 flex-none rounded-ctl border px-3.5 text-xs font-bold transition ${grantsOnly ? 'border-p-good bg-p-good/15 text-p-good' : 'border-p-line bg-p-panel2 text-p-muted hover:text-p-text'}`}
+          className={`h-10 flex-none rounded-ctl border px-3.5 text-xs font-bold transition ${grantsOnly ? 'border-p-good bg-p-good/15 text-p-good-text' : 'border-p-line bg-p-panel2 text-p-muted hover:text-p-text'}`}
         >
           Только с грантами
         </button>
@@ -354,7 +354,7 @@ const UniversityCard: React.FC<{ u: University; basePath: string }> = ({ u, base
               </div>
             )}
             {grants === 'yes' && (
-              <span className="whitespace-nowrap rounded-full bg-p-good/15 px-3 py-1 text-[10.5px] font-bold text-p-good">
+              <span className="whitespace-nowrap rounded-full bg-p-good/15 px-3 py-1 text-[10.5px] font-bold text-p-good-text">
                 Гранты
               </span>
             )}

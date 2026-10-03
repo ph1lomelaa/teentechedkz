@@ -122,6 +122,8 @@ services:
     volumes:
       - ./google_service_account.json:/data/google_service_account.json:ro
     depends_on:
+      backend:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:

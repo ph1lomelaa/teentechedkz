@@ -78,7 +78,7 @@ async def check_task_sla() -> None:
         penalty_rules = await active_rules(db, RewardRuleKind.mentor_task_penalty)
         managers_result = await db.execute(
             select(User.id).where(
-                User.role.in_((UserRole.admin, UserRole.mzk_manager)),
+                User.role.in_((UserRole.admin, UserRole.mzk_manager, UserRole.academic_head)),
                 User.is_active == True,  # noqa: E712
             )
         )

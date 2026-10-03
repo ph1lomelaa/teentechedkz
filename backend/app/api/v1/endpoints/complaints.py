@@ -280,7 +280,7 @@ async def create_complaint(
     await db.flush()
 
     managers = await db.execute(
-        select(User.id).where(User.role.in_((UserRole.admin, UserRole.mzk_manager)), User.is_active == True)  # noqa: E712
+        select(User.id).where(User.role.in_((UserRole.admin, UserRole.mzk_manager, UserRole.academic_head)), User.is_active == True)  # noqa: E712
     )
     fresh_notes = []
     for uid in managers.scalars().all():
@@ -416,7 +416,7 @@ async def create_reply(
     if not text:
         raise HTTPException(status_code=422, detail="Текст ответа не может быть пустым")
 
-    is_staff_reply = current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
+    is_staff_reply = current_user.role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor)
     reply = ComplaintReply(
         complaint_id=complaint.id,
         author_user_id=current_user.id,

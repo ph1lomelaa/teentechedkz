@@ -4,9 +4,12 @@ const ENV_API_URL = import.meta.env.VITE_API_URL || ''
 const isBrowserLocalhost =
   typeof window !== 'undefined' &&
   ['localhost', '127.0.0.1'].includes(window.location.hostname)
+// На localhost бэкенд — это контейнер на :8001. Порт можно сменить, не трогая
+// код: VITE_LOCAL_API_PORT=8099 npm run dev (например, на сид-базу).
+const LOCAL_API_PORT = import.meta.env.VITE_LOCAL_API_PORT || '8001'
 const API_URL =
   isBrowserLocalhost && typeof window !== 'undefined'
-    ? `http://${window.location.hostname}:8001`
+    ? `http://${window.location.hostname}:${LOCAL_API_PORT}`
     : ENV_API_URL || 'http://localhost:8000'
 
 // Base origin (without /api/v1) — used to build the WebSocket URL.

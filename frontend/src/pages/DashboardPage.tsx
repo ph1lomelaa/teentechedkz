@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -20,8 +19,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { studentsApi } from '@/api/students'
-import { contractsApi, mentorAssignmentsApi, usersApi } from '@/api/index'
-import { notionApi } from '@/api/notion'
+import { contractsApi } from '@/api/index'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   StudentListItem,
@@ -44,39 +42,9 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { Button } from '@/components/ui/primitives/button'
 import { Check, UserPlus, X } from 'lucide-react'
 import { QueryError } from '@/components/shared/QueryState'
-
-// Флаг по названию страны (данные в базе преимущественно на русском,
-// встречаются английские и составные значения — берём первый сегмент).
-const COUNTRY_FLAGS: Record<string, string> = {
-  'италия': '🇮🇹', 'italy': '🇮🇹',
-  'корея': '🇰🇷', 'южная корея': '🇰🇷', 'korea': '🇰🇷', 'south korea': '🇰🇷',
-  'китай': '🇨🇳', 'china': '🇨🇳',
-  'гонконг': '🇭🇰', 'hong kong': '🇭🇰',
-  'сша': '🇺🇸', 'usa': '🇺🇸', 'америка': '🇺🇸',
-  'германия': '🇩🇪', 'germany': '🇩🇪',
-  'венгрия': '🇭🇺', 'hungary': '🇭🇺',
-  'малайзия': '🇲🇾', 'malaysia': '🇲🇾',
-  'великобритания': '🇬🇧', 'англия': '🇬🇧', 'uk': '🇬🇧',
-  'катар': '🇶🇦', 'qatar': '🇶🇦',
-  'оаэ': '🇦🇪', 'uae': '🇦🇪', 'эмираты': '🇦🇪',
-  'япония': '🇯🇵', 'japan': '🇯🇵',
-  'канада': '🇨🇦', 'canada': '🇨🇦',
-  'австрия': '🇦🇹', 'austria': '🇦🇹',
-  'сингапур': '🇸🇬', 'singapore': '🇸🇬',
-  'польша': '🇵🇱', 'poland': '🇵🇱',
-  'чехия': '🇨🇿', 'czech': '🇨🇿',
-  'нидерланды': '🇳🇱', 'голландия': '🇳🇱', 'netherlands': '🇳🇱',
-  'франция': '🇫🇷', 'france': '🇫🇷',
-  'испания': '🇪🇸', 'spain': '🇪🇸',
-  'турция': '🇹🇷', 'turkey': '🇹🇷',
-  'финляндия': '🇫🇮', 'finland': '🇫🇮',
-}
-
-function countryFlag(country?: string | null): string {
-  if (!country) return ''
-  const first = country.split(/[,/]/)[0].trim().toLowerCase()
-  return COUNTRY_FLAGS[first] ?? ''
-}
+import { NotionPipelineTable } from '@/components/students/NotionPipelineTable'
+import { StudentPeekPanel, countryFlag } from '@/components/students/StudentPeekPanel'
+import { StudentAssignmentBar, useCanAssignOthers, useCanSelectStudents } from '@/components/students/StudentAssignmentBar'
 
 interface StudentCardProps {
   student: StudentListItem
@@ -268,14 +236,11 @@ function KanbanColumn({ status, students, canDrag, selectionMode, selectedIds, a
   )
 }
 
-export const DashboardPage: React.FC = () => {
-  const { hasRole, user } = useAuth()
+const CrmDashboardView: React.FC = () => {
   const queryClient = useQueryClient()
-  const canDrag = hasRole('admin', 'mzk_manager')
-  const isAdmin = hasRole('admin', 'mzk_manager')
-  const canSelectStudents = hasRole('admin', 'mentor', 'mzk_manager')
-  // Взять студентов себе может любой сотрудник — админ в том числе.
-  const canOwnStudents = hasRole('admin', 'mentor', 'mzk_manager')
+  const isAdmin = useCanAssignOthers()
+  const canDrag = isAdmin
+  const canSelectStudents = useCanSelectStudents()
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [targetUserId, setTargetUserId] = useState('')
@@ -324,16 +289,6 @@ export const DashboardPage: React.FC = () => {
     queryFn: studentsApi.facets,
   })
 
-  const { data: assignmentUsers = [] } = useQuery({
-    queryKey: ['dashboard', 'assignment-users'],
-    queryFn: () => usersApi.list(),
-    enabled: isAdmin,
-  })
-  // Админ здесь наравне с остальными: в небольшой команде он ведёт студентов
-  // сам, и бэкенд это теперь разрешает (mentor_assignments.py).
-  const availableAssignees = assignmentUsers.filter(
-    (candidate) => candidate.is_active && ['admin', 'mentor', 'mzk_manager'].includes(candidate.role)
-  )
   const assignedIds = useMemo(() => {
     if (!isAdmin || !targetUserId) return new Set<string>()
     return new Set(
@@ -370,39 +325,6 @@ export const DashboardPage: React.FC = () => {
     },
     onError: (err) => {
       toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось обновить статус'), variant: 'destructive' })
-    },
-  })
-
-  const assignSelectedMutation = useMutation({
-    mutationFn: async ({ studentIds, assigneeId }: { studentIds: string[]; assigneeId?: string }) => {
-      if (isAdmin) {
-        if (!assigneeId) throw new Error('Выберите ментора или менеджера')
-        await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.create(studentId, {
-          mentor_id: assigneeId,
-          role: 'lead',
-          is_active: true,
-        })))
-        return
-      }
-      await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.assignSelf(studentId)))
-    },
-    onSuccess: (_, variables) => {
-      setSelectedIds(new Set())
-      setSelectionMode(false)
-      queryClient.invalidateQueries({ queryKey: ['students'] })
-      queryClient.invalidateQueries({ queryKey: ['my-students'] })
-      queryClient.invalidateQueries({ queryKey: ['workspace'] })
-      toast({
-        title: isAdmin ? 'Ответственный назначен' : 'Студенты добавлены в «Мои»',
-        description: `Назначено: ${variables.studentIds.length}`,
-      })
-    },
-    onError: (err) => {
-      toast({
-        title: 'Не удалось назначить студентов',
-        description: getErrorMessage(err),
-        variant: 'destructive',
-      })
     },
   })
 
@@ -528,67 +450,16 @@ export const DashboardPage: React.FC = () => {
       />
 
       {selectionMode && (
-        <div className="mb-4 flex flex-col gap-3 rounded-card border border-brand/35 bg-brand/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-p-text">Выбрано: {selectedIds.size}</div>
-            <p className="mt-0.5 text-xs text-p-muted">Студенты с отметкой «Уже мой» повторно не назначаются.</p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={selectableCount === 0}
-              onClick={() => setSelectedIds(allFilteredSelected ? new Set() : new Set(selectableIds))}
-            >
-              {allFilteredSelected ? 'Снять выбор' : `Выбрать все · ${selectableCount}`}
-            </Button>
-            {canOwnStudents && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={selectedIds.size === 0 || assignSelectedMutation.isPending}
-                onClick={() => assignSelectedMutation.mutate({
-                  studentIds: Array.from(selectedIds),
-                  assigneeId: user?.id,
-                })}
-              >
-                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-                Назначить мне
-              </Button>
-            )}
-            {isAdmin && (
-              <Select
-                value={targetUserId || 'none'}
-                onValueChange={(value) => {
-                  setTargetUserId(value === 'none' ? '' : value)
-                }}
-              >
-                <SelectTrigger className="h-9 w-full text-xs sm:w-56">
-                  <SelectValue placeholder="Ментор или менеджер" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Выберите ответственного</SelectItem>
-                  {availableAssignees.map((assignee) => (
-                    <SelectItem key={assignee.id} value={assignee.id}>
-                      {assignee.name} · {assignee.role === 'mentor' ? 'ментор' : 'менеджер'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Button
-              size="sm"
-              disabled={selectedIds.size === 0 || assignSelectedMutation.isPending || (isAdmin && !targetUserId)}
-              onClick={() => assignSelectedMutation.mutate({
-                studentIds: Array.from(selectedIds),
-                assigneeId: isAdmin ? targetUserId : user?.id,
-              })}
-            >
-              <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-              {assignSelectedMutation.isPending ? 'Добавляем…' : isAdmin ? 'Назначить выбранных' : 'Добавить в мои'}
-            </Button>
-          </div>
-        </div>
+        <StudentAssignmentBar
+          selectedCount={selectedIds.size}
+          selectableCount={selectableCount}
+          allSelected={allFilteredSelected}
+          onToggleAll={() => setSelectedIds(allFilteredSelected ? new Set() : new Set(selectableIds))}
+          targetUserId={targetUserId}
+          onTargetChange={setTargetUserId}
+          resolveStudentIds={async () => Array.from(selectedIds)}
+          onAssigned={() => { setSelectedIds(new Set()); setSelectionMode(false) }}
+        />
       )}
 
       {/* Filters */}
@@ -677,35 +548,12 @@ export const DashboardPage: React.FC = () => {
           </div>
         )}
       </div>
-      {peekStudent && <StudentPeekPanel student={peekStudent} onClose={() => setPeekStudent(null)} />}
+      {peekStudent && <StudentPeekPanel studentId={peekStudent.id} fallbackName={peekStudent.full_name} onClose={() => setPeekStudent(null)} />}
     </div>
   )
 }
 
-function StudentPeekPanel({ student, onClose }: { student: StudentListItem; onClose: () => void }) {
-  const { data: full, isLoading } = useQuery({ queryKey: ['student', student.id, 'peek'], queryFn: () => studentsApi.get(student.id) })
-  const { data: notion, isLoading: notionLoading } = useQuery({ queryKey: ['notion', 'student', student.id], queryFn: () => notionApi.studentNotion(student.id) })
-  const profile = full ?? student
-  const contract = full?.contracts?.[0]
-  const notionRows = notion?.comparison ?? []
-  const Property = ({ label, value }: { label: string; value?: React.ReactNode }) => (
-    <div className="grid grid-cols-[minmax(105px,.8fr)_1.2fr] gap-3 border-b border-p-line/70 py-2 last:border-0"><span className="text-xs text-p-muted">{label}</span><span className="text-right text-sm font-semibold text-p-text break-words">{value || '—'}</span></div>
-  )
-  return (
-    <>
-      <button type="button" aria-label="Закрыть быстрый просмотр" onClick={onClose} className="fixed inset-0 z-40 bg-black/35" />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col border-l border-p-line bg-p-bg shadow-2xl" aria-label="Быстрый просмотр студента">
-        <header className="flex items-start justify-between gap-3 border-b border-p-line px-5 py-5"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-p-muted2">Быстрый просмотр</p><h2 className="mt-2 font-display text-xl font-black text-p-text">{profile.full_name}</h2><p className="mt-1 text-xs text-p-muted">{DEGREE_LEVEL_LABELS[profile.degree_level]} · {profile.intake_year || 'Год не указан'}</p></div><button type="button" onClick={onClose} className="text-2xl text-p-muted" aria-label="Закрыть">×</button></header>
-        <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {isLoading && <p className="text-sm text-p-muted">Загрузка полного профиля…</p>}
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Notion</h3>{notion?.snapshot?.notion_url && <a href={notion.snapshot.notion_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand hover:underline">Открыть в Notion</a>}</div>{notionLoading ? <p className="mt-3 text-sm text-p-muted">Загрузка данных…</p> : notion?.snapshot ? <><div className="mt-2 space-y-1 text-xs text-p-muted"><p>Синхронизировано: {notion.snapshot.synced_at ? new Date(notion.snapshot.synced_at).toLocaleString('ru-RU') : '—'}</p><p>Изменено в Notion: {notion.snapshot.notion_last_edited_at ? new Date(notion.snapshot.notion_last_edited_at).toLocaleDateString('ru-RU') : '—'}</p></div><div className="mt-3 rounded-panel border border-p-line bg-p-bg px-3">{notionRows.map((row) => <Property key={row.field} label={row.label} value={row.notion ?? '—'} />)}</div></> : <p className="mt-3 text-sm text-p-muted">Студент не привязан к записи Notion</p>}</section>
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Основные данные</h3><Property label="Этап" value={PIPELINE_STATUS_LABELS[profile.pipeline_status ?? 'no_status']} /><Property label="Страна" value={profile.country ? `${countryFlag(profile.country)} ${profile.country}` : undefined} /><Property label="Город" value={profile.city} /><Property label="Телефон" value={profile.phone} /><Property label="Специальность" value={full?.specialty} /><Property label="GPA" value={full?.gpa} /></section>
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Менторы" value={(profile.mentors ?? []).join(', ') || 'Не назначены'} /><Property label="МЗК" value={profile.mzk_manager_name} /><Property label="Roadmap" value={profile.roadmap?.name ? `${profile.roadmap.name} · ${profile.roadmap.progress ?? 0}%` : 'Не назначен'} /><Property label="Незакрытые задачи" value={profile.open_tasks_count ?? 0} /><Property label="Открытые обращения" value={profile.has_open_complaints ? 'Есть' : 'Нет'} /></section>
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Услуги и документы</h3><Property label="Услуги" value={full?.services?.length ?? profile.services_summary?.total ?? 0} /><Property label="Документы" value={full?.documents?.length ?? 0} /><Property label="Заявки" value={full?.applications?.length ?? 0} /><Property label="Платежей" value={contract?.payments?.length ?? 0} /></section>
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Договор и финансы</h3><Property label="Дата договора" value={contract?.signed_date} /><Property label="Client fee" value={contract?.amount ? `${contract.amount} ${contract.currency}` : undefined} /><Property label="Остаток клиента" value={contract?.client_remaining_amount ? `${contract.client_remaining_amount} ${contract.currency}` : undefined} /><Property label="Сумма англ." value={contract?.english_sum} /><Property label="Ментору итого" value={contract?.mentor_total_owed} /></section>
-        </div>
-        <footer className="border-t border-p-line p-5"><Link to={`/students/${student.id}`} onClick={onClose} className="flex h-11 w-full items-center justify-center rounded-ctl bg-brand text-sm font-black text-black">Открыть полный профиль</Link></footer>
-      </aside>
-    </>
-  )
+export const DashboardPage: React.FC = () => {
+  const { can } = useAuth()
+  return can('notion', 'manage') ? <NotionPipelineTable overview /> : <CrmDashboardView />
 }

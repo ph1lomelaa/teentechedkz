@@ -32,3 +32,17 @@ export function getErrorMessage(error: unknown, fallback = 'Попробуйте
 export function getErrorStatus(error: unknown): number | undefined {
   return (error as { response?: { status?: number } } | undefined)?.response?.status
 }
+
+/**
+ * Машинный код ошибки приложения (X-Error-Code / поле `code` в теле ответа).
+ *
+ * Текст `detail` может поменяться, а код — контракт: по нему фронт решает,
+ * повторять ли запрос или сразу показать человеку причину.
+ */
+export function getErrorCode(error: unknown): string | undefined {
+  const response = (error as {
+    response?: { data?: { code?: unknown }; headers?: Record<string, unknown> }
+  } | undefined)?.response
+  const code = response?.data?.code ?? response?.headers?.['x-error-code']
+  return typeof code === 'string' ? code : undefined
+}

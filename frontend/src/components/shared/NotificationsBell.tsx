@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, Check, Star, X } from 'lucide-react'
 import { notificationsApi } from '@/api'
 import { useWsEvent } from '@/lib/ws'
+import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
 function fmtWhen(iso: string) {
@@ -21,11 +22,13 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal' }> = ({ va
   // actual cabinet has to be read from the current route.
   const notificationsHref = location.pathname.startsWith('/workspace') ? '/workspace/notifications' : '/portal/notifications'
 
+  const { user } = useAuth()
   const { data } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ limit: 50 }),
     // Фолбэк без живого сокета: бейдж догоняет состояние в течение минуты.
     refetchInterval: 60_000,
+    enabled: !!user,
   })
   const items = [...(data?.data ?? [])].sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high'))
   const unread = data?.unread_count ?? 0

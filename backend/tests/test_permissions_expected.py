@@ -22,120 +22,128 @@ import unittest
 from app.core.permissions import Action, RULES, Scope, allows, scope_for
 from app.models.user import UserRole
 
-ALL_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.student)
+ALL_ROLES = (
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+)
 
 # (ресурс, действие) -> роли, которым доступ открыт. Всё, чего здесь нет, закрыто.
 EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("agreements", Action.manage): ("admin",),
-    ("agreements", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("applications", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("applications", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("access_requests", Action.manage): ("admin",),
-    ("access_requests", Action.view): ("admin", "mzk_manager"),
+    ("agreements", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("applications", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("applications", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    # 03.10.2026: академический руководитель принимает менторов в систему.
+    ("access_requests", Action.manage): ("admin", "academic_head"),
+    ("access_requests", Action.view): ("admin", "mzk_manager", "academic_head"),
+    # 03.10.2026: каталог активностей ведут менторы, академ. руководитель и админ.
+    ("activity_catalog", Action.manage): ("admin", "academic_head", "mentor"),
     # Доска распределения: чужая нагрузка целиком — вопрос управления.
-    ("assignment_overview", Action.view): ("admin", "mzk_manager"),
+    ("assignment_overview", Action.view): ("admin", "mzk_manager", "academic_head"),
     ("audit", Action.view): ("admin",),
-    ("chat", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("chat", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("checkins", Action.view): ("admin", "mzk_manager"),
-    ("communication", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("complaints", Action.manage): ("admin", "mzk_manager"),
-    ("complaints", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("chat", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("chat", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("checkins", Action.view): ("admin", "mzk_manager", "academic_head"),
+    ("communication", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("complaints", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("complaints", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     # review: ментор допущен к конфиденциальным заметкам
-    ("confidential_notes", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("contract_addenda", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("contract_addenda", Action.manage): ("admin", "mzk_manager"),
+    ("confidential_notes", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("contract_addenda", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("contract_addenda", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # Решение 30.08.2026: смотреть договор может весь персонал, править —
     # только управление. Раньше одно право отвечало за оба вопроса.
-    ("contracts", Action.view): ("admin", "mzk_manager", "mentor"),
-    ("contracts", Action.manage): ("admin", "mzk_manager"),
+    ("contracts", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("contracts", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # Решение 30.08.2026: справочник правит только управление.
-    ("countries", Action.edit): ("admin", "mzk_manager"),
+    ("countries", Action.edit): ("admin", "mzk_manager", "academic_head"),
     # review: чтение справочника не проверяет роль вообще
-    ("countries", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("credentials", Action.manage): ("admin", "mzk_manager", "mentor", "student"),
-    ("documents", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("documents", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("emergency_contacts", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("export", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("finances", Action.manage): ("admin", "mzk_manager"),
+    ("countries", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    # Решение 03.10.2026 (регламент admission): доступы к порталам вносит
+    # персонал, студент их только смотрит.
+    ("credentials", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("credentials", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("documents", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("documents", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("emergency_contacts", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("export", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("finances", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # review: ментор видит финансы целиком — решение продукта
-    ("finances", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("finances", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     # review: ПДн родителей, включая ИИН, а имя функции обещало admin+МЗК
-    ("guardians", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("guardians", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("knowledge", Action.manage): ("admin",),
-    ("knowledge", Action.view): ("admin", "mzk_manager", "mentor"),
-    ("meetings", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("meetings", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("knowledge", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("meetings", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("meetings", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     # review: имя функции обещало admin+МЗК
-    ("mentor_assignments", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("mentor_rewards", Action.manage): ("admin", "mzk_manager"),
-    ("mentor_rewards", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("mentor_assignments", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("mentor_rewards", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("mentor_rewards", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("mzk_quality", Action.manage): ("admin",),
     # 30.08.2026: ментор убран. Он и не проходил — `resolve_score_scope` отдавал
     # ему 403 с самого начала; правило обещало доступ, которого в коде нет.
-    ("mzk_quality", Action.view): ("admin", "mzk_manager"),
-    ("note_sessions", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("notes", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("integrations", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("mzk_quality", Action.view): ("admin", "mzk_manager", "academic_head"),
+    ("note_sessions", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("notes", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("integrations", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("notion", Action.create): ("admin",),
-    ("notion", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("notion", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     # review: _check_access принимает student_id и не проверяет его
-    ("portfolio", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("portfolio", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("permissions", Action.view): ("admin",),
     ("permissions", Action.manage): ("admin",),
     ("portal", Action.view): ("student",),
-    ("questionnaires", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("questionnaires", Action.view): ("admin", "mzk_manager", "mentor", "student"),
-    ("responsibilities", Action.view): ("admin", "mzk_manager", "mentor"),
-    ("responsibilities", Action.manage): ("admin", "mzk_manager"),
+    ("questionnaires", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("questionnaires", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("responsibilities", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("responsibilities", Action.manage): ("admin", "mzk_manager", "academic_head"),
     ("refund_approval", Action.manage): ("admin",),
-    ("refund_cases", Action.manage): ("admin", "mzk_manager"),
+    ("refund_cases", Action.manage): ("admin", "mzk_manager", "academic_head"),
     ("reward_rules", Action.manage): ("admin",),
-    ("reward_rules", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("reward_rules", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("roadmap_templates", Action.create): ("admin",),
     # review: константа названа TEMPLATE_ADMIN, но включает ментора
-    ("roadmap_templates", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("roadmaps", Action.edit): ("admin", "mzk_manager", "mentor"),
-    ("roadmaps", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("roadmap_templates", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("roadmaps", Action.edit): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("roadmaps", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     # review: докстринг обещает admin+МЗК, код пускает ментора
-    ("scholarships", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("security_incidents", Action.manage): ("admin", "mzk_manager"),
-    ("services", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("student_access", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("student_universities", Action.manage): ("admin", "mzk_manager", "mentor", "student"),
-    ("status_history", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("scholarships", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("security_incidents", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("services", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("student_access", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("student_universities", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
+    ("status_history", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     # Решение 30.08.2026: карточку заводит и правит персонал, ментор — только
     # своих. До этого обе ручки не проверяли ничего, включая роль студента.
-    ("students", Action.create): ("admin", "mzk_manager", "mentor"),
-    ("students", Action.edit): ("admin", "mzk_manager", "mentor"),
-    ("students", Action.manage): ("admin", "mzk_manager"),
+    ("students", Action.create): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("students", Action.edit): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("students", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # Полное удаление карточки — необратимо, только управление.
-    ("students", Action.delete): ("admin", "mzk_manager"),
-    ("students", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("students", Action.delete): ("admin", "mzk_manager", "academic_head"),
+    ("students", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     ("sync", Action.create): ("admin",),
-    ("sync", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("tasks", Action.manage): ("admin", "mzk_manager", "mentor"),
+    ("sync", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("tasks", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     # задача без привязки к студенту — ментору недоступна
-    ("tasks_general", Action.manage): ("admin", "mzk_manager"),
-    ("tasks_bulk", Action.manage): ("admin", "mzk_manager"),
-    ("tasks_review", Action.manage): ("admin", "mzk_manager"),
-    ("tasks", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("tasks_general", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks_bulk", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks_review", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     # Перенесены из deps.ROLE_PERMISSIONS один в один (30.08.2026).
-    ("tasks_assign_mentor", Action.manage): ("admin", "mzk_manager"),
-    ("tasks_assign_mzk", Action.manage): ("admin", "mzk_manager"),
-    ("tasks_accept_result", Action.manage): ("admin", "mzk_manager"),
-    ("tasks_deadlines", Action.manage): ("admin", "mzk_manager", "mentor"),
-    ("telegram_chats", Action.manage): ("admin", "mzk_manager"),
-    ("telegram_chats", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("tasks_assign_mentor", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks_assign_mzk", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks_accept_result", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("tasks_deadlines", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("telegram_chats", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("telegram_chats", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     # review: константа названа ADMIN, но включает МЗК
     ("universities", Action.create): ("admin",),
-    ("universities", Action.manage): ("admin", "mzk_manager"),
+    ("universities", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # review: чтение справочника не проверяет роль вообще
-    ("universities", Action.view): ("admin", "mzk_manager", "mentor", "student"),
+    ("universities", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     ("users", Action.manage): ("admin",),
-    ("users", Action.view): ("admin", "mzk_manager", "mentor"),
-    ("workspace", Action.view): ("admin", "mzk_manager", "mentor"),
+    ("users", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("workspace", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
 }
 
 
@@ -177,6 +185,7 @@ class ScopePinningTests(unittest.TestCase):
         expected = {
             UserRole.admin: Scope.all,
             UserRole.mzk_manager: Scope.all,
+            UserRole.academic_head: Scope.all,
             UserRole.mentor: Scope.all,
             UserRole.student: Scope.own,
         }
@@ -249,13 +258,25 @@ class SensitiveResourceTests(unittest.TestCase):
             ("users", Action.manage),
             ("audit", Action.view),
             ("agreements", Action.manage),
-            # Одобрение заявки выдаёт человеку доступ к чужой карточке —
-            # то же по цене, что users:manage, и держится на том же уровне.
-            ("access_requests", Action.manage),
         ):
-            for role in (UserRole.mzk_manager, UserRole.mentor, UserRole.student):
+            for role in (UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student):
                 with self.subTest(resource=resource, role=role.value):
                     self.assertFalse(allows(resource=resource, action=action, role=role))
+
+    def test_access_requests_approved_by_admin_and_academic_head_only(self) -> None:
+        # Одобрение заявки выдаёт человеку доступ к чужой карточке. Кроме
+        # админа это доверено академическому руководителю (решение 03.10.2026).
+        for role, allowed in (
+            (UserRole.admin, True),
+            (UserRole.academic_head, True),
+            (UserRole.mzk_manager, False),
+            (UserRole.mentor, False),
+            (UserRole.student, False),
+        ):
+            with self.subTest(role=role.value):
+                self.assertIs(
+                    allows(resource="access_requests", action=Action.manage, role=role), allowed
+                )
 
     def test_mentor_cannot_write_finances(self) -> None:
         self.assertFalse(allows(resource="finances", action=Action.manage, role=UserRole.mentor))

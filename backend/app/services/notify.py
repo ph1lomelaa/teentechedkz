@@ -53,6 +53,24 @@ async def dismiss_unread(
         await db.delete(note)
 
 
+async def was_sent(
+    db: AsyncSession, user_id: uuid.UUID, *, kind: str, body_contains: str
+) -> bool:
+    """Отправляли ли уже такую нотификацию — прочитанную или нет.
+
+    Для напоминаний по расписанию: has_unread пропустил бы повтор сразу после
+    того, как человек прочитал первое, и цикл слал бы его каждую минуту.
+    """
+    res = await db.execute(
+        select(Notification.id).where(
+            Notification.user_id == user_id,
+            Notification.kind == kind,
+            Notification.body.contains(body_contains),
+        ).limit(1)
+    )
+    return res.scalar_one_or_none() is not None
+
+
 async def has_unread(
     db: AsyncSession, user_id: uuid.UUID, *, kind: str, body_contains: str
 ) -> bool:

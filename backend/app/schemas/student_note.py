@@ -57,6 +57,24 @@ class StudentNoteResponse(BaseModel):
     blocks: list[dict[str, str]] = []  # toggleable sections: [{key, heading}]
     is_important: bool = False
     source_kind: str = "manual"
+    # Как была получена запись встречи (только в GET /notes/{id}): качество
+    # текста и можно ли распознать заново. None — конспект не из записи.
+    recording: "NoteRecordingInfo | None" = None
+
+
+class NoteRecordingInfo(BaseModel):
+    session_id: uuid.UUID
+    capture_mode: str
+    quality: str | None = None
+    quality_reasons: list[str] = []
+    quality_warnings: list[str] = []
+    quality_reason_messages: list[str] = []
+    quality_warning_messages: list[str] = []
+    has_audio: bool = False
+    bot_status_reason: str | None = None
+
+
+StudentNoteResponse.model_rebuild()
 
 
 class StudentNoteImportanceRequest(BaseModel):

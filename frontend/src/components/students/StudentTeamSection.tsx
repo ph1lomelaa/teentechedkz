@@ -36,7 +36,7 @@ import { formatDate } from '@/lib/utils'
 const REQUIRED_ROLES = new Set(['career', 'ielts', 'lead', 'country'])
 
 /** Порядок строк: МЗК ведёт студента целиком — первым. */
-const ROLE_ORDER = ['mzk', 'lead', 'career', 'ielts', 'country'] as const
+const ROLE_ORDER = ['mzk', 'lead', 'career', 'ielts', 'country', 'portfolio'] as const
 
 /**
  * «Команда ученика»: по строке на роль, у каждой — назначить, заменить, снять.

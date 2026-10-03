@@ -40,7 +40,7 @@ export const ResponsibilityBadge: React.FC<{
 
   if (cell.user_id && cell.user_id === user?.id) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-pill border border-p-accent/30 bg-p-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-p-accent">
+      <span className="inline-flex items-center gap-1 rounded-pill border border-p-accent/30 bg-p-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-p-accent-text">
         <UserCheck className="h-3 w-3" aria-hidden />
         Ваш участок
       </span>

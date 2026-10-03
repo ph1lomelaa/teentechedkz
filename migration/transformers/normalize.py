@@ -187,31 +187,51 @@ def parse_degree(raw: str) -> str:
 
 
 def parse_pipeline_status(raw: str) -> str:
+    # Notion has historically used both "окончена- Поступил" and
+    # "окончена - Поступил". Normalize punctuation before matching so a
+    # completed client never silently falls into the generic no_status case.
+    import re
+
+    key = re.sub(r"\s*[-–—]\s*", " - ", str(raw or "").strip().lower())
+    key = " ".join(key.split())
     STATUS_MAP = {
+        # Specific completion outcomes must precede the legacy generic prefix.
+        # Otherwise both values collapse into no_status and cannot be restored.
+        "работа окончена - поступил": "completed_admitted",
+        "работа окончена — поступил": "completed_admitted",
+        "работа окончена - передумал": "changed_mind",
+        "работа окончена — передумал": "changed_mind",
+        # Так опция называется в Notion сейчас (множественное число). Сравнение
+        # точное, и без этой строки 31 запись останавливала весь перенос.
+        "работа окончена - передумали": "changed_mind",
         "активная работа": "active_work",
         "на визе": "on_visa",
         "пауза": "paused",
         "передумали": "changed_mind",
+        "передумал": "changed_mind",
+        "пропал абитуриент": "lost_applicant",
         "на возврате": "refund",
         "не оплачено": "unpaid",
         "перевели на другой п": "transferred_pipeline",
         "перевели": "transferred_pipeline",
         "пересдача ielts": "ielts_retake",
         "пересдача айлтс": "ielts_retake",
+        "переподача": "reapplication",
+        "проблема": "problem",
         "подвешено": "suspended",
         "работа окончена": "no_status",
-        "пропал абитуриент": "suspended",
         "перевели на другой продукт": "transferred_pipeline",
         "no статус выплат": "no_status",
         "no статус": "no_status",
+        "без статуса": "no_status",
     }
-    if not raw or str(raw).strip().lower() in ("nan", "none", ""):
+    if not raw or key in ("nan", "none", ""):
         return "no_status"
-    key = str(raw).strip().lower()
     for k, v in STATUS_MAP.items():
-        if key.startswith(k):
+        normalized_k = re.sub(r"\s*[-–—]\s*", " - ", k)
+        if key == normalized_k:
             return v
-    return "no_status"
+    raise ValueError(f"Неизвестный статус Notion: {raw}")
 
 
 def parse_countries_with_counts(raw: str) -> list[tuple[str, int]]:

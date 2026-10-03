@@ -22,6 +22,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
+import { UserAvatar } from '@/components/shared/ChatPrimitives'
 
 const TABS: { value: TelegramChatStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -38,27 +39,6 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '—'
-  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
-}
-
-// Deterministic avatar tint per chat so the same student keeps one colour —
-// a long list becomes scannable by colour, not just by reading names.
-const AVATAR_GRADIENTS = [
-  'from-amber-400 to-yellow-600',
-  'from-sky-400 to-blue-600',
-  'from-violet-400 to-purple-600',
-  'from-emerald-400 to-green-600',
-  'from-rose-400 to-red-600',
-  'from-cyan-400 to-teal-600',
-]
-function avatarGradient(seed: string): string {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]
-}
 
 export default function TelegramInboxPage() {
   const navigate = useNavigate()
@@ -329,9 +309,7 @@ export default function TelegramInboxPage() {
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}
               className="group flex cursor-pointer items-start gap-3 rounded-panel border border-p-line bg-card px-4 py-3 transition-colors hover:border-p-muted2 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/40"
             >
-              <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-xs font-black text-black ${avatarGradient(chat.student_id || chat.id)}`}>
-                {initials(name)}
-              </span>
+              <UserAvatar name={name} className="h-10 w-10" />
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">

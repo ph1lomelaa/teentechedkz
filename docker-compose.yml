@@ -92,6 +92,10 @@ services:
       ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tte}:${POSTGRES_PASSWORD:-tte}@postgres:5432/${POSTGRES_DB:-tte_db}
       REDIS_URL: redis://redis:6379/0
+      # Never reuse a production webhook URL from the shared .env when the
+      # local worker starts. Set LOCAL_TELEGRAM_WEBHOOK_URL explicitly to an
+      # ngrok/dev tunnel only when Telegram delivery is part of the test.
+      TELEGRAM_WEBHOOK_URL: ${LOCAL_TELEGRAM_WEBHOOK_URL:-}
     volumes:
       - ./backend:/app
       - ./migration:/app/migration
@@ -128,4 +132,3 @@ services:
 volumes:
   postgres_data:
   minio_data:
-

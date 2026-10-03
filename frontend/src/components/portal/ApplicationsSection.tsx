@@ -1,14 +1,17 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarClock, Link2, Link2Off, Pencil, Plus, Send, Star, Trash2 } from 'lucide-react'
+import { CalendarClock, KeyRound, Link2, Link2Off, Pencil, Plus, Send, Star, Trash2 } from 'lucide-react'
 import { applicationsApi } from '@/api'
+import { credentialsApi, hasCredentialFor, PortalCredentialPayload } from '@/api/credentials'
 import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
+import { getErrorCode, getErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/utils'
 import { Application, SUBMISSION_STATUS_LABELS, VISA_STATUS_LABELS } from '@/types'
 import { UniversityPicker } from './UniversityPicker'
 import { ApplicationFormDialog, ApplicationFormValues } from './ApplicationFormDialog'
+import { CredentialFormDialog } from './CredentialFormDialog'
+import { credentialsQueryKey } from './PortalCredentialsSection'
 import { QueryError } from '@/components/shared/QueryState'
 import { invalidateStudent } from '@/lib/queryKeys'
 
@@ -42,6 +45,29 @@ export const ApplicationsSection: React.FC<{
     enabled: mode === 'self' || Boolean(studentId),
   })
 
+  const canManage = mode === 'staff' && Boolean(studentId)
+
+  // Доступы к порталам: по ним карточка показывает «нет доступов», а бэкенд
+  // без них не даёт отметить оффер (services/admission_guard.py).
+  const credsKey = credentialsQueryKey('staff', studentId)
+  const { data: creds = [] } = useQuery({
+    queryKey: credsKey,
+    queryFn: () => credentialsApi.listForStudent(studentId!),
+    enabled: canManage,
+  })
+  // Заявка, для которой открыта форма доступа после отказа сменить статус.
+  const [credentialsFor, setCredentialsFor] = useState<Application | null>(null)
+  const credentialMutation = useMutation({
+    mutationFn: (values: PortalCredentialPayload) => credentialsApi.create({ ...values, student_id: studentId! }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: credsKey })
+      setCredentialsFor(null)
+      toast({ title: 'Доступ добавлен', description: 'Теперь можно снова сменить статус заявки.' })
+    },
+    onError: (err) =>
+      toast({ title: 'Не удалось сохранить доступ', description: getErrorMessage(err), variant: 'destructive' }),
+  })
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey })
     // Карточка студента читает заявки ещё и внутри объекта студента.
@@ -59,8 +85,17 @@ export const ApplicationsSection: React.FC<{
       setEditing(null)
       toast({ title: wasEditing ? 'Заявка обновлена' : 'Заявка добавлена' })
     },
-    onError: (err) =>
-      toast({ title: 'Не удалось сохранить заявку', description: getErrorMessage(err), variant: 'destructive' }),
+    onError: (err) => {
+      if (getErrorCode(err) === 'PORTAL_CREDENTIALS_REQUIRED' && editing) {
+        // Сразу ведём к исправлению: форма доступа уже привязана к заявке.
+        // Открываем её после анимации закрытия формы заявки, иначе два диалога
+        // на мгновение лежат друг на друге.
+        const app = editing
+        setEditing(null)
+        window.setTimeout(() => setCredentialsFor(app), 250)
+      }
+      toast({ title: 'Не удалось сохранить заявку', description: getErrorMessage(err), variant: 'destructive' })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -84,8 +119,6 @@ export const ApplicationsSection: React.FC<{
     onError: (err) =>
       toast({ title: 'Не удалось изменить заявку', description: getErrorMessage(err), variant: 'destructive' }),
   })
-
-  const canManage = mode === 'staff' && Boolean(studentId)
 
   const addButton = canManage && (
     <button
@@ -111,6 +144,14 @@ export const ApplicationsSection: React.FC<{
         onOpenChange={(open) => { if (!open) setLinking(null) }}
         onPick={(universityId) => linking && linkMutation.mutate({ id: linking, universityId })}
         isPending={linkMutation.isPending}
+      />
+      <CredentialFormDialog
+        open={credentialsFor !== null}
+        onOpenChange={(open) => { if (!open) setCredentialsFor(null) }}
+        presetApplication={credentialsFor}
+        applications={items}
+        onSubmit={(values) => credentialMutation.mutate(values)}
+        isPending={credentialMutation.isPending}
       />
     </>
   )
@@ -152,6 +193,8 @@ export const ApplicationsSection: React.FC<{
             basePath={basePath}
             // Заявки ведёт персонал: студент свои заявки только читает.
             canManage={canManage}
+            missingCredentials={canManage && !hasCredentialFor(creds, app)}
+            onAddCredentials={() => setCredentialsFor(app)}
             onLink={() => setLinking(app.id)}
             onUnlink={() => linkMutation.mutate({ id: app.id, universityId: null })}
             onEdit={() => setEditing(app)}
@@ -173,11 +216,13 @@ const ApplicationCard: React.FC<{
   app: Application
   basePath: string
   canManage?: boolean
+  missingCredentials?: boolean
+  onAddCredentials?: () => void
   onLink?: () => void
   onUnlink?: () => void
   onEdit?: () => void
   onDelete?: () => void
-}> = ({ app, basePath, canManage = false, onLink, onUnlink, onEdit, onDelete }) => {
+}> = ({ app, basePath, canManage = false, missingCredentials = false, onAddCredentials, onLink, onUnlink, onEdit, onDelete }) => {
   const uni = app.university_ref
   // Своя дата — главная; пока её нет, показываем справочный ориентир вуза,
   // явно помечая его, чтобы не приняли за подтверждённый дедлайн.
@@ -211,7 +256,7 @@ const ApplicationCard: React.FC<{
             <span className="block truncate text-sm font-bold text-p-text">{title}</span>
           )}
           {app.is_primary && (
-            <Star className="mt-0.5 h-3.5 w-3.5 flex-none text-p-accent" aria-label="Основная заявка" />
+            <Star className="mt-0.5 h-3.5 w-3.5 flex-none text-p-accent-text" aria-label="Основная заявка" />
           )}
         </div>
 
@@ -235,6 +280,16 @@ const ApplicationCard: React.FC<{
             <span className="rounded-full bg-p-panel2 px-2 py-0.5 text-[10px] font-bold text-p-muted2">
               Подано {app.submissions_done} из {app.submissions_planned}
             </span>
+          )}
+          {missingCredentials && (
+            <button
+              type="button"
+              onClick={onAddCredentials}
+              title="Без доступов к порталу оффер по заявке не отметить"
+              className="inline-flex items-center gap-1 rounded-full bg-p-panel2 px-2 py-0.5 text-[10px] font-bold text-p-danger-text hover:underline"
+            >
+              <KeyRound className="h-3 w-3" /> Нет доступов к порталу
+            </button>
           )}
         </div>
 
@@ -261,7 +316,7 @@ const ApplicationCard: React.FC<{
               <button
                 type="button"
                 onClick={onUnlink}
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-p-muted2 hover:text-p-danger"
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-p-muted2 hover:text-p-danger-text"
               >
                 <Link2Off className="h-3 w-3" /> Открепить вуз
               </button>
@@ -284,7 +339,7 @@ const ApplicationCard: React.FC<{
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-p-muted2 hover:text-p-danger"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-p-muted2 hover:text-p-danger-text"
             >
               <Trash2 className="h-3 w-3" /> Удалить
             </button>

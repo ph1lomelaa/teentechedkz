@@ -7,8 +7,11 @@
 Пороги (Прил. № 3, п. 3.4): 🟡 < 24ч · 🟠 24–48ч · 🔴 48–72ч · ⚫ > 72ч (critical,
 существенное нарушение — основание расторгнуть договор).
 """
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
+
+from app.core.config import settings
 
 from app.services.task_sla import PAUSED_STATUSES, TERMINAL_STATUSES
 
@@ -28,6 +31,18 @@ Urgency = Literal["none", "yellow", "orange", "red", "critical"]
 NO_URGENCY_STATUSES = {status.value for status in TERMINAL_STATUSES | PAUSED_STATUSES}
 
 
+def company_today() -> date:
+    """«Сегодня» по зоне компании: в 01:00 по Алматы UTC ещё вчера, а срок уже прошёл."""
+    return datetime.now(ZoneInfo(settings.COMPANY_TIMEZONE)).date()
+
+
+def overdue_days(due_date: date | None, *, done: bool, today: date | None = None) -> int:
+    """Сколько полных дней просрочки; 0 — срока нет, он не прошёл или работа выполнена."""
+    if due_date is None or done:
+        return 0
+    return max(((today or company_today()) - due_date).days, 0)
+
+
 def task_urgency(due_date: date | None, status: str, *, today: date | None = None) -> Urgency:
     """Срочность задачи по дедлайну и статусу.
 
@@ -37,7 +52,7 @@ def task_urgency(due_date: date | None, status: str, *, today: date | None = Non
     if due_date is None or status in NO_URGENCY_STATUSES:
         return "none"
 
-    reference = today or date.today()
+    reference = today or company_today()
     overdue_days = (reference - due_date).days
 
     if overdue_days <= 0:

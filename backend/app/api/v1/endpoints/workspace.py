@@ -23,7 +23,7 @@ from app.models.contract import Contract, PipelineStatus
 from app.models.document import Document
 from app.models.meeting import Meeting, MeetingStatus
 from app.models.mentor_assignment import MentorAssignment, MentorRole
-from app.models.note_session import NoteSession
+from app.models.note_session import NoteSession, NoteSessionStatus
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.questionnaire import Questionnaire, QuestionnaireStatus
 from app.core.country_flags_data import flag_for
@@ -33,7 +33,8 @@ from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.student_task import StudentTask, TaskStatus
 from app.services.task_sla import SLA_TRACKED_STATUSES, month_bounds
-from app.services.task_urgency import task_urgency
+from app.services.task_urgency import NO_URGENCY_STATUSES, overdue_days, task_urgency
+from app.schemas.roadmap import sort_subtasks_by_deadline
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_attachment import TelegramAttachment
 from app.models.telegram_message import TelegramMessage
@@ -185,15 +186,18 @@ def _roadmap_detail(roadmap: Roadmap | None) -> dict | None:
                         "audience": task.audience.value,
                         "status": task.status.value,
                         "due_date": task.due_date.isoformat() if task.due_date else None,
+                        "overdue_days": overdue_days(task.due_date, done=task.status.value in NO_URGENCY_STATUSES),
                         "position": task.position,
                         "subtasks": [
                             {
                                 "id": str(subtask.id),
                                 "title": subtask.title,
                                 "is_done": subtask.is_done,
+                                "due_date": subtask.due_date.isoformat() if subtask.due_date else None,
+                                "overdue_days": overdue_days(subtask.due_date, done=subtask.is_done),
                                 "position": subtask.position,
                             }
-                            for subtask in sorted(task.subtasks, key=lambda row: row.position)
+                            for subtask in sort_subtasks_by_deadline(task.subtasks)
                         ],
                     }
                     for task in sorted(stage.tasks, key=lambda row: row.position)
@@ -559,7 +563,7 @@ async def _student_summaries(
     )
     note_sessions = await grouped_counts(
         select(NoteSession.student_id, func.count(NoteSession.id))
-        .where(NoteSession.student_id.in_(student_ids))
+        .where(NoteSession.student_id.in_(student_ids), NoteSession.status != NoteSessionStatus.draft)
         .group_by(NoteSession.student_id)
     )
     ai_drafts = await grouped_counts(
@@ -1254,7 +1258,11 @@ async def workspace_notes(
         select(NoteSession, Student.full_name)
         .options(selectinload(NoteSession.transcripts))
         .join(Student, Student.id == NoteSession.student_id)
-        .where(NoteSession.student_id.in_(student_ids), Student.is_archived == False)  # noqa: E712
+        .where(
+            NoteSession.student_id.in_(student_ids),
+            NoteSession.status != NoteSessionStatus.draft,
+            Student.is_archived == False,  # noqa: E712
+        )
         .order_by(NoteSession.started_at.desc())
     )
     sessions = []
@@ -1276,6 +1284,10 @@ async def workspace_notes(
                 "created_by": str(session.created_by) if session.created_by else None,
                 "transcript_count": len(session.transcripts),
                 "latest_transcript": latest_transcript,
+                "language": session.language,
+                "capture_mode": session.capture_mode,
+                "bot_status": session.bot_status,
+                "quality": session.quality,
             }
         )
 

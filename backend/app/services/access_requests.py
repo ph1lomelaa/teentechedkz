@@ -33,6 +33,7 @@ from app.models.access_request import (
     STATUS_APPROVED,
     STATUS_AUTO_APPROVED,
     STATUS_NEW,
+    STATUS_REJECTED,
     AccessRequest,
 )
 from app.models.audit_log import AuditAction
@@ -138,6 +139,9 @@ async def backfill_unlinked_student_requests(db: AsyncSession) -> int:
             .outerjoin(Student, Student.user_id == User.id)
             .outerjoin(AccessRequest, AccessRequest.user_id == User.id)
             .where(
+                # Отключённый аккаунт — не ждущий: его выключил админ (например,
+                # при замене кабинета), и возвращать его в очередь нельзя.
+                User.is_active.is_(True),
                 User.role == UserRole.student,
                 Student.id.is_(None),
                 or_(
@@ -320,6 +324,16 @@ async def link_user_to_student(
     сообщения и подписи регламентов. Только по явному решению админа:
     массовое одобрение этот флаг не передаёт.
     """
+    if student.user_id is not None and student.user_id == user.id:
+        # Карточка уже этого аккаунта. Раньше такой вызов падал дальше сообщением
+        # «аккаунт привязан к другой карточке» — неверным и сбивающим с толку.
+        # Отключать здесь некого, заменять нечего: заявку закрывают отдельным
+        # действием (`close-linked`), которое аккаунт не трогает.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Эта карточка уже привязана к этому же аккаунту — заменять кабинет не нужно. "
+            "Закройте заявку кнопкой «Закрыть заявку».",
+        )
     if student.user_id is not None and student.user_id != user.id:
         if not replace_existing:
             raise HTTPException(
@@ -372,6 +386,23 @@ async def _detach_previous_owner(
         return
     previous.is_active = False
     await revoke_all_sessions(db, previous.id)
+    # Отключённый аккаунт без заявки подхватил бы `backfill_pending_without_request`
+    # (неактивный и без заявки — для него «ждущий»), и старый кабинет вернулся бы
+    # в очередь как новый человек. Закрытая заявка — след решения: кто и когда.
+    has_request = (
+        await db.execute(select(AccessRequest.id).where(AccessRequest.user_id == previous.id))
+    ).scalar_one_or_none()
+    if has_request is None:
+        closed = AccessRequest(
+            user_id=previous.id,
+            requested_role=UserRole.student.value,
+            full_name=previous.name or previous.email,
+            phone_raw=previous.phone or "",
+            phone_normalized=normalize_phone(previous.phone or ""),
+            status=STATUS_NEW,
+        )
+        await decide(db, req=closed, actor=actor, status_value=STATUS_REJECTED)
+        db.add(closed)
     record_audit(
         db,
         action=AuditAction.access_toggled,

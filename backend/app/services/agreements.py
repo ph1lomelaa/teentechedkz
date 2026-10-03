@@ -19,6 +19,8 @@ _AUDIENCE_BY_ROLE = {
     UserRole.student: AgreementAudience.student,
     UserRole.mzk_manager: AgreementAudience.mzk,
     UserRole.admin: AgreementAudience.admin,
+    # Как у админа: регламент к сведению, вход подписью не блокируется.
+    UserRole.academic_head: AgreementAudience.admin,
 }
 
 

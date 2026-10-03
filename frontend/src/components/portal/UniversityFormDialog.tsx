@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/errorMessage'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import {
   universitiesApi,
@@ -54,10 +55,12 @@ export const UniversityFormDialog: React.FC<{
 }> = ({ open, onOpenChange, university = null, onSaved }) => {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<UniversityInput>(EMPTY)
+  const [similar, setSimilar] = useState<Array<{ id: string; name: string; country: string }>>([])
   const isEdit = Boolean(university)
 
   useEffect(() => {
     if (!open) return
+    setSimilar([])
     setForm(
       university
         ? {
@@ -99,7 +102,11 @@ export const UniversityFormDialog: React.FC<{
       onSaved?.(saved)
       onOpenChange(false)
     },
-    onError: () => toast({ title: 'Не удалось сохранить', variant: 'destructive' }),
+    onError: (error) => {
+      const detail = (error as { response?: { data?: { detail?: { message?: string; matches?: Array<{ id: string; name: string; country: string }> } } } })?.response?.data?.detail
+      setSimilar(detail?.matches ?? [])
+      toast({ title: detail?.message || getErrorMessage(error, 'Не удалось сохранить'), variant: 'destructive' })
+    },
   })
 
   return (
@@ -110,6 +117,10 @@ export const UniversityFormDialog: React.FC<{
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-2">
+          {similar.length > 0 && <div className="sm:col-span-2 rounded border border-amber-400 p-3 text-sm">
+            <p>Похожие вузы уже есть. Проверьте их в списке выбора перед созданием новой записи:</p>
+            <ul>{similar.map((item) => <li key={item.id}>{item.name} · {item.country}</li>)}</ul>
+          </div>}
           <label className="sm:col-span-2">
             <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-p-muted2">Название</span>
             <input className={field} value={form.name} onChange={(e) => set({ name: e.target.value })} />

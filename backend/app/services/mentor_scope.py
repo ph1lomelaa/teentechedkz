@@ -220,3 +220,30 @@ async def _mirror_mzk(
     from app.api.v1.endpoints.mentor_assignments import _mirror_mzk_to_contract
 
     await _mirror_mzk_to_contract(db, student_id, mentor_id)
+
+
+async def activity_student_ids(db: AsyncSession, user: User) -> set[uuid.UUID] | None:
+    """Чьи участия в активностях Portfolio UP видит сотрудник.
+
+    Исключение из выключенного общего скоупа (см. `mentor_assigned_student_ids`):
+    решение владельца от 03.10.2026 — в активностях ментор видит только своих
+    учеников, то есть тех, на кого у него есть действующее назначение в любой
+    роли. Админ, академический руководитель и МЗК видят всех (`None`).
+    """
+    if user.role != UserRole.mentor:
+        return None
+    rows = await db.execute(
+        select(MentorAssignment.student_id).where(
+            MentorAssignment.mentor_id == user.id,
+            MentorAssignment.is_active.is_(True),
+            MentorAssignment.assignment_status == "active",
+        )
+    )
+    return set(rows.scalars().all())
+
+
+async def require_activity_student(db: AsyncSession, student_id: uuid.UUID, user: User) -> None:
+    """404 на чужом ученике — тот же ответ, что и на несуществующем."""
+    allowed = await activity_student_ids(db, user)
+    if allowed is not None and student_id not in allowed:
+        raise HTTPException(status_code=404, detail="Студент не найден")

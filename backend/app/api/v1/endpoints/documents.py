@@ -35,8 +35,8 @@ from app.services.minio_service import (
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
 
-ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
-MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+MAX_FILE_SIZE = 250 * 1024 * 1024  # 250 MB
+INLINE_PREVIEW_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 
 
 @router.post("/student/{student_id}")
@@ -60,9 +60,6 @@ async def upload_document(
         mime = magic.from_buffer(content, mime=True)
     except Exception:
         mime = file.content_type or "application/octet-stream"
-
-    if mime not in ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=422, detail=f"Недопустимый тип файла: {mime}")
 
     try:
         dtype = DocType(doc_type)
@@ -244,14 +241,14 @@ async def download_document(
     ascii_fallback = doc.file_name.encode("ascii", "ignore").decode("ascii") or "file"
     headers = {
         "Content-Disposition": (
-            f'inline; filename="{ascii_fallback}"; '
+            f'{"inline" if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "attachment"}; filename="{ascii_fallback}"; '
             f"filename*=UTF-8''{quote(doc.file_name)}"
         ),
         "X-Content-Type-Options": "nosniff",
     }
     return StreamingResponse(
         obj,
-        media_type=doc.mime_type or "application/octet-stream",
+        media_type=(doc.mime_type if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "application/octet-stream"),
         headers=headers,
         background=BackgroundTask(close_minio_object, obj),
     )
@@ -446,14 +443,14 @@ async def portal_download_document(
     ascii_fallback = doc.file_name.encode("ascii", "ignore").decode("ascii") or "file"
     headers = {
         "Content-Disposition": (
-            f'inline; filename="{ascii_fallback}"; '
+            f'{"inline" if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "attachment"}; filename="{ascii_fallback}"; '
             f"filename*=UTF-8''{quote(doc.file_name)}"
         ),
         "X-Content-Type-Options": "nosniff",
     }
     return StreamingResponse(
         obj,
-        media_type=doc.mime_type or "application/octet-stream",
+        media_type=(doc.mime_type if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "application/octet-stream"),
         headers=headers,
         background=BackgroundTask(close_minio_object, obj),
     )
@@ -478,8 +475,6 @@ async def portal_upload(
         mime = magic.from_buffer(content, mime=True)
     except Exception:
         mime = file.content_type or "application/octet-stream"
-    if mime not in ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=422, detail=f"Недопустимый тип файла: {mime}")
     try:
         dtype = DocType(doc_type)
     except ValueError:

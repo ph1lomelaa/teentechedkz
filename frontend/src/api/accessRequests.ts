@@ -6,10 +6,19 @@ export interface SuggestedStudent {
   full_name: string
   phone: string
   intake_year: number | null
+  /** Город карточки (email у карточки нет — он только у кабинета, см. portal_owner). */
+  city?: string | null
   /** У карточки ещё нет кабинета. Занятую можно только перепривязать. */
   is_free: boolean
   /** Чей кабинет у занятой карточки — чтобы админ видел, кого заменяет. */
-  portal_owner?: { email: string; last_login_at: string | null; is_active: boolean } | null
+  portal_owner?: {
+    /** id владельца кабинета: по нему определяется группа «Уже привязан».
+     *  Необязателен только для совместимости со старым бэкендом. */
+    user_id?: string
+    email: string
+    last_login_at: string | null
+    is_active: boolean
+  } | null
 }
 
 /** Похожая карточка из базы. Считается заново при каждом открытии очереди. */
@@ -100,6 +109,11 @@ export const accessRequestsApi = {
   },
   reject: async (id: string) => {
     const response = await apiClient.post(`/access-requests/${id}/reject`)
+    return response.data
+  },
+  /** Закрыть заявку аккаунта, который уже владеет карточкой. Аккаунты не меняются. */
+  closeLinked: async (id: string) => {
+    const response = await apiClient.post(`/access-requests/${id}/close-linked`)
     return response.data
   },
   /** Без `force` сервер отвечает 409 `possible_duplicate`, если в базе есть похожие карточки. */

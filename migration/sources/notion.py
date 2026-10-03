@@ -218,7 +218,8 @@ def transform_notion_records(records: list[dict]) -> list[dict]:
             "main_countries": _countries(f.get("Main country")),
             "other_countries": _countries(f.get("Other countries")),
         }
-        if row["full_name"]:
-            rows.append(row)
+        # Keep untitled pages in the mirror/review queue. Dropping them here
+        # made the source total disagree with the CRM before matching began.
+        rows.append(row)
 
     return rows

@@ -36,7 +36,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { PageHeader, StatCard } from '@/components/ui'
 
-const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'student', 'mentor', 'mzk_manager', 'admin']
+const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'student', 'mentor', 'mzk_manager', 'academic_head', 'admin']
 const ROLE_FILTER_LABELS: Record<UserRole | 'all', string> = {
   all: 'Все роли',
   ...ROLE_LABELS,
@@ -64,7 +64,7 @@ interface UserForm {
   mentor_specialties: string[]
 }
 
-const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'mzk_manager', 'mentor']
+const STAFF_ROLE_OPTIONS: Array<Exclude<UserRole, 'student'>> = ['admin', 'academic_head', 'mzk_manager', 'mentor']
 
 /**
  * Специализации, которые проставляют сотруднику руками — весь список
@@ -98,7 +98,8 @@ const USER_ROLE_ORDER: Record<UserRole, number> = {
   student: 0,
   mentor: 1,
   mzk_manager: 2,
-  admin: 3,
+  academic_head: 3,
+  admin: 4,
 }
 
 function AgreementStatusBadge({ status }: { status?: User['agreement_status'] }) {
@@ -530,7 +531,7 @@ export const SettingsUsersPage: React.FC = () => {
   })
 
   const roleCounts = useMemo(() => {
-    const counts: Record<UserRole, number> = { admin: 0, mzk_manager: 0, mentor: 0, student: 0 }
+    const counts: Record<UserRole, number> = { admin: 0, mzk_manager: 0, academic_head: 0, mentor: 0, student: 0 }
     users.forEach((u) => { counts[u.role] += 1 })
     return counts
   }, [users])

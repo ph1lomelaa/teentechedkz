@@ -24,8 +24,10 @@ class MentorRole(str, enum.Enum):
 
 
 # Роли, которые назначают руками. Справочник MentorRole шире: в нём живут и роли
-# из старых данных (sat, portfolio, visa, english), а осознанно назначают только
-# эти — четыре менторские роли из регламента МЗК плюс сам МЗК.
+# из старых данных (sat, visa, english), а осознанно назначают только эти —
+# четыре менторские роли из регламента МЗК, ментор Portfolio UP и сам МЗК.
+# portfolio добавлен 03.10.2026: без него поле «Ментор» у услуги Portfolio UP
+# было пустым всегда (оно берёт людей с активным назначением в этой роли).
 #
 # Порядок тот же, что на экранах (frontend/src/types/index.ts,
 # ASSIGNABLE_MENTOR_ROLES). Список один на бэкенд: от него зависят и список
@@ -36,6 +38,7 @@ ASSIGNABLE_ROLES: tuple[MentorRole, ...] = (
     MentorRole.ielts,
     MentorRole.lead,
     MentorRole.country,
+    MentorRole.portfolio,
     MentorRole.mzk,
 )
 

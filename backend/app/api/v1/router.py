@@ -17,6 +17,8 @@ from app.api.v1.endpoints import (
     responsibilities,
     documents,
     portfolio,
+    activities,
+    activity_import,
     confidential_notes,
     tasks,
     checkins,
@@ -27,6 +29,7 @@ from app.api.v1.endpoints import (
     notes,
     note_sessions,
     integrations,
+    meeting_bot_webhooks,
     export,
     telegram_webhook,
     telegram_chats,
@@ -75,6 +78,8 @@ api_router.include_router(permissions.router)
 api_router.include_router(responsibilities.router)
 api_router.include_router(documents.router)
 api_router.include_router(portfolio.router)
+api_router.include_router(activities.router)
+api_router.include_router(activity_import.router)
 api_router.include_router(confidential_notes.router)
 api_router.include_router(tasks.router)
 api_router.include_router(checkins.router)
@@ -85,6 +90,7 @@ api_router.include_router(communication.router)
 api_router.include_router(notes.router)
 api_router.include_router(note_sessions.router)
 api_router.include_router(integrations.router)
+api_router.include_router(meeting_bot_webhooks.router)
 api_router.include_router(export.router)
 api_router.include_router(telegram_webhook.router)
 api_router.include_router(telegram_chats.router)

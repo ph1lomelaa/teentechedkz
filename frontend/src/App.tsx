@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import * as Sentry from '@sentry/react'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -57,6 +57,8 @@ const DashboardPage = lazyRoute(() => import('@/pages/DashboardPage').then((m) =
 const StudentsListPage = lazyRoute(() => import('@/pages/StudentsListPage').then((m) => ({ default: m.StudentsListPage })))
 const StudentsDistributionPage = lazyRoute(() => import('@/pages/StudentsDistributionPage').then((m) => ({ default: m.StudentsDistributionPage })))
 const StudentCardPage = lazyRoute(() => import('@/pages/StudentCardPage').then((m) => ({ default: m.StudentCardPage })))
+const PortalActivityDetailPage = lazyRoute(() => import('@/pages/portal/PortalActivityDetailPage').then(m => ({ default: m.PortalActivityDetailPage })))
+const ActivitiesPage = lazyRoute(() => import('@/pages/ActivitiesPage').then((m) => ({ default: m.ActivitiesPage })))
 const NotesPage = lazyRoute(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
 const NoteSessionPage = lazyRoute(() => import('@/pages/NoteSessionPage').then((m) => ({ default: m.NoteSessionPage })))
 const NoteDetailPage = lazyRoute(() => import('@/pages/NoteDetailPage').then((m) => ({ default: m.NoteDetailPage })))
@@ -84,6 +86,7 @@ const PortalUniversitiesPage = lazyRoute(() => import('@/pages/portal/PortalUniv
 const PortalUniversityDetailPage = lazyRoute(() => import('@/pages/portal/PortalUniversityDetailPage').then((m) => ({ default: m.PortalUniversityDetailPage })))
 const PortalShortlistPage = lazyRoute(() => import('@/pages/portal/PortalShortlistPage').then((m) => ({ default: m.PortalShortlistPage })))
 const PortalApplicationsPage = lazyRoute(() => import('@/pages/portal/PortalApplicationsPage').then((m) => ({ default: m.PortalApplicationsPage })))
+const PortalCredentialsPage = lazyRoute(() => import('@/pages/portal/PortalCredentialsPage').then((m) => ({ default: m.PortalCredentialsPage })))
 const PortalCountriesPage = lazyRoute(() => import('@/pages/portal/PortalCountriesPage').then((m) => ({ default: m.PortalCountriesPage })))
 const PortalCountryDetailPage = lazyRoute(() => import('@/pages/portal/PortalCountryDetailPage').then((m) => ({ default: m.PortalCountryDetailPage })))
 const PortalChatPage = lazyRoute(() => import('@/pages/portal/PortalChatPage').then((m) => ({ default: m.PortalChatPage })))
@@ -100,6 +103,7 @@ const WorkspaceMentorTasksPage = lazyRoute(() => import('@/pages/workspace/Works
 const WorkspaceMyTasksPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMyTasksPage').then((m) => ({ default: m.WorkspaceMyTasksPage })))
 const WorkspaceCheckinsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceCheckinsPage').then((m) => ({ default: m.WorkspaceCheckinsPage })))
 const WorkspaceMeetingsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceMeetingsPage').then((m) => ({ default: m.WorkspaceMeetingsPage })))
+const WorkspaceNotesPage = lazyRoute(() => import('@/pages/workspace/WorkspaceNotesPage').then((m) => ({ default: m.WorkspaceNotesPage })))
 const WorkspaceDocumentsPage = lazyRoute(() => import('@/pages/workspace/WorkspaceDocumentsPage').then((m) => ({ default: m.WorkspaceDocumentsPage })))
 const WorkspaceChatPage = lazyRoute(() => import('@/pages/workspace/WorkspaceChatPage').then((m) => ({ default: m.WorkspaceChatPage })))
 const WorkspaceRoadmapPage = lazyRoute(() => import('@/pages/workspace/WorkspaceRoadmapPage').then((m) => ({ default: m.WorkspaceRoadmapPage })))
@@ -439,11 +443,17 @@ function WorkspaceRoute({
   const guard = useBaseAuthGuard()
   const { user, can } = useAuth()
   if (guard) return guard
-  if (!['admin', 'mzk_manager', 'mentor'].includes(user!.role)) return <Navigate to="/app" replace />
+  if (!['admin', 'mzk_manager', 'academic_head', 'mentor'].includes(user!.role)) return <Navigate to="/app" replace />
   // Роль пускает в оболочку, право — в конкретный раздел. Без второй проверки
   // спрятанный из меню пункт остаётся доступен по прямой ссылке.
   if (permission && !can(permission[0], permission[1])) return <Navigate to="/workspace" replace />
-  return <WorkspaceLayout>{children}</WorkspaceLayout>
+  return <>{children}</>
+}
+
+function WorkspaceShell() {
+  const { isLoading } = useAuth()
+  if (isLoading) return <WorkspaceLayout><div className="text-sm text-w-muted">Загрузка кабинета…</div></WorkspaceLayout>
+  return <WorkspaceRoute><WorkspaceLayout><Outlet /></WorkspaceLayout></WorkspaceRoute>
 }
 
 // Тупиковый экран ожидания: сюда уводит гейт, и отсюда нет пути вглубь.
@@ -564,6 +574,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
+      <Route path="/activities" element={<ProtectedRoute permission={['portfolio', 'manage']}><AppLayout><ActivitiesPage /></AppLayout></ProtectedRoute>} />
+      <Route path="/portal/activities/:activityId" element={<StudentRoute><PortalActivityDetailPage /></StudentRoute>} />
+      <Route path="/portal/activities" element={<StudentRoute><ActivitiesPage /></StudentRoute>} />
 
       <Route
         path="/notes"
@@ -943,10 +957,13 @@ function AppRoutes() {
       <Route path="/portal/universities/:id" element={<StudentRoute><PortalUniversityDetailPage /></StudentRoute>} />
       <Route path="/portal/shortlist" element={<StudentRoute><PortalShortlistPage /></StudentRoute>} />
       <Route path="/portal/applications" element={<StudentRoute><PortalApplicationsPage /></StudentRoute>} />
+      <Route path="/portal/credentials" element={<StudentRoute><PortalCredentialsPage /></StudentRoute>} />
       <Route path="/portal/countries" element={<StudentRoute><PortalCountriesPage /></StudentRoute>} />
       <Route path="/portal/countries/:id" element={<StudentRoute><PortalCountryDetailPage /></StudentRoute>} />
       <Route path="/portal/profile" element={<StudentRoute><PortalProfilePage /></StudentRoute>} />
 
+      <Route element={<WorkspaceShell />}>
+      <Route path="/workspace/activities" element={<WorkspaceRoute permission={['portfolio', 'manage']}><ActivitiesPage /></WorkspaceRoute>} />
       {/* Staff/mentor workspace — donor-style mentor cabinet backed by CRM data */}
       <Route path="/workspace" element={<WorkspaceRoute><WorkspaceDashboardPage /></WorkspaceRoute>} />
       <Route path="/workspace/students" element={<WorkspaceRoute><WorkspaceStudentsPage /></WorkspaceRoute>} />
@@ -963,7 +980,7 @@ function AppRoutes() {
       <Route path="/workspace/meetings/notes/:id" element={<WorkspaceRoute><NoteDetailPage /></WorkspaceRoute>} />
       <Route path="/workspace/documents" element={<WorkspaceRoute><WorkspaceDocumentsPage /></WorkspaceRoute>} />
       <Route path="/workspace/telegram" element={<Navigate to="/workspace/chat?channel=telegram" replace />} />
-      <Route path="/workspace/notes" element={<Navigate to="/workspace/meetings?tab=notes" replace />} />
+      <Route path="/workspace/notes" element={<WorkspaceRoute><WorkspaceNotesPage /></WorkspaceRoute>} />
       <Route path="/workspace/chat" element={<WorkspaceRoute><WorkspaceChatPage /></WorkspaceRoute>} />
       <Route path="/workspace/universities" element={<WorkspaceRoute><WorkspaceUniversitiesPage /></WorkspaceRoute>} />
       <Route path="/workspace/universities/:id" element={<WorkspaceRoute><WorkspaceUniversityDetailPage /></WorkspaceRoute>} />
@@ -990,6 +1007,7 @@ function AppRoutes() {
         }
       />
 
+      </Route>
       <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </React.Suspense>

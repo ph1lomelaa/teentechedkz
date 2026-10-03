@@ -10,6 +10,10 @@ import enum
 class UserRole(str, enum.Enum):
     admin = "admin"
     mzk_manager = "mzk_manager"
+    # Академический руководитель: надзор за менторами — ставит им задачи, видит
+    # их данные и отметки, одобряет заявки на доступ. Права как у МЗК плюс
+    # одобрение заявок; в оценке качества МЗК и назначениях на ученика не участвует.
+    academic_head = "academic_head"
     mentor = "mentor"
     student = "student"  # client-facing portal account, linked to a students record
 
@@ -50,7 +54,16 @@ class User(Base):
     permission_grants: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
+    # Пояс ежедневной отметки «Я на месте» (регламент п.2.1: в Европе — 10:00
+    # по местному времени). Выбирает сам сотрудник; NULL — пояс компании.
+    checkin_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Подключение Zoom ментора (OAuth через Attendee) — нужно, чтобы бот мог
+    # зайти во встречу его аккаунта с токеном OBF. Токены хранит Attendee.
+    zoom_connection_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    zoom_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    zoom_connection_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    zoom_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

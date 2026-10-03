@@ -86,9 +86,10 @@ const baseNavGroups: NavGroup[] = [
   {
     group: 'РАБОТА',
     items: [
+      { label: 'Активности', path: '/activities', icon: <Award className="w-4 h-4" />, permission: ['portfolio', 'manage'] },
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" />, permission: ['notes', 'manage'] },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" />, permission: ['telegram_chats', 'view'] },
-      { label: 'Статус', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
+      { label: 'На подтверждение', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
       { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" />, permission: ['complaints', 'view'] },
     ],
   },
@@ -134,7 +135,7 @@ function staffOnlyItems(role: string): NavItem[] {
     { label: 'Чекины команды', path: '/checkins', icon: <CalendarCheck className="w-4 h-4" />, permission: ['checkins', 'view'] },
     { label: 'Возвратные кейсы', path: '/refund-cases', icon: <Banknote className="w-4 h-4" />, permission: ['refund_cases', 'manage'] },
     {
-      label: role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
+      label: role === 'admin' || role === 'academic_head' ? 'ОКК МЗК' : 'Моя оценка ОКК',
       path: '/mzk-quality',
       icon: <Gauge className="w-4 h-4" />,
       permission: ['mzk_quality', 'view'],
@@ -156,8 +157,8 @@ const MENTOR_DUPLICATE_PATHS = new Set(['/status-inbox', '/complaints'])
 // Экспортируется ради теста на дубли разделов: состав меню — это поведение,
 // и проверять его регуляркой по исходнику было бы слабее, чем вызовом.
 export function getNavGroups(role: string): NavGroup[] {
-  if (role !== 'admin' && role !== 'mzk_manager' && role !== 'mentor') return []
-  const isStaff = role === 'admin' || role === 'mzk_manager'
+  if (role !== 'admin' && role !== 'mzk_manager' && role !== 'academic_head' && role !== 'mentor') return []
+  const isStaff = role === 'admin' || role === 'mzk_manager' || role === 'academic_head'
   const withoutDuplicates = (items: NavItem[]) =>
     role === 'mentor' ? items.filter((item) => !MENTOR_DUPLICATE_PATHS.has(item.path)) : items
   return baseNavGroups.map((group) => ({ ...group, items: withoutDuplicates(group.items) })).map((group) => {
@@ -182,6 +183,7 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/students/new': 'Новый студент',
     '/students/distribution': 'Распределение студентов',
     '/my-students': 'Мои студенты',
+    '/activities': 'Активности',
     '/notes': 'Конспекты',
     '/countries': 'Справочник стран',
     '/statistics': 'Статистика',
@@ -195,13 +197,13 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/at-risk': 'Зона риска',
     '/migration-conflicts': 'Зона риска',
     '/telegram-inbox': 'Чаты',
-    '/status-inbox': 'Статусы студентов',
+    '/status-inbox': 'На подтверждение',
     '/complaints': 'Обращения',
     '/mentor-tasks': 'Задачи менторов',
     '/checkins': 'Чекины команды',
     '/refund-cases': 'Возвратные кейсы',
     '/agreements': 'Регламенты',
-    '/mzk-quality': role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК',
+    '/mzk-quality': role === 'admin' || role === 'academic_head' ? 'ОКК МЗК' : 'Моя оценка ОКК',
     '/mentor-rewards': 'Вознаграждения менторов',
   }
   if (pathname.match(/^\/universities\/[^/]+$/)) return 'Университет'
@@ -298,7 +300,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
             <div key={group.group}>
               <div
                 className={cn(
-                  'mx-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35',
+                  'mx-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/55',
                   groupIndex > 0 && 'pt-4'
                 )}
               >

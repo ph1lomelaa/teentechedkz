@@ -129,7 +129,7 @@ export const CreateComplaintDialog: React.FC<{
           )}
 
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Категория <b className="text-p-accent">*</b></span>
+            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Категория <b className="text-p-accent-text">*</b></span>
             <select value={category} onChange={(e) => setCategory(e.target.value as ComplaintCategory)} className={CONTROL}>
               {(Object.keys(CATEGORY_LABELS) as ComplaintCategory[]).map((value) => (
                 <option key={value} value={value}>{CATEGORY_LABELS[value]}</option>
@@ -138,7 +138,7 @@ export const CreateComplaintDialog: React.FC<{
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Тема <b className="text-p-accent">*</b></span>
+            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Тема <b className="text-p-accent-text">*</b></span>
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
@@ -148,7 +148,7 @@ export const CreateComplaintDialog: React.FC<{
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Подробности <b className="text-p-accent">*</b></span>
+            <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wider text-p-muted2">Подробности <b className="text-p-accent-text">*</b></span>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}

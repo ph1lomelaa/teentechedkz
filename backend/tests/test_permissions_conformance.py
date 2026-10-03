@@ -32,7 +32,9 @@ from fastapi import HTTPException
 from app.core.permissions import Action, allows
 from app.models.user import User, UserRole
 
-ALL_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.student)
+ALL_ROLES = (
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+)
 
 
 def _user(role: UserRole) -> User:
@@ -114,8 +116,8 @@ class CoverageGuard(unittest.TestCase):
     def test_enough_helpers_are_actually_compared(self) -> None:
         self.assertGreaterEqual(len(CASES), 0)
 
-    def test_all_four_roles_are_exercised(self) -> None:
-        self.assertEqual(len(set(ALL_ROLES)), 4)
+    def test_every_role_is_exercised(self) -> None:
+        self.assertEqual(set(ALL_ROLES), set(UserRole))
 
 
 if __name__ == "__main__":

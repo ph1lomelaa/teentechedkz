@@ -14,27 +14,42 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, allows
 from app.core.uploads import read_upload_capped
-from app.models.ai_analysis_run import AiAnalysisRun
 from app.models.meeting import Meeting
-from app.models.note_session import NoteSession, NoteSessionStatus
+from app.models.note_session import NOTE_SESSION_LANGUAGES, NoteSession, NoteSessionStatus
 from app.models.note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
 from app.models.note_transcript import NoteTranscript
 from app.models.student import Student
-from app.models.student_note import StudentNote, StudentNoteStatus
+from app.models.student_note import StudentNote
 from app.models.user import UserRole
 from app.schemas.note_session import (
     NoteSessionAudioChunkResponse,
+    NoteSessionBotStart,
     NoteSessionCreate,
     NoteSessionDetail,
     NoteSessionDraftResponse,
     NoteSessionFinalizeResponse,
     NoteSessionReconcileResponse,
     NoteSessionResponse,
+    NoteSessionUpdate,
     NoteTranscriptCreate,
     NoteTranscriptResponse,
 )
 from app.schemas.student_note import StudentNoteResponse
+from app.services.meeting_bot.reasons import reason_message
+from app.services.meeting_bot.service import (
+    ACTIVE_BOT_STATUSES,
+    BotStartError,
+    leave_bot,
+    start_bot,
+)
+from app.services.note_upload import MAX_UPLOAD_BYTES, guess_mime, is_allowed_audio
 from app.services.minio_service import minio_delete, minio_upload_note_audio, minio_url
+from app.services.note_session_finalize import (
+    add_note_ai_run,
+    build_note_for_session,
+    pop_ai_meta,
+    session_source_text,
+)
 from app.services.note_sessions import generate_note_draft
 from app.services.queue import get_arq_pool
 from app.services.student_notes import render_change_preview, snapshot_student
@@ -45,52 +60,13 @@ MAX_AUDIO_CHUNK_SIZE = 60 * 1024 * 1024  # 60 MB — generous headroom for a ~5 
 router = APIRouter(prefix="/note-sessions", tags=["note-sessions"])
 
 
-def _ai_meta(draft: dict) -> dict:
-    return draft.pop("__ai_meta", {}) if isinstance(draft, dict) else {}
+# Совместимость имён: логика сборки конспекта переехала в services/note_session_finalize.
+_ai_meta = pop_ai_meta
+_session_source_text = session_source_text
 
 
-def _session_source_text(session: NoteSession, transcripts: list[NoteTranscript]) -> str:
-    parts = [
-        f"[{row.speaker}]: {row.text}" if row.speaker else row.text
-        for row in transcripts
-        if row.text and row.text.strip()
-    ]
-    if session.backup_transcript_text and session.backup_transcript_text.strip():
-        parts.append(f"[Восстановленная аудиозапись]: {session.backup_transcript_text.strip()}")
-    return "\n".join(parts).strip()
-
-
-def _add_note_ai_run(
-    db: AsyncSession,
-    *,
-    session: NoteSession,
-    student_id: uuid.UUID | None,
-    source_text: str,
-    snapshot: dict,
-    draft: dict,
-    ai_meta: dict,
-    current_user,
-    status: str,
-) -> None:
-    db.add(
-        AiAnalysisRun(
-            source_type="note_session_draft",
-            source_id=session.id,
-            student_id=student_id,
-            status=status,
-            prompt_version=str(ai_meta.get("prompt_version") or "unknown"),
-            model=ai_meta.get("model"),
-            input_snapshot={
-                "session_title": session.title,
-                "source_text": source_text,
-                "profile_snapshot": snapshot,
-            },
-            raw_output=ai_meta.get("raw_output"),
-            parsed_output=ai_meta.get("parsed_output") or draft,
-            filter_reasons=ai_meta.get("filter_reasons") or {},
-            created_by=current_user.id,
-        )
-    )
+def _add_note_ai_run(db: AsyncSession, *, current_user, **kwargs) -> None:
+    add_note_ai_run(db, actor_id=current_user.id, **kwargs)
 
 
 async def _mentor_student_ids(db: AsyncSession, user_id: uuid.UUID) -> set[uuid.UUID]:
@@ -150,12 +126,23 @@ def _session_response(session: NoteSession, student_name: str | None = None, tra
         title=session.title,
         source=session.source,
         status=session.status,
+        language=session.language or "ru",
+        capture_mode=session.capture_mode or "browser",
         started_at=session.started_at,
         ended_at=session.ended_at,
         last_heartbeat_at=session.last_heartbeat_at,
         created_by=session.created_by,
         transcript_count=transcript_count,
         latest_transcript=latest_transcript,
+        meeting_url=session.meeting_url,
+        bot_status=session.bot_status,
+        bot_status_reason=session.bot_status_reason,
+        bot_status_message=reason_message(session.bot_status_reason),
+        bot_joined_at=session.bot_joined_at,
+        has_audio=bool(session.audio_storage_path),
+        quality=session.quality,
+        quality_reasons=list(session.quality_reasons or []),
+        quality_warnings=list(session.quality_warnings or []),
     )
 
 
@@ -222,7 +209,10 @@ async def create_session(
         meeting_id=body.meeting_id,
         title=title,
         source=(body.source or "deepgram").strip() or "deepgram",
-        status=NoteSessionStatus.active,
+        # Черновик до первого звука: пустые попытки не попадают в список
+        # и убираются фоновой очисткой (services/note_session_cleanup.py).
+        status=NoteSessionStatus.draft,
+        language=body.language,
         started_at=datetime.now(timezone.utc),
         last_heartbeat_at=datetime.now(timezone.utc),
         created_by=current_user.id,
@@ -286,6 +276,8 @@ async def list_sessions(
 
     if status:
         query = query.where(NoteSession.status == status)
+    else:
+        query = query.where(NoteSession.status != NoteSessionStatus.draft)
 
     result = await db.execute(query.order_by(NoteSession.started_at.desc()))
     rows = result.all()
@@ -293,6 +285,27 @@ async def list_sessions(
         _session_response(session, student_name, transcript_count or 0, latest_transcript)
         for session, student_name, transcript_count, latest_transcript in rows
     ]
+
+
+@router.get("/active-bots", response_model=list[NoteSessionResponse])
+async def list_active_bots(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Мои записи ботом, которые ещё идут, — для плашки «Идёт запись» на всех страницах."""
+    result = await db.execute(
+        select(NoteSession, Student.full_name)
+        .outerjoin(Student, Student.id == NoteSession.student_id)
+        .where(
+            NoteSession.created_by == current_user.id,
+            # Бот в звонке и загруженный файл, который ещё распознаётся.
+            NoteSession.capture_mode.in_(("bot", "upload")),
+            NoteSession.bot_status.in_(ACTIVE_BOT_STATUSES),
+            NoteSession.note_id.is_(None),
+        )
+        .order_by(NoteSession.started_at.desc())
+    )
+    return [_session_response(session, student_name) for session, student_name in result.all()]
 
 
 @router.get("/{session_id}", response_model=NoteSessionDetail)
@@ -325,6 +338,7 @@ async def get_session(
     return NoteSessionDetail(
         **response.model_dump(),
         transcripts=transcripts,
+        backup_transcript_text=session.backup_transcript_text,
         note=note.model_dump() if note else None,
     )
 
@@ -339,6 +353,178 @@ async def heartbeat(
     if session.status == NoteSessionStatus.active:
         session.last_heartbeat_at = datetime.now(timezone.utc)
         await db.commit()
+
+
+@router.patch("/{session_id}", response_model=NoteSessionResponse)
+async def update_session(
+    session_id: uuid.UUID,
+    body: NoteSessionUpdate,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    session, student_name = await _session_context(db, session_id, current_user)
+    if session.note_id or session.status in (NoteSessionStatus.completed, NoteSessionStatus.cancelled):
+        raise HTTPException(status_code=409, detail="Сессия уже завершена")
+    if body.language is not None:
+        session.language = body.language
+    await db.commit()
+    await db.refresh(session)
+    return _session_response(session, student_name)
+
+
+@router.patch("/{session_id}/start", response_model=NoteSessionResponse)
+async def start_session(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Звук реально пошёл: черновик (или прерванная запись) становится active."""
+    session, student_name = await _session_context(db, session_id, current_user)
+    if session.note_id or session.status in (NoteSessionStatus.completed, NoteSessionStatus.cancelled):
+        raise HTTPException(status_code=409, detail="Сессия уже завершена")
+    now = datetime.now(timezone.utc)
+    if session.status == NoteSessionStatus.draft:
+        session.started_at = now
+    # Запись пошла из браузера (в том числе после неудачи бота — «Записать микрофоном»).
+    session.capture_mode = "browser"
+    session.status = NoteSessionStatus.active
+    session.last_heartbeat_at = now
+    await db.commit()
+    await db.refresh(session)
+    return _session_response(session, student_name)
+
+
+def _bot_error(exc: BotStartError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.message, headers={"X-Error-Code": exc.code})
+
+
+@router.post("/{session_id}/bot", response_model=NoteSessionResponse)
+async def send_bot(
+    session_id: uuid.UUID,
+    body: NoteSessionBotStart,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Отправить бота во встречу по ссылке (Zoom / Google Meet / Teams)."""
+    session, student_name = await _session_context(db, session_id, current_user)
+    try:
+        await start_bot(db, session, user=current_user, meeting_url=body.meeting_url, language=body.language)
+    except BotStartError as exc:
+        raise _bot_error(exc) from exc
+    await db.commit()
+    await db.refresh(session)
+    if session.bot_provider == "mock":
+        redis = await get_arq_pool()
+        await redis.enqueue_job("simulate_mock_bot_task", str(session.id), session.bot_external_id)
+    return _session_response(session, student_name)
+
+
+@router.post("/{session_id}/bot/leave", response_model=NoteSessionResponse)
+async def stop_bot(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Остановить запись ботом: бот выходит, текст до этого момента собирается в конспект."""
+    session, student_name = await _session_context(db, session_id, current_user)
+    if session.bot_status not in ACTIVE_BOT_STATUSES:
+        raise HTTPException(status_code=409, detail="Бот уже не в звонке")
+    await leave_bot(session)
+    if session.bot_provider == "mock" or session.bot_joined_at is None:
+        # Имитация не пришлёт «встреча закончилась»; бот, не успевший войти, —
+        # тоже: закрываем сами.
+        if session.bot_joined_at is None:
+            session.bot_status = "failed"
+            session.bot_status_reason = "leave_requested_before_bot_joined"
+            session.status = NoteSessionStatus.failed
+            await db.commit()
+        else:
+            session.bot_status = "processing"
+            session.ended_at = datetime.now(timezone.utc)
+            await db.commit()
+            redis = await get_arq_pool()
+            await redis.enqueue_job("finalize_bot_session_task", str(session.id))
+    await db.refresh(session)
+    return _session_response(session, student_name)
+
+
+@router.post("/{session_id}/upload-audio", response_model=NoteSessionResponse)
+async def upload_audio(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    language: str | None = Form(None),
+):
+    """Конспект из записи файлом: Telegram, WhatsApp, телефон, встреча вживую.
+    Файл распознаётся на воркере, дальше — та же проверка качества и черновик, что после бота."""
+    session, student_name = await _session_context(db, session_id, current_user)
+    if session.note_id or session.status in (NoteSessionStatus.completed, NoteSessionStatus.cancelled):
+        raise HTTPException(status_code=409, detail="Сессия уже завершена")
+    if session.bot_status in ACTIVE_BOT_STATUSES:
+        raise HTTPException(status_code=409, detail="Запись уже обрабатывается — дождитесь конца или остановите её")
+    if language is not None and language not in NOTE_SESSION_LANGUAGES:
+        raise HTTPException(status_code=422, detail="Неизвестный язык")
+    if not is_allowed_audio(file.filename, file.content_type):
+        raise HTTPException(
+            status_code=422,
+            detail="Нужен аудио- или видеофайл: mp3, m4a, wav, ogg, opus, webm, mp4, mov.",
+            headers={"X-Error-Code": "UPLOAD_NOT_AUDIO"},
+        )
+
+    content = await read_upload_capped(file, MAX_UPLOAD_BYTES)
+    if not content:
+        raise HTTPException(status_code=422, detail="Файл пустой")
+    mime = guess_mime(file.filename, file.content_type)
+    previous_path = session.audio_storage_path
+    session.audio_storage_path = await minio_upload_note_audio(
+        content=content,
+        session_id=session.id,
+        filename=file.filename or "upload",
+        mime_type=mime,
+    )
+    now = datetime.now(timezone.utc)
+    if language:
+        session.language = language
+    if session.status == NoteSessionStatus.draft:
+        session.started_at = now
+    session.capture_mode = "upload"
+    session.status = NoteSessionStatus.active
+    session.bot_status = "processing"
+    session.bot_status_reason = None
+    session.bot_last_event_at = now
+    session.last_heartbeat_at = now
+    await db.commit()
+    await db.refresh(session)
+
+    if previous_path and previous_path != session.audio_storage_path:
+        try:
+            await minio_delete(previous_path)
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to delete replaced audio %s", previous_path)
+
+    redis = await get_arq_pool()
+    await redis.enqueue_job("transcribe_uploaded_audio_task", str(session.id), mime)
+    return _session_response(session, student_name)
+
+
+@router.post("/{session_id}/retranscribe", response_model=NoteSessionResponse)
+async def retranscribe(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """«Распознать заново» по сохранённому звуку встречи (язык — из сессии)."""
+    session, student_name = await _session_context(db, session_id, current_user)
+    if not session.audio_storage_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Звук этой встречи не сохранён — распознать заново нельзя.",
+            headers={"X-Error-Code": "NOTE_SESSION_NO_AUDIO"},
+        )
+    redis = await get_arq_pool()
+    await redis.enqueue_job("retranscribe_session_task", str(session.id))
+    return _session_response(session, student_name)
 
 
 @router.patch("/{session_id}/end", response_model=NoteSessionResponse)
@@ -370,10 +556,14 @@ async def delete_session(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     session, _ = await _session_context(db, session_id, current_user)
+    if session.bot_status in ACTIVE_BOT_STATUSES:
+        await leave_bot(session)
     chunk_result = await db.execute(
         select(NoteSessionAudioChunk.storage_path).where(NoteSessionAudioChunk.session_id == session.id)
     )
     storage_paths = [row[0] for row in chunk_result.all()]
+    if session.audio_storage_path:
+        storage_paths.append(session.audio_storage_path)
     await db.delete(session)
     await db.commit()
     for storage_path in storage_paths:
@@ -532,8 +722,12 @@ async def add_transcript(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     session, _ = await _session_context(db, session_id, current_user)
-    if session.status != NoteSessionStatus.active:
+    if session.note_id or session.status in (NoteSessionStatus.completed, NoteSessionStatus.cancelled):
         raise HTTPException(status_code=409, detail="Сессия уже завершена")
+    # Фрагмент из outbox может прийти после того, как очистка пометила сессию
+    # прерванной (ноутбук спал, сеть пропадала) — текст не теряем, запись снова идёт.
+    if session.status != NoteSessionStatus.active:
+        session.status = NoteSessionStatus.active
 
     if body.client_segment_id:
         existing = await db.scalar(
@@ -664,53 +858,25 @@ async def finalize_session(
     )
     transcripts = list(transcript_result.scalars())
     source_text = _session_source_text(session, transcripts)
+    if not source_text:
+        raise HTTPException(
+            status_code=409,
+            detail="В записи нет текста — конспект не из чего собрать. Восстановите текст из резервной записи или удалите сессию.",
+            headers={"X-Error-Code": "NOTE_SESSION_EMPTY"},
+        )
 
-    snapshot = {}
     student = None
     if session.student_id:
         student = await _load_accessible_student(db, current_user, session.student_id)
-        snapshot = snapshot_student(student)
 
-    draft = await generate_note_draft(
-        transcript=source_text,
-        title=session.title,
-        snapshot=snapshot,
-        student_name=student.full_name if student else student_name,
-    )
-    ai_meta = _ai_meta(draft)
-
-    note = StudentNote(
-        student_id=session.student_id,
-        title=draft["title"],
-        source_text=source_text.strip(),
-        summary_markdown=draft["summary_markdown"],
-        student_summary_markdown=draft["student_summary_markdown"],
-        profile_snapshot=snapshot,
-        suggested_changes=draft["suggested_changes"],
-        applied_changes={},
-        status=StudentNoteStatus.draft,
-        created_by=current_user.id,
-        reviewed_by=None,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(note)
-    _add_note_ai_run(
+    note = await build_note_for_session(
         db,
-        session=session,
-        student_id=session.student_id,
+        session,
         source_text=source_text,
-        snapshot=snapshot,
-        draft=draft,
-        ai_meta=ai_meta,
-        current_user=current_user,
-        status="note_created",
+        student=student,
+        student_name=student_name,
+        actor_id=current_user.id,
     )
-    await db.flush()
-
-    session.note_id = note.id
-    session.status = NoteSessionStatus.completed
-    session.ended_at = datetime.now(timezone.utc)
-    session.last_heartbeat_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(session)

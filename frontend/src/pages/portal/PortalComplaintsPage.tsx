@@ -47,7 +47,7 @@ export const PortalComplaintsPage: React.FC = () => {
     <PageShell maxWidth="lg" className="animate-fade-in">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Поддержка</p>
+          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Поддержка</p>
           <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-p-text">Мои обращения</h1>
           <p className="mt-2 max-w-[560px] text-sm leading-6 text-p-muted">Здесь хранится история общения с командой. Мы ответим в этом же обращении.</p>
         </div>
@@ -62,7 +62,7 @@ export const PortalComplaintsPage: React.FC = () => {
           <p className="mt-2 font-display text-2xl font-black text-p-text">{complaints.length}</p>
         </div>
         <div className="rounded-panel border border-p-line bg-p-panel px-4 py-3">
-          <div className="flex items-center justify-between"><p className="text-2xs font-black uppercase tracking-[0.16em] text-p-muted2">В работе</p><Clock3 className="h-4 w-4 text-p-accent" /></div>
+          <div className="flex items-center justify-between"><p className="text-2xs font-black uppercase tracking-[0.16em] text-p-muted2">В работе</p><Clock3 className="h-4 w-4 text-p-accent-text" /></div>
           <p className="mt-2 font-display text-2xl font-black text-p-text">{activeCount}</p>
         </div>
         <div className="rounded-panel border border-p-line bg-p-panel px-4 py-3">

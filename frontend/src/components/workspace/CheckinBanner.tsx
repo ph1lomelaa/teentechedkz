@@ -2,6 +2,7 @@ import React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Clock } from 'lucide-react'
 import { checkinsApi } from '@/api/checkins'
+import { timezoneLabel } from '@/lib/checkinTimezone'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
@@ -71,7 +72,8 @@ export const CheckinBanner: React.FC = () => {
       <div className="min-w-0 flex-1 text-sm">
         <div className="font-bold text-w-ink">Отметьтесь на сегодня</div>
         <div className="text-xs text-w-muted">
-          Отметка в {opensAt} — вовремя, если успеть за {w.grace_minutes} минут.
+          Отметка в {opensAt} ({timezoneLabel(w.timezone, data.timezones)}) — вовремя, если успеть за{' '}
+          {w.grace_minutes} минут. Пояс меняется в профиле.
         </div>
       </div>
       <button

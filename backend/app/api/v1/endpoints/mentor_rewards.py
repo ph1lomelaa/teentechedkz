@@ -42,7 +42,7 @@ def resolve_mentor_scope(*, viewer_role, viewer_id, requested_mentor_id: str | N
 
     Возвращает UUID для фильтра либо None; бросает 403.
     """
-    if viewer_role in (UserRole.admin, UserRole.mzk_manager):
+    if viewer_role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         return _parse_mentor_id(requested_mentor_id)
 
     if viewer_role == UserRole.mentor:
@@ -63,7 +63,7 @@ def can_contest_penalty(*, viewer_role, viewer_id, penalty_mentor_id) -> bool:
     Прежняя проверка отсекала только «ментора с чужим штрафом», поэтому любая
     другая роль — включая студента — проходила её насквозь.
     """
-    if viewer_role in (UserRole.admin, UserRole.mzk_manager):
+    if viewer_role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         return True
     if viewer_role == UserRole.mentor:
         return penalty_mentor_id == viewer_id

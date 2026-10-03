@@ -38,7 +38,8 @@ def resolve_score_scope(*, viewer_role, viewer_id, requested_manager_id: str | N
     чужой id. Ленту отдельных оценок ему не показываем вовсе (см. list_reviews)
     — по датам вычисляется, кто именно поставил минус.
     """
-    if viewer_role == UserRole.admin:
+    # Академический руководитель смотрит, как админ: все баллы, только чтение.
+    if viewer_role in (UserRole.admin, UserRole.academic_head):
         return _parse_uuid(requested_manager_id, field="mzk_manager_id")
     if viewer_role == UserRole.mzk_manager:
         return viewer_id

@@ -5,6 +5,7 @@ import { KeyRound, ShieldCheck, Trash2 } from 'lucide-react'
 import { authApi } from '@/api/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
+import { CheckinSettingsCard } from '@/components/workspace/CheckinSettingsCard'
 import { Button } from '@/components/ui/primitives/button'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
@@ -23,7 +24,7 @@ import { toast } from '@/hooks/use-toast'
  * способами он может войти, — и забытый пароль означал поход к администратору.
  */
 export const WorkspaceProfilePage: React.FC = () => {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const queryClient = useQueryClient()
 
   const { data: emails, isLoading } = useQuery({
@@ -87,6 +88,9 @@ export const WorkspaceProfilePage: React.FC = () => {
         </dl>
       </section>
 
+      {/* Отмечаются только менторы и МЗК — тот же круг, что CHECKIN_ROLES на бэкенде. */}
+      {hasRole('mentor', 'mzk_manager', 'academic_head') && <CheckinSettingsCard />}
+
       <section className="rounded-panel border border-w-line bg-w-panel p-4">
         <h2 className="flex items-center gap-2 text-sm font-bold text-w-ink">
           <ShieldCheck className="h-4 w-4" />
@@ -126,6 +130,7 @@ export const WorkspaceProfilePage: React.FC = () => {
             {/* Разделитель «или» здесь ни к чему: рядом нет второго способа —
                 это привязка, а не выбор между входом паролем и Google. */}
             <GoogleSignInButton
+              themed
               divider={false}
               text="continue_with"
               onCredential={(credential) => linkMutation.mutate(credential)}

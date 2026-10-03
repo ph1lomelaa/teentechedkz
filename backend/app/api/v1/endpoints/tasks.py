@@ -18,7 +18,6 @@ from app.models.student_task import StudentTask, TaskStatus
 from app.models.contract import Contract
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import UserRole
-from app.models.student import Student
 from app.models.user import User
 from app.models.notification import Notification
 from app.models.status_history import StatusHistory
@@ -256,16 +255,10 @@ async def create_task(
     )
     db.add(task)
 
-    student = await db.get(Student, student_id) if student_id else None
-    if student and student.user_id:
-        db.add(Notification(
-            user_id=student.user_id,
-            kind="task_assigned",
-            title="Новая задача",
-            body=task.task_text,
-            link="/portal/tasks",
-            priority="normal",
-        ))
+    # Ученику уведомление не шлём: поручение — внутренняя задача сотрудника, а в
+    # кабинете ученика на /portal/tasks показываются только шаги его roadmap.
+    # Раньше «Новая задача» вела ученика на страницу, где этого поручения нет.
+    # Задачу студенту ставят шагом roadmap (POST /roadmap-tasks).
     if assignee:
         db.add(Notification(
             user_id=assignee.id,
@@ -472,7 +465,7 @@ async def update_task(
             task.submitted_by = current_user.id
             reviewers = await db.execute(
                 select(User.id).where(
-                    User.role.in_((UserRole.admin, UserRole.mzk_manager)),
+                    User.role.in_((UserRole.admin, UserRole.mzk_manager, UserRole.academic_head)),
                     User.is_active == True,  # noqa: E712
                     User.id != current_user.id,
                 )

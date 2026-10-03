@@ -85,7 +85,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/students']}>
+      <MemoryRouter initialEntries={['/students?view=crm']}>
         <StudentsListPage />
       </MemoryRouter>
     </QueryClientProvider>,

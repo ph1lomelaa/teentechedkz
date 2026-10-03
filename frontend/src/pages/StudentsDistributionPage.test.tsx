@@ -188,7 +188,7 @@ describe('доска распределения', () => {
     await screen.findByText('Дана К.')
 
     fireEvent.click(screen.getByText('Фильтры'))
-    fireEvent.click(screen.getByText('Передумали'))
+    fireEvent.click(screen.getByText('Работа окончена — Передумал'))
 
     expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
   })

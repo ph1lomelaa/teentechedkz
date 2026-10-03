@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.roadmap import TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus
-from app.services.task_urgency import task_urgency
+from app.services.task_urgency import NO_URGENCY_STATUSES, overdue_days, task_urgency
 
 _cfg = ConfigDict(from_attributes=True, use_enum_values=True)
 
@@ -14,6 +14,7 @@ _cfg = ConfigDict(from_attributes=True, use_enum_values=True)
 # ---------- Template: input (nested structure) ----------
 class SubtaskIn(BaseModel):
     title: str
+    due_offset_days: int | None = Field(default=None, ge=0)
     source_notion_page_id: str | None = None
 
 
@@ -72,6 +73,7 @@ class TemplateSubtaskOut(BaseModel):
     model_config = _cfg
     id: uuid.UUID
     title: str
+    due_offset_days: int | None = None
     position: int
     source_notion_page_id: str | None = None
 
@@ -137,11 +139,24 @@ class RoadmapSubtaskOut(BaseModel):
     id: uuid.UUID
     title: str
     is_done: bool
+    due_date: date | None = None
+    overdue_days: int = 0  # computed, not a DB column
     position: int
+
+    @model_validator(mode="after")
+    def _fill_overdue(self) -> "RoadmapSubtaskOut":
+        self.overdue_days = overdue_days(self.due_date, done=self.is_done)
+        return self
+
+
+def sort_subtasks_by_deadline(subtasks: list) -> list:
+    """По сроку; без срока — в конец; при равенстве сохраняется порядок position."""
+    return sorted(subtasks, key=lambda st: (st.due_date is None, st.due_date or date.max, st.position))
 
 
 class RoadmapTaskOut(BaseModel):
     model_config = _cfg
+    activity_participation_id: uuid.UUID | None = None
     id: uuid.UUID
     stage_id: uuid.UUID
     roadmap_id: uuid.UUID
@@ -161,12 +176,15 @@ class RoadmapTaskOut(BaseModel):
     review_comment: str | None = None
     due_date: date | None = None
     urgency: str | None = None  # resolved via app.services.task_urgency, not a DB column
+    overdue_days: int = 0  # computed, not a DB column
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
 
     @model_validator(mode="after")
     def _fill_urgency(self) -> "RoadmapTaskOut":
         self.urgency = task_urgency(self.due_date, self.status)
+        self.overdue_days = overdue_days(self.due_date, done=self.status in NO_URGENCY_STATUSES)
+        self.subtasks = sort_subtasks_by_deadline(self.subtasks)
         return self
 
 
@@ -207,6 +225,7 @@ class RoadmapOut(BaseModel):
 class TaskFlatOut(BaseModel):
     """A roadmap task with its stage context — for the flat 'Задачи' board."""
     model_config = _cfg
+    activity_participation_id: uuid.UUID | None = None
     id: uuid.UUID
     stage_id: uuid.UUID
     roadmap_id: uuid.UUID
@@ -258,6 +277,7 @@ class TaskClaimOut(BaseModel):
 
 # ---------- Task / subtask / stage mutations ----------
 class TaskCreate(BaseModel):
+    activity_participation_id: uuid.UUID | None = None
     stage_id: uuid.UUID
     title: str
     description: str = ""
@@ -285,14 +305,29 @@ class TaskUpdate(BaseModel):
     due_date: date | None = None
 
 
+_MIN_DEADLINE = date(2000, 1, 1)
+_MAX_DEADLINE = date(2100, 12, 31)
+
+
+def _check_deadline(value: date | None) -> date | None:
+    if value is not None and not _MIN_DEADLINE <= value <= _MAX_DEADLINE:
+        raise ValueError("Срок вне допустимого диапазона (2000–2100)")
+    return value
+
+
 class SubtaskCreate(BaseModel):
-    task_id: uuid.UUID
     title: str
+    due_date: date | None = None
+
+    _v_due = field_validator("due_date")(_check_deadline)
 
 
 class SubtaskUpdate(BaseModel):
     title: str | None = None
     is_done: bool | None = None
+    due_date: date | None = None
+
+    _v_due = field_validator("due_date")(_check_deadline)
 
 
 class StageUpdate(BaseModel):

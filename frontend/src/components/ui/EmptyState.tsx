@@ -16,7 +16,7 @@ interface EmptyStateProps {
 
 const ICON_BOX_CLASS: Record<ColorPrefix, string> = {
   ds: 'border-ds-accent-dim/25 bg-ds-accent/[0.06] text-ds-accent',
-  p: 'border-p-accent-dim/25 bg-p-accent/[0.06] text-p-accent',
+  p: 'border-p-accent-dim/25 bg-p-accent/[0.06] text-p-accent-text',
   w: 'border-w-accentDim/25 bg-w-accent/[0.06] text-w-accentText',
 }
 

@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ScrollFadeNav } from '@/components/shared/ScrollFadeNav'
 import {
   Banknote,
   Bell,
   CalendarCheck,
+  BookText,
   CalendarDays,
   CheckSquare,
   ClipboardCheck,
@@ -37,10 +39,12 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { usersApi, notificationsApi } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import { useWsEvent } from '@/lib/ws'
+import { useCheckinSystemNotifications } from '@/hooks/useCheckinSystemNotifications'
 import { cn } from '@/lib/utils'
 import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
 import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 import { ROLE_LABELS } from '@/types'
+import { UserAvatar } from '@/components/shared/ChatPrimitives'
 
 interface NavItem {
   label: string
@@ -54,6 +58,50 @@ interface NavGroup {
   group: string
   items: NavItem[]
 }
+
+const WorkspaceNavLink = React.memo(function WorkspaceNavLink({
+  item,
+  to,
+  active,
+  badge,
+}: {
+  item: NavItem
+  to: string
+  active: boolean
+  badge: number
+}) {
+  return (
+    <Link
+      to={to}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'relative flex shrink-0 items-center gap-3 rounded-ctl px-3 py-2.5 text-sm font-semibold transition',
+        active
+          ? 'bg-w-accent text-black'
+          : 'text-white/65 hover:bg-[#141414] hover:text-white'
+      )}
+    >
+      {item.icon}
+      {item.label}
+      {badge > 0 && (
+        <span
+          className={cn(
+            'ml-auto min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-2xs font-black',
+            active ? 'bg-black/20 text-black' : 'bg-w-accent text-black'
+          )}
+        >
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+    </Link>
+  )
+}, (previous, next) =>
+  previous.item.path === next.item.path &&
+  previous.item.label === next.item.label &&
+  previous.to === next.to &&
+  previous.active === next.active &&
+  previous.badge === next.badge
+)
 
 function getNavGroups(
   studentsNavLabel: string,
@@ -79,13 +127,15 @@ function getNavGroups(
     {
       group: 'ПЛАНИРОВАНИЕ',
       items: [
+        { label: 'Активности', path: '/workspace/activities', icon: <GraduationCap className="h-4 w-4" />, permission: ['portfolio', 'manage'] },
         { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" />, permission: ['roadmaps', 'view'] },
         { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" />, permission: ['tasks', 'view'] },
         { label: 'Мои задачи', path: '/workspace/my-tasks', icon: <ListTodo className="h-4 w-4" />, permission: ['tasks', 'view'] },
         { label: 'Проверка', path: '/workspace/review', icon: <ClipboardCheck className="h-4 w-4" />, permission: ['tasks', 'view'] },
         { label: 'Встречи', path: '/workspace/meetings', icon: <CalendarDays className="h-4 w-4" />, permission: ['meetings', 'view'] },
+        { label: 'Конспекты', path: '/workspace/notes', icon: <BookText className="h-4 w-4" />, permission: ['meetings', 'view'] },
         { label: 'Анкеты', path: '/workspace/questionnaires', icon: <ClipboardList className="h-4 w-4" />, permission: ['questionnaires', 'view'] },
-        { label: 'Статус', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" />, permission: ['status_history', 'view'] },
+        { label: 'На подтверждение', path: '/workspace/status', icon: <ListChecks className="h-4 w-4" />, permission: ['status_history', 'view'] },
       ],
     },
     {
@@ -139,7 +189,7 @@ function getNavGroups(
 }
 
 export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout, can } = useAuth()
+  const { user, logout, can, isLoading } = useAuth()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -147,14 +197,14 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const mentorId = searchParams.get('mentor_id') || ''
   // Browsing a specific mentor's workspace (mentor_id filter + preview banner)
   // is an admin/mzk-only capability — only they can look at *someone else's* cabinet.
-  const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager'
+  const canPreviewMentor = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head'
   // Возврат в CRM больше не живёт в навигации: он в ShellSwitcher в шапке,
   // одинаковый в обеих оболочках, и доступен всем, у кого есть доступ к CRM.
   const isPreview = Boolean(mentorId)
   const studentsNavLabel = isPreview ? 'Студенты ментора' : 'Мои студенты'
 
-  const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager'
-  const mzkQualityLabel = user?.role === 'admin' ? 'ОКК МЗК' : 'Моя оценка ОКК'
+  const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head'
+  const mzkQualityLabel = user?.role === 'admin' || user?.role === 'academic_head' ? 'ОКК МЗК' : 'Моя оценка ОКК'
   const navGroups = filterNavByPermission(
     getNavGroups(studentsNavLabel, isAdminOrMzk, user?.role === 'mentor', mzkQualityLabel),
     can,
@@ -183,6 +233,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ limit: 50 }),
+    // Пока сессия восстанавливается, токена ещё нет: запрос ушёл бы без авторизации.
+    enabled: !!user,
   })
   const unreadCount = notifData?.unread_count ?? 0
 
@@ -193,10 +245,12 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
     queryKey: ['workspace', 'review-count'],
     queryFn: async () => (await workspaceApi.roadmapTasks({ review_status: 'pending' })).total,
     refetchInterval: 60_000,
+    enabled: !!user,
   })
   useWsEvent('task.review_requested', () =>
     queryClient.invalidateQueries({ queryKey: ['workspace', 'review-count'] })
   )
+  useCheckinSystemNotifications()
 
   const workspaceTo = (path: string) => `${path}${location.search}`
 
@@ -224,13 +278,13 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   const sidebar = (
-    <aside aria-label="Навигация кабинета ментора" className="flex h-full w-[248px] max-w-[85vw] shrink-0 flex-col gap-1.5 border-r border-w-line bg-black px-4 py-5">
-      <div className="relative flex h-full min-h-0 flex-col px-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <ShellSwitcher current="workspace" accentClass="bg-w-accent" />
+    <aside aria-label="Навигация кабинета ментора" className="flex h-screen supports-[height:100dvh]:h-[100dvh] w-[248px] max-w-[85vw] shrink-0 flex-col gap-1.5 border-r border-w-line bg-black px-4 py-5">
+      <div className="relative flex min-h-0 flex-1 flex-col px-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="shrink-0"><ShellSwitcher current="workspace" accentClass="bg-w-accent" className="shrink-0" /></div>
 
-        <div className="mt-3 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">КАБИНЕТ</div>
-        <nav aria-label="Разделы кабинета" className="flex flex-1 flex-col gap-1 overflow-y-auto">
-          {navGroups.flatMap((group) => group.items).map((item) => {
+        <div className="mt-3 shrink-0 px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">КАБИНЕТ</div>
+        <ScrollFadeNav aria-label="Разделы кабинета" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pb-4">
+          {isLoading ? <div aria-label="Загрузка меню" className="space-y-3 px-3 py-2">{Array.from({length:10},(_,i)=><div key={i} className="h-9 animate-pulse rounded-ctl bg-white/10" />)}</div> : navGroups.flatMap((group) => group.items).map((item) => {
             const active =
               location.pathname === item.path ||
               (item.path !== '/workspace' && location.pathname.startsWith(item.path))
@@ -240,35 +294,11 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 : item.path === '/workspace/review'
                   ? reviewCount
                   : 0
-            return (
-              <Link
-                key={item.path}
-                to={workspaceTo(item.path)}
-                className={cn(
-                  'relative flex items-center gap-3 rounded-ctl px-3 py-2.5 text-sm font-semibold transition',
-                  active
-                    ? 'bg-w-accent text-black'
-                    : 'text-white/65 hover:bg-[#141414] hover:text-white'
-                )}
-              >
-                {item.icon}
-                {item.label}
-                {badge > 0 && (
-                  <span
-                    className={cn(
-                      'ml-auto min-w-[18px] rounded-full px-1.5 py-0.5 text-center text-2xs font-black',
-                      active ? 'bg-black/20 text-black' : 'bg-w-accent text-black'
-                    )}
-                  >
-                    {badge > 9 ? '9+' : badge}
-                  </span>
-                )}
-              </Link>
-            )
+            return <WorkspaceNavLink key={item.path} item={item} to={workspaceTo(item.path)} active={active} badge={badge} />
           })}
-        </nav>
+        </ScrollFadeNav>
 
-        <div className="mt-auto border-t border-white/10 pt-3.5">
+        <div className="mt-2 shrink-0 border-t border-white/10 pt-3.5">
           <Link
             to="/workspace/profile"
             className="mb-1 flex w-full items-center gap-3 rounded-ctl px-3 py-2.5 text-left text-sm font-semibold text-white/65 transition hover:bg-[#141414] hover:text-white"
@@ -296,11 +326,11 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   )
 
   return (
-    <div className="portal workspace-shell grid min-h-[100dvh] min-w-0 overflow-x-hidden bg-w-bg text-w-ink lg:grid-cols-[248px_1fr]" data-theme={theme}>
+    <div className="portal workspace-shell grid min-h-[100dvh] min-w-0 overflow-x-clip bg-w-bg text-w-ink lg:grid-cols-[248px_1fr]" data-theme={theme}>
       <a href="#workspace-main" className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-w-accent px-4 py-2 font-bold text-black transition focus:translate-y-0">
         Перейти к содержимому
       </a>
-      <div className="sticky top-0 hidden h-screen lg:block">{sidebar}</div>
+      <div className="sticky top-0 hidden h-[100dvh] self-start overflow-hidden bg-black lg:block">{sidebar}</div>
       {mobileNavOpen && (
         <>
           <button type="button" aria-label="Закрыть меню" className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setMobileNavOpen(false)} />
@@ -347,9 +377,7 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
                     из-за которого МЗК видел в шапке «ментор». */}
                 {(user?.role ? ROLE_LABELS[user.role] : '—')} · {user?.name || user?.email || 'Пользователь'}
               </span>
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-w-accent text-[11px] font-black text-black">
-                {(user?.name || 'M').trim().charAt(0).toUpperCase()}
-              </span>
+              <UserAvatar name={user?.name || 'Пользователь'} className="h-6 w-6" />
             </div>
           </div>
         </header>

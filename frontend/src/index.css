@@ -37,6 +37,9 @@
     --ring: 0 0% 25%;
 
     --radius: 4px;
+
+    /* Затемнение под модалками; переопределяется по теме в html[data-crm-theme]. */
+    --dialog-overlay: rgb(0 0 0 / 0.72);
   }
 }
 
@@ -93,8 +96,14 @@ html[data-crm-theme='light'] {
     min-width: 0;
   }
 
+  /* overflow-x: hidden на html/body (и на оболочках) принудительно делает
+     overflow-y: auto, то есть создаёт контейнер прокрутки, который не
+     скроллится: position: sticky у сайдбара/шапки липнет к нему, а не к окну,
+     и уезжает вверх вместе со страницей. clip обрезает так же, но контейнером
+     прокрутки не становится. Фолбэк hidden — для браузеров без clip. */
   html {
     overflow-x: hidden;
+    overflow-x: clip;
     text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
   }
@@ -107,6 +116,7 @@ html[data-crm-theme='light'] {
     min-height: 100vh;
     min-height: 100dvh;
     overflow-x: hidden;
+    overflow-x: clip;
     background-color: #0A0A0A;
     font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -285,13 +295,16 @@ html[data-crm-theme='light'] {
      иконку «не удалось загрузить». Без проксирования var() невалиден, и
      состояние ошибки молча теряет цвет. */
   --p-danger: #FF6B6B;
+  /* Активные чипы фильтров (Пайплайн клиентов). Контраст текста к фону ≈ 8.8:1. */
+  --p-chip-bg: #4A3D00;
+  --p-chip-text: #FFE58A;
   --crm-bg: #0A0A0A;
   --crm-panel: #141414;
   --crm-panel-soft: #1C1C1C;
   --crm-line: #2A2A2A;
   --crm-text: #F5F5F3;
   --crm-muted: #9A9A94;
-  --crm-muted-secondary: #6E6E68;
+  --crm-muted-secondary: #8A8A84;
   /* RGB triplets so the `ds-*` Tailwind tokens (components/ui/*'s default
      colorPrefix) can use rgb(var(--x) / <alpha-value>) and stay theme-aware,
      same mechanism as --w-*-rgb/--p-*-rgb. Without this, `ds-*` was hardcoded
@@ -302,7 +315,7 @@ html[data-crm-theme='light'] {
   --ds-line-rgb: 42 42 42;
   --ds-ink-rgb: 245 245 243;
   --ds-muted-rgb: 154 154 148;
-  --ds-muted2-rgb: 110 110 104;
+  --ds-muted2-rgb: 138 138 132;
   /* Акцентный/статусный текст админ-разделов (регламенты, ОКК МЗК,
      вознаграждения). Раньше ds-accent/good/danger были захардкожены в
      tailwind.config, поэтому на светлой теме жёлтый текст становился
@@ -310,6 +323,15 @@ html[data-crm-theme='light'] {
   --ds-accent-text-rgb: 255 212 0;
   --ds-danger-rgb: 248 113 113;
   --ds-good-rgb: 139 212 106;
+  /* Бейджи групп очереди «Заявки на доступ»: цвет текста, фон и рамка берутся
+     от него же с прозрачностью. Тёмная тема — светлые оттенки (контраст > 10:1
+     на панели), светлая — тёмные (> 5:1 на тонированном фоне). */
+  --st-attach-rgb: 134 239 172;
+  --st-busy-rgb: 253 186 116;
+  --st-linked-rgb: 103 232 249;
+  --st-check-rgb: 253 224 71;
+  --st-create-rgb: 147 197 253;
+  --st-mentor-rgb: 216 180 254;
   /* w-* прокси: страницы воркспейса (жалобы, возвраты и далее) монтируются и
      в CRM-оболочке. Без этого rgb(var(--w-panel-rgb) / …) невалиден и страница
      рендерится нечитаемой — та же причина, что и у p-* блока выше. Триплеты
@@ -320,7 +342,7 @@ html[data-crm-theme='light'] {
   --w-line-rgb: 42 42 42;
   --w-ink-rgb: 245 245 243;
   --w-muted-rgb: 154 154 148;
-  --w-muted2-rgb: 110 110 104;
+  --w-muted2-rgb: 138 138 132;
   --w-accent-rgb: 255 212 0;
   --w-accent-dim-rgb: 201 168 0;
   --w-accent-text-rgb: 255 212 0;
@@ -348,31 +370,40 @@ html[data-crm-theme='light'] {
 }
 
 .crm-shell[data-theme='light'] :where(.crm-header, .app-main) .text-brand {
-  color: #8A6F00;
+  color: #7A6200;
 }
 
 .crm-shell[data-theme='light'] {
   /* Как в .portal[data-theme='light']: акцент остаётся жёлтым, dim темнеет
-     до #8A6F00 ради контраста на светлом фоне. */
+     до #7A6200 ради контраста на светлом фоне. */
   --p-accent: #FFD400;
-  --p-accent-dim: #8A6F00;
+  --p-accent-dim: #7A6200;
+  /* Активные чипы фильтров в светлой теме. Контраст текста к фону ≈ 9:1. */
+  --p-chip-bg: #FFF1A8;
+  --p-chip-text: #4D3D00;
   --crm-bg: #FAFAF7;
   --crm-panel: #FFFFFF;
   --crm-panel-soft: #F3F1EA;
   --crm-line: #E3DFD4;
   --crm-text: #17170F;
-  --crm-muted: #65655F;
-  --crm-muted-secondary: #8B8B84;
+  --crm-muted: #5A5A54;
+  --crm-muted-secondary: #6E6E68;
   --ds-bg-rgb: 250 250 247;
   --ds-panel-rgb: 255 255 255;
   --ds-panel2-rgb: 243 241 234;
   --ds-line-rgb: 227 223 212;
   --ds-ink-rgb: 23 23 15;
-  --ds-muted-rgb: 101 101 95;
-  --ds-muted2-rgb: 139 139 132;
-  --ds-accent-text-rgb: 138 111 0;
+  --ds-muted-rgb: 90 90 84;
+  --ds-muted2-rgb: 110 110 104;
+  --ds-accent-text-rgb: 122 98 0;
   --ds-danger-rgb: 180 35 24;
   --ds-good-rgb: 61 122 32;
+  --st-attach-rgb: 22 101 52;
+  --st-busy-rgb: 154 52 18;
+  --st-linked-rgb: 21 94 117;
+  --st-check-rgb: 133 77 14;
+  --st-create-rgb: 29 78 216;
+  --st-mentor-rgb: 109 40 217;
   /* w-* прокси для светлой темы — см. комментарий в тёмном блоке. Значения
      совпадают с .workspace-shell[data-theme='light'], иначе одна и та же
      страница выглядела бы по-разному в двух оболочках. */
@@ -381,11 +412,11 @@ html[data-crm-theme='light'] {
   --w-panel2-rgb: 243 241 234;
   --w-line-rgb: 227 223 212;
   --w-ink-rgb: 23 23 15;
-  --w-muted-rgb: 101 101 95;
-  --w-muted2-rgb: 139 139 132;
+  --w-muted-rgb: 90 90 84;
+  --w-muted2-rgb: 110 110 104;
   --w-accent-rgb: 255 212 0;
-  --w-accent-dim-rgb: 138 111 0;
-  --w-accent-text-rgb: 138 111 0;
+  --w-accent-dim-rgb: 122 98 0;
+  --w-accent-text-rgb: 122 98 0;
   --w-danger-rgb: 180 35 24;
   --w-good-rgb: 61 122 32;
   --background: 60 23% 97%;
@@ -439,6 +470,116 @@ html[data-crm-theme='light'] {
   --ring: 44 100% 32%;
 }
 
+/* Токены оболочек для порталов. Диалоги/списки Radix монтируются в <body>,
+   вне .workspace-shell/.portal/.crm-shell, где объявлены --w-*, --p-*, --ds-*.
+   Без этого bg-w-panel/text-w-ink/border-p-line в модалке давали невалидный
+   цвет: прозрачный фон, белые рамки (currentColor), подписи «наследовали»
+   неверный цвет. Значения — копия .workspace-shell / .portal (тёмная и светлая);
+   внутри оболочек они перекрываются их собственными объявлениями, так что на
+   страницы это не влияет. ds-accent-text/good/danger намеренно не задаём —
+   у них есть fallback в tailwind.config. */
+html[data-crm-theme='dark'] {
+  --dialog-overlay: rgb(0 0 0 / 0.72);
+  --p-bg: #0A0A0A;
+  --p-panel: #141414;
+  --p-panel2: #1C1C1C;
+  --p-line: #2A2A2A;
+  --p-text: #F5F5F3;
+  --p-muted: #9A9A94;
+  --p-muted2: #8A8A84;
+  --p-good: #8BD46A;
+  --p-accent: #FFD400;
+  --p-accent-dim: #C9A800;
+  --p-danger: #FF6B6B;
+  --w-bg-rgb: 10 10 10;
+  --w-panel-rgb: 20 20 20;
+  --w-panel2-rgb: 28 28 28;
+  --w-line-rgb: 42 42 42;
+  --w-ink-rgb: 245 245 243;
+  --w-muted-rgb: 154 154 148;
+  --w-muted2-rgb: 138 138 132;
+  --w-accent-rgb: 255 212 0;
+  --w-accent-dim-rgb: 201 168 0;
+  --w-accent-text-rgb: 255 212 0;
+  --w-danger-rgb: 248 113 113;
+  --w-good-rgb: 139 212 106;
+  --ds-bg-rgb: 10 10 10;
+  --ds-panel-rgb: 20 20 20;
+  --ds-panel2-rgb: 28 28 28;
+  --ds-line-rgb: 42 42 42;
+  --ds-ink-rgb: 245 245 243;
+  --ds-muted-rgb: 154 154 148;
+  --ds-muted2-rgb: 138 138 132;
+  /* Статусные цвета групп заявок — окна рендерятся вне .crm-shell. */
+  --st-attach-rgb: 134 239 172;
+  --st-busy-rgb: 253 186 116;
+  --st-linked-rgb: 103 232 249;
+  --st-check-rgb: 253 224 71;
+  --st-create-rgb: 147 197 253;
+  --st-mentor-rgb: 216 180 254;
+}
+html[data-crm-theme='light'] {
+  --dialog-overlay: rgb(0 0 0 / 0.6);
+  --p-bg: #FAFAF7;
+  --p-panel: #FFFFFF;
+  --p-panel2: #F3F1EA;
+  --p-line: #E7E3D9;
+  --p-text: #17170F;
+  --p-muted: #5A5A54;
+  --p-muted2: #6E6E68;
+  --p-good: #8BD46A;
+  --p-accent: #FFD400;
+  --p-accent-dim: #C9A800;
+  --p-danger: #FF6B6B;
+  --w-bg-rgb: 250 250 247;
+  --w-panel-rgb: 255 255 255;
+  --w-panel2-rgb: 243 241 234;
+  --w-line-rgb: 231 227 217;
+  --w-ink-rgb: 23 23 15;
+  --w-muted-rgb: 90 90 84;
+  --w-muted2-rgb: 110 110 104;
+  --w-accent-rgb: 255 212 0;
+  --w-accent-dim-rgb: 122 98 0;
+  --w-accent-text-rgb: 122 98 0;
+  --w-danger-rgb: 180 35 24;
+  --w-good-rgb: 61 122 32;
+  --ds-bg-rgb: 250 250 247;
+  --ds-panel-rgb: 255 255 255;
+  --ds-panel2-rgb: 243 241 234;
+  --ds-line-rgb: 231 227 217;
+  --ds-ink-rgb: 23 23 15;
+  --ds-muted-rgb: 90 90 84;
+  --ds-muted2-rgb: 110 110 104;
+  /* Статусные цвета групп заявок — окна рендерятся вне .crm-shell. */
+  --st-attach-rgb: 22 101 52;
+  --st-busy-rgb: 154 52 18;
+  --st-linked-rgb: 21 94 117;
+  --st-check-rgb: 133 77 14;
+  --st-create-rgb: 29 78 216;
+  --st-mentor-rgb: 109 40 217;
+}
+/* shadcn-токены светлой темы внутри порталов. В тёмной теме html[data-crm-theme='dark']
+   выше задаёт их глобально; в светлой — только --primary/--ring, и модалки
+   получали нейтрально-серые :root-значения (рамки полей, hover кнопок), не
+   совпадающие с оболочкой. Значения — копия .crm-shell[data-theme='light'].
+   Ограничено порталами, чтобы не трогать страницы воркспейса/портала. */
+html[data-crm-theme='light'] :where([role='dialog'], [role='alertdialog'], [role='listbox'], [role='menu']) {
+  --background: 60 23% 97%;
+  --foreground: 60 21% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 60 21% 7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 60 21% 7%;
+  --secondary: 48 20% 93%;
+  --secondary-foreground: 60 12% 18%;
+  --muted: 48 20% 93%;
+  --muted-foreground: 60 4% 40%;
+  --accent: 50 100% 92%;
+  --accent-foreground: 44 100% 24%;
+  --border: 44 16% 86%;
+  --input: 44 13% 78%;
+}
+
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.bg-white) { background-color: #141414 !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.bg-gray-50, .bg-gray-100, .bg-slate-50, .bg-slate-100) { background-color: #1C1C1C !important; }
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300, .border-slate-100, .border-slate-200, .border-slate-300) { border-color: #2A2A2A !important; }
@@ -457,29 +598,25 @@ html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='men
    Фон задаём самому поповеру — он всегда должен быть непрозрачным. */
 [data-radix-popper-content-wrapper] [role='listbox'],
 [data-radix-popper-content-wrapper] [role='menu'] {
-  background-color: #141414;
-}
-html[data-crm-theme='light'] [data-radix-popper-content-wrapper] [role='listbox'],
-html[data-crm-theme='light'] [data-radix-popper-content-wrapper] [role='menu'] {
-  background-color: #FFFFFF;
+  background-color: rgb(var(--w-panel-rgb, 20 20 20));
 }
 
-/* Нативные <select> внутри порталов: compat-слои выше ограничены
-   .crm-header/.app-main и header/main, а диалог рендерится вне них, поэтому
-   поля в модалках оставались без темы — на тёмной теме это давало тёмный
-   текст на тёмном фоне. Задаём фон/рамку/цвет явно для обеих тем. */
+/* Поля внутри порталов: compat-слои выше ограничены .crm-header/.app-main и
+   header/main, а диалог рендерится вне них, поэтому legacy-поля в модалках
+   (bg-white, без классов) оставались без темы. Цвета — токены темы (а не hex),
+   так что поля совпадают с примитивами Input/Textarea: рамка = --input,
+   фокус (focus-visible:border-ring) специфичнее и перекрывает её. */
+html[data-crm-theme] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea, select) {
+  border-color: hsl(var(--input));
+  color: rgb(var(--w-ink-rgb));
+}
 html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea, select) {
-  border-color: #2A2A2A;
-  background-color: #1C1C1C;
-  color: #F5F5F3;
+  background-color: rgb(var(--w-panel2-rgb));
 }
-html[data-crm-theme='dark'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea)::placeholder { color: #77776F; }
 html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea, select) {
-  border-color: #E0DCCF;
-  background-color: #FFFFFF;
-  color: #17170F;
+  background-color: rgb(var(--w-panel-rgb));
 }
-html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea)::placeholder { color: #6E6E68; }
+html[data-crm-theme] :where([role='dialog'], [role='listbox'], [role='menu']) :where(input, textarea)::placeholder { color: rgb(var(--w-muted-rgb)); }
 
 .crm-content,
 .crm-shell .app-main {
@@ -622,7 +759,7 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
   --p-line: #2A2A2A;
   --p-text: #F5F5F3;
   --p-muted: #9A9A94;
-  --p-muted2: #6E6E68;
+  --p-muted2: #8A8A84;
   --p-good: #8BD46A;
   --p-accent: #FFD400;
   --p-accent-dim: #C9A800;
@@ -645,13 +782,31 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
   --w-accent-text: #FFD400;
   --w-danger: #F87171;
   --w-good: var(--p-good);
+  /* Messenger surfaces: semantic aliases keep chat contrast intentional in
+     both themes instead of relying on one-off blue/white utility classes. */
+  --chat-canvas: #101010;
+  --chat-incoming: #242424;
+  --chat-outgoing: #4A4010;
+  --chat-outgoing-border: #665915;
+  --chat-outgoing-text: #F8F7F1;
+  --chat-outgoing-muted: #D8CE96;
+  --chat-incoming-text: var(--w-ink);
+  --chat-incoming-time: var(--w-muted);
+  --chat-pill-bg: var(--w-panel);
+  --chat-pill-text: var(--w-muted);
+  --chat-send-bg: var(--w-accent);
+  --chat-send-text: #000000;
+  --chat-badge: var(--w-accent);
+  --chat-active: rgb(var(--w-accent-rgb) / 0.14);
+  --chat-active-text: var(--w-ink);
+  --chat-active-muted: var(--w-muted);
   --w-bg-rgb: 10 10 10;
   --w-panel-rgb: 20 20 20;
   --w-panel2-rgb: 28 28 28;
   --w-line-rgb: 42 42 42;
   --w-ink-rgb: 245 245 243;
   --w-muted-rgb: 154 154 148;
-  --w-muted2-rgb: 110 110 104;
+  --w-muted2-rgb: 138 138 132;
   /* StatusInboxPage renders both at /status-inbox (.crm-shell) and
      /workspace/status (.workspace-shell) — ds-* needs to resolve in both. */
   --ds-bg-rgb: 10 10 10;
@@ -660,7 +815,7 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
   --ds-line-rgb: 42 42 42;
   --ds-ink-rgb: 245 245 243;
   --ds-muted-rgb: 154 154 148;
-  --ds-muted2-rgb: 110 110 104;
+  --ds-muted2-rgb: 138 138 132;
   --w-accent-rgb: 255 212 0;
   --w-accent-dim-rgb: 201 168 0;
   --w-accent-text-rgb: 255 212 0;
@@ -673,8 +828,8 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
   --p-panel2: #F3F1EA;
   --p-line: #E7E3D9;
   --p-text: #17170F;
-  --p-muted: #6E6E68;
-  --p-muted2: #9A9A94;
+  --p-muted: #5A5A54;
+  --p-muted2: #6E6E68;
 }
 .workspace-shell[data-theme='light'],
 .portal[data-theme='light'] {
@@ -684,37 +839,154 @@ html[data-crm-theme='light'] :where([role='dialog'], [role='listbox'], [role='me
   --w-line: #E7E3D9;
   --w-ink: #17170F;
   --w-muted: #6E6E68;
-  --w-muted2: #9A9A94;
+  --w-muted2: #6E6E68;
   --w-accent: #FFD400;
-  --w-accent-dim: #8A6F00;
-  --w-accent-text: #8A6F00;
+  --w-accent-dim: #7A6200;
+  --w-accent-text: #7A6200;
   --w-danger: #B42318;
   --w-good: #3D7A20;
+  --chat-canvas: #F5F3EC;
+  --chat-incoming: #FFFFFF;
+  --chat-outgoing: #F2D96B;
+  --chat-outgoing-border: #D8BF4A;
+  --chat-outgoing-text: #17170F;
+  --chat-outgoing-muted: #655815;
   --w-bg-rgb: 250 250 247;
   --w-panel-rgb: 255 255 255;
   --w-panel2-rgb: 243 241 234;
   --w-line-rgb: 231 227 217;
   --w-ink-rgb: 23 23 15;
-  --w-muted-rgb: 110 110 104;
-  --w-muted2-rgb: 154 154 148;
+  --w-muted-rgb: 90 90 84;
+  --w-muted2-rgb: 110 110 104;
   --ds-bg-rgb: 250 250 247;
   --ds-panel-rgb: 255 255 255;
   --ds-panel2-rgb: 243 241 234;
   --ds-line-rgb: 231 227 217;
   --ds-ink-rgb: 23 23 15;
-  --ds-muted-rgb: 110 110 104;
-  --ds-muted2-rgb: 154 154 148;
+  --ds-muted-rgb: 90 90 84;
+  --ds-muted2-rgb: 110 110 104;
   --w-accent-rgb: 255 212 0;
-  --w-accent-dim-rgb: 138 111 0;
-  --w-accent-text-rgb: 138 111 0;
+  --w-accent-dim-rgb: 122 98 0;
+  --w-accent-text-rgb: 122 98 0;
   --w-danger-rgb: 180 35 24;
   --w-good-rgb: 61 122 32;
 }
+
+
+/* ===================================================================
+   Telegram variant of the chat. Scoped by data-chat-variant="telegram" so
+   only the Telegram tab is recolored; the internal chat keeps brand tokens.
+   --tg-* hold the palette; --chat-* (read by the shared components) and the
+   --w-* surfaces inside the subtree are mapped onto it.
+   =================================================================== */
+:is(.workspace-shell, .portal) [data-chat-variant='telegram'] {
+  --tg-canvas: #0E1621;
+  --tg-panel: #17212B;
+  --tg-input: #0E1621;
+  --tg-line: #2A3846;
+  --tg-in: #182533;
+  --tg-out: #2B5278;
+  --tg-text: #F5F5F5;
+  --tg-time-in: #8A9BAA;
+  --tg-time-out: #B5CCE6;
+  --tg-accent: #5288C1;
+  --tg-accent-text: #6FA3D8;
+  --tg-badge: #3A6EA5;
+  --tg-active: #2B5278;
+  --tg-muted: #8A9BAA;
+  --tg-on-accent: #FFFFFF;
+  --tg-pill: rgb(23 33 43 / 0.82);
+  --tg-pill-text: #C9D6E2;
+  --tg-panel-rgb: 23 33 43;
+  --tg-input-rgb: 14 22 33;
+  --tg-line-rgb: 42 56 70;
+  --tg-ink-rgb: 245 245 245;
+  --tg-muted-rgb: 138 155 170;
+  --tg-accent-rgb: 82 136 193;
+  --tg-accent-text-rgb: 111 163 216;
+}
+:is(.workspace-shell, .portal)[data-theme='light'] [data-chat-variant='telegram'] {
+  --tg-canvas: linear-gradient(160deg, #DCE6D0 0%, #C9DDB8 100%);
+  --tg-panel: #FFFFFF;
+  --tg-input: #F1F3F5;
+  --tg-line: #E6E6E6;
+  --tg-in: #FFFFFF;
+  --tg-out: #EFFDDE;
+  --tg-text: #000000;
+  --tg-time-in: #667480;
+  --tg-time-out: #357F34;
+  --tg-accent: #3390EC;
+  --tg-accent-text: #1F6FB5;
+  --tg-badge: #1F7AC4;
+  --tg-active: #2578CC;
+  --tg-muted: #6B7780;
+  --tg-on-accent: #FFFFFF;
+  --tg-pill: rgb(0 0 0 / 0.5);
+  --tg-pill-text: #FFFFFF;
+  --tg-panel-rgb: 255 255 255;
+  --tg-input-rgb: 241 243 245;
+  --tg-line-rgb: 230 230 230;
+  --tg-ink-rgb: 0 0 0;
+  --tg-muted-rgb: 107 119 128;
+  --tg-accent-rgb: 51 144 236;
+  --tg-accent-text-rgb: 31 111 181;
+}
+:is(.workspace-shell, .portal) [data-chat-variant='telegram'] {
+  --chat-canvas: var(--tg-canvas);
+  --chat-incoming: var(--tg-in);
+  --chat-incoming-text: var(--tg-text);
+  --chat-incoming-time: var(--tg-time-in);
+  --chat-outgoing: var(--tg-out);
+  --chat-outgoing-border: transparent;
+  --chat-outgoing-text: var(--tg-text);
+  --chat-outgoing-muted: var(--tg-time-out);
+  --chat-pill-bg: var(--tg-pill);
+  --chat-pill-text: var(--tg-pill-text);
+  --chat-send-bg: var(--tg-accent);
+  --chat-send-text: var(--tg-on-accent);
+  --chat-badge: var(--tg-badge);
+  --chat-active: var(--tg-active);
+  --chat-active-text: var(--tg-on-accent);
+  --chat-active-muted: #FFFFFF;
+  --w-panel: var(--tg-panel);
+  --w-panel2: var(--tg-input);
+  --w-line: var(--tg-line);
+  --w-ink: var(--tg-text);
+  --w-muted: var(--tg-muted);
+  --w-muted2: var(--tg-muted);
+  --w-accent: var(--tg-accent);
+  --w-accent-dim: var(--tg-accent);
+  --w-accent-text: var(--tg-accent-text);
+  --w-panel-rgb: var(--tg-panel-rgb);
+  --w-panel2-rgb: var(--tg-input-rgb);
+  --w-line-rgb: var(--tg-line-rgb);
+  --w-ink-rgb: var(--tg-ink-rgb);
+  --w-muted-rgb: var(--tg-muted-rgb);
+  --w-muted2-rgb: var(--tg-muted-rgb);
+  --w-accent-rgb: var(--tg-accent-rgb);
+  --w-accent-dim-rgb: var(--tg-accent-rgb);
+  --w-accent-text-rgb: var(--tg-accent-text-rgb);
+}
+
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--w-line) transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--w-line);
+}
 .portal[data-theme='light'] :where(header, main) .text-brand {
-  color: #8A6F00;
+  color: #7A6200;
 }
 .portal[data-theme='light'] :where(header, main) .hover\:text-brand:hover {
-  color: #8A6F00;
+  color: #7A6200;
 }
 .portal[data-theme='light'] :where(header, main) .bg-black.text-brand {
   color: #FFD400;
@@ -1117,4 +1389,120 @@ html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
 .expandable > * { overflow: hidden; min-height: 0; }
 @media (prefers-reduced-motion: reduce) {
   .expandable { transition: none; }
+}
+
+/* Note surfaces use the shell palette; semantic banners own their contrast. */
+.note-paper { background: var(--crm-panel, var(--w-panel, #fff)) !important; color: var(--crm-text, var(--w-ink, #0f172a)) !important; }
+:is(.crm-shell, .workspace-shell, .portal) .note-paper .note-reader { color: inherit !important; }
+:is(.crm-shell, .workspace-shell, .portal) .note-paper .note-reader > div { background: var(--crm-panel-soft, var(--w-panel2, #f8fafc)) !important; }
+.note-reader p + p { margin-top: 0.85rem; }
+.note-reader table { display: block; overflow-x: auto; }
+.note-quality { background: #eff6ff !important; border-color: #93c5fd !important; color: #1e3a8a !important; }
+.note-quality[data-incomplete='true'] { background: #fffbeb !important; border-color: #fcd34d !important; color: #78350f !important; }
+.note-bot-status[data-tone='recording'], .note-bot-status[data-tone='good'] { background: #ecfdf5 !important; border-color: #6ee7b7 !important; color: #065f46 !important; }
+:is(.crm-shell, .workspace-shell, .portal)[data-theme='dark'] .note-quality { background: #102c42 !important; border-color: #397aab !important; color: #d0eaff !important; }
+:is(.crm-shell, .workspace-shell, .portal)[data-theme='dark'] .note-quality[data-incomplete='true'] { background: #352a12 !important; border-color: #99772c !important; color: #fde8ad !important; }
+:is(.crm-shell, .workspace-shell, .portal)[data-theme='dark'] .note-bot-status[data-tone='recording'],
+:is(.crm-shell, .workspace-shell, .portal)[data-theme='dark'] .note-bot-status[data-tone='good'] { background: #10352b !important; border-color: #398d70 !important; color: #bcf7dc !important; }
+
+
+/* ===================================================================
+   Цвета ТЕКСТА для p-токенов (кабинет ученика и CRM, которая сидит на них же).
+
+   --p-accent / --p-good / --p-danger — это цвета заливки: жёлтая кнопка, зелёная
+   плашка. Как цвет текста на светлом фоне они нечитаемы (контраст 1.37 / 1.79 /
+   2.78 при норме 4.5). У кабинета ментора для этого давно есть --w-accent-text;
+   здесь та же идея и те же значения, уже проверенные там на контраст.
+
+   Тёмная тема оставляет прежние цвета. Сайдбары остаются тёмными и в светлой теме,
+   поэтому внутри <aside> текстовые цвета возвращаются к светлым вариантам.
+   =================================================================== */
+:root {
+  --p-accent-text: #FFD400;
+  --p-good-text: #8BD46A;
+  --p-danger-text: #FF6B6B;
+}
+
+html[data-theme='light'],
+html[data-crm-theme='light'],
+.portal[data-theme='light'],
+.crm-shell[data-theme='light'] {
+  --p-accent-text: #7A6200;
+  --p-good-text: #3D7A20;
+  --p-danger-text: #B42318;
+}
+
+.portal aside,
+.crm-shell aside {
+  --p-accent-text: #FFD400;
+  --p-good-text: #8BD46A;
+  --p-danger-text: #FF6B6B;
+}
+
+
+/* ===================================================================
+   Светлая тема: цвета, которые заданы только для тёмной.
+
+   ds-danger / ds-good / ds-accent-text определены лишь внутри .crm-shell, а
+   кабинеты ученика и ментора берут их из тёмных значений: красный #F87171 на
+   белом даёт контраст 2.8. Здесь светлые значения — те же, что уже стоят в
+   светлой CRM.
+
+   Литеральные Tailwind-цвета бледных оттенков (…-300/400/500) писались под
+   тёмный фон. На светлом они нечитаемы, поэтому в светлой теме темнеют до тех же
+   значений, что и токены выше. Сайдбары остаются тёмными — их не трогаем.
+   =================================================================== */
+html[data-theme='light'],
+html[data-crm-theme='light'] {
+  --ds-danger-rgb: 180 35 24;
+  --ds-good-rgb: 61 122 32;
+  --ds-accent-text-rgb: 122 98 0;
+}
+
+html[data-theme='light'] :where(main, header) :where(.text-amber-300, .text-amber-400, .text-amber-500, .text-yellow-300, .text-yellow-400, .text-yellow-500) {
+  color: #7A6200;
+}
+html[data-theme='light'] :where(main, header) :where(.text-emerald-300, .text-emerald-400, .text-emerald-500, .text-green-300, .text-green-400, .text-green-500) {
+  color: #3D7A20;
+}
+html[data-theme='light'] :where(main, header) :where(.text-red-300, .text-red-400, .text-red-500, .text-rose-400, .text-rose-500) {
+  color: #B42318;
+}
+
+/* ===================================================================
+   Portfolio UP: цвета направлений и статус «ожидание».
+   Один RGB-триплет на роль: текст бейджа — сам цвет, фон — он же с
+   прозрачностью (bg-dir-3/15), шапка карточки — ещё мягче (/10).
+   Тёмная тема — светлые оттенки, светлая — тёмные: контраст текста на
+   своём тонированном фоне не ниже 4.5:1 в обеих (см. activityUi.test.ts).
+   Объявлены на data-theme любой оболочки и на html для окон Radix.
+   Номер направления берётся из данных («№3 — IT»); неизвестный номер
+   получает нейтральный бейдж (ds-muted), см. directionTone().
+   =================================================================== */
+:root,
+[data-theme='dark'] {
+  --dir-1-rgb: 134 239 172; /* бизнес — зелёный */
+  --dir-2-rgb: 253 164 175; /* дизайн — розовый */
+  --dir-3-rgb: 147 197 253; /* IT — синий */
+  --dir-4-rgb: 196 181 253; /* AI — фиолетовый */
+  --dir-5-rgb: 253 186 116; /* оранжевый */
+  --dir-6-rgb: 190 242 100; /* лайм */
+  --dir-7-rgb: 103 232 249; /* инженерия — голубой */
+  --dir-8-rgb: 94 234 212;  /* медицина — бирюзовый */
+  /* «Ждёт ответа»: на проверке, предложено. Не жёлтый — жёлтый занят
+     главным действием и активным состоянием. */
+  --ds-info-rgb: 147 197 253;
+}
+html[data-theme='light'],
+html[data-crm-theme='light'],
+[data-theme='light'] {
+  --dir-1-rgb: 22 101 52;
+  --dir-2-rgb: 159 18 57;
+  --dir-3-rgb: 30 64 175;
+  --dir-4-rgb: 91 33 182;
+  --dir-5-rgb: 154 52 18;
+  --dir-6-rgb: 63 98 18;
+  --dir-7-rgb: 21 94 117;
+  --dir-8-rgb: 17 94 89;
+  --ds-info-rgb: 29 78 216;
 }

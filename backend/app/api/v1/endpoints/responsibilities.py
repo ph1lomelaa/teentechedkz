@@ -34,7 +34,7 @@ AREA_ORDER: tuple[ResponsibilityArea, ...] = tuple(ResponsibilityArea)
 
 # Кого вообще можно назначить ответственным. Студент исключён: кабинет — это не
 # рабочая роль, участок на него не вешается.
-ASSIGNABLE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor)
+ASSIGNABLE_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor)
 
 
 def _row(item: StudentResponsibility) -> dict:

@@ -20,8 +20,8 @@ export const StatCard: React.FC<StatCardProps> = ({ icon, label, value, sub, war
   const borderClass = colorPrefix === 'p' ? 'border-p-line' : colorPrefix === 'w' ? 'border-w-line' : 'border-ds-line'
   const accentDimClass = colorPrefix === 'p' ? 'hover:border-p-accent-dim' : colorPrefix === 'w' ? 'hover:border-w-accentDim' : 'hover:border-ds-accent-dim'
   const mutedClass = colorPrefix === 'p' ? 'text-p-muted' : colorPrefix === 'w' ? 'text-w-muted' : 'text-ds-muted'
-  const accentClass = colorPrefix === 'p' ? 'text-p-accent' : colorPrefix === 'w' ? 'text-w-accent' : 'text-ds-accent'
-  const goodClass = colorPrefix === 'p' ? 'text-p-good' : colorPrefix === 'w' ? 'text-w-good' : 'text-ds-good'
+  const accentClass = colorPrefix === 'p' ? 'text-p-accent-text' : colorPrefix === 'w' ? 'text-w-accent' : 'text-ds-accent'
+  const goodClass = colorPrefix === 'p' ? 'text-p-good-text' : colorPrefix === 'w' ? 'text-w-good' : 'text-ds-good'
   const Comp = onClick ? 'button' : 'div'
 
   return (

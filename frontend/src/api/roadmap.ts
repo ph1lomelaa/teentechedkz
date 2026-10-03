@@ -8,6 +8,9 @@ export interface RoadmapSubtask {
   id: string
   title: string
   is_done: boolean
+  due_date: string | null
+  /** Дни просрочки по зоне компании (считает бэк); 0 — не просрочено или выполнено. */
+  overdue_days?: number
   position: number
 }
 
@@ -16,6 +19,7 @@ export interface RoadmapSubtask {
 export type ReviewStatus = 'none' | 'pending' | 'approved' | 'returned'
 
 export interface RoadmapTask {
+  activity_participation_id?: string | null
   id: string
   stage_id: string
   roadmap_id: string
@@ -34,6 +38,7 @@ export interface RoadmapTask {
   reviewed_at: string | null
   review_comment: string | null
   due_date: string | null
+  overdue_days?: number
   urgency?: 'none' | 'yellow' | 'orange' | 'red' | 'critical' | null
   position: number
   subtasks: RoadmapSubtask[]
@@ -88,6 +93,7 @@ export interface TemplateListItem {
 export interface TemplateSubtask {
   id: string
   title: string
+  due_offset_days: number | null
   position: number
   source_notion_page_id?: string | null
 }
@@ -130,6 +136,7 @@ export interface RoadmapTemplate {
 // structure input (create / put-structure)
 export interface SubtaskInput {
   title: string
+  due_offset_days?: number | null
   source_notion_page_id?: string | null
 }
 export interface TaskInput {
@@ -212,6 +219,7 @@ export interface NotionRoadmapImportJob {
 }
 
 export interface FlatTask {
+  activity_participation_id?: string | null
   id: string
   stage_id: string
   roadmap_id: string
@@ -265,6 +273,7 @@ export const roadmapApi = {
   ) =>
     data<Roadmap>(apiClient.patch(`/stages/${stageId}`, body)),
   createTask: (body: {
+    activity_participation_id?: string
     stage_id: string
     title: string
     description?: string
@@ -293,9 +302,9 @@ export const roadmapApi = {
   }>) =>
     data<Roadmap>(apiClient.patch(`/roadmap-tasks/${taskId}`, body)),
   deleteTask: (taskId: string) => apiClient.delete(`/roadmap-tasks/${taskId}`),
-  createSubtask: (taskId: string, title: string) =>
-    data<Roadmap>(apiClient.post(`/roadmap-tasks/${taskId}/subtasks`, { title })),
-  updateSubtask: (subtaskId: string, body: { is_done?: boolean; title?: string }) =>
+  createSubtask: (taskId: string, title: string, dueDate?: string | null) =>
+    data<Roadmap>(apiClient.post(`/roadmap-tasks/${taskId}/subtasks`, { title, due_date: dueDate || null })),
+  updateSubtask: (subtaskId: string, body: { is_done?: boolean; title?: string; due_date?: string | null }) =>
     data<Roadmap>(apiClient.patch(`/roadmap-subtasks/${subtaskId}`, body)),
   deleteSubtask: (subtaskId: string) => apiClient.delete(`/roadmap-subtasks/${subtaskId}`),
 

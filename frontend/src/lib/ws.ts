@@ -25,6 +25,9 @@ function wsUrl(): string {
 
 function open() {
   if (!shouldConnect) return
+  // Подписчики монтируются раньше, чем сессия восстановилась: без токена рукопожатие
+  // получило бы 403 и запустило бы переподключения. AuthContext вызовет start() с токеном.
+  if (!getAccessToken()) return
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
   try {
     socket = new WebSocket(wsUrl())

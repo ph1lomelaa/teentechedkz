@@ -9,7 +9,7 @@ import {
   ItemStatus,
 } from '@/api/roadmap'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import { AppButton, Pill, PriorityPill, StatusPill, UrgencyBadge } from '@/components/ui'
+import { AppButton, Pill, PriorityPill, StatusPill } from '@/components/ui'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,9 @@ import { Input } from '@/components/ui/primitives/input'
 import { Label } from '@/components/ui/primitives/label'
 import { toast } from '@/hooks/use-toast'
 import { withViewTransition } from '@/lib/motion'
-import { cn, formatDate } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { DeadlineField } from '@/components/shared/DeadlineField'
+import { overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
 // uses (RoadmapTimeline), restyled with the dark w-* tokens so the mentor manages
@@ -64,6 +66,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [subtaskParent, setSubtaskParent] = useState<RoadmapTask | null>(null)
   const [subtaskTitle, setSubtaskTitle] = useState('')
+  const [subtaskDueDate, setSubtaskDueDate] = useState('')
   const [deleteTask, setDeleteTask] = useState<RoadmapTask | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -206,13 +209,14 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const openAddSubtask = (t: RoadmapTask) => {
     setSubtaskParent(t)
     setSubtaskTitle('')
+    setSubtaskDueDate('')
   }
   const submitAddSubtask = () => {
     const title = subtaskTitle.trim()
     const parent = subtaskParent
     if (!title || !parent) return
     setSubtaskParent(null)
-    run(() => roadmapApi.createSubtask(parent.id, title))
+    run(() => roadmapApi.createSubtask(parent.id, title, subtaskDueDate || null))
   }
   const removeTask = async (t: RoadmapTask) => {
     setDeleteTask(null)
@@ -275,12 +279,12 @@ export const WorkspaceRoadmapEditor: React.FC<{
               />
 
               <div
-                className="flex cursor-pointer select-none items-center gap-2.5 py-1"
+                className="flex cursor-pointer select-none flex-wrap items-center gap-x-2.5 gap-y-1 py-1"
                 onClick={() => setOpen((o) => ({ ...o, [s.id]: !o[s.id] }))}
               >
                 <span
                   className={cn(
-                    'text-[15px] font-black tracking-tight',
+                    'min-w-0 break-words text-[15px] font-black tracking-tight',
                     s.status === 'done' ? 'text-w-muted' : 'text-w-ink'
                   )}
                 >
@@ -326,6 +330,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
                         onToggle={() => toggleTask(t)}
                         onToggleVisibility={() => toggleTaskVisibility(t)}
                         onToggleSub={toggleSubtask}
+                        onUpdateDate={(dueDate) => run(() => roadmapApi.updateTask(t.id, { due_date: dueDate }))}
+                        onUpdateSubDate={(id, dueDate) => run(() => roadmapApi.updateSubtask(id, { due_date: dueDate || null }))}
                         onAddSub={() => openAddSubtask(t)}
                         onRemove={() => setDeleteTask(t)}
                         onRemoveSub={removeSubtask}
@@ -478,18 +484,29 @@ export const WorkspaceRoadmapEditor: React.FC<{
             Внутри задачи «{subtaskParent?.title}».
           </DialogDescription>
         </DialogHeader>
-        <div>
-          <Label className="text-w-muted">Название</Label>
-          <Input
-            value={subtaskTitle}
-            onChange={(e) => setSubtaskTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && subtaskTitle.trim()) submitAddSubtask()
-            }}
-            placeholder="Что нужно сделать"
-            className="mt-1 border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
-            autoFocus
-          />
+        <div className="space-y-3">
+          <div>
+            <Label className="text-w-muted">Название</Label>
+            <Input
+              value={subtaskTitle}
+              onChange={(e) => setSubtaskTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && subtaskTitle.trim()) submitAddSubtask()
+              }}
+              placeholder="Что нужно сделать"
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink placeholder:text-w-muted2 focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+              autoFocus
+            />
+          </div>
+          <div>
+            <Label className="text-w-muted">Отдельный дедлайн</Label>
+            <Input
+              type="date"
+              value={subtaskDueDate}
+              onChange={(e) => setSubtaskDueDate(e.target.value)}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim"
+            />
+          </div>
         </div>
         <DialogFooter className="gap-2">
           <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setSubtaskParent(null)}>
@@ -567,17 +584,20 @@ const TaskCard: React.FC<{
   onToggle: () => void
   onToggleVisibility: () => void
   onToggleSub: (id: string, isDone: boolean) => void
+  onUpdateDate: (dueDate: string | null) => void
+  onUpdateSubDate: (id: string, dueDate: string | null) => void
   onAddSub: () => void
   onRemove: () => void
   onRemoveSub: (id: string) => void
   onOpenQuestionnaire?: () => void
   onApproveReview?: () => void
   onReturnReview?: () => void
-}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onUpdateSubDate, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
   const isDone = task.status === 'done'
+  const taskOverdue = overdueDaysOf(task, isDone)
   return (
-    <div className="rounded-[13px] border border-w-line bg-w-panel2 transition hover:translate-x-[3px] hover:border-w-accentDim">
-      <div className="flex items-start gap-3 px-[18px] py-[15px]">
+    <div className={cn('rounded-[13px] border bg-w-panel2 transition hover:translate-x-[3px]', taskOverdue > 0 ? 'border-w-danger/60 bg-w-danger/5' : 'border-w-line hover:border-w-accentDim')}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-[18px] py-[15px] sm:flex-nowrap">
         <button
           type="button"
           onClick={onToggle}
@@ -589,7 +609,7 @@ const TaskCard: React.FC<{
         >
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </button>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[10rem] flex-1">
           <div className={cn('text-sm font-bold', isDone ? 'text-w-muted line-through' : 'text-w-ink')}>
             {task.title}
           </div>
@@ -634,8 +654,6 @@ const TaskCard: React.FC<{
                 </button>
               </>
             )}
-            {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
-            <UrgencyBadge dueDate={task.due_date} status={task.status} />
             {task.audience === 'coordinator' && <span className="text-w-muted2">координатор</span>}
             {task.needs_document && (
               <span className="inline-flex items-center gap-1 text-2xs text-w-muted2"><FileUp className="h-3 w-3" /> документ</span>
@@ -647,7 +665,7 @@ const TaskCard: React.FC<{
               <button
                 type="button"
                 onClick={onOpenQuestionnaire}
-                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
               >
                 <ClipboardList className="h-3 w-3" /> Анкета
               </button>
@@ -656,7 +674,7 @@ const TaskCard: React.FC<{
                 href={task.questionnaire_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-w-accentDim/50 px-2 py-0.5 text-2xs font-bold text-w-accentText transition hover:bg-w-accent/10"
               >
                 <ClipboardList className="h-3 w-3" /> Анкета
               </a>
@@ -687,10 +705,22 @@ const TaskCard: React.FC<{
         )}
       </div>
 
+      {(task.due_date || canManage) && (
+        <div className="-mt-2 flex justify-end px-[18px] pb-2.5 sm:pl-[52px]">
+          <DeadlineField
+            tone="w"
+            dueDate={task.due_date}
+            overdueDays={taskOverdue}
+            onChange={canManage ? onUpdateDate : undefined}
+            label={`Срок задачи «${task.title}»`}
+          />
+        </div>
+      )}
+
       {(task.subtasks.length > 0 || canManage) && (
-        <div className="space-y-1.5 border-t border-w-line px-[18px] py-2 pl-[52px]">
-          {task.subtasks.map((st) => (
-            <div key={st.id} className="group flex items-center gap-2">
+        <div className="space-y-1.5 border-t border-w-line px-[18px] py-2 pl-10 sm:pl-[52px]">
+          {sortSubtasksByDeadline(task.subtasks).map((st) => (
+            <div key={st.id} className="group flex flex-wrap items-center gap-x-2 gap-y-1">
               <button
                 type="button"
                 onClick={() => onToggleSub(st.id, st.is_done)}
@@ -702,19 +732,29 @@ const TaskCard: React.FC<{
               >
                 <Check className="h-3 w-3" strokeWidth={3.2} />
               </button>
-              <span className={cn('text-xs', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')}>
+              <span className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')}>
                 {st.title}
               </span>
               {canManage && (
                 <button
                   type="button"
                   onClick={() => onRemoveSub(st.id)}
-                  className="ml-auto text-w-muted2 opacity-0 transition hover:text-w-danger group-hover:opacity-100"
+                  className="text-w-muted2 opacity-0 transition hover:text-w-danger group-hover:opacity-100"
                   aria-label="Удалить подзадачу"
                 >
                   <X className="h-3 w-3" />
                 </button>
               )}
+              <DeadlineField
+                tone="w"
+                className="ml-auto"
+                subtle
+                dueDate={st.due_date}
+                overdueDays={overdueDaysOf(st, st.is_done)}
+                taskDueDate={task.due_date}
+                onChange={canManage ? (dueDate) => onUpdateSubDate(st.id, dueDate) : undefined}
+                label={`Срок подзадачи «${st.title}»`}
+              />
             </div>
           ))}
           {canManage && (

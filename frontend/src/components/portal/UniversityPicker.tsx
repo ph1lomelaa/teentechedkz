@@ -4,6 +4,7 @@ import { Check, Search } from 'lucide-react'
 import { universitiesApi } from '@/api/universities'
 import { matchesUniversityQuery } from '@/lib/university-search'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
+import { UniversityFormDialog } from './UniversityFormDialog'
 
 /** Pick a university out of the full catalog.
  *
@@ -19,8 +20,10 @@ export const UniversityPicker: React.FC<{
   excludeIds?: string[]
   onPick: (universityId: string) => void
   isPending?: boolean
-}> = ({ open, onOpenChange, excludeIds = [], onPick, isPending = false }) => {
+  canCreate?: boolean
+}> = ({ open, onOpenChange, excludeIds = [], onPick, isPending = false, canCreate = false }) => {
   const [q, setQ] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
   const deferredQ = useDeferredValue(q)
   const { data: catalog = [], isLoading } = useQuery({
     queryKey: ['universities'],
@@ -38,7 +41,7 @@ export const UniversityPicker: React.FC<{
     [catalog, deferredQ]
   )
 
-  return (
+  return (<>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
@@ -99,7 +102,11 @@ export const UniversityPicker: React.FC<{
             </ul>
           )}
         </div>
+        {canCreate && <button type="button" className="mt-3 text-sm font-semibold text-brand underline" onClick={() => setCreateOpen(true)}>
+          Нет нужного вуза? Добавить в каталог
+        </button>}
       </DialogContent>
     </Dialog>
-  )
+    <UniversityFormDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={(university) => onPick(university.id)} />
+  </>)
 }

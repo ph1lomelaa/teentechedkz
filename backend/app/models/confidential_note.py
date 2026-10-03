@@ -21,7 +21,7 @@ def note_visible_to_role(visibility: "NoteVisibility", role) -> bool:
         return True
     if visibility == NoteVisibility.admin_only:
         return False
-    if role == UserRole.mzk_manager:
+    if role in (UserRole.mzk_manager, UserRole.academic_head):
         return True
     if role == UserRole.mentor:
         return visibility == NoteVisibility.all_mentors

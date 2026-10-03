@@ -15,11 +15,13 @@ import {
 import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import { questionnairesApi } from '@/api/questionnaires'
-import { cn, formatDate } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { PriorityPill, StatusPill } from '@/components/ui'
+import { DeadlineField } from '@/components/shared/DeadlineField'
+import { formatDeadline, overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
   planned: 'Впереди',
@@ -37,7 +39,8 @@ const TIMELINE_SUB_LABEL: Record<ItemStatus, string> = {
 // Строка срока — всегда видима, независимо от наличия description
 function taskDue(t: RoadmapTask): string {
   if (t.status === 'done') return 'Выполнено'
-  if (t.due_date) return `дедлайн ${formatDate(t.due_date)}`
+  const late = overdueDaysOf(t, false)
+  if (t.due_date) return late > 0 ? `дедлайн ${formatDeadline(t.due_date)} · просрочено на ${late} дн.` : `дедлайн ${formatDeadline(t.due_date)}`
   return 'Без срока'
 }
 
@@ -326,7 +329,7 @@ export const ReviewChip: React.FC<{ task: ClaimTaskLike; className?: string }> =
     return (
       <span
         className={cn(
-          'inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-p-danger/60 bg-transparent px-2.5 py-1 text-2xs font-bold text-p-danger',
+          'inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-p-danger/60 bg-transparent px-2.5 py-1 text-2xs font-bold text-p-danger-text',
           className
         )}
       >
@@ -500,9 +503,12 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
         />
       )}
 
-      {/* группы задач по этапам */}
+      {/* Остальные этапы: выбранный уже показан подробно выше, повторять его задачи незачем. */}
       <div className="mt-6">
-        {roadmap.stages.map((st) => (
+        {roadmap.stages.some((st) => st.id !== stage?.id) && (
+          <p className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.2em] text-p-muted2">Другие этапы</p>
+        )}
+        {roadmap.stages.filter((st) => st.id !== stage?.id).map((st) => (
           <div key={st.id} className="mb-5">
             <div className="mb-3 flex items-center gap-3">
               <span className="h-5 w-1 rounded bg-brand" />
@@ -536,13 +542,13 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <b className={cn('block truncate text-sm font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
+                      <b className={cn('block break-words text-sm font-bold sm:truncate', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
                         {t.title}
                       </b>
                       {t.description && (
                         <small className="block truncate text-xs text-p-muted">{t.description}</small>
                       )}
-                      <small className="block truncate text-xs text-p-muted2">{taskDue(t)}</small>
+                      <small className={cn('block text-xs', overdueDaysOf(t, t.status === 'done') > 0 ? 'font-bold text-ds-danger' : 'text-p-muted2')}>{taskDue(t)}</small>
                       {(t.description || t.expected_result || t.needs_document || t.needs_zoom || t.questionnaire_url) && (
                         <TaskMeta task={t} compact />
                       )}
@@ -638,13 +644,13 @@ const StageDetail: React.FC<{
                   onClick={() => onExpandTask?.(expandedTask === t.id ? null : t.id)}
                   className="text-left hover:opacity-75 transition-opacity block w-full"
                 >
-                  <b className={cn('block truncate text-sm font-bold', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
+                  <b className={cn('block break-words text-sm font-bold sm:truncate', t.status === 'done' ? 'text-p-muted2 line-through' : 'text-p-text')}>
                     {t.title}
                   </b>
                   {t.description && expandedTask !== t.id && (
                     <small className="block truncate text-xs text-p-muted">{t.description}</small>
                   )}
-                  <small className="block truncate text-xs text-p-muted2">{taskDue(t)}</small>
+                  <small className={cn('block text-xs', overdueDaysOf(t, t.status === 'done') > 0 ? 'font-bold text-ds-danger' : 'text-p-muted2')}>{taskDue(t)}</small>
                 </button>
                 {t.status !== 'done' && t.review_status === 'pending' && (
                   <small className="mt-0.5 block text-xs text-brand/90">
@@ -673,7 +679,7 @@ const StageDetail: React.FC<{
               <div className="expandable" data-open={expandedTask === t.id}>
                 <div>
                   <div className="pl-[36px] mt-2 grid gap-1.5">
-                {t.subtasks.map((st) =>
+                {sortSubtasksByDeadline(t.subtasks).map((st) =>
                   claimable ? (
                     <button
                       key={st.id}
@@ -695,6 +701,13 @@ const StageDetail: React.FC<{
                       <span className={cn('text-xs transition', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
                         {st.title}
                       </span>
+                      <DeadlineField
+                        className="ml-auto"
+                        dueDate={st.due_date}
+                        overdueDays={overdueDaysOf(st, st.is_done)}
+                        taskDueDate={t.due_date}
+                        label={`Срок подзадачи «${st.title}»`}
+                      />
                     </button>
                   ) : (
                     <div key={st.id} className="flex items-center gap-2.5">
@@ -709,6 +722,13 @@ const StageDetail: React.FC<{
                       <span className={cn('text-xs', st.is_done ? 'text-p-muted2 line-through' : 'text-p-muted')}>
                         {st.title}
                       </span>
+                      <DeadlineField
+                        className="ml-auto"
+                        dueDate={st.due_date}
+                        overdueDays={overdueDaysOf(st, st.is_done)}
+                        taskDueDate={t.due_date}
+                        label={`Срок подзадачи «${st.title}»`}
+                      />
                     </div>
                   )
                 )}

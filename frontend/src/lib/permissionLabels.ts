@@ -34,7 +34,7 @@ export const RESOURCE_GROUPS: ResourceGroup[] = [
       'students', 'student_access', 'responsibilities', 'mentor_assignments',
       'assignment_overview',
       'guardians', 'emergency_contacts', 'confidential_notes', 'documents',
-      'credentials', 'student_universities', 'applications', 'portfolio',
+      'credentials', 'student_universities', 'applications', 'portfolio', 'activity_catalog',
       'services', 'status_history',
     ],
   },
@@ -92,6 +92,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   student_universities: 'Университеты ученика',
   applications: 'Заявки в университеты',
   portfolio: 'Портфолио',
+  activity_catalog: 'Каталог активностей',
   services: 'Услуги по договору',
   status_history: 'История статусов',
 

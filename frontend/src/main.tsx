@@ -2,6 +2,7 @@ import ReactDOM from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import App, { isRecoverableAppError, recoverPageOnce } from './App'
 import './index.css'
+import { TestDbBanner } from './components/shared/TestDbBanner'
 
 // Error-tracking. Включается только если задан VITE_SENTRY_DSN — без него no-op.
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
@@ -30,5 +31,8 @@ window.addEventListener('error', (event) => recoverGlobalRuntimeError(event.erro
 window.addEventListener('unhandledrejection', (event) => recoverGlobalRuntimeError(event.reason))
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <App />
+  <>
+    <TestDbBanner />
+    <App />
+  </>
 )

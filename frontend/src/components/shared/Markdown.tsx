@@ -1,4 +1,4 @@
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +13,16 @@ export function stripMarkdown(md: string | null | undefined): string {
 }
 
 /** Рендер Markdown для AI-конспектов и резюме в стиле приложения. */
-export function Markdown({ children, className }: { children: string; className?: string }) {
+export function Markdown({
+  children,
+  className,
+  components,
+}: {
+  children: string
+  className?: string
+  /** Точечная замена отдельных тегов, например подзаголовков в читалке конспекта. */
+  components?: Components
+}) {
   return (
     <div className={cn('text-sm text-gray-800 leading-relaxed space-y-2', className)}>
       <ReactMarkdown
@@ -29,7 +38,12 @@ export function Markdown({ children, className }: { children: string; className?
             <p className="label-caps mt-3 first:mt-0">{children}</p>
           ),
           ul: ({ children }) => <ul className="space-y-1 pl-1">{children}</ul>,
-          ol: ({ children }) => <ol className="space-y-1 pl-5 list-decimal">{children}</ol>,
+          // У li ниже свой маркер «·» и display:flex, из-за чего номера в
+          // нумерованном списке пропадали. Внутри ol возвращаем обычный
+          // list-item и прячем точку.
+          ol: ({ children }) => (
+            <ol className="space-y-1 pl-5 list-decimal marker:text-gray-400 [&>li]:list-item [&>li>span:first-child]:hidden">{children}</ol>
+          ),
           li: ({ children }) => (
             <li className="flex gap-2">
               <span className="text-gray-400 shrink-0 select-none">·</span>
@@ -55,6 +69,7 @@ export function Markdown({ children, className }: { children: string; className?
             <th className="text-left px-2 py-1 border-b border-gray-200 label-caps">{children}</th>
           ),
           td: ({ children }) => <td className="px-2 py-1 border-b border-gray-100">{children}</td>,
+          ...components,
         }}
       >
         {children}

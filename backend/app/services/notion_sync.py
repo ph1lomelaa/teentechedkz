@@ -128,7 +128,12 @@ def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, st
 
     n_degree = parse_degree_or_none(d.get("degree_raw") or "")
     c_degree = student.degree_level.value if student and student.degree_level else None
-    n_status = parse_pipeline_status(d.get("payment_status_raw") or "") if d.get("payment_status_raw") else None
+    try:
+        n_status = parse_pipeline_status(d.get("payment_status_raw") or "") if d.get("payment_status_raw") else None
+    except ValueError:
+        # Preserve the raw snapshot so the new option appears in the review
+        # report. The pipeline apply step rejects it before changing CRM.
+        n_status = None
     c_status = contract.pipeline_status.value if contract and contract.pipeline_status else None
 
     return {
@@ -227,6 +232,16 @@ async def run_sync(db: AsyncSession) -> dict:
 
             existing_result = await db.execute(select(NotionSnapshot))
             existing = {s.notion_page_id: s for s in existing_result.scalars().all()}
+            # Deleted or missing pages need review before the source can be
+            # treated as complete; a percentage threshold could miss a few
+            # silently truncated rows.
+            incoming_ids = {row["notion_page_id"] for row in rows}
+            missing_ids = set(existing) - incoming_ids
+            if missing_ids:
+                raise RuntimeError(
+                    f"Notion не вернул {len(missing_ids)} ранее известных страниц "
+                    f"({len(rows)} строк сейчас, {len(existing)} ранее)"
+                )
             students_index = await _load_students_index(db)
 
             now = datetime.now(timezone.utc)
@@ -236,6 +251,10 @@ async def run_sync(db: AsyncSession) -> dict:
 
             def apply_match(snapshot: NotionSnapshot, row: dict) -> bool:
                 """Матчинг непривязанного снапшота. True, если автопривязали."""
+                if not row.get("full_name"):
+                    snapshot.suggested_student_id = None
+                    snapshot.suggested_confidence = None
+                    return False
                 match = fuzzy_match(row.get("full_name", ""), row.get("phone", ""), students_index)
                 # После ручной отвязки автопривязка запрещена — только предложение
                 if match.student_id and match.confidence >= 1.0 and not snapshot.manual_unlink:
@@ -299,6 +318,11 @@ async def run_sync(db: AsyncSession) -> dict:
 
             await db.commit()
 
+            pipeline_result = None
+            if settings.ENABLE_NOTION_PIPELINE_APPLY:
+                from app.services.notion_pipeline import apply_report
+                pipeline_result = await apply_report(db)
+
             needs_review = await unmatched_count(db)
             counters = {
                 "total": len(rows),
@@ -307,6 +331,7 @@ async def run_sync(db: AsyncSession) -> dict:
                 "unchanged": unchanged,
                 "auto_linked": auto_linked,
                 "needs_review": needs_review,
+                "pipeline": pipeline_result,
             }
             await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Notion sync done: {counters}")

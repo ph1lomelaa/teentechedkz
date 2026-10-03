@@ -20,7 +20,13 @@ class UniversityCredential(Base):
     university_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("universities.id", ondelete="SET NULL"), nullable=True
     )
+    # Конкретная подача, к которой относится доступ: по ней admission_guard
+    # проверяет, что оффер/зачисление можно подтвердить через портал.
+    application_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("applications.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     portal_name: Mapped[str] = mapped_column(String(300))
+    portal_url: Mapped[str] = mapped_column(String(1000), default="", server_default="")
     login_enc: Mapped[str] = mapped_column(Text)       # Fernet ciphertext
     password_enc: Mapped[str] = mapped_column(Text)    # Fernet ciphertext
     notes: Mapped[str] = mapped_column(Text, default="")

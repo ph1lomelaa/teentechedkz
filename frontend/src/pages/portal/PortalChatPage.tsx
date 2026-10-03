@@ -162,7 +162,7 @@ export const PortalChatPage: React.FC = () => {
                                   message.is_me ? 'border-p-accent bg-p-accent text-black' : 'border-p-line bg-p-panel text-p-text',
                                 )}
                               >
-                                <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-p-accent')}>
+                                <div className={cn('mb-1 text-[11px] font-bold', message.is_me ? 'text-black/80' : 'text-p-accent-text')}>
                                   {message.sender_name || 'Участник'}
                                 </div>
                                 {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
@@ -245,7 +245,7 @@ export const PortalChatPage: React.FC = () => {
                           {conversation.other?.name || conversation.title || 'Команда TeenTechEd'}
                         </div>
                         {conversation.unread > 0 && (
-                          <span className={cn('rounded-pill px-2 py-0.5 text-[10px] font-black', active ? 'bg-black text-p-accent' : 'bg-p-accent text-black')}>
+                          <span className={cn('rounded-pill px-2 py-0.5 text-[10px] font-black', active ? 'bg-black text-p-accent-text' : 'bg-p-accent text-black')}>
                             {conversation.unread}
                           </span>
                         )}

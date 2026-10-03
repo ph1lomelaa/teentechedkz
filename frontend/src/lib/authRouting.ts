@@ -20,6 +20,7 @@ export function getDefaultPath(role: UserRole): string {
       // mentor_scope.py на бэкенде.
       return '/students'
     case 'mzk_manager':
+    case 'academic_head':
       // Менеджер остаётся в кабинете: «Мой день» собирает его просрочки,
       // горящий SLA и встречи, и у него это всё есть с первого дня.
       return '/workspace/my-day'

@@ -28,7 +28,7 @@ export const PortalQuestionnairesPage: React.FC = () => {
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
       <div className="mb-6">
-        <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
+        <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Кабинет</p>
         <h1 className="mt-2 font-display text-2xl md:text-3xl font-black text-p-text">Анкеты</h1>
         <p className="mt-2 text-sm text-p-muted">
           Заполняй анкеты, которые отправил тебе ментор. Это помогает лучше понять твои цели и ускорить подготовку.

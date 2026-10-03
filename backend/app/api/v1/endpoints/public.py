@@ -33,7 +33,7 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 
 async def _notify_admins(db: AsyncSession, *, kind: str, title: str, body: str, link: str) -> None:
-    admins = await db.execute(select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager])))
+    admins = await db.execute(select(User).where(User.role.in_([UserRole.admin, UserRole.mzk_manager, UserRole.academic_head])))
     for admin in admins.scalars():
         db.add(Notification(
             user_id=admin.id,

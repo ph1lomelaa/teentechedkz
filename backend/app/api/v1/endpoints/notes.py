@@ -15,10 +15,13 @@ from app.core.database import get_db
 from app.core.encryption import decrypt, encrypt
 from app.models.communication_log import CommunicationLog, CommSource, MessageType
 from app.models.confidential_note import ConfidentialNote, default_note_visibility_for, is_near_duplicate_note
+from app.models.note_session import NoteSession
 from app.models.student import Student
 from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.user import UserRole
+from app.services.meeting_bot.quality import QUALITY_REASON_MESSAGES, QUALITY_WARNING_MESSAGES
 from app.schemas.student_note import (
+    NoteRecordingInfo,
     StudentNoteCreate,
     StudentNoteImportanceRequest,
     StudentNotePublishRequest,
@@ -164,7 +167,21 @@ async def get_note(
     elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return _note_to_response(note, student_name)
+    response = _note_to_response(note, student_name)
+    session = await db.scalar(select(NoteSession).where(NoteSession.note_id == note.id))
+    if session:
+        response.recording = NoteRecordingInfo(
+            session_id=session.id,
+            capture_mode=session.capture_mode or "browser",
+            quality=session.quality,
+            quality_reasons=list(session.quality_reasons or []),
+            quality_warnings=list(session.quality_warnings or []),
+            quality_reason_messages=[QUALITY_REASON_MESSAGES[r] for r in session.quality_reasons or [] if r in QUALITY_REASON_MESSAGES],
+            quality_warning_messages=[QUALITY_WARNING_MESSAGES[w] for w in session.quality_warnings or [] if w in QUALITY_WARNING_MESSAGES],
+            has_audio=bool(session.audio_storage_path),
+            bot_status_reason=session.bot_status_reason,
+        )
+    return response
 
 
 @router.post("", response_model=StudentNoteResponse, status_code=201)

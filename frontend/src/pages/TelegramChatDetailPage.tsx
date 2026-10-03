@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, FolderInput, History, Paperclip, Pin, Search, Sparkles, Upload } from 'lucide-react'
+import { ArrowLeft, FolderInput, History, MessageCircle, Paperclip, Pin, Search, Sparkles, Upload } from 'lucide-react'
 import { telegramApi } from '@/api/telegram'
 import { pendingInsightsApi } from '@/api'
 import { documentsApi } from '@/api/documents'
+import { studentsApi } from '@/api/students'
 import {
   DocType,
   DOC_TYPE_LABELS,
@@ -38,7 +39,7 @@ import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/primitives/toast'
 import { downloadBlob } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { compactContextDraft } from '@/lib/contextDraft'
+import { applySummaryText } from '@/lib/contextDraft'
 import type { TelegramAttachment, TelegramContextDraft } from '@/types'
 import { QueryError } from '@/components/shared/QueryState'
 import { invalidateStudent } from '@/lib/queryKeys'
@@ -70,6 +71,12 @@ export default function TelegramChatDetailPage() {
     queryKey: ['telegram-chat', chatId],
     queryFn: () => telegramApi.getById(chatId!),
     enabled: !!chatId,
+  })
+
+  const { data: linkedStudent } = useQuery({
+    queryKey: ['telegram-chat', chatId, 'student-access', chat?.student_id],
+    queryFn: () => studentsApi.get(chat!.student_id!),
+    enabled: !!chat?.student_id,
   })
 
   const { data: messages = [] } = useQuery({
@@ -212,7 +219,7 @@ export default function TelegramChatDetailPage() {
   })
 
   const applyContextDraftMutation = useMutation({
-    mutationFn: () => telegramApi.applyContextDraft(chatId!, compactContextDraft(contextDraft!)),
+    mutationFn: (payload: TelegramContextDraft) => telegramApi.applyContextDraft(chatId!, payload),
     onSuccess: (result) => {
       setContextDraftOpen(false)
       setContextDraft(null)
@@ -220,7 +227,7 @@ export default function TelegramChatDetailPage() {
       qc.invalidateQueries({ queryKey: ['telegram-chat', chatId, 'insights'] })
       toast({
         title: 'Заметки сохранены',
-        description: `Сохранено заметок: ${result.profile_notes_saved}`,
+        description: applySummaryText(result),
       })
     },
     onError: (err) => toast({ title: 'Не удалось сохранить заметки', description: getErrorMessage(err), variant: 'destructive' }),
@@ -361,8 +368,23 @@ export default function TelegramChatDetailPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="border border-p-line rounded-card">
-        <div className="px-4 py-2 border-b border-p-line">
+      <div className="rounded-card border border-sky-200 bg-sky-50/40 p-4 text-sm text-sky-950">
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-sky-500 p-2 text-white">
+            <MessageCircle className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="font-semibold">Зеркало Telegram-переписки</div>
+            <p className="mt-0.5 text-xs leading-relaxed text-sky-800">
+              Здесь отображается история из Telegram. Это не внутренний мессенджер платформы:
+              отвечать студенту нужно в Telegram.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-2 border-sky-200 rounded-card bg-white shadow-sm">
+        <div className="px-4 py-2 border-b border-sky-200 bg-sky-50/60">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="font-medium text-sm text-p-text">
               Переписка ({messages.length}{messageSearch.trim() ? ' найдено' : ''})
@@ -377,8 +399,8 @@ export default function TelegramChatDetailPage() {
               />
             </div>
           </div>
-          <p className="mt-1 text-xs text-p-muted2">
-            История хранится на уровне Telegram-чата: при смене студента сообщения не удаляются.
+          <p className="mt-1 text-xs text-sky-800">
+            Только просмотр истории. При смене студента сообщения не удаляются из Telegram-чата.
           </p>
         </div>
         <div className="max-h-[600px] overflow-y-auto p-4 space-y-3">
@@ -427,7 +449,7 @@ export default function TelegramChatDetailPage() {
 
       {chat.student_id && (
         <Accordion type="single" collapsible defaultValue="chat">
-          <StudentChatSection studentId={chat.student_id} />
+          <StudentChatSection studentId={chat.student_id} hasPortalAccess={!!linkedStudent?.user_id} />
         </Accordion>
       )}
 
@@ -496,7 +518,7 @@ export default function TelegramChatDetailPage() {
         draft={contextDraft}
         onDraftChange={setContextDraft}
         onCancel={() => setContextDraftOpen(false)}
-        onConfirm={() => applyContextDraftMutation.mutate()}
+        onConfirm={(payload) => applyContextDraftMutation.mutate(payload)}
         isApplying={applyContextDraftMutation.isPending}
         footnote="Вложения пока не распознаются автоматически: AI видит факт файла, но не читает содержимое сертификата."
       />

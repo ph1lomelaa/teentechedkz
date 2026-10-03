@@ -1,0 +1,99 @@
+# Attendee — бот, который заходит в Zoom / Google Meet / Teams и пишет встречу
+# для конспекта. Разворачивается ОТДЕЛЬНО от платформы (см. attendee/README.md).
+#
+# Режим запуска ботов — docker-compose-multi-host: каждый бот в своём временном
+# контейнере (1 CPU, 2 ГБ). В простом Celery-режиме боты делят аудиоустройства
+# одного контейнера и звук разных встреч может смешаться — для нас недопустимо.
+#
+# Все сервисы в сети хоста: контейнеры ботов Attendee создаёт с network_mode=host
+# и копирует им переменные окружения лаунчера, поэтому Postgres, Redis и MinIO
+# должны быть доступны по 127.0.0.1 одинаково для всех.
+#
+# Сборка из исходников Attendee, закреплённых на проверенном коммите:
+#   git clone https://github.com/attendee-labs/attendee.git /opt/attendee
+#   git -C /opt/attendee checkout 500168b
+#   docker compose -f docker-compose.attendee.yml --env-file attendee.env build
+
+x-attendee: &attendee
+  build:
+    context: ${ATTENDEE_SRC:-/opt/attendee}
+  image: teenteched/attendee:500168b
+  network_mode: host
+  env_file: attendee.env
+  restart: unless-stopped
+  depends_on:
+    - postgres
+    - redis
+
+services:
+  postgres:
+    image: postgres:15.3-alpine
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=5433"]
+    environment:
+      POSTGRES_DB: attendee
+      POSTGRES_USER: attendee
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в attendee.env}
+      PGDATA: /data/postgres
+    volumes:
+      - attendee_postgres:/data/postgres
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    network_mode: host
+    command: ["redis-server", "--bind", "127.0.0.1", "--port", "6380", "--appendonly", "yes"]
+    volumes:
+      - attendee_redis:/data
+    restart: unless-stopped
+
+  # Хранилище записей (Attendee пишет в S3-совместимое). Наружу — только через
+  # Caddy (attendee-files.<домен>): бэкенд платформы скачивает mp3 по ссылке.
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    network_mode: host
+    command: ["server", "/data", "--address", "${ATTENDEE_BIND:-127.0.0.1}:9300", "--console-address", "127.0.0.1:9301"]
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:?задайте AWS_ACCESS_KEY_ID в attendee.env}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:?задайте AWS_SECRET_ACCESS_KEY в attendee.env}
+    volumes:
+      - attendee_minio:/data
+    restart: unless-stopped
+
+  # API и панель Attendee (порт 8100, наружу через Caddy). ATTENDEE_BIND — адрес,
+  # по которому их видит Caddy: 127.0.0.1, если Caddy — служба на хосте;
+  # 172.17.0.1 (docker0), если Caddy в контейнере. Никогда не 0.0.0.0.
+  app:
+    <<: *attendee
+    entrypoint: []
+    command: >
+      bash -c "python manage.py migrate --noinput &&
+               python manage.py collectstatic --noinput &&
+               gunicorn attendee.wsgi --bind ${ATTENDEE_BIND:-127.0.0.1}:8100 --workers 3 --timeout 120"
+
+  # Обычные фоновые задачи: вебхуки, обработка фрагментов текста.
+  worker:
+    <<: *attendee
+    command: celery -A attendee worker -l INFO --concurrency 4
+
+  # Лаунчер ботов: на каждого бота — отдельный временный контейнер.
+  # Нужен доступ к Docker хоста (это root-доступ — поэтому сервер отдельный).
+  bot-launcher:
+    <<: *attendee
+    user: root
+    command: celery -A attendee worker -l INFO -Q bot_launcher_vm --concurrency 2
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Не передавать домашний каталог root в контейнер бота под app.
+      - ./run_bot_in_ephemeral_container_task.py:/attendee/bots/tasks/run_bot_in_ephemeral_container_task.py:ro
+
+  # Запуск запланированных ботов и уборка зависших.
+  scheduler:
+    <<: *attendee
+    entrypoint: []
+    command: python manage.py run_scheduler
+
+volumes:
+  attendee_postgres:
+  attendee_redis:
+  attendee_minio:

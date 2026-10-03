@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils'
 import React, { useEffect, useRef, useState } from 'react'
 import { authApi } from '@/api/auth'
 
@@ -77,7 +78,9 @@ export const GoogleSignInButton: React.FC<{
   /** Разделитель «или» нужен там, где рядом есть вход по паролю. */
   divider?: boolean
   text?: 'signin_with' | 'continue_with'
-}> = ({ onCredential, onError, divider = true, text = 'signin_with' }) => {
+  /** Внутри кабинета (тема переключается): цвета берутся из токенов, а не белые под тёмную страницу входа. */
+  themed?: boolean
+}> = ({ onCredential, onError, divider = true, text = 'signin_with', themed = false }) => {
   const holder = useRef<HTMLDivElement>(null)
   const [phase, setPhase] = useState<Phase>('loading')
   const [width, setWidth] = useState(0)
@@ -157,7 +160,7 @@ export const GoogleSignInButton: React.FC<{
   return (
     <div className={divider ? 'mt-6' : ''}>
       {divider && (
-        <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-white/35">
+        <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-white/55">
           <span className="h-px flex-1 bg-white/10" />
           или
           <span className="h-px flex-1 bg-white/10" />
@@ -175,7 +178,10 @@ export const GoogleSignInButton: React.FC<{
         />
         {phase === 'loading' && (
           <div
-            className="w-full animate-pulse rounded-ctl border border-[#343434] bg-[#1C1C1C]"
+            className={cn(
+              'w-full animate-pulse rounded-ctl border',
+              themed ? 'border-w-line bg-w-panel2' : 'border-[#343434] bg-[#1C1C1C]',
+            )}
             style={{ height: BUTTON_HEIGHT }}
             aria-hidden
           />
@@ -183,12 +189,12 @@ export const GoogleSignInButton: React.FC<{
 
         {/* Молча спрятанная кнопка читается как поломка, поэтому говорим прямо. */}
         {phase === 'disabled' && (
-          <p className="text-center text-[13px] leading-5 text-white/45">
+          <p className={cn('text-center text-[13px] leading-5', themed ? 'text-w-muted' : 'text-white/60')}>
             Вход через Google временно недоступен
           </p>
         )}
         {phase === 'failed' && (
-          <p className="text-center text-[13px] leading-5 text-white/45">
+          <p className={cn('text-center text-[13px] leading-5', themed ? 'text-w-muted' : 'text-white/60')}>
             Google не отвечает — попробуйте обновить страницу
           </p>
         )}

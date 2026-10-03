@@ -1,10 +1,17 @@
 name: Deploy
 
 on:
+  pull_request:
   push:
     branches:
       - main
   workflow_dispatch:
+
+# Не запускаем два продовых деплоя одновременно. PR продолжает валидироваться,
+# но сам деплой ниже разрешён только для push в main и ручного запуска.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'teenteched-production-deploy' }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -56,11 +63,7 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # Неблокирующий: 8 legacy react-hooks/exhaustive-deps предупреждений
-      # (см. TODO_PROD.md, блок 3). Ошибки eslint при этом уже блокируют — их нет.
-      # continue-on-error снят 30.08.2026: до этого линт падал всегда (один
-      # давний warning при --max-warnings 0), поэтому красный результат был
-      # нормой и настоящий дефект в нём утонул бы.
+      # Линт блокирует CI при любом предупреждении (--max-warnings 0).
       - name: Lint frontend
         working-directory: frontend
         run: npm run lint
@@ -170,6 +173,7 @@ jobs:
 
   deploy:
     needs: validate
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
@@ -181,7 +185,8 @@ jobs:
           script_stop: true
           script: |
             cd "${{ secrets.DEPLOY_PATH }}"
-            git pull origin main
+            git fetch origin main
+            git checkout --detach "${{ github.sha }}"
             # Бэкап БД ПЕРЕД накатом миграций: миграции идут в command: бэкенда при
             # старте, откатить их без дампа нельзя. Не валим деплой, если бэкап
             # не удался на самом первом запуске (контейнеров ещё нет) — но на

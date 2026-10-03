@@ -124,7 +124,12 @@ export const CheckinsGrid: React.FC<Props> = ({ colorPrefix = 'w' }) => {
                   <tr key={u.user_id} className={cn('border-b last:border-0', t.borderLine)}>
                     <td className={cn('sticky left-0 px-3 py-2 font-medium', t.panel, t.ink)}>
                       {u.user_name}
-                      <div className={cn('text-2xs', t.muted2)}>{u.user_role}</div>
+                      <div className={cn('text-2xs', t.muted2)}>
+                        {u.user_role}
+                        {/* Свой пояс отметки (регламент п.2.1) — иначе «вовремя в 10:00»
+                            у ментора в Европе выглядит как опоздание по Алматы. */}
+                        {u.timezone && u.timezone !== data?.window.timezone && ` · ${u.timezone}`}
+                      </div>
                     </td>
                     <td className={cn('px-3 py-2', t.good)}>{s?.on_time ?? 0}</td>
                     <td className={cn('px-3 py-2', t.accentText)}>{s?.late ?? 0}</td>

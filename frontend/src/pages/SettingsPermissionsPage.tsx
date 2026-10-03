@@ -320,7 +320,7 @@ export const SettingsPermissionsPage: React.FC = () => {
               grouped.flatMap((group) => [
                 <TableRow key={`group-${group.title}`} className="border-p-line hover:bg-transparent">
                   <TableCell colSpan={columnCount} className="bg-p-bg py-2">
-                    <span className="text-[11px] font-black uppercase tracking-[0.14em] text-p-accent">
+                    <span className="text-[11px] font-black uppercase tracking-[0.14em] text-p-accent-text">
                       {group.title}
                     </span>
                     {group.hint && (

@@ -8,8 +8,6 @@ import { notionApi } from '@/api/notion'
 import { studentsApi } from '@/api/students'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  PIPELINE_STATUS_LABELS,
-  PIPELINE_STATUS_COLORS,
   FinanceBreakdown,
 } from '@/types'
 import {
@@ -34,6 +32,7 @@ import { FileText, Wallet, CheckCircle2, AlertCircle } from 'lucide-react'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
 import { QueryError } from '@/components/shared/QueryState'
+import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
 
 const moneyCurrency = 'KZT'
 const toNumber = (value?: string) => Number.parseFloat(value ?? '0') || 0
@@ -1521,11 +1520,7 @@ export const FinancesPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             {row.pipeline_status ? (
-                              <span
-                                className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[row.pipeline_status]}`}
-                              >
-                                {PIPELINE_STATUS_LABELS[row.pipeline_status] ?? row.pipeline_status}
-                              </span>
+                              <PipelineStatusTag status={row.pipeline_status} />
                             ) : (
                               <span className="text-p-muted text-xs">—</span>
                             )}

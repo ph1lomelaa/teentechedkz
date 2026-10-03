@@ -130,9 +130,13 @@ def main():
     st, meetings = _req("GET", "/portal/meetings", student_tok)
     check("student GET /portal/meetings", st == 200 and len(meetings) == 1, f"status={st}")
 
-    # 14. university credentials feature is disabled for every role
-    st, _ = _req("GET", "/portal/credentials", student_tok)
-    check("university credentials endpoint removed", st == 404, f"status={st}")
+    # 14. admission portal credentials: the student reads them but never writes
+    st, creds = _req("GET", "/portal/credentials", student_tok)
+    check("student GET /portal/credentials", st == 200 and isinstance(creds, list), f"status={st}")
+    st, _ = _req("POST", "/credentials", student_tok, {
+        "student_id": sid, "portal_name": "Hack", "login": "x", "password": "y",
+    })
+    check("student cannot add portal credentials", st == 403, f"status={st}")
 
     # 15. template previews are readable, authoring remains role-gated
     st, student_templates = _req("GET", "/roadmap-templates", student_tok)

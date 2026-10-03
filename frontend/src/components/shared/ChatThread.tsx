@@ -6,10 +6,7 @@ import { useWsEvent } from '@/lib/ws'
 import { cn } from '@/lib/utils'
 import { parseSimpleMarkdown, renderMarkdown } from '@/lib/markdown-simple'
 import { toast } from '@/hooks/use-toast'
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-}
+import { DaySeparator, MessageBubble, MessageComposer, UserAvatar, groupFlags } from '@/components/shared/ChatPrimitives'
 
 export const ChatThread: React.FC<{
   conversationId: string
@@ -18,6 +15,8 @@ export const ChatThread: React.FC<{
   variant?: 'crm' | 'portal'
   showSearch?: boolean
   readOnly?: boolean
+  shellClassName?: string
+  peerName?: string
 }> = ({
   conversationId,
   currentUserId,
@@ -25,6 +24,8 @@ export const ChatThread: React.FC<{
   variant = 'crm',
   showSearch = true,
   readOnly = false,
+  shellClassName,
+  peerName,
 }) => {
   const { data } = useQuery({
     queryKey: ['messages', conversationId],
@@ -112,8 +113,10 @@ export const ChatThread: React.FC<{
 
   return (
     <div className={cn(
-      'flex flex-col border overflow-hidden',
-      portal ? 'border-w-line rounded-panel bg-w-panel' : 'border-gray-200 rounded-panel bg-white'
+      'flex flex-col overflow-hidden border',
+      portal ? 'border-w-line rounded-panel bg-w-panel' : 'border-gray-200 rounded-panel bg-white',
+      heightClass,
+      shellClassName,
     )}>
       {/* Search bar */}
       {variant === 'portal' && showSearch && (
@@ -144,15 +147,46 @@ export const ChatThread: React.FC<{
         </div>
       )}
 
-      <div className={cn('overflow-y-auto p-4 space-y-2.5', portal ? 'bg-w-panel2' : 'bg-[#FBFAF7]', heightClass)}>
+      <div className={cn('chat-scrollbar min-h-0 flex-1 overflow-y-auto p-3 sm:p-4', portal ? '[background:var(--chat-canvas)]' : 'bg-[#FBFAF7]')}>
         {filtered.length === 0 ? (
           <p className={cn('text-sm text-center mt-8', portal ? 'text-w-muted' : 'text-gray-400')}>
             {search ? 'Сообщения не найдены' : 'Пока нет сообщений — напишите первым.'}
           </p>
         ) : (
-          filtered.map((m) => {
+          filtered.map((m, index) => {
             const mine = m.sender_id === currentUserId
             const isHovering = reactionHover === m.id
+            const { groupStart, groupEnd, startsDay } = groupFlags(filtered, index, (x) => x.sender_id, (x) => x.created_at)
+            if (portal) return (
+              <React.Fragment key={m.id}>
+                {startsDay && <DaySeparator date={m.created_at} variant="internal" />}
+                <MessageBubble
+                  variant="internal"
+                  outgoing={mine}
+                  groupStart={groupStart}
+                  groupEnd={groupEnd}
+                  timestamp={m.created_at}
+                  avatar={<UserAvatar name={peerName || 'Собеседник'} size="message" />}
+                >
+                  {renderMarkdown(parseSimpleMarkdown(m.body), mine, portal)}
+                  {(m.attachments ?? []).map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      onClick={() => download(attachment.id, attachment.file_name)}
+                      className={cn(
+                        'mt-2 flex w-full items-center gap-2 rounded-ctl border px-2.5 py-2 text-left text-xs font-bold',
+                        mine ? 'border-black/15 bg-black/5 text-inherit' : 'border-w-line bg-w-panel2 text-w-muted',
+                      )}
+                    >
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{attachment.file_name}</span>
+                      <Download className="h-3.5 w-3.5 shrink-0" />
+                    </button>
+                  ))}
+                </MessageBubble>
+              </React.Fragment>
+            )
             return (
               <div key={m.id} className={cn('flex group', mine ? 'justify-end' : 'justify-start')}>
                 <div
@@ -186,7 +220,7 @@ export const ChatThread: React.FC<{
                     </button>
                   ))}
                   <div className={cn('text-[10px] mt-1 tabular-nums', mine ? 'text-black/80' : portal ? 'text-w-muted2' : 'text-gray-400')}>
-                    {fmtTime(m.created_at)}
+                    {new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                   </div>
 
                   {/* Reaction button on hover */}
@@ -212,6 +246,36 @@ export const ChatThread: React.FC<{
         )}
         <div ref={bottomRef} />
       </div>
+      {portal && !readOnly ? (
+        <MessageComposer
+          variant="internal"
+          value={text}
+          onChange={setText}
+          onSend={send}
+          disabled={sending}
+          placeholder="Сообщение…"
+          leading={(
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(event) => upload(event.target.files?.[0])}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-w-line bg-w-panel2 text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
+                aria-label="Прикрепить файл"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            </>
+          )}
+        />
+      ) : (
       <div className={cn('flex items-center gap-2 border-t p-2.5', portal ? 'border-w-line bg-w-panel' : 'border-gray-200 bg-white')}>
         {readOnly && (
           <div className={cn('flex-1 rounded-ctl border px-3 py-2 text-sm', portal ? 'border-w-line bg-w-panel2 text-w-muted' : 'border-gray-200 bg-gray-50 text-gray-500')}>
@@ -270,6 +334,7 @@ export const ChatThread: React.FC<{
           </>
         )}
       </div>
+      )}
     </div>
   )
 }

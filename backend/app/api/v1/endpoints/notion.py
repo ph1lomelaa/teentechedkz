@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -24,7 +24,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.audit import log_change
-from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract, MentorAssignment
+from app.models import Application, NotionSnapshot, NotionMatchStatus, Student, Contract, MentorAssignment, User
 from app.models.contract import PipelineStatus
 from app.models.mentor_assignment import MentorRole
 from app.models.payment import Payment, PaymentType, PaymentStatus
@@ -35,6 +35,131 @@ from app.services import notion_sync, notion_write, contract_finance
 from app.services.default_services import ensure_default_services
 
 router = APIRouter(prefix="/notion", tags=["notion"])
+
+# All properties in the live data source (2026-10-03). Kept explicit so a
+# schema change is reviewed before it silently changes the shared table.
+PIPELINE_COLUMNS = (
+    "d в работе", "е", "Degree", "Intake", "Себес", "Статус выплат", "Main country",
+    "Lead-Mentor", "Other countries", "Mentors", "PAID (Mentors)", "МЗК",
+    "Номер тел", "TBP (Mentors)", "Остаток клиента", "Client fee",
+    "УП активности", "TOTAL (Mentors) ", "Сегодня", "Date of Agreement",
+    "Остаток клиента (дата)", "IELTS exam fee", "PAID УП", "PAID англ",
+    "TBP Англ", "TBP УП", "TOTAL (Company)", "Сумм Англ",
+    "Сумм Профориентация", "Сумм УП",
+)
+
+
+@router.get("/pipeline-table")
+async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser,
+                         source_only: bool = False):
+    """Complete Notion-shaped table, including students with no Notion page."""
+    require_access(current_user, "notion", Action.manage)
+    snapshots = list((await db.execute(select(NotionSnapshot).order_by(NotionSnapshot.full_name))).scalars())
+    suggested_ids = {s.suggested_student_id for s in snapshots if s.suggested_student_id}
+    suggested_names = dict((await db.execute(
+        select(Student.id, Student.full_name).where(Student.id.in_(suggested_ids))
+    )).all()) if suggested_ids else {}
+    # Ответственные нужны и «чистому» виду Обзора: source_only отключает только
+    # строки «только CRM», а распределение по ученикам должно оставаться видно.
+    responsibles = {}
+    users = {u.id: u.name for u in (await db.execute(select(User))).scalars()}
+    for assignment in (await db.execute(select(MentorAssignment).where(MentorAssignment.is_active.is_(True)))).scalars():
+        if assignment.mentor_id:
+            responsibles.setdefault(assignment.student_id, []).append({
+                "id": str(assignment.mentor_id),
+                "name": users.get(assignment.mentor_id, ""), "role": assignment.role.value,
+            })
+    rows = [{
+        "id": s.notion_page_id, "snapshot_id": str(s.id),
+        "notion_page_id": s.notion_page_id, "notion_url": s.notion_url,
+        "student_id": str(s.student_id) if s.status == NotionMatchStatus.linked and s.student_id else None,
+        "suggested_student_id": str(s.suggested_student_id) if s.suggested_student_id else None,
+        "suggested_student_name": suggested_names.get(s.suggested_student_id),
+        "suggested_confidence": s.suggested_confidence,
+        "source": "notion", "link_status": s.status.value,
+        "responsibles": responsibles.get(s.student_id, []),
+        "values": s.raw_properties or {},
+    } for s in snapshots]
+    crm_only = []
+    if not source_only:
+        students = list((await db.execute(select(Student).where(Student.is_archived.is_(False)))).scalars())
+        linked_ids = {s.student_id for s in snapshots if s.status == NotionMatchStatus.linked and s.student_id}
+        crm_only = [s for s in students if s.id not in linked_ids]
+    if crm_only:
+        from app.services.people_facets import build_people_index
+        people = await build_people_index(db)
+        ids = [s.id for s in crm_only]
+        contracts = {}
+        for contract in (await db.execute(select(Contract).where(Contract.student_id.in_(ids))
+                          .order_by(Contract.created_at.desc(), Contract.id.desc()))).scalars():
+            contracts.setdefault(contract.student_id, contract)
+        countries = {}
+        for application in (await db.execute(select(Application).where(Application.student_id.in_(ids)))).scalars():
+            countries.setdefault(application.student_id, []).append(application)
+        for student in crm_only:
+            apps = countries.get(student.id, [])
+            contract = contracts.get(student.id)
+            rows.append({
+                "id": f"crm:{student.id}", "snapshot_id": None, "notion_page_id": None,
+                "student_id": str(student.id), "source": "crm", "link_status": "crm_only",
+                "responsibles": responsibles.get(student.id, []),
+                "values": {
+                    "е": student.full_name, "Номер тел": student.phone,
+                    "Degree": student.degree_level.value if student.degree_level else None,
+                    "Intake": student.intake_year,
+                    "Статус выплат": _PIPELINE_RU.get(contract.pipeline_status.value, contract.pipeline_status.value) if contract and contract.pipeline_status else None,
+                    "Main country": [a.country for a in apps if a.is_primary],
+                    "Other countries": [a.country for a in apps if not a.is_primary],
+                    "Lead-Mentor": next((name for name in people.student_mentor_labels.get(student.id, []) if name), None),
+                    "Mentors": people.student_mentor_labels.get(student.id, []),
+                    "МЗК": people.student_manager_label.get(student.id),
+                },
+            })
+    option_colors = {}
+    field_meta = {}
+    if notion_sync.is_configured():
+        try:
+            schema = await asyncio.to_thread(notion_write.get_schema)
+            for name, prop in schema.items():
+                kind = prop.get("type")
+                field_meta[name] = {"type": kind, "number_format": (prop.get("number") or {}).get("format")}
+                if kind in {"select", "multi_select", "status"}:
+                    option_colors[name] = {item["name"]: item.get("color", "default")
+                                           for item in (prop.get(kind) or {}).get("options", [])}
+        except Exception:
+            # The mirror is still useful while Notion is temporarily offline.
+            pass
+    extra_columns = sorted({name for snapshot in snapshots for name in (snapshot.raw_properties or {})
+                            if name not in PIPELINE_COLUMNS})
+    return {"columns": (*PIPELINE_COLUMNS, *extra_columns), "items": rows, "total": len(rows),
+            "option_colors": option_colors, "field_meta": field_meta}
+
+
+@router.get("/pipeline-report")
+async def pipeline_report(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    """Read-only, row-level preview of the Notion-owned CRM fields."""
+    require_access(current_user, "notion", Action.manage)
+    from app.services.notion_pipeline import build_report
+    return await build_report(db)
+
+
+@router.post("/pipeline-apply")
+async def pipeline_apply(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    require_access(current_user, "notion", Action.create)
+    from app.core.config import settings
+    if not settings.ENABLE_NOTION_PIPELINE_APPLY:
+        raise HTTPException(status_code=409, detail="Сначала проверьте отчёт и включите ENABLE_NOTION_PIPELINE_APPLY")
+    last = await notion_sync.last_run()
+    last_at = datetime.fromisoformat(last["at"]) if last.get("at") else None
+    if not last.get("ok") or not last_at or datetime.now(timezone.utc) - last_at > timedelta(seconds=max(7200, settings.NOTION_SYNC_INTERVAL_SECONDS * 2)):
+        raise HTTPException(status_code=409, detail="Перед переносом нужен успешный свежий синк Notion")
+    from app.services.notion_pipeline import apply_report
+    try:
+        return await apply_report(db, actor=str(current_user.id))
+    except ValueError as exc:
+        # Неизвестный статус или дубль связи: переносить частично нельзя,
+        # человеку нужен текст причины, а не 500.
+        raise HTTPException(status_code=409, detail=str(exc))
 
 # --- Вспомогательные форматтеры ----------------------------------------------
 
@@ -49,11 +174,15 @@ _PIPELINE_RU = {
     "active_work": "Активная работа",
     "on_visa": "На визе",
     "paused": "Пауза",
+    "completed_admitted": "Работа окончена- Поступил",
     "changed_mind": "Передумали",
+    "lost_applicant": "Пропал абитуриент",
     "refund": "На возврате",
     "unpaid": "Не оплачено",
     "transferred_pipeline": "Перевели на другой пайплайн",
     "ielts_retake": "Пересдача IELTS",
+    "reapplication": "Переподача",
+    "problem": "Проблема",
     "suspended": "Подвешено",
     "no_status": "Без статуса",
 }
@@ -489,6 +618,13 @@ async def link_snapshot(
     ).scalars().first()
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден или архивирован")
+    other = (await db.execute(select(NotionSnapshot.id).where(
+        NotionSnapshot.student_id == student.id,
+        NotionSnapshot.status == NotionMatchStatus.linked,
+        NotionSnapshot.id != snapshot.id,
+    ).limit(1))).scalar_one_or_none()
+    if other:
+        raise HTTPException(status_code=409, detail="К студенту уже привязана другая страница Notion")
 
     snapshot.student_id = student.id
     snapshot.status = NotionMatchStatus.linked
@@ -552,7 +688,7 @@ async def link_all_snapshots(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    """Привязать все непривязанные снапшоты с предложенным студентом."""
+    """Привязать только однозначные точные совпадения."""
     require_access(current_user, "notion", Action.manage)
     result = await db.execute(
         select(NotionSnapshot)
@@ -560,12 +696,21 @@ async def link_all_snapshots(
         .where(
             NotionSnapshot.status == NotionMatchStatus.new,
             NotionSnapshot.suggested_student_id.isnot(None),
+            NotionSnapshot.suggested_confidence >= 1.0,
             Student.is_archived == False,  # noqa: E712
         )
     )
     snapshots = result.scalars().all()
+    from collections import Counter
+    candidates = Counter(snapshot.suggested_student_id for snapshot in snapshots)
+    existing = set((await db.execute(select(NotionSnapshot.student_id).where(
+        NotionSnapshot.status == NotionMatchStatus.linked,
+        NotionSnapshot.student_id.isnot(None),
+    ))).scalars())
     now = datetime.now(timezone.utc)
     for snapshot in snapshots:
+        if candidates[snapshot.suggested_student_id] != 1 or snapshot.suggested_student_id in existing:
+            continue
         snapshot.student_id = snapshot.suggested_student_id
         snapshot.status = NotionMatchStatus.linked
         snapshot.linked_by = current_user.id
@@ -575,7 +720,8 @@ async def link_all_snapshots(
             None, snapshot.notion_page_id, str(current_user.id), "notion_sync",
         )
     await db.commit()
-    return {"ok": True, "linked": len(snapshots)}
+    return {"ok": True, "linked": sum(candidates[s.suggested_student_id] == 1 and s.suggested_student_id not in existing for s in snapshots),
+            "skipped": sum(candidates[s.suggested_student_id] != 1 or s.suggested_student_id in existing for s in snapshots)}
 
 
 # --- Создание студента из Notion-записи ------------------------------------------
@@ -677,6 +823,47 @@ async def create_student_from_snapshot(
     student = await _create_student_from_snapshot(db, snapshot, current_user.id)
     await db.commit()
     return {"student_id": str(student.id), "snapshot": _snapshot_to_dict(snapshot)}
+
+
+@router.post("/snapshots/{snapshot_id}/ensure-student")
+async def ensure_student_from_snapshot(
+    snapshot_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Open the one working student record behind a Notion page, creating it once if safe.
+
+    Never auto-link a plausible existing student: their notes, assignments and
+    portal account belong to that record and must survive the match decision.
+    """
+    require_access(current_user, "students", Action.manage)
+    snapshot = (await db.execute(
+        select(NotionSnapshot).where(NotionSnapshot.id == snapshot_id).with_for_update()
+    )).scalar_one_or_none()
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Запись Notion не найдена")
+    if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
+        return {"student_id": str(snapshot.student_id), "created": False}
+    if snapshot.status != NotionMatchStatus.new or snapshot.manual_unlink:
+        raise HTTPException(status_code=409, detail="Запись требует ручной проверки привязки")
+
+    from migration.transformers.match import fuzzy_match
+    from app.services.notion_sync import _load_students_index
+
+    data = snapshot.normalized_data or {}
+    name = data.get("full_name") or snapshot.full_name or ""
+    if not name.strip():
+        raise HTTPException(status_code=422, detail="В записи Notion нет имени студента")
+    match = fuzzy_match(name, data.get("phone") or "", await _load_students_index(db))
+    if match.student_id and match.confidence >= 0.9:
+        snapshot.suggested_student_id = match.student_id
+        snapshot.suggested_confidence = round(match.confidence, 3)
+        await db.commit()
+        raise HTTPException(status_code=409, detail="Найден похожий студент. Проверьте и привяжите существующую карточку")
+
+    student = await _create_student_from_snapshot(db, snapshot, current_user.id)
+    await db.commit()
+    return {"student_id": str(student.id), "created": True}
 
 
 @router.post("/snapshots/create-missing")

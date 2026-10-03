@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X, UserPlus, LayoutGrid } from 'lucide-react'
@@ -17,9 +17,13 @@ import { notionApi, NotionSnapshotItem } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLocalState } from '@/lib/use-local-state'
 import {
+  PipelineStatusFilter,
+  PipelineStatusTag,
+  type PipelineStatusOperator,
+} from '@/components/shared/PipelineStatusFilter'
+import {
   PipelineStatus,
   PIPELINE_STATUS_LABELS,
-  PIPELINE_STATUS_COLORS,
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
   SERVICE_TYPE_LABELS,
@@ -70,6 +74,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
+type StatusFilterOperator = PipelineStatusOperator
 
 
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
@@ -826,6 +831,8 @@ function AssigneeOptions({ groups }: { groups: Array<{ title: string; users: Arr
   )
 }
 
+// Общая база — прежний CRM-список (распределение, выбор, фильтры). Notion-вид
+// с таблицей и доской живёт только на Обзоре (DashboardPage).
 export const StudentsListPage: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -849,7 +856,14 @@ export const StudentsListPage: React.FC = () => {
   // Стартует от сохранённого значения, иначе после возврата в поле стояла бы
   // строка поиска, а список был бы отфильтрован пустой строкой.
   const [debouncedSearch, setDebouncedSearch] = useState(search)
-  const [statusFilter, setStatusFilter] = useLocalState<string>('students:list:status', '')
+  // The same storage key used to hold one string. Accept it for one render and
+  // migrate in place so users do not lose their saved filter after deployment.
+  const [storedStatusFilters, setStoredStatusFilters] = useLocalState<PipelineStatus[] | string>('students:list:status', [])
+  const statusFilters = Array.isArray(storedStatusFilters)
+    ? storedStatusFilters
+    : storedStatusFilters ? [storedStatusFilters as PipelineStatus] : []
+  const setStatusFilters = (values: PipelineStatus[]) => setStoredStatusFilters(values)
+  const [statusFilterOperator, setStatusFilterOperator] = useLocalState<StatusFilterOperator>('students:list:statusOperator', 'is')
   const [mentorFilter, setMentorFilter] = useLocalState('students:list:mentor', '')
   const [leadMentorFilter, setLeadMentorFilter] = useLocalState('students:list:leadMentor', '')
   const [mzkManagerFilter, setMzkManagerFilter] = useLocalState('students:list:mzkManager', '')
@@ -864,6 +878,12 @@ export const StudentsListPage: React.FC = () => {
   // Не сохраняется: это поиск по людям внутри уже открытой панели, а не отбор
   // студентов — на составе списка он никак не сказывается.
   const [responsibleSearch, setResponsibleSearch] = useState('')
+
+  useEffect(() => {
+    if (typeof storedStatusFilters === 'string') {
+      setStoredStatusFilters(storedStatusFilters ? [storedStatusFilters as PipelineStatus] : [])
+    }
+  }, [storedStatusFilters, setStoredStatusFilters])
 
   // scope — единственный фильтр, который остаётся в адресе: на него ведут
   // ссылки снаружи (MyStudentsPage → /students?scope=unassigned), и адрес
@@ -954,7 +974,8 @@ export const StudentsListPage: React.FC = () => {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: [
       'students',
-      statusFilter,
+      statusFilters,
+      statusFilterOperator,
       scope,
       leadMentorFilter,
       mzkManagerFilter,
@@ -969,7 +990,8 @@ export const StudentsListPage: React.FC = () => {
     ],
     queryFn: () =>
       studentsApi.list({
-        pipeline_status: (statusFilter as PipelineStatus) || undefined,
+        pipeline_statuses: statusFilters.length ? statusFilters.join(',') : undefined,
+        pipeline_status_operator: statusFilters.length ? statusFilterOperator : undefined,
         scope,
         mentor_id: effectiveMentorId || undefined,
         assignment_role: boardAssignmentRole || undefined,
@@ -1204,7 +1226,7 @@ export const StudentsListPage: React.FC = () => {
   const newCount = syncStatus?.new_submissions ?? 0
   const activeFiltersCount =
     (scope !== 'all' ? 1 : 0) +
-    (statusFilter ? 1 : 0) +
+    (statusFilters.length ? 1 : 0) +
     (mentorFilter ? 1 : 0) +
     (leadMentorFilter ? 1 : 0) +
     (mzkManagerFilter ? 1 : 0) +
@@ -1231,7 +1253,8 @@ export const StudentsListPage: React.FC = () => {
     setDegreeFilter('')
     setServiceTypeFilter('')
     setOperationalFilter('all')
-    setStatusFilter('')
+    setStatusFilters([])
+    setStatusFilterOperator('is')
     setResponsibleSearch('')
     clearBoardFilter()
   }
@@ -1261,12 +1284,13 @@ export const StudentsListPage: React.FC = () => {
       label: scope === 'mine' ? 'Только мои' : scope === 'assigned' ? 'С ответственными' : 'Без ответственного',
       onRemove: () => setScope('all'),
     })
-  if (statusFilter)
+  statusFilters.forEach((status) => {
     activeFilterChips.push({
-      key: 'status',
-      label: `Статус: ${PIPELINE_STATUS_LABELS[statusFilter as PipelineStatus] ?? statusFilter}`,
-      onRemove: () => setStatusFilter(''),
+      key: `status-${status}`,
+      label: `Статус ${statusFilterOperator === 'is_not' ? 'не ' : ''}${PIPELINE_STATUS_LABELS[status]}`,
+      onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
     })
+  })
   if (intakeYearFilter)
     activeFilterChips.push({
       key: 'year',
@@ -1429,8 +1453,8 @@ export const StudentsListPage: React.FC = () => {
             <button
               onClick={() => navigate('/students/new')}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold uppercase tracking-caps
-                         bg-black text-white rounded-ctl hover:bg-black/85
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40
+                         bg-p-accent text-black rounded-ctl hover:brightness-95
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-p-accent-dim
                          transition-colors duration-150"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1537,23 +1561,14 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус договора</p>
-                  <Select
-                    value={statusFilter || 'all'}
-                    onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Все статусы" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Все статусы</SelectItem>
-                      {(facets?.statuses ?? []).map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {PIPELINE_STATUS_LABELS[opt.value as PipelineStatus] ?? opt.value} · {opt.count}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус выплат</p>
+                  <PipelineStatusFilter
+                    value={statusFilters}
+                    onChange={setStatusFilters}
+                    operator={statusFilterOperator}
+                    onOperatorChange={setStatusFilterOperator}
+                    counts={Object.fromEntries((facets?.statuses ?? []).map((option) => [option.value, option.count]))}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -1949,9 +1964,7 @@ export const StudentsListPage: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`whitespace-nowrap text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
-                        {PIPELINE_STATUS_LABELS[student.pipeline_status]}
-                      </span>
+                      <PipelineStatusTag status={student.pipeline_status} />
                     ) : (
                       <span className="text-p-muted2 text-xs">—</span>
                     )}

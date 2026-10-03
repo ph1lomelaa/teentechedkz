@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Read the repo-root .env regardless of the process CWD. This file lives at
@@ -64,11 +65,25 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_USERNAME: str = ""
     TELEGRAM_WEBHOOK_URL: str = ""
     TELEGRAM_WEBHOOK_SECRET: str = ""
+    ENABLE_MEETING_TELEGRAM_NOTIFICATIONS: bool = False
+    ENABLE_TELEGRAM_OFF_HOURS_REPLY: bool = True
+    # Повтор в тот же чат — не раньше чем через 6 часов: ученик, вернувшийся
+    # с новым вопросом, получает ответ снова, а в одной переписке бот не спамит.
+    TELEGRAM_OFF_HOURS_REPLY_COOLDOWN_SECONDS: int = 3600 * 6
+    # Если сотрудник писал в чат за последние 3 часа, бот молчит: ментор на связи.
+    TELEGRAM_OFF_HOURS_STAFF_QUIET_SECONDS: int = 3600 * 3
+    TELEGRAM_OFF_HOURS_REPLY_TEXT: str = (
+        "Здравствуйте! Наш график работы — с понедельника по пятницу, "
+        "с 10:00 до 19:00. Ментор ответит вам в ближайшее рабочее время. "
+        "Благодарим за понимание!"
+    )
 
     # Notion
     NOTION_API_KEY: str = ""
     NOTION_DATABASE_ID: str = ""
     NOTION_SYNC_INTERVAL_SECONDS: int = 3600
+    # Enable only after a production dry run and a checked backup.
+    ENABLE_NOTION_PIPELINE_APPLY: bool = False
 
     # Google Sheets — автосинк анкет: либо JSON одной строкой, либо путь к файлу ключа
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
@@ -112,6 +127,8 @@ class Settings(BaseSettings):
     # по нему, а не по UTC сервера — иначе рабочий день разъезжается со сменой
     # календарной даты.
     COMPANY_TIMEZONE: str = "Asia/Almaty"
+    COMPANY_WORKDAY_START_HOUR: int = 10
+    COMPANY_WORKDAY_END_HOUR: int = 19
 
     # SLA задач менторов (регламент менторов, раздел 6). Просрочка фиксируется
     # санкцией по ступеням, суммы берутся из reward_rules.
@@ -123,13 +140,42 @@ class Settings(BaseSettings):
     # жёлтый, 2-е — оранжевый, 3-е и далее — красный.
     TASK_SLA_PENALTY_LADDER: str = "yellow,orange,red"
 
+    # Очистка сессий конспектов: пустые попытки удаляются через сутки,
+    # активные записи без сигнала от страницы становятся «прерванными».
+    ENABLE_NOTE_SESSION_CLEANUP: bool = True
+    NOTE_SESSION_CLEANUP_INTERVAL_SECONDS: int = 900  # 15 минут
+
+    # Бот, который заходит во встречу (Zoom / Meet / Teams) и пишет её для
+    # конспекта. Провайдер — Attendee на нашем сервере; mock — имитация для
+    # разработки и e2e без Zoom и без Attendee. Развёртывание — attendee/README.md
+    MEETING_BOT_ENABLED: bool = False
+    MEETING_BOT_PROVIDER: str = "attendee"  # attendee | mock
+    MEETING_BOT_NAME: str = "TeenTechEd"
+    MEETING_BOT_CHAT_MESSAGE: str = "Идёт запись встречи для конспекта TeenTechEd."
+    # Публичный адрес API для вебхуков провайдера (https). Пусто — берём FRONTEND_URL:
+    # в проде фронт и /api на одном домене.
+    PUBLIC_API_BASE_URL: str = ""
+    ATTENDEE_API_URL: str = ""  # например https://attendee.teenteched.kz
+    ATTENDEE_API_KEY: str = ""
+    ATTENDEE_WEBHOOK_SECRET: str = ""  # base64, из Settings → Webhooks в Attendee
+    # Zoom: Client ID нужен только для ссылки авторизации. Client Secret
+    # хранится в Attendee — нашему бэкенду он не нужен.
+    ZOOM_CLIENT_ID: str = ""
+    ZOOM_REDIRECT_URI: str = ""  # https://teenteched.kz/api/v1/integrations/zoom/callback
+    # Проверка качества текста: пока False — только считаем показатели (режим
+    # наблюдения), «Запись неполная» ставим лишь при обрыве и пустом тексте.
+    NOTE_QUALITY_ENFORCE: bool = False
+    MEETING_BOT_WATCHDOG_INTERVAL_SECONDS: int = 60
+
     # Ежедневный чекин сотрудников (менторы и МЗК).
     ENABLE_DAILY_CHECKIN: bool = True
-    CHECKIN_HOUR: int = 10          # локальное время COMPANY_TIMEZONE
+    CHECKIN_HOUR: int = 10          # локальное время сотрудника (по умолчанию COMPANY_TIMEZONE)
     CHECKIN_MINUTE: int = 0
     CHECKIN_GRACE_MINUTES: int = 30  # позже — late, после закрытия окна — missed
     CHECKIN_WINDOW_MINUTES: int = 240  # окно, после которого ставится missed
-    CHECKIN_CHECK_INTERVAL_SECONDS: int = 600  # 10 минут
+    CHECKIN_REMINDER_LEAD_MINUTES: int = 10  # напоминание «через 10 минут отметка»
+    # Минута, а не 10: иначе напоминание «за 10 минут» может прийти к самой отметке.
+    CHECKIN_CHECK_INTERVAL_SECONDS: int = 60
 
     # First admin seed
     # Вход через Google. Пустая строка = способ выключен: /auth/google отвечает
@@ -146,6 +192,14 @@ class Settings(BaseSettings):
 
     FIRST_ADMIN_EMAIL: str = "admin@teenteched.kz"
     FIRST_ADMIN_PASSWORD: str = "Admin1234!"
+
+    @model_validator(mode="after")
+    def _forbid_mock_bot_in_production(self) -> "Settings":
+        # Mock-провайдер принимает вебхук с подписью "mock" — в проде это
+        # дверь для поддельных событий записи. Лучше не стартовать вовсе.
+        if self.ENVIRONMENT == "production" and self.MEETING_BOT_PROVIDER == "mock":
+            raise ValueError("MEETING_BOT_PROVIDER=mock запрещён при ENVIRONMENT=production")
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

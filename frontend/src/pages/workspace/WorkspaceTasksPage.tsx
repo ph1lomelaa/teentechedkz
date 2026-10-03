@@ -1,502 +1,442 @@
-import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
+import React, { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ChevronDown, ClipboardList, FileUp, Route, Video } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { roadmapApi } from '@/api/roadmap'
-import { workspaceApi, WorkspaceRoadmapTask } from '@/api/workspace'
+import { workspaceApi } from '@/api/workspace'
 import { tasksApi } from '@/api'
-import { StudentTask } from '@/types'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
-import { cn, formatDate } from '@/lib/utils'
-import { withViewTransition } from '@/lib/motion'
+import { useAuth } from '@/contexts/AuthContext'
+import type { StudentTask } from '@/types'
+import { cn } from '@/lib/utils'
+import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
-import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
-import { AppCard, AppSelect, EmptyState, PageHeader, SegmentedTabs, UrgencyBadge } from '@/components/ui'
+import { AppButton, AppSelect, EmptyState, PageHeader } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
+import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
+import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
+import { TaskQueue, type RowActions } from '@/components/workspace/tasks/TaskQueue'
+import { StudentsOverview } from '@/components/workspace/tasks/StudentsOverview'
+import { EvidenceDialog, ReviewDialog } from '@/components/workspace/tasks/TaskDialogs'
+import { TaskDetailPanel } from '@/components/workspace/tasks/TaskDetailPanel'
+import {
+  BUCKET_LABEL,
+  applyBaseFilter,
+  countBuckets,
+  filterByBucket,
+  fromDelegated,
+  fromRoadmap,
+  isClosed,
+  rollupByStudent,
+  sortItems,
+  type DueBucket,
+  type SortDir,
+  type SortKey,
+  type WorkItem,
+  type WorkKind,
+} from '@/components/workspace/tasks/workItems'
 
-const PRIORITY_LABEL: Record<string, string> = {
-  required: 'Обязательно',
-  recommended: 'Желательно',
-  optional: 'По желанию',
+type Tab = 'queue' | 'review' | 'students' | 'closed'
+
+const PAGE_SIZE = 40
+
+/** Сервер отдаёт поручения страницами по 200: берём все, иначе очередь молча обрезалась бы на 200-й задаче. */
+const DELEGATED_PAGE = 200
+const DELEGATED_MAX_PAGES = 10
+
+async function fetchAllDelegated(params: Parameters<typeof tasksApi.listAll>[0]) {
+  const items: StudentTask[] = []
+  for (let page = 1; page <= DELEGATED_MAX_PAGES; page += 1) {
+    const result = await tasksApi.listAll({ ...params, size: DELEGATED_PAGE, page })
+    items.push(...result.items)
+    if (result.items.length === 0 || page >= (result.pages ?? 1)) break
+  }
+  return { items }
 }
 
-const WORKFLOW_STATUS_LABEL: Record<StudentTask['status'], string> = {
-  open: 'Открыта',
-  awaiting_signature: 'Ожидает подписи',
-  in_progress: 'В работе',
-  submitted: 'На проверке',
-  needs_revision: 'На доработке',
-  accepted: 'Принята',
-  blocked_by_agreement: 'Заблокирована',
-  overdue: 'Просрочена',
-  cancelled: 'Отменена',
-  done: 'Закрыта',
-}
+const BUCKETS: Array<DueBucket | 'all'> = ['all', 'overdue', 'today', 'week', 'none']
 
 export const WorkspaceTasksPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { params } = useWorkspaceScope()
-  const [status, setStatus] = useLocalState<'open' | 'done'>('workspace:tasks:status', 'open')
-  const [studentFilter, setStudentFilter] = useLocalState('workspace:tasks:studentFilter', '')
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
-  const [questionnaireTask, setQuestionnaireTask] = useState<WorkspaceRoadmapTask | null>(null)
-  const [delegatedStatus, setDelegatedStatus] = useLocalState<StudentTask['status'] | ''>('workspace:tasks:delegatedStatus', '')
-  const [delegatedPriority, setDelegatedPriority] = useLocalState<string>('workspace:tasks:delegatedPriority', '')
-  const [evidenceTask, setEvidenceTask] = useState<StudentTask | null>(null)
-  const [evidenceRequirement, setEvidenceRequirement] = useState('')
-  const [evidenceFile, setEvidenceFile] = useState<File | null>(null)
-  const [reviewTask, setReviewTask] = useState<StudentTask | null>(null)
-  const [reviewDecision, setReviewDecision] = useState<'accepted' | 'needs_revision'>('accepted')
-  const [reviewNote, setReviewNote] = useState('')
+  const { can } = useAuth()
+  // Задачу можно поставить двумя путями: шагом roadmap студенту или поручением сотруднику.
+  const canCreate = can('tasks', 'manage') || can('roadmaps', 'edit')
 
-  // ---- roadmap tasks (student-facing) ----
-  const { data: roadmapData, isLoading: roadmapLoading, isError: roadmapFailed, error: roadmapError, refetch: refetchRoadmap } = useQuery({
-    queryKey: ['workspace', 'roadmap-tasks', status, params],
-    queryFn: () => workspaceApi.roadmapTasks({ ...params, status }),
+  const [tab, setTab] = useLocalState<Tab>('workspace:tasks:v2:tab', 'queue')
+  const [kind, setKind] = useLocalState<WorkKind | 'all'>('workspace:tasks:v2:kind', 'all')
+  const [bucket, setBucket] = useLocalState<DueBucket | 'all'>('workspace:tasks:v2:bucket', 'all')
+  const [query, setQuery] = useState('')
+  const [urlParams] = useSearchParams()
+  const [studentId, setStudentId] = useState(urlParams.get('student_id') ?? '')
+  React.useEffect(() => {
+    if (!urlParams.has('student_id')) return
+    setStudentId(urlParams.get('student_id') ?? '')
+    setTab(urlParams.get('view') === 'review' ? 'review' : 'queue')
+    setKind('all'); setBucket('all'); setQuery('')
+  }, [urlParams, setTab, setKind, setBucket])
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'due', dir: 'asc' })
+  const [visible, setVisible] = useState(PAGE_SIZE)
+
+  const [creating, setCreating] = useState<{ student: { id: string; name: string } | null } | null>(null)
+  const [questionnaire, setQuestionnaire] = useState<WorkItem | null>(null)
+  const [reviewing, setReviewing] = useState<{ item: WorkItem; decision: 'accept' | 'return' } | null>(null)
+  const [evidence, setEvidence] = useState<WorkItem | null>(null)
+  // Панель хранит ключ, а не саму задачу: после действия она показывает свежие данные из списка.
+  const [detailKey, setDetailKey] = useState<string | null>(null)
+
+  const wantClosed = tab === 'closed'
+
+  // ---- данные: шаги roadmap и поручения — два источника, одна очередь ----
+  const openRoadmap = useQuery({
+    queryKey: ['workspace', 'roadmap-tasks', 'open', params],
+    queryFn: () => workspaceApi.roadmapTasks({ ...params, status: 'open' }),
   })
-
-  const { data: studentsData } = useQuery({
+  const doneRoadmap = useQuery({
+    queryKey: ['workspace', 'roadmap-tasks', 'done', params],
+    queryFn: () => workspaceApi.roadmapTasks({ ...params, status: 'done' }),
+    enabled: wantClosed,
+  })
+  const delegated = useQuery({
+    queryKey: ['workspace', 'delegated-tasks', params],
+    queryFn: () => fetchAllDelegated(params),
+  })
+  const studentsQuery = useQuery({
     queryKey: ['workspace', 'tasks', 'students', params],
     queryFn: () => workspaceApi.students(params),
   })
 
-  const { data: delegatedData, isLoading: delegatedLoading } = useQuery({
-    queryKey: ['workspace', 'delegated-tasks', params],
-    queryFn: () => tasksApi.listAll({ ...params, size: 200 }),
-  })
-  const delegatedTasks = (delegatedData?.items ?? []).filter((task) => (
-    (!delegatedStatus || task.status === delegatedStatus)
-    && (!delegatedPriority || task.priority === delegatedPriority)
-  ))
-  const delegatedMutation = useMutation({
-    mutationFn: ({ task, status, note }: { task: StudentTask; status: StudentTask['status']; note?: string }) => tasksApi.update(task.id, { status, ...(note !== undefined ? { review_note: note } : {}) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] }),
-    onError: () => toast({ title: 'Не удалось обновить статус задачи', variant: 'destructive' }),
-  })
-  const reviewMutation = useMutation({
-    mutationFn: () => {
-      if (!reviewTask) throw new Error('Задача не выбрана')
-      return tasksApi.update(reviewTask.id, { status: reviewDecision, review_note: reviewNote.trim() || undefined })
-    },
-    onSuccess: () => {
-      setReviewTask(null)
-      setReviewNote('')
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
-      toast({ title: reviewDecision === 'accepted' ? 'Результат принят' : 'Задача возвращена на доработку' })
-    },
-    onError: () => toast({ title: 'Не удалось сохранить решение', variant: 'destructive' }),
-  })
-  const evidenceMutation = useMutation({
-    mutationFn: () => {
-      if (!evidenceTask || !evidenceFile) throw new Error('Файл не выбран')
-      return tasksApi.uploadEvidence(evidenceTask.id, evidenceFile, evidenceRequirement || undefined)
-    },
-    onSuccess: () => {
-      setEvidenceTask(null)
-      setEvidenceRequirement('')
-      setEvidenceFile(null)
-      toast({ title: 'Подтверждение загружено' })
-    },
-    onError: () => toast({ title: 'Не удалось загрузить подтверждение', variant: 'destructive' }),
-  })
-  const { data: evidenceData, isLoading: evidenceLoading } = useQuery({
-    queryKey: ['workspace', 'task-evidence', evidenceTask?.id],
-    queryFn: () => tasksApi.listEvidence(evidenceTask!.id),
-    enabled: Boolean(evidenceTask),
-  })
+  const students = useMemo(() => studentsQuery.data?.items ?? [], [studentsQuery.data])
 
-  const refreshRoadmap = () => {
+  const allItems = useMemo<WorkItem[]>(() => {
+    const today = new Date()
+    const roadmap = [...(openRoadmap.data?.items ?? []), ...(wantClosed ? doneRoadmap.data?.items ?? [] : [])]
+    return [
+      ...roadmap.map((task) => fromRoadmap(task, today)),
+      ...(delegated.data?.items ?? []).map((task) => fromDelegated(task, today)),
+    ]
+  }, [openRoadmap.data, doneRoadmap.data, delegated.data, wantClosed])
+
+  const openItems = useMemo(() => allItems.filter((item) => !isClosed(item.status)), [allItems])
+  const reviewCount = useMemo(() => openItems.filter((item) => item.status === 'review').length, [openItems])
+
+  const tabItems = useMemo(() => {
+    if (tab === 'closed') return allItems.filter((item) => isClosed(item.status))
+    if (tab === 'review') return openItems.filter((item) => item.status === 'review')
+    return openItems
+  }, [tab, allItems, openItems])
+
+  const baseFiltered = useMemo(
+    () => applyBaseFilter(tabItems, { query, kind, studentId: studentId || undefined }),
+    [tabItems, query, kind, studentId],
+  )
+  const counts = useMemo(() => countBuckets(baseFiltered), [baseFiltered])
+  const listed = useMemo(
+    () => sortItems(filterByBucket(baseFiltered, tab === 'closed' ? 'all' : bucket), sort.key, sort.dir),
+    [baseFiltered, bucket, tab, sort],
+  )
+  const rollups = useMemo(() => rollupByStudent(openItems), [openItems])
+
+  const focusedStudentName = studentId
+    ? allItems.find((item) => item.studentId === studentId)?.studentName ??
+      students.find((s) => s.student.id === studentId)?.student.full_name ??
+      'студент'
+    : null
+
+  // ---- действия ----
+  const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['workspace', 'roadmap-tasks'] })
     queryClient.invalidateQueries({ queryKey: ['workspace', 'roadmap'] })
+    queryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
     queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['tasks'] })
   }
-  const toggleRoadmapMutation = useMutation({
-    mutationFn: (task: WorkspaceRoadmapTask) =>
-      roadmapApi.updateTask(task.id, { status: task.status === 'done' ? 'planned' : 'done' }),
-    onSuccess: refreshRoadmap,
-    onError: () => toast({ title: 'Не удалось обновить задачу', variant: 'destructive' }),
-  })
 
-  const roadmapTasks = roadmapData?.items ?? []
-  const students = (studentsData?.items ?? []).map((item) => item.student)
-  const filteredRoadmapTasks = roadmapTasks.filter((task) => !studentFilter || task.student_id === studentFilter)
+  const run = useMutation({
+    mutationFn: async ({ item, action }: { item: WorkItem; action: () => Promise<unknown> }) => {
+      await action()
+      return item
+    },
+    onSuccess: refresh,
+    onError: (error) => {
+      const conflict = getErrorStatus(error) === 409
+      toast({
+        title: conflict ? 'Задачу уже изменили' : 'Не удалось выполнить действие',
+        description: conflict ? 'Список обновлён.' : getErrorMessage(error),
+        variant: 'destructive',
+      })
+      if (conflict) refresh()
+    },
+  })
+  const busyKey = run.isPending ? run.variables?.item.key ?? null : null
+
+  const actions: RowActions = {
+    busyKey,
+    onToggleRoadmap: (item) =>
+      run.mutate({
+        item,
+        action: () => roadmapApi.updateTask(item.id, { status: item.status === 'done' ? 'planned' : 'done' }),
+      }),
+    onApproveRoadmap: (item) =>
+      run.mutate({ item, action: () => roadmapApi.reviewTask(item.id, { action: 'approve' }) }),
+    onReview: (item, decision) => setReviewing({ item, decision }),
+    onDelegatedStatus: (item, status) => run.mutate({ item, action: () => tasksApi.update(item.id, { status }) }),
+    onEvidence: setEvidence,
+    onQuestionnaire: setQuestionnaire,
+    onOpen: (item) => setDetailKey(item.key),
+  }
+  const detailItem = detailKey ? allItems.find((item) => item.key === detailKey) ?? null : null
+
+  const onSort = (key: SortKey) =>
+    setSort((current) => (current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
+
+  const resetFilters = () => {
+    setQuery('')
+    setKind('all')
+    setBucket('all')
+    setStudentId('')
+  }
+  const hasFilters = Boolean(query || kind !== 'all' || bucket !== 'all' || studentId)
+
+  const loading = openRoadmap.isLoading || delegated.isLoading
+  const failed = openRoadmap.isError || delegated.isError
+  const failure = openRoadmap.error ?? delegated.error
+  const retry = () => {
+    void openRoadmap.refetch()
+    void delegated.refetch()
+  }
+
+  const tabs: Array<{ value: Tab; label: string; count?: number }> = [
+    { value: 'queue', label: 'Очередь', count: openItems.length },
+    { value: 'review', label: 'На проверке', count: reviewCount },
+    { value: 'students', label: 'По студентам' },
+    { value: 'closed', label: 'Закрытые' },
+  ]
 
   return (
     <div className="fade-in">
-      <PageHeader colorPrefix="w"
+      <PageHeader
+        colorPrefix="w"
         eyebrow="Кабинет ментора"
         title="Задачи"
-        description="Roadmap-задачи ваших студентов в одном рабочем списке."
+        description="Шаги roadmap и поручения по вашим студентам в одном списке: что горит, что ждёт проверки, кому ещё не поставили задачу."
+        action={
+          canCreate ? (
+            <AppButton colorPrefix="w" onClick={() => setCreating({ student: null })}>
+              <Plus className="h-4 w-4" aria-hidden />Новая задача
+            </AppButton>
+          ) : undefined
+        }
       />
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <SegmentedTabs colorPrefix="w"
-          value={status}
-          onChange={(value) => withViewTransition(() => setStatus(value as typeof status))}
-          tabs={[
-            { value: 'open', label: 'Открытые' },
-            { value: 'done', label: 'Закрытые' },
-          ]}
-        />
-        <AppSelect colorPrefix="w"
-          value={studentFilter}
-          onChange={(event) => {
-            const next = event.target.value
-            withViewTransition(() => setStudentFilter(next))
-          }}
-          className="bg-w-panel2 md:min-w-[240px]"
-        >
-          <option value="">Все студенты</option>
-          {students.map((student) => (
-            <option key={student.id} value={student.id}>{student.full_name}</option>
-          ))}
-        </AppSelect>
-      </div>
-
-      {/* key={status}: контент вкладки перемонтируется и мягко въезжает. */}
-      <AppCard colorPrefix="w" key={status} className="anim-view-in p-5">
-          <QueryState
-            colorPrefix="w"
-            isLoading={roadmapLoading}
-            isError={roadmapFailed}
-            error={roadmapError}
-            onRetry={refetchRoadmap}
-            isEmpty={filteredRoadmapTasks.length === 0}
-            empty={(
-              <EmptyState colorPrefix="w"
-                className="anim-view-in"
-                title={status === 'open' ? 'Открытых roadmap-задач нет' : 'Закрытых roadmap-задач нет'}
-                description="Назначьте студенту roadmap во вкладке студента — задачи появятся здесь."
-              />
+      <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto border-b border-w-line">
+        {tabs.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.value}
+            onClick={() => {
+              setTab(item.value)
+              setVisible(PAGE_SIZE)
+            }}
+            className={cn(
+              '-mb-px shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-bold transition-colors',
+              tab === item.value ? 'border-w-accent text-w-ink' : 'border-transparent text-w-muted hover:text-w-ink',
             )}
           >
-            <div className="anim-view-in space-y-3">
-              {Object.entries(groupByStudent(filteredRoadmapTasks)).map(([groupStudentId, groupTasks]) => {
-                const groupKey = `roadmap-${groupStudentId}`
-                const expanded = !!expandedGroups[groupKey]
-                const rows = groupTasks.map((task) => (
-                  <RoadmapTaskRow
-                    key={task.id}
-                    task={task}
-                    disabled={toggleRoadmapMutation.variables?.id === task.id}
-                    onToggle={() => withViewTransition(() => toggleRoadmapMutation.mutate(task))}
-                    onOpenQuestionnaire={() => setQuestionnaireTask(task)}
-                  />
-                ))
-                return (
-                  <StudentTaskGroup
-                    key={groupKey}
-                    studentName={groupTasks[0]?.student_name || 'Студент'}
-                    total={groupTasks.length}
-                    expanded={expanded}
-                    onToggle={() => setExpandedGroups((current) => ({ ...current, [groupKey]: !expanded }))}
-                    tail={rows.length > 5 ? rows.slice(5) : null}
-                  >
-                    {rows.slice(0, 5)}
-                  </StudentTaskGroup>
-                )
-              })}
-            </div>
-          </QueryState>
-      </AppCard>
-      {questionnaireTask && (
-        <WorkspaceQuestionnaireDialog
-          taskId={questionnaireTask.id}
-          taskTitle={questionnaireTask.title}
-          studentId={questionnaireTask.student_id}
-          open
-          onClose={() => setQuestionnaireTask(null)}
-        />
-      )}
-      <section className="mt-6">
-        <PageHeader colorPrefix="w"
-          eyebrow="Делегированные задачи"
-          title="Очередь работы"
-          description="Задачи, назначенные вам или вашей рабочей области, с контролем подписи и приемки."
-        />
-        <div className="mb-5 flex flex-wrap items-center gap-3">
-          <AppSelect colorPrefix="w" value={delegatedStatus} onChange={(event) => setDelegatedStatus(event.target.value as StudentTask['status'] | '')}>
-            <option value="">Все статусы</option>
-            {Object.entries(WORKFLOW_STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </AppSelect>
-          <AppSelect colorPrefix="w" value={delegatedPriority} onChange={(event) => setDelegatedPriority(event.target.value)}>
-            <option value="">Все приоритеты</option>
-            <option value="urgent">Срочные</option>
-            <option value="high">Высокие</option>
-            <option value="normal">Обычные</option>
-            <option value="low">Низкие</option>
-          </AppSelect>
-        </div>
-        <AppCard colorPrefix="w" className="p-5">
-          {delegatedLoading ? <p className="text-sm text-w-muted">Загрузка очереди...</p> : delegatedTasks.length === 0 ? (
-            <EmptyState colorPrefix="w" title="В очереди нет задач" description="Делегированные задачи появятся здесь после назначения исполнителя." />
-          ) : (
-            <div className="space-y-2">
-              {delegatedTasks.map((task) => (
-                <div key={task.id} className="flex flex-wrap items-center gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
-                  <div className="min-w-[220px] flex-1">
-                    <p className="text-sm font-bold text-w-ink">{task.task_text}</p>
-                    <p className="mt-1 text-xs text-w-muted">{task.student_name || 'Студент'} · {task.assignee_name || 'Без исполнителя'}</p>
-                  </div>
-                  <span className="text-xs text-w-muted">{WORKFLOW_STATUS_LABEL[task.status]}</span>
-                  <span className="text-xs font-bold text-w-accentText">{task.priority || 'normal'}</span>
-                  {task.status === 'open' && task.assignee_id && (
-                    <button type="button" className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim" onClick={() => delegatedMutation.mutate({ task, status: 'in_progress' })}>
-                      В работу
-                    </button>
-                  )}
-                  {task.status === 'in_progress' && (
-                    <button type="button" className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim" onClick={() => delegatedMutation.mutate({ task, status: 'submitted' })}>
-                      На проверку
-                    </button>
-                  )}
-                  {task.status === 'submitted' && (
-                    <>
-                      <button
-                        type="button"
-                        className="rounded-ctl bg-w-good px-3 py-1.5 text-xs font-bold text-black hover:brightness-95"
-                        onClick={() => {
-                          setReviewTask(task)
-                          setReviewDecision('accepted')
-                          setReviewNote(task.review_note || '')
-                        }}
-                      >
-                        Принять
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim"
-                        onClick={() => {
-                          setReviewTask(task)
-                          setReviewDecision('needs_revision')
-                          setReviewNote(task.review_note || '')
-                        }}
-                      >
-                        На доработку
-                      </button>
-                    </>
-                  )}
-                  {task.required_documents && task.required_documents.length > 0 && (
-                    <button
-                      type="button"
-                      className="rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-accentText hover:border-w-accentDim"
-                      onClick={() => {
-                        setEvidenceTask(task)
-                        setEvidenceRequirement(task.required_documents?.[0] || '')
-                      }}
-                    >
-                      Подтверждение
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </AppCard>
-      </section>
-      {evidenceTask && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Загрузка подтверждения">
-          <div className="w-full max-w-md rounded-card border border-w-line bg-w-panel p-5 shadow-xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-black text-w-ink">Загрузить подтверждение</h2>
-                <p className="mt-1 text-xs text-w-muted">{evidenceTask.task_text}</p>
-              </div>
-              <button type="button" className="text-xs text-w-muted hover:text-w-ink" onClick={() => setEvidenceTask(null)}>Закрыть</button>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-panel border border-w-line bg-w-panel2 p-3">
-                <p className="mb-2 text-xs font-bold text-w-ink">Загруженные подтверждения</p>
-                {evidenceLoading ? <p className="text-xs text-w-muted">Загрузка списка...</p> : evidenceData?.length ? (
-                  <div className="space-y-1.5">
-                    {evidenceData.map((evidence) => (
-                      <div key={evidence.id} className="flex items-center justify-between gap-2 text-xs text-w-muted">
-                        <span className="truncate">{evidence.requirement || 'Без требования'}</span>
-                        <span className="shrink-0 text-w-muted2">{evidence.file_name}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="text-xs text-w-muted">Пока нет загруженных файлов.</p>}
-              </div>
-              <AppSelect colorPrefix="w" value={evidenceRequirement} onChange={(event) => setEvidenceRequirement(event.target.value)}>
-                <option value="">Выберите требование</option>
-                {(evidenceTask.required_documents || []).map((document) => <option key={document} value={document}>{document}</option>)}
-              </AppSelect>
-              <input
-                type="file"
-                accept="application/pdf,image/jpeg,image/png,image/webp"
-                onChange={(event) => setEvidenceFile(event.target.files?.[0] || null)}
-                className="block w-full text-xs text-w-muted file:mr-3 file:rounded-ctl file:border-0 file:bg-w-accent file:px-3 file:py-2 file:text-xs file:font-bold file:text-black"
-              />
-              <button
-                type="button"
-                disabled={!evidenceRequirement || !evidenceFile || evidenceMutation.isPending}
-                onClick={() => evidenceMutation.mutate()}
-                className="w-full rounded-ctl bg-w-accent px-3 py-2 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {evidenceMutation.isPending ? 'Загрузка...' : 'Загрузить файл'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {reviewTask && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Проверка результата">
-          <div className="w-full max-w-md rounded-card border border-w-line bg-w-panel p-5 shadow-xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-black text-w-ink">Проверка результата</h2>
-                <p className="mt-1 text-xs text-w-muted">{reviewTask.task_text}</p>
-              </div>
-              <button type="button" className="text-xs text-w-muted hover:text-w-ink" onClick={() => setReviewTask(null)}>Закрыть</button>
-            </div>
-            <div className="space-y-3">
-              <AppSelect colorPrefix="w" value={reviewDecision} onChange={(event) => setReviewDecision(event.target.value as typeof reviewDecision)}>
-                <option value="accepted">Принять результат</option>
-                <option value="needs_revision">Вернуть на доработку</option>
-              </AppSelect>
-              <textarea
-                value={reviewNote}
-                onChange={(event) => setReviewNote(event.target.value)}
-                placeholder="Комментарий проверки..."
-                rows={4}
-                className="w-full rounded-ctl border border-w-line bg-w-panel2 p-3 text-sm text-w-ink outline-none focus:border-w-accentDim"
-              />
-              <button
-                type="button"
-                disabled={reviewMutation.isPending}
-                onClick={() => reviewMutation.mutate()}
-                className="w-full rounded-ctl bg-w-accent px-3 py-2 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {reviewMutation.isPending ? 'Сохранение...' : 'Сохранить решение'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+            {item.label}
+            {item.count != null && item.count > 0 && (
+              <span className={cn('ml-1.5 text-xs tabular-nums', tab === item.value ? 'text-w-accentText' : 'text-w-muted2')}>
+                {item.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
-function groupByStudent<T extends { student_id: string }>(items: T[]): Record<string, T[]> {
-  return items.reduce<Record<string, T[]>>((groups, item) => {
-    const studentItems = (groups[item.student_id] ||= [])
-    studentItems.push(item)
-    return groups
-  }, {})
-}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="relative block w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-w-muted2" aria-hidden />
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setVisible(PAGE_SIZE)
+            }}
+            placeholder={tab === 'students' ? 'Найти студента' : 'Задача или студент'}
+            aria-label="Поиск"
+            className="h-10 w-full rounded-ctl border border-w-line bg-w-panel pl-9 pr-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
+          />
+        </label>
 
-function StudentTaskGroup({
-  studentName,
-  total,
-  expanded,
-  onToggle,
-  tail,
-  children,
-}: {
-  studentName: string
-  total: number
-  expanded: boolean
-  onToggle: () => void
-  /** Хвост «Показать остальные»: всегда смонтирован, высота анимируется. */
-  tail?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <section className="rounded-card border border-w-line bg-w-panel p-3">
-      <div className="mb-3 flex items-center justify-between gap-3 px-1">
-        <div>
-          <h2 className="text-sm font-black text-w-ink">{studentName}</h2>
-          <p className="mt-0.5 text-[11px] text-w-muted">{total} задач</p>
-        </div>
-        {total > 5 && (
+        {tab !== 'students' && (
+          <AppSelect
+            colorPrefix="w"
+            aria-label="Тип задачи"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as WorkKind | 'all')}
+          >
+            <option value="all">Все типы</option>
+            <option value="roadmap">Шаги roadmap</option>
+            <option value="delegated">Поручения</option>
+          </AppSelect>
+        )}
+
+        {focusedStudentName && (
           <button
             type="button"
-            onClick={onToggle}
-            className="inline-flex items-center gap-1.5 rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
+            onClick={() => setStudentId('')}
+            className="inline-flex h-10 items-center gap-1.5 rounded-ctl border border-w-accentDim/60 px-3 text-xs font-bold text-w-accentText transition hover:bg-w-accent/10"
           >
-            {expanded ? 'Скрыть остальные' : `Показать остальные · ${total - 5}`}
-            <ChevronDown className={cn('h-3.5 w-3.5 transition', expanded && 'rotate-180')} />
+            {focusedStudentName}
+            <X className="h-3.5 w-3.5" aria-label="Убрать фильтр по студенту" />
           </button>
         )}
-      </div>
-      <div className="space-y-2">{children}</div>
-      {tail != null && (
-        <div className="expandable" data-open={expanded}>
-          <div>
-            <div className="space-y-2 pt-2">{tail}</div>
+
+        {(tab === 'queue' || tab === 'review') && (
+          <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto" role="group" aria-label="Фильтр по сроку">
+            {BUCKETS.map((value) => {
+              const active = bucket === value
+              const count = counts[value]
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setBucket(value)
+                    setVisible(PAGE_SIZE)
+                  }}
+                  className={cn(
+                    'h-8 rounded-full border px-3 text-xs font-bold transition',
+                    active
+                      ? 'border-w-ink bg-w-ink text-w-bg'
+                      : 'border-w-line text-w-muted hover:border-w-accentDim hover:text-w-ink',
+                  )}
+                >
+                  {value === 'all' ? 'Все' : BUCKET_LABEL[value]}
+                  <span
+                    className={cn(
+                      'ml-1.5 tabular-nums',
+                      !active && value === 'overdue' && count > 0 ? 'text-w-danger' : active ? 'opacity-70' : 'text-w-muted2',
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
+        )}
+      </div>
+
+      <QueryState
+        colorPrefix="w"
+        isLoading={loading}
+        isError={failed}
+        error={failure}
+        onRetry={retry}
+        isEmpty={false}
+      >
+        {tab === 'students' ? (
+          <StudentsOverview
+            students={students}
+            rollups={rollups}
+            query={query}
+            canCreate={canCreate}
+            onCreate={(student) => setCreating({ student })}
+            onFocusStudent={(id) => {
+              setStudentId(id)
+              setBucket('all')
+              setTab('queue')
+            }}
+          />
+        ) : listed.length === 0 ? (
+          <div className="rounded-card border border-w-line bg-w-panel">
+            <EmptyState
+              colorPrefix="w"
+              title={hasFilters ? 'По этим условиям ничего нет' : emptyTitle(tab)}
+              description={hasFilters ? 'Сбросьте фильтры или измените поиск.' : emptyHint(tab)}
+              action={hasFilters ? <AppButton colorPrefix="w" variant="subtle" onClick={resetFilters}>Сбросить фильтры</AppButton> : undefined}
+            />
+          </div>
+        ) : (
+          <>
+            <TaskQueue items={listed.slice(0, visible)} actions={actions} sortKey={sort.key} sortDir={sort.dir} onSort={onSort} />
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-w-muted">
+              <span className="tabular-nums">Показано {Math.min(visible, listed.length)} из {listed.length}</span>
+              {listed.length > visible && (
+                <button
+                  type="button"
+                  onClick={() => setVisible((current) => current + PAGE_SIZE)}
+                  className="rounded-ctl border border-w-line px-3 py-1.5 font-bold text-w-ink transition hover:border-w-accentDim"
+                >
+                  Показать ещё
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </QueryState>
+
+      {detailItem && (
+        <TaskDetailPanel item={detailItem} actions={actions} onClose={() => setDetailKey(null)} onChanged={refresh} />
       )}
-    </section>
+      {questionnaire?.roadmap && (
+        <WorkspaceQuestionnaireDialog
+          taskId={questionnaire.id}
+          taskTitle={questionnaire.title}
+          studentId={questionnaire.roadmap.student_id}
+          open
+          onClose={() => setQuestionnaire(null)}
+        />
+      )}
+      {reviewing && (
+        <ReviewDialog
+          item={reviewing.item}
+          initialDecision={reviewing.decision}
+          onClose={() => setReviewing(null)}
+          onDone={() => {
+            setReviewing(null)
+            refresh()
+          }}
+        />
+      )}
+      {evidence && (
+        <EvidenceDialog
+          item={evidence}
+          onClose={() => setEvidence(null)}
+          onDone={() => {
+            queryClient.invalidateQueries({ queryKey: ['workspace', 'task-evidence', evidence.id] })
+            refresh()
+          }}
+        />
+      )}
+      {creating && (
+        <CreateTaskDialog
+          colorPrefix="w"
+          defaultStudent={creating.student}
+          onClose={() => setCreating(null)}
+          onCreated={() => {
+            refresh()
+            setCreating(null)
+          }}
+        />
+      )}
+    </div>
   )
 }
 
-function RoadmapTaskRow({
-  task,
-  disabled,
-  onToggle,
-  onOpenQuestionnaire,
-}: {
-  task: WorkspaceRoadmapTask
-  disabled?: boolean
-  onToggle: () => void
-  onOpenQuestionnaire: () => void
-}) {
-  const done = task.status === 'done'
-  return (
-    <div className="flex items-start gap-3 rounded-panel border border-w-line bg-w-panel2 p-3">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onToggle}
-        className={cn(
-          'mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition active:scale-[0.98]',
-          done ? 'border-w-good bg-w-good text-black' : 'border-w-line text-w-muted hover:border-w-accentDim hover:text-w-accentText',
-          disabled && 'cursor-wait opacity-60'
-        )}
-        aria-label={done ? 'Вернуть в работу' : 'Закрыть задачу'}
-      >
-        {done && <CheckCircle2 className="h-3.5 w-3.5" />}
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className={cn('text-sm font-bold', done ? 'text-w-muted line-through' : 'text-w-ink')}>{task.title}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
-          <Link to={`/workspace/students/${task.student_id}#roadmap`} className="inline-flex items-center gap-1 text-w-accentText hover:underline">
-            <Route className="h-3 w-3" /> {task.student_name}
-          </Link>
-          <span>·</span>
-          <span>{task.stage_name}</span>
-          {task.due_date && (
-            <>
-              <span>·</span>
-              <span className="tabular-nums">до {formatDate(task.due_date)}</span>
-            </>
-          )}
-          <UrgencyBadge dueDate={task.due_date} status={task.status} />
-          {task.subtasks_total > 0 && (
-            <>
-              <span>·</span>
-              <span>{task.subtasks_done}/{task.subtasks_total} подзадач</span>
-            </>
-          )}
-          {task.audience === 'coordinator' && <span className="text-w-muted2">координатор</span>}
-          {task.needs_document && <span className="inline-flex items-center gap-1 text-w-muted2"><FileUp className="h-3 w-3" /> документ</span>}
-          {task.needs_zoom && <span className="inline-flex items-center gap-1 text-w-muted2"><Video className="h-3 w-3" /> zoom</span>}
-          {task.has_questionnaire && <button type="button" onClick={onOpenQuestionnaire} className="inline-flex items-center gap-1 font-bold text-w-accentText hover:underline"><ClipboardList className="h-3 w-3" /> Открыть анкету</button>}
-        </div>
-      </div>
-      <span
-        className={cn(
-          'shrink-0 rounded px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide',
-          task.priority === 'required' && 'bg-w-accent text-black',
-          task.priority === 'recommended' && 'border border-w-accentDim/60 text-w-accentText',
-          task.priority === 'optional' && 'border border-w-line text-w-muted2'
-        )}
-      >
-        {PRIORITY_LABEL[task.priority] || task.priority}
-      </span>
-    </div>
-  )
+function emptyTitle(tab: Tab): string {
+  if (tab === 'review') return 'Ничего не ждёт проверки'
+  if (tab === 'closed') return 'Закрытых задач пока нет'
+  return 'Открытых задач нет'
+}
+
+function emptyHint(tab: Tab): string {
+  if (tab === 'review') return 'Когда студент отметит шаг выполненным или сотрудник сдаст поручение, он появится здесь.'
+  if (tab === 'closed') return 'Принятые и закрытые задачи окажутся здесь.'
+  return 'Назначьте студенту roadmap или поставьте поручение кнопкой «Новая задача».'
 }

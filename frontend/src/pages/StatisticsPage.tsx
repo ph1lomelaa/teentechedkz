@@ -17,7 +17,6 @@ import { workspaceApi } from '@/api/workspace'
 import {
   DEGREE_LEVEL_LABELS,
   PIPELINE_COLUMNS,
-  PIPELINE_STATUS_COLORS,
   PIPELINE_STATUS_LABELS,
   PipelineStatus,
   SERVICE_TYPE_LABELS,
@@ -38,6 +37,13 @@ import {
   TableRow,
 } from '@/components/ui/primitives/table'
 import { QueryError } from '@/components/shared/QueryState'
+import {
+  PipelineStatusFilter,
+  PipelineStatusTag,
+  matchesPipelineStatusFilter,
+  pipelineStatusChipLabel,
+  type PipelineStatusOperator,
+} from '@/components/shared/PipelineStatusFilter'
 
 type ListScope = 'all' | 'mine' | 'assigned' | 'unassigned'
 
@@ -57,11 +63,15 @@ const PIPELINE_RISK_GROUP: Record<PipelineStatus, RiskGroup> = {
   active_work: 'healthy',
   on_visa: 'risk',
   paused: 'attention',
+  completed_admitted: 'healthy',
   changed_mind: 'neutral',
+  lost_applicant: 'risk',
   refund: 'risk',
   unpaid: 'attention',
   transferred_pipeline: 'risk',
   ielts_retake: 'attention',
+  reapplication: 'attention',
+  problem: 'risk',
   suspended: 'risk',
   no_status: 'neutral',
 }
@@ -151,7 +161,8 @@ function isServiceOverdue(deadline: string | null | undefined, status: string): 
 
 export function StatisticsPage() {
   const [scope, setScope] = useState<ListScope>('all')
-  const [statusFilter, setStatusFilter] = useState<PipelineStatus | ''>('')
+  const [statusFilters, setStatusFilters] = useState<PipelineStatus[]>([])
+  const [statusFilterOperator, setStatusFilterOperator] = useState<PipelineStatusOperator>('is')
   const [yearFilter, setYearFilter] = useState('')
   const [degreeFilter, setDegreeFilter] = useState('')
   const [countryFilter, setCountryFilter] = useState('')
@@ -183,7 +194,7 @@ export function StatisticsPage() {
       if (scope === 'mine' && !student.is_mine) return false
       if (scope === 'assigned' && !(student.responsible_count ?? 0)) return false
       if (scope === 'unassigned' && (student.responsible_count ?? 0) > 0) return false
-      if (statusFilter && pipelineOf(student) !== statusFilter) return false
+      if (!matchesPipelineStatusFilter(pipelineOf(student), statusFilters, statusFilterOperator)) return false
       if (yearFilter && String(student.intake_year) !== yearFilter) return false
       if (degreeFilter && student.degree_level !== degreeFilter) return false
       if (countryFilter && (student.country ?? '').toLowerCase() !== countryFilter.toLowerCase()) return false
@@ -194,7 +205,7 @@ export function StatisticsPage() {
         return false
       return true
     })
-  }, [directory.students, scope, statusFilter, yearFilter, degreeFilter, countryFilter, responsibleIdFilter])
+  }, [directory.students, scope, statusFilters, statusFilterOperator, yearFilter, degreeFilter, countryFilter, responsibleIdFilter])
 
   const statusCounts = useMemo(() => {
     const counts = new Map<PipelineStatus, number>()
@@ -336,7 +347,7 @@ export function StatisticsPage() {
 
   const activeFiltersCount =
     (scope !== 'all' ? 1 : 0) +
-    (statusFilter ? 1 : 0) +
+    (statusFilters.length ? 1 : 0) +
     (yearFilter ? 1 : 0) +
     (degreeFilter ? 1 : 0) +
     (countryFilter ? 1 : 0) +
@@ -345,7 +356,8 @@ export function StatisticsPage() {
   const responsibleName = (id: string) => directory.responsibleUsers.find((user) => user.id === id)?.name ?? id
   const resetFilters = () => {
     setScope('all')
-    setStatusFilter('')
+    setStatusFilters([])
+    setStatusFilterOperator('is')
     setYearFilter('')
     setDegreeFilter('')
     setCountryFilter('')
@@ -358,7 +370,11 @@ export function StatisticsPage() {
       label: scope === 'mine' ? 'Скоуп: мои' : scope === 'assigned' ? 'Скоуп: назначенные' : 'Скоуп: без ответственного',
       onRemove: () => setScope('all'),
     },
-    statusFilter && { key: 'status', label: `Статус: ${PIPELINE_STATUS_LABELS[statusFilter]}`, onRemove: () => setStatusFilter('') },
+    ...statusFilters.map((status) => ({
+      key: `status-${status}`,
+      label: pipelineStatusChipLabel(status, statusFilterOperator),
+      onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
+    })),
     yearFilter && { key: 'year', label: `Год: ${yearFilter}`, onRemove: () => setYearFilter('') },
     degreeFilter && { key: 'degree', label: `Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`, onRemove: () => setDegreeFilter('') },
     countryFilter && { key: 'country', label: `Страна: ${countryFilter}`, onRemove: () => setCountryFilter('') },
@@ -400,19 +416,16 @@ export function StatisticsPage() {
                 </SelectContent>
               </Select>
             </FilterField>
-            <FilterField label="Статус pipeline">
-              <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : (v as PipelineStatus))}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Все" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все статусы</SelectItem>
-                  {PIPELINE_COLUMNS.map((status) => (
-                    <SelectItem key={status} value={status}>{PIPELINE_STATUS_LABELS[status]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FilterField>
+            <div className="col-span-2">
+              <FilterField label="Статус выплат">
+                <PipelineStatusFilter
+                  value={statusFilters}
+                  onChange={setStatusFilters}
+                  operator={statusFilterOperator}
+                  onOperatorChange={setStatusFilterOperator}
+                />
+              </FilterField>
+            </div>
             <FilterField label="Год intake">
               <Select value={yearFilter || 'all'} onValueChange={(v) => setYearFilter(v === 'all' ? '' : v)}>
                 <SelectTrigger className="h-9 text-sm">
@@ -640,9 +653,7 @@ export function StatisticsPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <span className={`rounded-pill px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide ${PIPELINE_STATUS_COLORS[status]}`}>
-                        {PIPELINE_STATUS_LABELS[status]}
-                      </span>
+                      <PipelineStatusTag status={status} />
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">

@@ -80,6 +80,9 @@ def _candidate_to_dict(card: dict, reason: str, owners: dict | None = None) -> d
         "full_name": card["full_name"],
         "phone": card["phone"],
         "intake_year": card["intake_year"],
+        # Город карточки нужен для сравнения «заявка ↔ карточка». Email у карточки
+        # нет (он только у кабинета — см. portal_owner), поэтому не отдаём его.
+        "city": card.get("city"),
         "is_free": card.get("user_id") is None,
         "portal_owner": _portal_owner(card, owners),
         "reason": reason,
@@ -95,6 +98,9 @@ async def _load_portal_owners(db: AsyncSession, user_ids: set) -> dict:
     )
     return {
         uid: {
+            # Нужен очереди, чтобы отличить «чужой кабинет» от «этот же аккаунт».
+            # Список доступен только тем, у кого access_requests:view.
+            "user_id": str(uid),
             "email": email,
             "last_login_at": last_login.isoformat() if last_login else None,
             "is_active": is_active,
@@ -406,6 +412,50 @@ async def reject_request(
     await decide(db, req=req, actor=current_user, status_value=STATUS_REJECTED)
     await db.commit()
     return {"ok": True, "status": STATUS_REJECTED}
+
+
+@router.post("/{request_id}/close-linked")
+async def close_linked_request(
+    request_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Закрыть заявку человека, чей аккаунт уже владеет карточкой.
+
+    Случай: заявитель и владелец найденной карточки — один пользователь.
+    Заменять тут нечего, а «Привязать» упирается в конфликт, поэтому заявка
+    висела бы в очереди вечно. Закрытие меняет только статус заявки: ни роль,
+    ни активность, ни карточку, ни сессии аккаунта не трогает.
+
+    Сервер разрешает его, только если карточка с `user_id == req.user_id`
+    действительно существует; иначе это был бы способ закрыть чужую заявку
+    «как уже привязанную».
+    """
+    require_access(current_user, "access_requests", Action.manage)
+    req = await _load_open(db, request_id)
+    student = (
+        await db.execute(select(Student).where(Student.user_id == req.user_id))
+    ).scalars().first()
+    if student is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Аккаунт заявителя не привязан ни к одной карточке — закрывать как "
+            "«уже привязан» нельзя. Прикрепите карточку, создайте новую или отклоните заявку.",
+        )
+    record_audit(
+        db,
+        action=AuditAction.access_toggled,
+        actor=current_user,
+        target_user_id=req.user_id,
+        target_type="student",
+        target_id=str(student.id),
+        request=request,
+        meta={"via": "queue", "decision": "closed_already_linked", "email": req.user.email},
+    )
+    await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
+    await db.commit()
+    return {"ok": True, "status": STATUS_APPROVED, "student_id": str(student.id)}
 
 
 class CreateStudentRequest(BaseModel):

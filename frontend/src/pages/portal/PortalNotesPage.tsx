@@ -3,8 +3,8 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { ScrollText, ChevronLeft, Search, X, Download } from 'lucide-react'
 import { portalNotesApi, PortalNote } from '@/api/portalNotes'
 import { portalApi } from '@/api/portal'
-import { Markdown } from '@/components/shared/Markdown'
-import { QueryState } from '@/components/shared/QueryState'
+import { NoteReader } from '@/components/notes/NoteReader'
+import { QueryError, QueryState } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { PageShell } from '@/components/shared/PageShell'
@@ -55,17 +55,20 @@ export const PortalNotesPage: React.FC = () => {
   })
 
   useEffect(() => {
-    if (selectedId && !notes.some((n) => n.id === selectedId)) {
+    if (!isLoading && selectedId && !notes.some((n) => n.id === selectedId)) {
       setSelectedId(null)
     }
-  }, [notes, selectedId, setSelectedId])
+    if (!isLoading && !selectedId && notes.length && window.matchMedia('(min-width: 1024px)').matches) {
+      setSelectedId([...notes].sort((a, b) => Date.parse(b.published_at || b.created_at) - Date.parse(a.published_at || a.created_at))[0].id)
+    }
+  }, [notes, selectedId, setSelectedId, isLoading])
 
   const downloadMutation = useMutation({
     mutationFn: () => portalApi.downloadNotesMarkdown(),
     onError: () => toast({ title: 'Не удалось скачать файл', variant: 'destructive' }),
   })
 
-  const { data: detail, isLoading: detailLoading } = useQuery({
+  const { data: detail, isLoading: detailLoading, error: detailError, refetch: refetchDetail } = useQuery({
     queryKey: ['portal', 'note', selectedId],
     queryFn: () => portalNotesApi.get(selectedId as string),
     enabled: Boolean(selectedId),
@@ -73,8 +76,9 @@ export const PortalNotesPage: React.FC = () => {
 
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
-    if (!q) return notes
-    return notes.filter(
+    const sorted = [...notes].sort((a, b) => Date.parse(b.published_at || b.created_at) - Date.parse(a.published_at || a.created_at))
+    if (!q) return sorted
+    return sorted.filter(
       (n) => n.title.toLowerCase().includes(q),
     )
   }, [notes, deferredSearch])
@@ -119,9 +123,9 @@ export const PortalNotesPage: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedId(n.id)}
                       className={cn(
-                        'w-full flex items-center gap-3 border rounded-panel p-3.5 text-left transition-colors',
+                        'w-full flex items-center gap-3 border rounded-2xl p-4 text-left transition-colors',
                         active
-                          ? 'border-p-accent bg-p-accent/10'
+                          ? 'border-p-accent bg-p-accent/10 shadow-sm'
                           : 'border-p-line bg-p-panel hover:bg-p-panel2',
                       )}
                     >
@@ -129,7 +133,7 @@ export const PortalNotesPage: React.FC = () => {
                         <ScrollText className="w-[16px] h-[16px] text-brand" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-extrabold text-p-text truncate">{n.title}</div>
+                        <div className="text-sm font-semibold leading-6 text-p-text line-clamp-2">{n.title}</div>
                         <div className="text-[12px] text-p-muted mt-0.5">{fmt(n.published_at || n.created_at)}</div>
                       </div>
                     </button>
@@ -151,32 +155,32 @@ export const PortalNotesPage: React.FC = () => {
         <p className="mt-1 text-[12px] text-p-muted">Содержимое откроется здесь</p>
       </div>
     </div>
+  ) : detailError ? (
+    <QueryError colorPrefix="p" error={detailError} onRetry={refetchDetail} />
   ) : detailLoading || !detail ? (
     <p className="text-sm text-p-muted">Загрузка…</p>
   ) : (
-    <article className="rounded-card border border-p-line bg-p-panel p-4 sm:p-[22px]">
-      <button
-        type="button"
-        onClick={() => setSelectedId(null)}
-        className="lg:hidden inline-flex items-center gap-1.5 text-sm font-semibold text-p-muted hover:text-p-text mb-4"
-      >
-        <ChevronLeft className="w-4 h-4" /> Все конспекты
-      </button>
-      <h2 className="font-display text-xl font-black text-p-text">{detail.title}</h2>
-      <p className="mt-1 text-[12px] text-p-muted">{fmt(detail.published_at || detail.created_at)}</p>
-      {/* Markdown component uses light-theme grays — render on a white
-          surface so it stays legible under the portal's dark theme too. */}
-      <div className="mt-5 rounded-panel border border-p-line bg-white p-3 sm:p-5">
-        <Markdown>{detail.summary_markdown ?? ''}</Markdown>
+    <article className="note-paper overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-sm">
+      <div className="border-b border-slate-100 p-5 sm:p-8">
+        <button type="button" onClick={() => setSelectedId(null)} className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 lg:hidden"><ChevronLeft className="h-4 w-4" />Все конспекты</button>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Итоги встречи · {fmt(detail.published_at || detail.created_at)}</p>
+        <h2 className="text-2xl font-bold leading-tight tracking-tight">{detail.title}</h2>
+        <span className="mt-4 inline-flex rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Проверено ментором</span>
       </div>
+      <div className="p-5 sm:p-8"><NoteReader markdown={detail.summary_markdown} /></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 sm:px-8"><p className="text-xs text-slate-500">Сохраните итог, чтобы вернуться к нему перед следующей встречей.</p><button type="button" className="inline-flex items-center gap-2 text-sm font-semibold" onClick={() => {
+        const blob = new Blob([`# ${detail.title}\n\n${detail.summary_markdown || ''}`], { type: 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a'); link.href = url; link.download = `meeting-${detail.id}.md`; link.click(); URL.revokeObjectURL(url)
+      }}><Download className="h-4 w-4" />Скачать конспект</button></div>
     </article>
   )
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Кабинет</p>
       <div className="flex items-center justify-between gap-4">
-        <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Конспекты</h1>
+        <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Итоги встреч</h1>
         {notes.length > 0 && (
           <AppButton
             onClick={() => downloadMutation.mutate()}
@@ -188,7 +192,7 @@ export const PortalNotesPage: React.FC = () => {
             title="Скачать все конспекты в формате Markdown"
           >
             <Download className="w-4 h-4" />
-            .md
+            Скачать все
           </AppButton>
         )}
       </div>
@@ -204,8 +208,8 @@ export const PortalNotesPage: React.FC = () => {
           <EmptyState icon={<ScrollText className="w-5 h-5" />} title="Конспектов пока нет" description="После встреч ментор публикует конспекты — они появятся здесь." colorPrefix="p" />
         )}
       >
-        <div className="lg:grid lg:grid-cols-[360px_1fr] lg:items-start lg:gap-6">
-          <div className={cn(selectedId ? 'hidden lg:block' : 'block')}>{list}</div>
+        <div className="lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start lg:gap-6">
+          <div className={cn("lg:sticky lg:top-6", selectedId ? 'hidden lg:block' : 'block')}>{list}</div>
           <div className={cn(selectedId ? 'block' : 'hidden lg:block')}>{detailView}</div>
         </div>
 

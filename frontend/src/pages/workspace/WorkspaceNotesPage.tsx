@@ -5,17 +5,31 @@ import { BookText, CheckCircle2, Mic, Plus, Sparkles } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
+import { stripMarkdown } from '@/components/shared/Markdown'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { NoteSession, NoteSessionStatus, StudentNote, StudentNoteStatus } from '@/types'
-import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs, StatCard } from '@/components/ui'
+import { AppButton, AppCard, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs, StatCard } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
+import { botBarLabel, botNeedsAttention } from '@/lib/meetingBotUi'
 
 const SESSION_STATUS_LABELS: Record<NoteSessionStatus, string> = {
+  draft: 'Подготовка',
   active: 'Идёт запись',
   completed: 'Завершена',
   cancelled: 'Отменена',
+  interrupted: 'Прервана',
+  failed: 'Не удалась',
+}
+
+const SESSION_STATUS_TONE: Record<NoteSessionStatus, 'neutral' | 'accent' | 'danger' | 'good'> = {
+  draft: 'neutral',
+  active: 'good',
+  completed: 'neutral',
+  cancelled: 'neutral',
+  interrupted: 'accent',
+  failed: 'danger',
 }
 
 const NOTE_STATUS_LABELS: Record<StudentNoteStatus, string> = {
@@ -50,7 +64,6 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
   const { mentorId, params } = useWorkspaceScope()
   const initialStudentId = new URLSearchParams(window.location.search).get('student_id') || ''
   const [studentId, setStudentId] = useState(initialStudentId)
-  const [title, setTitle] = useState('')
   const [studentFilter, setStudentFilter] = useLocalState('workspace:notes:studentFilter', initialStudentId)
   const [combinedStatus, setCombinedStatus] = useLocalState<CombinedStatus>('workspace:notes:combinedStatus', 'all')
 
@@ -89,17 +102,17 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
   }, [data?.sessions, data?.notes, studentFilter, combinedStatus])
 
   const createSessionMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const student = students.find((item) => item.id === studentId)
-      return notesApi.createSession({
+      const session = await notesApi.createSession({
         student_id: studentId,
-        title: title.trim() || (student ? `Конспект ${student.full_name}` : 'Новая сессия конспекта'),
+        title: student ? `Конспект ${student.full_name}` : 'Новая сессия конспекта',
         source: 'workspace',
       })
+      return session
     },
     onSuccess: (session) => {
       setStudentId('')
-      setTitle('')
       queryClient.invalidateQueries({ queryKey: ['workspace', 'notes'] })
       navigate(`/workspace/meetings/session/${session.id}`)
     },
@@ -113,7 +126,7 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
           <PageHeader colorPrefix="w"
             eyebrow="Встречи"
             title="Конспекты"
-            description="Сессии звонков, расшифровки и AI-конспекты по назначенным студентам."
+            description="Запишите встречу, проверьте итог и отправьте его ученику."
           />
           <div className="mb-5 grid gap-4 md:grid-cols-3">
             <StatCard colorPrefix="w" label="Сессии" value={loading ? '…' : String(data?.total_sessions ?? allSessions.length)} icon={<Mic className="h-5 w-5" />} />
@@ -126,11 +139,12 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
       <AppCard colorPrefix="w" className="mb-5 p-5">
         <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink">
           <Plus className="h-4 w-4 text-w-accentText" />
-          Быстро начать конспект
+          Записать встречу
         </div>
-        <div className="grid gap-2 md:grid-cols-[260px_1fr_160px]">
+        <p className="mb-4 text-sm text-w-muted">Выберите студента. Ссылку на встречу добавьте на следующем экране.</p><div className="grid gap-2 md:grid-cols-[minmax(260px,1fr)_180px]">
           <AppSelect colorPrefix="w"
             value={studentId}
+            disabled={createSessionMutation.isPending}
             onChange={(event) => setStudentId(event.target.value)}
             className="bg-w-panel2"
           >
@@ -139,18 +153,13 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
               <option key={student.id} value={student.id}>{student.full_name}</option>
             ))}
           </AppSelect>
-          <AppInput colorPrefix="w"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Название сессии, например: Разбор документов / звонок 1"
-            className="bg-w-panel2"
-          />
+
           <AppButton colorPrefix="w"
             disabled={!studentId || createSessionMutation.isPending}
             onClick={() => createSessionMutation.mutate()}
           >
             <Mic className="h-4 w-4" />
-            Начать
+            {createSessionMutation.isPending ? 'Открываем…' : 'Продолжить'}
           </AppButton>
         </div>
       </AppCard>
@@ -191,13 +200,20 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
         >
           <div className="space-y-2">
             {items.map((item) => item.kind === 'session' ? (
-              <Link key={item.id} to={`/workspace/meetings/session/${item.session.id}`} className="block rounded-panel border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
+              <Link key={item.id} to={`/workspace/meetings/session/${item.session.id}`} className="block rounded-2xl border border-w-line bg-w-panel2 p-5 transition hover:border-w-accentDim">
                 <div className="truncate text-sm font-bold text-w-ink">{item.session.title}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
                   <span>{item.session.student_name}</span>
                   <span>·</span>
                   <span>{formatDate(item.session.started_at)}</span>
-                  <Pill colorPrefix="w" tone="accent">{SESSION_STATUS_LABELS[item.session.status]}</Pill>
+                  {item.session.capture_mode !== 'browser' && item.session.bot_status && item.session.bot_status !== 'done' ? (
+                    <Pill colorPrefix="w" tone={item.session.bot_status === 'failed' ? 'danger' : botNeedsAttention(item.session.bot_status) ? 'accent' : 'good'}>
+                      {item.session.bot_status === 'failed' ? 'Запись не удалась' : botBarLabel(item.session.bot_status)}
+                    </Pill>
+                  ) : (
+                    <Pill colorPrefix="w" tone={SESSION_STATUS_TONE[item.session.status]}>{SESSION_STATUS_LABELS[item.session.status]}</Pill>
+                  )}
+                  {item.session.quality === 'incomplete' && <Pill colorPrefix="w" tone="accent">Запись неполная</Pill>}
                   {item.session.transcript_count > 0 && (
                     <>
                       <span>·</span>
@@ -208,13 +224,14 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
                 {item.session.latest_transcript && <div className="mt-2 line-clamp-2 text-xs text-w-muted">{item.session.latest_transcript}</div>}
               </Link>
             ) : (
-              <Link key={item.id} to={`/workspace/meetings/notes/${item.note.id}`} className="block rounded-panel border border-w-line bg-w-panel2 p-3 transition hover:border-w-accentDim">
+              <Link key={item.id} to={`/workspace/meetings/notes/${item.note.id}`} className="block rounded-2xl border border-w-line bg-w-panel2 p-5 transition hover:border-w-accentDim">
                 <div className="truncate text-sm font-bold text-w-ink">{item.note.title}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-w-muted">
                   <span>{item.note.student_name || 'Без студента'}</span>
                   <span>·</span>
                   <span>{formatDate(item.note.created_at)}</span>
                   <Pill colorPrefix="w" tone={NOTE_STATUS_TONE[item.note.status]}>{NOTE_STATUS_LABELS[item.note.status]}</Pill>
+                  <span>· {item.note.published_to_student ? 'Виден ученику' : 'Только для команды'}</span>
                   {Object.keys(item.note.suggested_changes ?? {}).length > 0 && (
                     <span className="inline-flex items-center gap-1 text-w-accentText">
                       <Sparkles className="h-3 w-3" />
@@ -222,6 +239,8 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
                     </span>
                   )}
                 </div>
+                <p className="mt-3 line-clamp-2 text-sm leading-6 text-w-muted">{stripMarkdown(item.note.summary_markdown)}</p>
+                <p className="mt-3 text-xs font-semibold text-w-accentText">{item.note.status === 'draft' ? 'Проверить конспект →' : 'Читать итог встречи →'}</p>
               </Link>
             ))}
           </div>

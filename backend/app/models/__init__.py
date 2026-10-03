@@ -27,6 +27,7 @@ from .student_note import StudentNote, StudentNoteStatus
 from .note_session import NoteSession, NoteSessionStatus
 from .note_transcript import NoteTranscript
 from .note_session_audio_chunk import NoteAudioChunkStatus, NoteSessionAudioChunk
+from .meeting_bot_event import MeetingBotEvent
 from .intake_submission import IntakeSubmission, IntakeSource, IntakeStatus
 from .intake_ai_check import IntakeAiCheck
 from .telegram_chat import TelegramChat, TelegramChatType, TelegramChatStatus
@@ -45,6 +46,7 @@ from .roadmap import (
     TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus,
 )
 from .meeting import Meeting, MeetingStatus
+from .meeting_telegram_delivery import MeetingTelegramDelivery
 from .university import University
 from .credential import UniversityCredential
 from .student_university import StudentUniversity
@@ -82,7 +84,7 @@ __all__ = [
     "Payment", "Document", "CommunicationLog",
     "PendingInsight", "StatusHistory", "SyncStatus",
     "StudentNote", "StudentNoteStatus",
-    "NoteSession", "NoteSessionStatus", "NoteTranscript",
+    "NoteSession", "NoteSessionStatus", "MeetingBotEvent", "NoteTranscript",
     "IntakeSubmission", "IntakeSource", "IntakeStatus",
     "TelegramChat", "TelegramChatType", "TelegramChatStatus",
     "TelegramChatSession", "TelegramSessionStatus",
@@ -97,7 +99,7 @@ __all__ = [
     "RoadmapTemplate", "TemplateStage", "TemplateTask", "TemplateSubtask",
     "Roadmap", "Stage", "RoadmapTask", "RoadmapSubtask",
     "TaskPriority", "TaskAudience", "RoadmapItemStatus", "RoadmapStatus",
-    "Meeting", "MeetingStatus",
+    "Meeting", "MeetingStatus", "MeetingTelegramDelivery",
     "University", "UniversityCredential", "StudentUniversity",
     "Scholarship",
     "Conversation", "ConversationMember", "Message", "MessageAttachment", "ConversationType",
@@ -119,4 +121,7 @@ __all__ = [
     "MentorTaskPenalty", "PenaltyColor", "SecurityIncident", "SecurityIncidentKind", "SecurityIncidentStatus",
     "UserCheckin", "CheckinStatus",
     "AccessRequest", "ACCESS_REQUEST_STATUSES",
+    "Activity", "ActivityIntake", "StudentActivity",
 ]
+
+from .activity import Activity, ActivityIntake, StudentActivity

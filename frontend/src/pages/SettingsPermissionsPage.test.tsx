@@ -13,7 +13,7 @@ import type { PermissionMatrix } from '@/api/permissions'
  * его объём (скоуп) и пометки о том, чего в клетке не видно.
  */
 const matrix: PermissionMatrix = {
-  roles: ['admin', 'mzk_manager', 'mentor', 'student'],
+  roles: ['admin', 'mzk_manager', 'academic_head', 'mentor', 'student'],
   actions: ['view', 'create', 'edit', 'delete', 'manage'],
   resources: ['students', 'guardians'],
   rules: [
@@ -23,6 +23,7 @@ const matrix: PermissionMatrix = {
       roles: {
         admin: { allowed: true, scope: 'all' },
         mzk_manager: { allowed: true, scope: 'all' },
+        academic_head: { allowed: true, scope: 'all' },
         mentor: { allowed: true, scope: 'assigned' },
         student: { allowed: true, scope: 'own' },
       },
@@ -40,6 +41,7 @@ const matrix: PermissionMatrix = {
       roles: {
         admin: { allowed: true, scope: 'all' },
         mzk_manager: { allowed: true, scope: 'all' },
+        academic_head: { allowed: true, scope: 'all' },
         mentor: { allowed: true, scope: 'assigned' },
         student: { allowed: false, scope: null },
       },
@@ -57,6 +59,7 @@ const matrix: PermissionMatrix = {
       roles: {
         admin: { allowed: true, scope: 'all' },
         mzk_manager: { allowed: false, scope: null },
+        academic_head: { allowed: false, scope: null },
         mentor: { allowed: false, scope: null },
         student: { allowed: false, scope: null },
       },
@@ -117,7 +120,7 @@ describe('матрица прав', () => {
     await screen.findByText('students')
 
     const cells = within(rowFor('students')).getAllByLabelText('есть доступ')
-    expect(cells).toHaveLength(4)
+    expect(cells).toHaveLength(5)
     // Скоуп — второй axis: без него ментор и админ выглядели бы одинаково.
     expect(within(rowFor('students')).getByText('свои студенты')).toBeInTheDocument()
     expect(within(rowFor('students')).getByText('своя запись')).toBeInTheDocument()

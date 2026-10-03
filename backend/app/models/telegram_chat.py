@@ -33,6 +33,9 @@ class TelegramChat(Base):
     onboarding_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     onboarding_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     onboarding_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Persisted, rather than kept in process memory: webhook retries and web
+    # worker restarts must not send the same client a burst of replies.
+    last_off_hours_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     privacy_mode_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[TelegramChatStatus] = mapped_column(
         SAEnum(TelegramChatStatus, name="telegram_chat_status"),

@@ -118,7 +118,7 @@ export function JoinPage() {
             onClick={() => setRole('mentor')}
           />
           <div className="pt-2 text-center">
-            <Link to="/login" className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]">
+            <Link to="/login" className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]">
               Уже есть доступ? Войти
             </Link>
           </div>
@@ -161,18 +161,18 @@ export function JoinPage() {
           {/* Раньше здесь была ссылка на регистрацию по паролю — третий способ
               завести аккаунт мимо Google. Теперь такого человека заводит админ
               приглашением, и об этом надо сказать, а не оставлять в тупике. */}
-          <p className="text-center text-[13px] leading-5 text-white/40">
+          <p className="text-center text-[13px] leading-5 text-white/55">
             Нет Google-аккаунта? Напишите куратору — он пришлёт ссылку для входа.
           </p>
           <div className="flex flex-wrap justify-center gap-4 text-sm">
             <button
               type="button"
               onClick={() => setRole(null)}
-              className="font-bold text-white/45 transition hover:text-[#FFD400]"
+              className="font-bold text-white/60 transition hover:text-[#FFD400]"
             >
               Назад
             </button>
-            <Link to="/login" className="font-bold text-white/45 transition hover:text-[#FFD400]">
+            <Link to="/login" className="font-bold text-white/60 transition hover:text-[#FFD400]">
               У меня уже есть доступ
             </Link>
           </div>
@@ -255,7 +255,7 @@ export function JoinPage() {
             <button
               type="button"
               onClick={() => setCredential(null)}
-              className="text-sm font-bold text-white/45 transition hover:text-[#FFD400]"
+              className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]"
             >
               Назад
             </button>
@@ -288,7 +288,7 @@ function RoleCard({
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-bold text-white">{title}</span>
-        <span className="block text-xs leading-5 text-white/45">{hint}</span>
+        <span className="block text-xs leading-5 text-white/60">{hint}</span>
       </span>
     </button>
   )

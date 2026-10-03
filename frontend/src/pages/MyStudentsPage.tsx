@@ -4,8 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Search, Users } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 import {
-  PIPELINE_STATUS_LABELS,
-  PIPELINE_STATUS_COLORS,
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
   SERVICE_TYPE_LABELS,
@@ -40,6 +38,12 @@ import {
 import { debounce } from '@/lib/utils'
 import { PageHeader } from '@/components/ui'
 import { getErrorMessage } from '@/lib/errorMessage'
+import {
+  PipelineStatusFilter,
+  PipelineStatusTag,
+  pipelineStatusChipLabel,
+  type PipelineStatusOperator,
+} from '@/components/shared/PipelineStatusFilter'
 
 /** Те же программы, что в фильтре общей базы. */
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
@@ -58,7 +62,14 @@ export const MyStudentsPage: React.FC = () => {
   // Выбор переживает переход в карточку и обратно — как в общей базе. Разбор
   // списка идёт студент за студентом, и слетающий на каждом возврате фильтр
   // означал бы заново выставлять его десятки раз.
-  const [statusFilter, setStatusFilter] = useLocalState('my-students:status', '')
+  // Раньше здесь хранился один статус строкой — читаем и его, чтобы
+  // сохранённый фильтр не слетел после обновления.
+  const [storedStatusFilters, setStoredStatusFilters] = useLocalState<PipelineStatus[] | string>('my-students:status', [])
+  const statusFilters = Array.isArray(storedStatusFilters)
+    ? storedStatusFilters
+    : storedStatusFilters ? [storedStatusFilters as PipelineStatus] : []
+  const setStatusFilters = (values: PipelineStatus[]) => setStoredStatusFilters(values)
+  const [statusFilterOperator, setStatusFilterOperator] = useLocalState<PipelineStatusOperator>('my-students:statusOperator', 'is')
   const [intakeYearFilter, setIntakeYearFilter] = useLocalState('my-students:year', '')
   const [degreeFilter, setDegreeFilter] = useLocalState('my-students:degree', '')
   const [countryFilter, setCountryFilter] = useLocalState('my-students:country', '')
@@ -86,7 +97,8 @@ export const MyStudentsPage: React.FC = () => {
     queryKey: [
       'my-students',
       debouncedSearch,
-      statusFilter,
+      statusFilters,
+      statusFilterOperator,
       intakeYearFilter,
       degreeFilter,
       countryFilter,
@@ -96,7 +108,8 @@ export const MyStudentsPage: React.FC = () => {
     queryFn: () =>
       studentsApi.list({
         search: debouncedSearch || undefined,
-        pipeline_status: (statusFilter as PipelineStatus) || undefined,
+        pipeline_statuses: statusFilters.length ? statusFilters.join(',') : undefined,
+        pipeline_status_operator: statusFilters.length ? statusFilterOperator : undefined,
         intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
         degree_level: degreeFilter || undefined,
         country: countryFilter.trim() || undefined,
@@ -124,7 +137,7 @@ export const MyStudentsPage: React.FC = () => {
   const total = students.length
 
   const activeFilterCount =
-    (statusFilter ? 1 : 0) +
+    (statusFilters.length ? 1 : 0) +
     (intakeYearFilter ? 1 : 0) +
     (degreeFilter ? 1 : 0) +
     (countryFilter ? 1 : 0) +
@@ -134,13 +147,13 @@ export const MyStudentsPage: React.FC = () => {
   // Активные фильтры видно без открытия панели, и каждый снимается крестиком:
   // иначе «студентов нет» читается как пустой список, а не как выбранный год.
   const filterChips: FilterChip[] = []
-  if (statusFilter) {
+  statusFilters.forEach((status) => {
     filterChips.push({
-      key: 'status',
-      label: `Статус: ${PIPELINE_STATUS_LABELS[statusFilter as PipelineStatus] ?? statusFilter}`,
-      onRemove: () => setStatusFilter(''),
+      key: `status-${status}`,
+      label: pipelineStatusChipLabel(status, statusFilterOperator),
+      onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
     })
-  }
+  })
   if (operationalFilter !== 'all') {
     filterChips.push({
       key: 'operational',
@@ -181,7 +194,8 @@ export const MyStudentsPage: React.FC = () => {
   }
 
   const resetFilters = () => {
-    setStatusFilter('')
+    setStatusFilters([])
+    setStatusFilterOperator('is')
     setIntakeYearFilter('')
     setDegreeFilter('')
     setCountryFilter('')
@@ -221,18 +235,13 @@ export const MyStudentsPage: React.FC = () => {
         </div>
 
         <FilterPopover activeCount={activeFilterCount} onReset={resetFilters}>
-          <FilterField label="Статус">
-            <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все статусы" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                {Object.entries(PIPELINE_STATUS_LABELS).map(([val, label]) => (
-                  <SelectItem key={val} value={val}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <FilterField label="Статус выплат">
+            <PipelineStatusFilter
+              value={statusFilters}
+              onChange={setStatusFilters}
+              operator={statusFilterOperator}
+              onOperatorChange={setStatusFilterOperator}
+            />
           </FilterField>
 
           <FilterField label="Контроль работы">
@@ -403,9 +412,7 @@ export const MyStudentsPage: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status ? (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
-                        {PIPELINE_STATUS_LABELS[student.pipeline_status]}
-                      </span>
+                      <PipelineStatusTag status={student.pipeline_status} />
                     ) : (
                       <span className="text-p-muted2 text-xs">—</span>
                     )}

@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/primitives/input'
 import { stripMarkdown } from '@/components/shared/Markdown'
 import { cn, formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import type { NoteSessionStatus, StudentListItem, StudentNoteStatus, DegreeLevel } from '@/types'
+import type { MeetingBotStatus, NoteSession, NoteSessionStatus, StudentListItem, StudentNoteStatus, DegreeLevel } from '@/types'
+import { UserAvatar } from '@/components/shared/ChatPrimitives'
 import { DEGREE_LEVEL_LABELS } from '@/types'
 import { PageHeader } from '@/components/ui'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
@@ -21,10 +22,33 @@ import { QueryState } from '@/components/shared/QueryState'
 
 const sessionStatusOptions: Array<{ value: NoteSessionStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все сессии' },
-  { value: 'active', label: 'Активные' },
+  { value: 'active', label: 'Идёт запись' },
+  { value: 'interrupted', label: 'Прерванные' },
+  { value: 'failed', label: 'Не удались' },
   { value: 'completed', label: 'Завершённые' },
-  { value: 'cancelled', label: 'Отменённые' },
 ]
+
+// Состояние самой записи — для сессий, у которых ещё нет конспекта.
+const SESSION_PILL: Partial<Record<NoteSessionStatus, { label: string; cls: string }>> = {
+  active: { label: 'Идёт запись', cls: 'bg-emerald-100 text-emerald-800' },
+  interrupted: { label: 'Прервана · соберите конспект', cls: 'bg-amber-100 text-amber-800' },
+  failed: { label: 'Запись не удалась', cls: 'bg-red-100 text-red-700' },
+}
+
+// Запись ботом точнее статуса сессии: «впустите бота», «готовим конспект».
+const BOT_PILL: Partial<Record<MeetingBotStatus, { label: string; cls: string }>> = {
+  joining: { label: 'Бот заходит', cls: 'bg-sky-100 text-sky-800' },
+  waiting_room: { label: 'Впустите бота', cls: 'bg-amber-100 text-amber-800' },
+  waiting_permission: { label: 'Разрешите запись', cls: 'bg-amber-100 text-amber-800' },
+  recording: { label: 'Идёт запись', cls: 'bg-emerald-100 text-emerald-800' },
+  processing: { label: 'Готовим конспект', cls: 'bg-sky-100 text-sky-800' },
+  failed: { label: 'Запись не удалась', cls: 'bg-red-100 text-red-700' },
+}
+
+function sessionPill(session: NoteSession) {
+  if (session.capture_mode !== 'browser' && session.bot_status && BOT_PILL[session.bot_status]) return BOT_PILL[session.bot_status]
+  return SESSION_PILL[session.status]
+}
 
 const noteStatusOptions: Array<{ value: StudentNoteStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Все конспекты' },
@@ -32,12 +56,6 @@ const noteStatusOptions: Array<{ value: StudentNoteStatus | 'all'; label: string
   { value: 'approved', label: 'Одобренные' },
   { value: 'rejected', label: 'Отклонённые' },
 ]
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '—'
-  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
-}
 
 const NOTE_PILL: Record<StudentNoteStatus, { label: string; cls: string }> = {
   draft: { label: 'Ждёт проверки', cls: 'bg-amber-100 text-amber-800' },
@@ -216,12 +234,10 @@ export const NotesPage: React.FC = () => {
   ].filter(Boolean) as { key: string; label: string; onRemove: () => void }[]
 
   const createMutation = useMutation({
-    mutationFn: async () =>
-      notesApi.createSession({
-        student_id: studentSelect || undefined,
-        title: selectedStudent ? `Конспект ${selectedStudent.full_name}` : 'Новая сессия конспекта',
-        source: 'deepgram',
-      }),
+    mutationFn: async () => {
+      const session = await notesApi.createSession({ student_id: studentSelect || undefined, title: selectedStudent ? `Конспект ${selectedStudent.full_name}` : 'Итоги встречи', source: 'deepgram' })
+      return session
+    },
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['note-sessions'] })
       setCreateOpen(false)
@@ -237,12 +253,12 @@ export const NotesPage: React.FC = () => {
     <div className="space-y-5">
       <PageHeader
         eyebrow="Конспекты"
-        title="Сессии и конспекты"
-        description="Откройте новую сессию, дайте доступ к микрофону или экрану, затем проверьте AI-черновик и примените изменения к профилю студента."
+        title="Итоги встреч"
+        description="Запишите встречу по ссылке, проверьте итог и отправьте его ученику. Все конспекты собраны по студентам."
         action={(
           <Button onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Новая сессия
+          Записать встречу
           </Button>
         )}
       />
@@ -381,9 +397,7 @@ export const NotesPage: React.FC = () => {
                       aria-expanded={open}
                     >
                       <ChevronDown className={cn('h-4 w-4 shrink-0 text-p-muted2 transition-transform', open && 'rotate-180')} />
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-black text-[11px] font-bold text-white">
-                        {initials(group.name)}
-                      </span>
+                      <UserAvatar name={group.name} size="message" className="h-8 w-8" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-semibold text-p-text">{group.name}</span>
                         <span className="block text-xs text-p-muted">
@@ -402,7 +416,7 @@ export const NotesPage: React.FC = () => {
                       <div className="divide-y divide-p-line border-t border-p-line">
                         {group.sessions.map((session) => {
                           const note = session.note_id ? noteById.get(session.note_id) : undefined
-                          const pill = note ? NOTE_PILL[note.status as StudentNoteStatus] : undefined
+                          const pill = note ? NOTE_PILL[note.status as StudentNoteStatus] : sessionPill(session)
                           return (
                             <div key={session.id} className="flex flex-wrap items-start gap-3 bg-white px-4 py-3">
                               <CircleDot className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', session.status === 'active' ? 'text-emerald-500' : 'text-p-muted2')} />
@@ -412,6 +426,9 @@ export const NotesPage: React.FC = () => {
                                     {session.title}
                                   </Link>
                                   {pill && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', pill.cls)}>{pill.label}</span>}
+                                  {note?.status === 'draft' && session.quality === 'incomplete' && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">Запись неполная</span>
+                                  )}
                                 </div>
                                 <p className="mt-0.5 text-xs text-p-muted2">
                                   {formatDate(session.started_at)} · {session.transcript_count} фрагм.
@@ -447,12 +464,12 @@ export const NotesPage: React.FC = () => {
                                   </Link>
                                   {pill && <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', pill.cls)}>{pill.label}</span>}
                                 </div>
-                                <p className="mt-0.5 text-xs text-p-muted2">{formatDate(note.created_at)}</p>
+                                <p className="mt-0.5 text-xs text-p-muted2">{formatDate(note.created_at)} · {note.published_to_student ? 'Виден ученику' : 'Только для команды'}</p>
                                 <p className="mt-1 line-clamp-1 text-sm text-p-muted">{stripMarkdown(note.summary_markdown)}</p>
                               </div>
                               <div className="flex shrink-0 gap-2">
                                 <Button variant="outline" size="sm" asChild>
-                                  <Link to={`/notes/${note.id}`}>Конспект</Link>
+                                  <Link to={`/notes/${note.id}`}>{note.status === 'draft' ? 'Проверить' : 'Читать'}</Link>
                                 </Button>
                               </div>
                             </div>
@@ -475,9 +492,9 @@ export const NotesPage: React.FC = () => {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Подготовка · выберите ученика</DialogTitle>
+            <DialogTitle>Записать встречу</DialogTitle>
             <DialogDescription>
-              На следующем экране выберете источник звука и начнёте запись.
+              Выберите студента. На следующем экране вставьте ссылку на встречу и подключите бота.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -485,14 +502,15 @@ export const NotesPage: React.FC = () => {
             <StudentSearchPicker students={sortedStudents} value={studentSelect} onChange={setStudentSelect} />
             {students.length === 0 && (
               <p className="text-xs text-p-muted">
-                Список студентов пуст. Для mentor это обычно означает, что ещё не создано или не активировано назначение MentorAssignment.
+                Список студентов пуст. Попросите администратора назначить вам студентов.
               </p>
             )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
             <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !studentSelect}>
-              {createMutation.isPending ? 'Создаю…' : 'Продолжить'}
+              {createMutation.isPending ? 'Открываем…' : 'Продолжить'}
             </Button>
           </DialogFooter>
         </DialogContent>

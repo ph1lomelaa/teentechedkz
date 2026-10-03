@@ -19,6 +19,46 @@ export interface NotionSnapshotItem {
   notion_last_edited_at?: string
 }
 
+export interface NotionPipelineRow {
+  id: string
+  snapshot_id?: string | null
+  notion_page_id: string | null
+  notion_url?: string | null
+  student_id: string | null
+  suggested_student_id?: string | null
+  suggested_student_name?: string | null
+  suggested_confidence?: number | null
+  source: 'notion' | 'crm'
+  link_status: string
+  values: Record<string, unknown>
+  responsibles: { id?: string; name: string; role: string }[]
+}
+
+export interface NotionPipelineTable {
+  columns: string[]
+  items: NotionPipelineRow[]
+  total: number
+  option_colors: Record<string, Record<string, string>>
+  field_meta: Record<string, { type: string; number_format?: string | null }>
+}
+
+export interface NotionPipelineReport {
+  source_total: number
+  linked: number
+  verified: number
+  crm_only: number
+  changes: number
+  /** Расхождения по распределению (Lead-Mentor, МЗК, Mentors): видны, но не переносятся. */
+  assignment_diffs: number
+  review: number
+  rows: Array<{ notion_page_id: string; student_id: string | null; full_name: string | null;
+    status: string; comparison: Record<string, { notion: unknown; crm: unknown }>;
+    changes: Array<{ field: string; old: unknown; new: unknown }>; issues: string[] }>
+  bibinur_comparison: { notion_lead_all: number; notion_lead_filtered: number;
+    platform_assigned_any_role: number; platform_assigned_lead: number;
+    platform_only_student_ids: string[]; notion_only_student_ids: string[] }
+}
+
 export type NotionSyncDirection = 'notion_newer' | 'crm_newer' | 'conflict' | 'unknown' | 'resolved'
 
 export interface NotionComparisonRow {
@@ -131,6 +171,14 @@ export interface NotionFinanceSummary {
 }
 
 export const notionApi = {
+  pipelineTable: async (sourceOnly = false) => {
+    const res = await apiClient.get<NotionPipelineTable>('/notion/pipeline-table', { params: sourceOnly ? { source_only: true } : undefined })
+    return res.data
+  },
+  pipelineReport: async () => {
+    const res = await apiClient.get<NotionPipelineReport>('/notion/pipeline-report')
+    return res.data
+  },
   run: async () => {
     const res = await apiClient.post('/notion/run')
     return res.data as { ok: boolean; counters: NotionSyncCounters }
@@ -166,6 +214,10 @@ export const notionApi = {
   createStudent: async (snapshotId: string) => {
     const res = await apiClient.post(`/notion/snapshots/${snapshotId}/create-student`)
     return res.data as { student_id: string; snapshot: NotionSnapshotItem }
+  },
+  ensureStudent: async (snapshotId: string) => {
+    const res = await apiClient.post(`/notion/snapshots/${snapshotId}/ensure-student`)
+    return res.data as { student_id: string; created: boolean }
   },
   createMissing: async () => {
     const res = await apiClient.post('/notion/snapshots/create-missing')

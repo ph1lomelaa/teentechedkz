@@ -156,7 +156,7 @@ async def sign_customer(addendum_id: uuid.UUID, current_user: CurrentUser, db: A
     student = await db.get(Student, addendum.student_id)
     if current_user.role == UserRole.student and student and student.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    if current_user.role != UserRole.student and current_user.role not in (UserRole.admin, UserRole.mzk_manager):
+    if current_user.role != UserRole.student and current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         raise HTTPException(status_code=403, detail="Подписать может заказчик или персонал от его имени")
     if addendum.status not in (AddendumStatus.sent_to_customer, AddendumStatus.draft):
         raise HTTPException(status_code=409, detail="Соглашение нельзя подписать в текущем статусе")

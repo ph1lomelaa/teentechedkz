@@ -20,18 +20,28 @@ export interface CheckinWindow {
   timezone: string
 }
 
+export interface CheckinTimezoneOption {
+  value: string
+  label: string
+}
+
 export interface CheckinToday {
   date: string
   /** Обязателен ли чекин этому пользователю сегодня (роль + рабочий день). */
   required: boolean
   checkin: Checkin | null
+  /** Окно в поясе сотрудника: `timezone` — его пояс отметки. */
   window: CheckinWindow
+  /** Из чего можно выбрать свой пояс (регламент п.2.1). */
+  timezones: CheckinTimezoneOption[]
 }
 
 export interface CheckinStaffRow {
   user_id: string
   user_name: string | null
   user_role: string | null
+  /** Есть только в списке сотрудников `list`, не в сводке. */
+  timezone?: string
 }
 
 export interface CheckinSummaryRow extends CheckinStaffRow {
@@ -47,6 +57,10 @@ export const checkinsApi = {
   },
   checkIn: async (note?: string): Promise<Checkin> => {
     const response = await apiClient.post<Checkin>('/checkins/me', note ? { note } : {})
+    return response.data
+  },
+  updateSettings: async (data: { timezone: string }): Promise<{ window: CheckinWindow }> => {
+    const response = await apiClient.patch<{ window: CheckinWindow }>('/checkins/me/settings', data)
     return response.data
   },
   list: async (params?: {

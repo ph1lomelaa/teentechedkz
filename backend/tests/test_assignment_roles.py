@@ -86,7 +86,7 @@ class CandidatesQueryTests(unittest.TestCase):
         self.assertEqual(staff_role_for(MentorRole.mzk), UserRole.mzk_manager)
 
     def test_every_other_role_is_sourced_from_mentors(self) -> None:
-        for role in (MentorRole.lead, MentorRole.career, MentorRole.ielts, MentorRole.country):
+        for role in (MentorRole.lead, MentorRole.career, MentorRole.ielts, MentorRole.country, MentorRole.portfolio):
             with self.subTest(role=role.value):
                 self.assertEqual(staff_role_for(role), UserRole.mentor)
 

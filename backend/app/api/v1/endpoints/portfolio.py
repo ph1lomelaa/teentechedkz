@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
+from app.services.mentor_scope import require_student_access
 from app.core.body import required_uuid
 from app.models.portfolio_progress import PortfolioProgress, PortfolioStatus
 from app.models.mentor_assignment import MentorAssignment
@@ -26,6 +27,8 @@ async def create_portfolio(
 ):
     student_id = required_uuid(body, "student_id")
     require_access(current_user, "portfolio", Action.manage)
+
+    await require_student_access(db, student_id, current_user)
 
     existing = await db.execute(select(PortfolioProgress).where(PortfolioProgress.student_id == student_id))
     if existing.scalar_one_or_none():
@@ -67,6 +70,8 @@ async def update_portfolio(
 
     require_access(current_user, "portfolio", Action.manage)
 
+    await require_student_access(db, pp.student_id, current_user)
+
     for field in ["vpp_group", "first_call_milestone", "deadline_text", "focus_areas", "special_notes"]:
         if field in body:
             setattr(pp, field, body[field])
@@ -94,6 +99,7 @@ async def get_portfolio(
     current_user: CurrentUser,
 ):
     require_access(current_user, "portfolio", Action.manage)
+    await require_student_access(db, student_id, current_user)
     result = await db.execute(select(PortfolioProgress).where(PortfolioProgress.student_id == student_id))
     pp = result.scalar_one_or_none()
     if not pp:

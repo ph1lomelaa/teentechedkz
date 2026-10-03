@@ -83,8 +83,8 @@ class Scope(str, enum.Enum):
 # Наборы ролей, встречающиеся в коде. В эндпоинтах этот же кортеж продублирован
 # десять раз под пятью именами (STAFF, _STAFF, _MANAGE_ROLES, TEMPLATE_ADMIN,
 # COUNTRY_EDIT_ROLES) — здесь он один.
-STAFF = frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.mentor})
-MANAGERS = frozenset({UserRole.admin, UserRole.mzk_manager})
+STAFF = frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor})
+MANAGERS = frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.academic_head})
 ADMIN = frozenset({UserRole.admin})
 STAFF_AND_OWNER = STAFF | {UserRole.student}
 OWNER = frozenset({UserRole.student})
@@ -332,10 +332,18 @@ RULES: tuple[Rule, ...] = (
     Rule("communication", _M, STAFF, scope=_MENTOR_SCOPED),
     Rule("portfolio", _M, STAFF,
          review="_check_access принимает student_id и не проверяет его — portfolio.py:103"),
+    # 03.10.2026, решение владельца: каталог активностей Portfolio UP ведут
+    # менторы, академический руководитель и админ — включая публикацию.
+    # Импорт Excel остаётся только у админа (activity_import.py).
+    Rule("activity_catalog", _M, ADMIN | {UserRole.academic_head, UserRole.mentor},
+         denied_detail="Каталог активностей ведут менторы, академический руководитель и администратор"),
     Rule("services", _M, STAFF, scope=_MENTOR_SCOPED),
     Rule("applications", _V, STAFF_AND_OWNER, scope=_OWNER_SCOPED),
     Rule("applications", _M, STAFF, scope=_MENTOR_SCOPED),
-    Rule("credentials", _M, STAFF_AND_OWNER, scope=_OWNER_SCOPED),
+    # Регламент admission: доступы к порталам вносит ментор, студент их
+    # только смотрит — иначе студент мог бы подменить то, что проверяет компания.
+    Rule("credentials", _V, STAFF_AND_OWNER, scope=_OWNER_SCOPED),
+    Rule("credentials", _M, STAFF, scope=_MENTOR_SCOPED),
     Rule("student_universities", _M, STAFF_AND_OWNER, scope=_OWNER_SCOPED),
     Rule("questionnaires", _V, STAFF_AND_OWNER, scope=_OWNER_SCOPED),
     Rule("questionnaires", _M, STAFF, scope=_MENTOR_SCOPED),
@@ -460,8 +468,10 @@ RULES: tuple[Rule, ...] = (
     # Очередь самозаписи. Смотреть могут менеджеры — им разбирать поток и
     # сверять с карточками; решение (привязать/отклонить) — админское, как и
     # users:manage, потому что одобрение заявки выдаёт доступ к чужим данным.
+    # 03.10.2026: плюс академический руководитель — принимает в систему
+    # менторов, за которыми сам и смотрит.
     Rule("access_requests", _V, MANAGERS),
-    Rule("access_requests", _M, ADMIN),
+    Rule("access_requests", _M, ADMIN | {UserRole.academic_head}),
     Rule("audit", _V, ADMIN),
 
     # Матрица прав и её редактирование. Заперты оба: сняв это право, админ

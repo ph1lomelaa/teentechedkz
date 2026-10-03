@@ -39,7 +39,7 @@ async def check_complaint_sla() -> None:
 
         now = datetime.now(timezone.utc)
         managers_result = await db.execute(
-            select(User.id).where(User.role.in_((UserRole.admin, UserRole.mzk_manager)), User.is_active == True)  # noqa: E712
+            select(User.id).where(User.role.in_((UserRole.admin, UserRole.mzk_manager, UserRole.academic_head)), User.is_active == True)  # noqa: E712
         )
         manager_ids = [row[0] for row in managers_result.all()]
 

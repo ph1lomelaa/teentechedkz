@@ -14,6 +14,7 @@ from app.models.student import Student
 from app.models.university import University
 from app.models.user import UserRole
 from app.schemas.application import ApplicationCreate, ApplicationUpdate, StudentApplicationOut
+from app.services.admission_guard import require_portal_credentials
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import require_student_access
 
@@ -123,6 +124,7 @@ async def create_application(
         is_primary=body.is_primary,
         lead_mentor_id=body.lead_mentor_id,
     )
+    await require_portal_credentials(db, app, None, app.submission_status)
     db.add(app)
     await db.commit()
     await db.refresh(app)
@@ -150,11 +152,14 @@ async def update_application(
         if uni and not (updates.get("university") or app.university):
             updates["university"] = uni.name
 
+    old_status = app.submission_status
     for field in ["country", "university", "university_id", "program", "deadline", "scholarship_target",
                   "is_primary", "submissions_planned", "submissions_done", "submission_status",
                   "visa_status", "lead_mentor_id", "contract_id"]:
         if field in updates:
             setattr(app, field, updates[field])
+    # После присвоения: вуз мог смениться в том же запросе, что и статус.
+    await require_portal_credentials(db, app, old_status, app.submission_status)
 
     await db.commit()
     await db.refresh(app)

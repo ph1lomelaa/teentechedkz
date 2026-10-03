@@ -130,6 +130,7 @@ class TemplateSubtask(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("template_tasks.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(500))
+    due_offset_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     source_notion_page_id: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True, index=True)
 
@@ -208,6 +209,9 @@ class RoadmapTask(Base):
     __tablename__ = "roadmap_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    activity_participation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("student_activities.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     stage_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stages.id", ondelete="CASCADE"), index=True)
     roadmap_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmaps.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(500))
@@ -265,6 +269,7 @@ class RoadmapSubtask(Base):
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmap_tasks.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(500))
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
     task: Mapped["RoadmapTask"] = relationship(back_populates="subtasks")

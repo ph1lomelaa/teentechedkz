@@ -7,8 +7,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
-  PIPELINE_STATUS_LABELS,
-  PIPELINE_STATUS_COLORS,
   DegreeLevel,
 } from '@/types'
 import { SegmentedTabs, PageHeader } from '@/components/ui'
@@ -28,6 +26,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { FilterPopover, FilterField, FilterChips, ResponsiblePicker } from '@/components/shared/FilterPopover'
 import { useStudentDirectory, matchesDirectoryFilters, EMPTY_DIRECTORY_FILTERS, StudentDirectoryFilters } from '@/hooks/useStudentDirectory'
+import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
 
 type RiskCategory = 'suspended' | 'paused' | 'renewal'
 
@@ -304,9 +303,7 @@ export const AtRiskStudentsPage: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     {student.pipeline_status && (
-                      <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
-                        {PIPELINE_STATUS_LABELS[student.pipeline_status]}
-                      </span>
+                      <PipelineStatusTag status={student.pipeline_status} />
                     )}
                   </TableCell>
                   <TableCell>

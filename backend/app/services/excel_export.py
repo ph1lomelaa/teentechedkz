@@ -25,6 +25,7 @@ PIPELINE_STATUS_RU = {
 USER_ROLE_RU = {
     UserRole.admin: "Администратор",
     UserRole.mzk_manager: "МЗК",
+    UserRole.academic_head: "Академический руководитель",
     UserRole.mentor: "Ментор",
     UserRole.student: "Студент",
 }
@@ -143,7 +144,7 @@ def export_student_card(student: dict, role: UserRole) -> bytes:
     _autofit(ws3)
 
     # Finance sheet (admin/mzk only)
-    if role in (UserRole.admin, UserRole.mzk_manager, UserRole.mentor):
+    if role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor):
         for contract in student.get("contracts", []):
             ws4 = wb.create_sheet("Финансы")
             _header(ws4, ["Поле", "Значение"])

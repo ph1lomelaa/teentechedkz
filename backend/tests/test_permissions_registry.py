@@ -41,7 +41,9 @@ from app.core.permissions import (
 )
 from app.models.user import User, UserRole
 
-ALL_ROLES = (UserRole.admin, UserRole.mzk_manager, UserRole.mentor, UserRole.student)
+ALL_ROLES = (
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+)
 
 
 def _user(role: UserRole) -> User:
@@ -71,8 +73,13 @@ class StructureTests(unittest.TestCase):
     def test_role_sets_are_the_shared_constants(self) -> None:
         # Смысл реестра в том, что кортеж (admin, МЗК, ментор) существует в
         # одном экземпляре, а не в десяти копиях под пятью именами, как было.
-        self.assertEqual(STAFF, frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.mentor}))
-        self.assertEqual(MANAGERS, frozenset({UserRole.admin, UserRole.mzk_manager}))
+        self.assertEqual(
+            STAFF,
+            frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor}),
+        )
+        self.assertEqual(
+            MANAGERS, frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.academic_head})
+        )
         self.assertEqual(ADMIN, frozenset({UserRole.admin}))
 
     def test_rules_are_immutable(self) -> None:

@@ -182,7 +182,7 @@ export const LoginPage: React.FC = () => {
               жмёт «сбросить» в карточке студента. Раньше человек об этом нигде не
               узнавал — на форме была только заявка на новый доступ, а настоящий
               ответ лежал в FAQ лендинга. */}
-          <div className="mt-7 border-t border-white/10 pt-5 text-center text-sm text-white/45">
+          <div className="mt-7 border-t border-white/10 pt-5 text-center text-sm text-white/60">
             <button
               type="button"
               onClick={() => setShowRecovery((v) => !v)}

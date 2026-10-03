@@ -34,9 +34,9 @@ export const RoadmapCard: React.FC<RoadmapCardProps> = ({
 }) => {
   const bgClass = colorPrefix === 'p' ? 'from-[#161616] to-[#111111]' : 'from-[#0a1a2e] to-[#050f1a]'
   const textClass = colorPrefix === 'p' ? 'text-p-text' : 'text-w-ink'
-  const accentClass = colorPrefix === 'p' ? 'text-p-accent' : 'text-w-accent'
+  const accentClass = colorPrefix === 'p' ? 'text-p-accent-text' : 'text-w-accent'
   const barBgClass = colorPrefix === 'p' ? 'bg-p-panel' : 'bg-w-panel'
-  const chipBgClass = colorPrefix === 'p' ? 'bg-p-accent/15 text-p-accent' : 'bg-w-accent/15 text-w-accent'
+  const chipBgClass = colorPrefix === 'p' ? 'bg-p-accent/15 text-p-accent-text' : 'bg-w-accent/15 text-w-accent'
 
   return (
     <div

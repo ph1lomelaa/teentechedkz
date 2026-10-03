@@ -9,10 +9,18 @@ export interface NoteBlock {
   content: string
 }
 
-const HEADING = /^(#{1,3})\s+(.*\S)\s*$/
-
-export function splitNoteMarkdown(md: string | null | undefined): { hero: string; sections: NoteBlock[] } {
+/**
+ * `maxLevel` — до какого уровня заголовок начинает новый раздел. По умолчанию 3,
+ * как в backend split_blocks. Читалка конспекта передаёт 2: промпт пишет темы
+ * подзаголовками «###» внутри «## Что обсудили», и при делении по «###» раздел
+ * оставался пустым, а темы нумеровались наравне с «Важно запомнить».
+ */
+export function splitNoteMarkdown(
+  md: string | null | undefined,
+  maxLevel: 1 | 2 | 3 = 3,
+): { hero: string; sections: NoteBlock[] } {
   if (!md) return { hero: '', sections: [] }
+  const HEADING = new RegExp(`^(#{1,${maxLevel}})\\s+(.*\\S)\\s*$`)
 
   let hero = ''
   const sections: NoteBlock[] = []

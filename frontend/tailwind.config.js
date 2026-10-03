@@ -101,6 +101,21 @@ export default {
           accentText: 'rgb(var(--ds-accent-text-rgb, 255 212 0) / <alpha-value>)',
           good: 'rgb(var(--ds-good-rgb, 139 212 106) / <alpha-value>)',
           danger: 'rgb(var(--ds-danger-rgb, 255 107 107) / <alpha-value>)',
+          // «Ждёт ответа» (на проверке, предложено) — значения в index.css.
+          info: 'rgb(var(--ds-info-rgb, 147 197 253) / <alpha-value>)',
+        },
+        // Направления Portfolio UP: 8 слотов, выбор по номеру направления из
+        // данных (lib/activityUi.ts → directionTone). Значения в index.css.
+        dir: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((n) => [n, `rgb(var(--dir-${n}-rgb) / <alpha-value>)`])),
+        // Группы очереди заявок на доступ. Значения заданы для обеих тем в
+        // index.css; запасные — тёмные, на случай вне .crm-shell (диалоги).
+        st: {
+          attach: 'rgb(var(--st-attach-rgb, 134 239 172) / <alpha-value>)',
+          busy: 'rgb(var(--st-busy-rgb, 253 186 116) / <alpha-value>)',
+          linked: 'rgb(var(--st-linked-rgb, 103 232 249) / <alpha-value>)',
+          check: 'rgb(var(--st-check-rgb, 253 224 71) / <alpha-value>)',
+          create: 'rgb(var(--st-create-rgb, 147 197 253) / <alpha-value>)',
+          mentor: 'rgb(var(--st-mentor-rgb, 216 180 254) / <alpha-value>)',
         },
         // Student-portal tokens — driven by CSS vars under .portal (theme-aware)
         p: {
@@ -115,6 +130,15 @@ export default {
           accent: 'var(--p-accent)',
           'accent-dim': 'var(--p-accent-dim)',
           danger: 'var(--p-danger)',
+          // Цвета именно ТЕКСТА: жёлтый, зелёный и красный фона на светлой теме
+          // нечитаемы (контраст 1.4–2.8), поэтому у текста своя, темнеющая пара.
+          'accent-text': 'var(--p-accent-text)',
+          'good-text': 'var(--p-good-text)',
+          'danger-text': 'var(--p-danger-text)',
+          // Активный чип фильтра: мягкий жёлтый фон и тёмный текст в светлой
+          // теме, тёмно-жёлтый фон и светло-жёлтый текст в тёмной (index.css).
+          chip: 'var(--p-chip-bg)',
+          'chip-text': 'var(--p-chip-text)',
         },
         w: {
           bg: 'rgb(var(--w-bg-rgb) / <alpha-value>)',

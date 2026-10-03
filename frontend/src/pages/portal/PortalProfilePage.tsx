@@ -40,7 +40,7 @@ export const PortalProfilePage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Кабинет</p>
       <h1 className="mt-2 mb-6 font-display text-[32px] font-black tracking-tight text-p-text">Профиль</h1>
 
       {/* Профиль без пустого состояния: поля просто оказывались бы пустыми, и
@@ -67,7 +67,7 @@ export const PortalProfilePage: React.FC = () => {
           <AppCard className="h-fit">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Смена пароля</h2>
             {msg && (
-              <div className={`text-sm mb-3 px-3 py-2 rounded-ctl ${msg.ok ? 'bg-p-good/10 text-p-good' : 'bg-p-danger/10 text-p-danger'}`}>
+              <div className={`text-sm mb-3 px-3 py-2 rounded-ctl ${msg.ok ? 'bg-p-good/10 text-p-good-text' : 'bg-p-danger/10 text-p-danger-text'}`}>
                 {msg.text}
               </div>
             )}

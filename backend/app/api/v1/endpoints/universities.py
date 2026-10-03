@@ -48,6 +48,22 @@ async def list_universities(current_user: CurrentUser, db: Annotated[AsyncSessio
 @router.post("", response_model=UniversityOut, status_code=201)
 async def create_university(body: UniversityCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     require_access(current_user, "universities", Action.manage)
+    from difflib import SequenceMatcher
+    import re
+
+    def norm(value: str) -> str:
+        return re.sub(r"[^\w]+", " ", value.casefold()).strip()
+
+    name = norm(body.name)
+    country = norm(body.country_name or "")
+    existing = (await db.execute(select(University))).scalars().all()
+    similar = [u for u in existing if norm(u.country_name or "") == country and
+               (norm(u.name) == name or SequenceMatcher(None, norm(u.name), name).ratio() >= 0.92)]
+    if similar:
+        raise HTTPException(status_code=409, detail={
+            "message": "Похожий университет уже есть в каталоге",
+            "matches": [{"id": str(u.id), "name": u.name, "country": u.country_name} for u in similar[:5]],
+        })
     uni = University(**body.model_dump())
     db.add(uni)
     await db.commit()

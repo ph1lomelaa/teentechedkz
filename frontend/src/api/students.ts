@@ -9,7 +9,11 @@ import {
 
 export interface StudentsQueryParams {
   search?: string
+  /** Legacy single-value filter; kept for links/clients deployed earlier. */
   pipeline_status?: PipelineStatus
+  /** Comma-separated to keep Axios/FastAPI encoding stable across versions. */
+  pipeline_statuses?: string
+  pipeline_status_operator?: 'is' | 'is_not'
   intake_year?: number
   degree_level?: string
   scope?: 'all' | 'mine' | 'assigned' | 'unassigned'

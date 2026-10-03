@@ -16,15 +16,15 @@ const getVariantClass = (variant: ButtonVariant, prefix: ColorPrefix): string =>
   if (prefix === 'p') {
     const variants: Record<ButtonVariant, string> = {
       primary: 'bg-p-accent text-black hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(255,212,0,.22)]',
-      ghost: 'border border-p-accent-dim text-p-accent hover:bg-p-accent/10',
+      ghost: 'border border-p-accent-dim text-p-accent-text hover:bg-p-accent/10',
       subtle: 'border border-p-line bg-p-panel text-p-muted hover:border-p-accent-dim hover:text-p-text',
-      danger: 'border border-p-danger/50 text-p-danger hover:bg-p-danger/10',
+      danger: 'border border-p-danger/50 text-p-danger-text hover:bg-p-danger/10',
     }
     return variants[variant]
   } else if (prefix === 'w') {
     const variants: Record<ButtonVariant, string> = {
       primary: 'bg-w-accent text-black hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(255,212,0,.22)]',
-      ghost: 'border border-w-accentDim text-w-accent hover:bg-w-accent/10',
+      ghost: 'border border-w-accentDim text-w-accentText hover:bg-w-accent/10',
       subtle: 'border border-w-line bg-w-panel text-w-muted hover:border-w-accentDim hover:text-w-ink',
       danger: 'border border-w-danger/50 text-w-danger hover:bg-w-danger/10',
     }
@@ -33,7 +33,7 @@ const getVariantClass = (variant: ButtonVariant, prefix: ColorPrefix): string =>
   // Default ds
   const variants: Record<ButtonVariant, string> = {
     primary: 'bg-ds-accent text-black hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(255,212,0,.22)]',
-    ghost: 'border border-ds-accent-dim text-ds-accent hover:bg-ds-accent/10',
+    ghost: 'border border-ds-accent-dim text-ds-accentText hover:bg-ds-accent/10',
     subtle: 'border border-ds-line bg-ds-panel text-ds-muted hover:border-ds-accent-dim hover:text-ds-ink',
     danger: 'border border-ds-danger/50 text-ds-danger hover:bg-ds-danger/10',
   }

@@ -1,3 +1,5 @@
+import { ActivityPlan } from '@/components/activities/ActivityPlan'
+import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useState } from 'react'
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -16,11 +18,13 @@ import {
   Trash2,
   ListChecks,
   FileSignature,
+  Upload,
 } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
 import { emergencyContactsApi } from '@/api/emergencyContacts'
 import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
+import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
 import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
 import { isTaskLive } from '@/lib/taskUrgency'
@@ -40,7 +44,6 @@ import {
 } from '@/api/index'
 import { syncApi } from '@/api/sync'
 import { notionApi, type NotionComparisonRow } from '@/api/notion'
-import { stripMarkdown } from '@/components/shared/Markdown'
 import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection'
 import { StudentResponsibilitiesSection } from '@/components/shared/StudentResponsibilitiesSection'
 import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
@@ -53,6 +56,7 @@ import { TelegramGroupManager } from '@/components/shared/TelegramGroupManager'
 import { DeleteStudentSection } from '@/components/students/DeleteStudentSection'
 import { StudentTeamSection } from '@/components/students/StudentTeamSection'
 import { useAuth } from '@/contexts/AuthContext'
+import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
 import {
   DOC_TYPE_LABELS,
   MENTOR_ROLE_LABELS,
@@ -61,12 +65,12 @@ import {
   PIPELINE_STATUS_LABELS,
   DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
-  PIPELINE_STATUS_COLORS,
   StudentFull,
   StudentTask,
   Service,
   Guardian,
   Document,
+  DocType,
   NoteVisibility,
   StudentTimelineItem,
 } from '@/types'
@@ -116,6 +120,7 @@ import {
 } from '@/components/ui/primitives/table'
 import { downloadBlob, formatDate, formatCurrency, formatFileSize } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
+import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -585,6 +590,8 @@ export const StudentCardPage: React.FC = () => {
     else navigate(-1)
   }
   const { can, hasRole } = useAuth()
+  const taskQueryClient = useQueryClient()
+  const [creatingTask, setCreatingTask] = useState(false)
   const canEditContract = can('contracts', 'manage')
 
   const [editOpen, setEditOpen] = useState(false)
@@ -605,6 +612,10 @@ export const StudentCardPage: React.FC = () => {
   const [noteMenuOpenId, setNoteMenuOpenId] = useState<string | null>(null)
   const [editingNoteText, setEditingNoteText] = useState('')
   const [documentOpenId, setDocumentOpenId] = useState<string | null>(null)
+  const [documentUploadOpen, setDocumentUploadOpen] = useState(false)
+  const [documentUploadType, setDocumentUploadType] = useState<DocType>('other')
+  const [documentUploadFile, setDocumentUploadFile] = useState<File | null>(null)
+  const [documentUploadPending, setDocumentUploadPending] = useState(false)
   const [documentDeleteTarget, setDocumentDeleteTarget] = useState<Document | null>(null)
   const [documentDeletePending, setDocumentDeletePending] = useState(false)
   const [unlinkNotionConfirm, setUnlinkNotionConfirm] = useState<string | null>(null)
@@ -906,6 +917,28 @@ export const StudentCardPage: React.FC = () => {
     }
   }
 
+  const handleUploadDocument = async () => {
+    if (!id || !documentUploadFile) return
+    setDocumentUploadPending(true)
+    try {
+      await documentsApi.upload(id, documentUploadFile, documentUploadType)
+      invalidateStudent(queryClient, id)
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
+      toast({ title: 'Документ загружен', description: documentUploadFile.name })
+      setDocumentUploadFile(null)
+      setDocumentUploadType('other')
+      setDocumentUploadOpen(false)
+    } catch (error) {
+      toast({
+        title: 'Не удалось загрузить документ',
+        description: getErrorMessage(error),
+        variant: 'destructive',
+      })
+    } finally {
+      setDocumentUploadPending(false)
+    }
+  }
+
   const handleDeleteDocument = async () => {
     if (!documentDeleteTarget) return
     setDocumentDeletePending(true)
@@ -1053,9 +1086,7 @@ export const StudentCardPage: React.FC = () => {
                 {DEGREE_LEVEL_LABELS[student.degree_level]}
               </span>
               {student.pipeline_status && (
-                <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${PIPELINE_STATUS_COLORS[student.pipeline_status]}`}>
-                  {PIPELINE_STATUS_LABELS[student.pipeline_status]}
-                </span>
+                <PipelineStatusTag status={student.pipeline_status} />
               )}
             </div>
           </div>
@@ -1088,6 +1119,12 @@ export const StudentCardPage: React.FC = () => {
                 Заметки
               </Button>
             )}
+            {can('tasks', 'manage') && (
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => setCreatingTask(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Поставить задачу
+              </Button>
+            )}
             <Button asChild variant="outline" size="sm" className="h-10 px-4">
               <Link to={`/workspace/students/${student.id}`}>
                 <UserRoundCheck className="w-4 h-4 mr-2" />
@@ -1097,6 +1134,19 @@ export const StudentCardPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {creatingTask && (
+        <CreateTaskDialog
+          colorPrefix="ds"
+          defaultStudent={{ id: student.id, name: student.full_name }}
+          onClose={() => setCreatingTask(false)}
+          onCreated={() => {
+            taskQueryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
+            taskQueryClient.invalidateQueries({ queryKey: ['tasks'] })
+            setCreatingTask(false)
+          }}
+        />
+      )}
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
         {(student.alerts ?? []).map((a, i) => {
@@ -1443,7 +1493,7 @@ export const StudentCardPage: React.FC = () => {
 
         {/* 0e. Chat with student */}
         {can('student_access', 'manage') && <PortalAccessSection studentId={id!} />}
-        {can('chat', 'manage') && <StudentChatSection studentId={id!} />}
+        {can('chat', 'manage') && <StudentChatSection studentId={id!} hasPortalAccess={!!student.user_id} />}
 
         {/* 1. Profile */}
         <AccordionItem value="profile" className="border border-p-line rounded-card px-4">
@@ -1518,7 +1568,7 @@ export const StudentCardPage: React.FC = () => {
                                   и ментору, обращение пишется в историю
                                   изменений. Это принятое решение, а не
                                   забытое расхождение. */}
-                              {!revealedIins[g.id] && hasRole('admin', 'mzk_manager') && (
+                              {!revealedIins[g.id] && hasRole('admin', 'mzk_manager', 'academic_head') && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1666,6 +1716,16 @@ export const StudentCardPage: React.FC = () => {
           </AccordionContent>
         </AccordionItem>
 
+        {/* Регламент admission: без доступов к порталу оффер не отметить. */}
+        <AccordionItem value="credentials" className="border border-p-line rounded-card px-4">
+          <AccordionTrigger className="text-base font-semibold">
+            Доступы к порталам (admission)
+          </AccordionTrigger>
+          <AccordionContent>
+            <PortalCredentialsSection mode="staff" studentId={student.id} />
+          </AccordionContent>
+        </AccordionItem>
+
         {/* 6. Services */}
         <AccordionItem value="services" className="border border-p-line rounded-card px-4">
           <AccordionTrigger className="text-base font-semibold">
@@ -1727,6 +1787,10 @@ export const StudentCardPage: React.FC = () => {
             </span>
           </AccordionTrigger>
           <AccordionContent>
+            <div className="mb-6">
+              <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">Личный план активностей</h3><Link className="text-sm underline" to={`/activities?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
+              <ActivityPlan studentId={student.id} catalogPath={`/activities?student_id=${student.id}&view=catalog`} />
+            </div>
             {portfolio ? (
               <div className="space-y-3">
                 <InfoRow label="Группа VPP" value={portfolio.vpp_group} />
@@ -1832,6 +1896,14 @@ export const StudentCardPage: React.FC = () => {
             </span>
           </AccordionTrigger>
           <AccordionContent>
+            {can('documents', 'manage') && (
+              <div className="mb-3 flex justify-end">
+                <Button size="sm" onClick={() => setDocumentUploadOpen(true)}>
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  Загрузить документ
+                </Button>
+              </div>
+            )}
             {student.documents && student.documents.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {student.documents.map((doc) => (
@@ -1906,6 +1978,61 @@ export const StudentCardPage: React.FC = () => {
             ) : (
               <p className="text-sm text-p-muted py-2">Документы не загружены</p>
             )}
+
+            <Dialog
+              open={documentUploadOpen}
+              onOpenChange={(open) => {
+                if (documentUploadPending) return
+                setDocumentUploadOpen(open)
+                if (!open) setDocumentUploadFile(null)
+              }}
+            >
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Загрузить документ</DialogTitle>
+                  <DialogDescription>
+                    Файл будет добавлен в карточку {student.full_name}. Выбирать студента повторно не нужно.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="student-document-type">Тип документа</Label>
+                    <Select value={documentUploadType} onValueChange={(value) => setDocumentUploadType(value as DocType)}>
+                      <SelectTrigger id="student-document-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="student-document-file">Файл</Label>
+                    <Input
+                      id="student-document-file"
+                      type="file"
+                      disabled={documentUploadPending}
+                      onChange={(event) => setDocumentUploadFile(event.target.files?.[0] ?? null)}
+                    />
+                    {documentUploadFile && (
+                      <p className="text-xs text-p-muted">
+                        {documentUploadFile.name} · {formatFileSize(documentUploadFile.size)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" disabled={documentUploadPending} onClick={() => setDocumentUploadOpen(false)}>
+                    Отмена
+                  </Button>
+                  <Button disabled={!documentUploadFile || documentUploadPending} onClick={handleUploadDocument}>
+                    {documentUploadPending ? 'Загрузка…' : 'Загрузить'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </AccordionContent>
         </AccordionItem>
 
@@ -1965,43 +2092,7 @@ export const StudentCardPage: React.FC = () => {
             </span>
           </AccordionTrigger>
           <AccordionContent>
-            {student.notes && student.notes.length > 0 ? (
-              <div className="space-y-3">
-                {student.notes.map((note) => (
-                  <div key={note.id} className="border border-p-line rounded-panel p-3 bg-p-bg/50">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Link
-                          to={`/notes/${note.id}`}
-                          className="font-medium text-p-text hover:text-black underline underline-offset-4"
-                        >
-                          {note.title}
-                        </Link>
-                        <p className="text-xs text-p-muted mt-1">
-                          {note.status} · {formatDate(note.created_at)}
-                        </p>
-                      </div>
-                      <Link to={`/notes/${note.id}`} className="text-xs text-p-muted hover:text-black underline underline-offset-4">
-                        Открыть
-                      </Link>
-                    </div>
-                    <p className="text-sm text-p-muted mt-2 line-clamp-3">
-                      {stripMarkdown(note.summary_markdown)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-p-muted py-2">Конспектов пока нет</p>
-            )}
-            <div className="mt-3">
-              <Button asChild variant="outline" size="sm">
-                <Link to={`/notes?student_id=${student.id}&create=1`}>
-                  <Plus className="w-3 h-3 mr-2" />
-                  Новый конспект
-                </Link>
-              </Button>
-            </div>
+            <StudentMeetingNotes studentId={student.id} />
           </AccordionContent>
         </AccordionItem>
 

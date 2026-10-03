@@ -105,11 +105,14 @@ class OperationalPermissionsMovedTests(unittest.TestCase):
         from app.models.user import UserRole
 
         expected = {
-            "tasks_assign_mentor": {UserRole.admin, UserRole.mzk_manager},
-            "tasks_assign_mzk": {UserRole.admin, UserRole.mzk_manager},
-            "tasks_accept_result": {UserRole.admin, UserRole.mzk_manager},
+            # 03.10.2026: управление расширено академическим руководителем.
+            "tasks_assign_mentor": {UserRole.admin, UserRole.mzk_manager, UserRole.academic_head},
+            "tasks_assign_mzk": {UserRole.admin, UserRole.mzk_manager, UserRole.academic_head},
+            "tasks_accept_result": {UserRole.admin, UserRole.mzk_manager, UserRole.academic_head},
             # Единственное, что было и у ментора.
-            "tasks_deadlines": {UserRole.admin, UserRole.mzk_manager, UserRole.mentor},
+            "tasks_deadlines": {
+                UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor,
+            },
         }
         for resource, roles in expected.items():
             with self.subTest(resource=resource):

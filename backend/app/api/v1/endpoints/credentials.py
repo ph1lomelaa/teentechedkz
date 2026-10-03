@@ -1,23 +1,26 @@
 """University portal credentials — login/password stored Fernet-encrypted.
 
 Login is decrypted in list responses (safe to display); the password is only
-returned by the explicit /reveal endpoint to the owner, an assigned mentor, or
-an admin/manager. Students manage their own credentials from the portal.
+returned by the explicit /reveal endpoint, and every reveal is written to
+status_history. By the admission regulation staff enter the credentials and
+the student only views them in the portal.
 """
 from __future__ import annotations
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.encryption import encrypt, decrypt
 from app.services.mentor_scope import require_student_access
+from app.models.application import Application
 from app.models.student import Student
 from app.models.user import UserRole
 from app.models.credential import UniversityCredential
@@ -34,13 +37,30 @@ async def _my_student_id(db: AsyncSession, user) -> uuid.UUID | None:
 
 
 async def _assert_manage(db: AsyncSession, student_id: uuid.UUID, user) -> None:
-    """Owner student or staff-in-scope may manage a student's credentials."""
+    """Staff in scope enter and edit credentials; the student never does."""
     require_access(user, "credentials", Action.manage)
+    await require_student_access(db, student_id, user)
+
+
+async def _assert_read(db: AsyncSession, student_id: uuid.UUID, user) -> None:
+    """Staff in scope, or the student who owns the credentials."""
+    require_access(user, "credentials", Action.view)
     if user.role == UserRole.student:
         if await _my_student_id(db, user) != student_id:
             raise _NOT_FOUND
         return
-    await require_student_access(db, student_id, user)
+    await _assert_manage(db, student_id, user)
+
+
+async def _resolve_application(
+    db: AsyncSession, application_id: uuid.UUID | None, student_id: uuid.UUID,
+) -> Application | None:
+    if application_id is None:
+        return None
+    app = await db.get(Application, application_id)
+    if not app or app.student_id != student_id:
+        raise HTTPException(status_code=404, detail="Подача не найдена")
+    return app
 
 
 def _to_out(c: UniversityCredential) -> CredentialOut:
@@ -50,8 +70,8 @@ def _to_out(c: UniversityCredential) -> CredentialOut:
         login = ""
     return CredentialOut(
         id=c.id, student_id=c.student_id, university_id=c.university_id,
-        portal_name=c.portal_name, login=login, notes=c.notes,
-        created_at=c.created_at, updated_at=c.updated_at,
+        application_id=c.application_id, portal_name=c.portal_name, portal_url=c.portal_url or "",
+        login=login, notes=c.notes, created_at=c.created_at, updated_at=c.updated_at,
     )
 
 
@@ -64,13 +84,13 @@ async def _list(db: AsyncSession, student_id: uuid.UUID) -> list[CredentialOut]:
 
 @router.get("/students/{student_id}/credentials", response_model=list[CredentialOut])
 async def student_credentials(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    await _assert_manage(db, student_id, current_user)
+    await _assert_read(db, student_id, current_user)
     return await _list(db, student_id)
 
 
 @router.get("/portal/credentials", response_model=list[CredentialOut])
 async def my_credentials(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    require_access(current_user, "portal", Action.view)
+    require_access(current_user, "credentials", Action.view)
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
@@ -79,19 +99,17 @@ async def my_credentials(current_user: CurrentUser, db: Annotated[AsyncSession, 
 
 @router.post("/credentials", response_model=CredentialOut, status_code=201)
 async def create_credential(body: CredentialCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    # student → self; staff → body.student_id
-    if current_user.role == UserRole.student:
-        student_id = await _my_student_id(db, current_user)
-        if not student_id:
-            raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    else:
-        if not body.student_id:
-            raise HTTPException(status_code=422, detail="student_id обязателен")
-        student_id = body.student_id
-    await _assert_manage(db, student_id, current_user)
+    await _assert_manage(db, body.student_id, current_user)
+    app = await _resolve_application(db, body.application_id, body.student_id)
 
     cred = UniversityCredential(
-        student_id=student_id, university_id=body.university_id, portal_name=body.portal_name,
+        student_id=body.student_id,
+        # Доступ к подаче без явного вуза наследует вуз подачи — так он
+        # засчитывается и для других подач в тот же вуз.
+        university_id=body.university_id or (app.university_id if app else None),
+        application_id=body.application_id,
+        portal_name=body.portal_name.strip(),
+        portal_url=body.portal_url.strip(),
         login_enc=encrypt(body.login), password_enc=encrypt(body.password), notes=body.notes,
     )
     db.add(cred)
@@ -107,12 +125,14 @@ async def update_credential(cred_id: uuid.UUID, body: CredentialUpdate, current_
         raise _NOT_FOUND
     await _assert_manage(db, cred.student_id, current_user)
     data = body.model_dump(exclude_unset=True)
+    if data.get("application_id") is not None:
+        await _resolve_application(db, data["application_id"], cred.student_id)
     if "login" in data:
         cred.login_enc = encrypt(data.pop("login"))
     if "password" in data:
         cred.password_enc = encrypt(data.pop("password"))
     for field, value in data.items():
-        setattr(cred, field, value)
+        setattr(cred, field, value.strip() if isinstance(value, str) else value)
     await db.commit()
     await db.refresh(cred)
     return _to_out(cred)
@@ -133,9 +153,15 @@ async def reveal_credential(cred_id: uuid.UUID, current_user: CurrentUser, db: A
     cred = await db.get(UniversityCredential, cred_id)
     if not cred:
         raise _NOT_FOUND
-    await _assert_manage(db, cred.student_id, current_user)
+    await _assert_read(db, cred.student_id, current_user)
     try:
         password = decrypt(cred.password_enc)
     except Exception:
         raise HTTPException(status_code=500, detail="Не удалось расшифровать пароль")
+    # Кто и когда смотрел пароль — ради этого контроля доступы и собираются.
+    await log_change(
+        db, "university_credential", cred.id, "password_revealed",
+        None, cred.portal_name, changed_by=str(current_user.id), source="reveal",
+    )
+    await db.commit()
     return CredentialReveal(password=password)

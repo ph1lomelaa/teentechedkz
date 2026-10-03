@@ -9,6 +9,7 @@ import { accessRequestsApi } from '@/api/accessRequests'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { cn } from '@/lib/utils'
+import { UserAvatar } from '@/components/shared/ChatPrimitives'
 
 /** Как часто сами проверяем, не открыли ли доступ. */
 const POLL_MS = 15_000
@@ -33,14 +34,6 @@ const PREVIEW_SECTIONS = [
   { label: 'Профиль', icon: <User className="h-[18px] w-[18px]" /> },
 ]
 
-function initials(name?: string | null): string {
-  return (name || '')
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('')
-}
 
 /**
  * Аккаунт заведён, но ещё не привязан к карточке.
@@ -149,9 +142,7 @@ export const PendingApprovalPage: React.FC = () => {
                 <span className="max-w-[160px] truncate text-[11px] font-semibold text-p-muted">
                   {user?.name || 'Пользователь'}
                 </span>
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-p-accent text-[11px] font-black text-black">
-                  {initials(user?.name) || '?'}
-                </span>
+                <UserAvatar name={user?.name || 'Пользователь'} className="h-6 w-6" />
               </div>
               <button
                 onClick={() => logout()}
@@ -166,7 +157,7 @@ export const PendingApprovalPage: React.FC = () => {
             <div className="mx-auto max-w-2xl space-y-5">
               <section className="rounded-card border border-p-accent/25 bg-p-accent/[0.07] p-5">
                 <div className="flex items-start gap-3">
-                  <Clock className="mt-0.5 h-5 w-5 shrink-0 text-p-accent" aria-hidden />
+                  <Clock className="mt-0.5 h-5 w-5 shrink-0 text-p-accent-text" aria-hidden />
                   <div className="min-w-0">
                     <h2 className="text-lg font-bold text-p-text">Вы в системе, идёт проверка</h2>
                     <p className="mt-1.5 text-sm leading-6 text-p-muted">

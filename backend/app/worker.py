@@ -19,6 +19,7 @@ from app.models.note_session_audio_chunk import NoteAudioChunkStatus, NoteSessio
 from app.services.deepgram_rest import transcribe_audio_file
 from app.services.minio_service import minio_download
 from app.services.queue import get_arq_pool
+from arq import func
 from arq.connections import RedisSettings
 
 # This process never imports app.main, so nothing else calls basicConfig —
@@ -51,7 +52,7 @@ async def reconcile_audio_task(ctx, session_id: str) -> None:
                 continue
             try:
                 content = await minio_download(chunk.storage_path)
-                chunk.transcript_text = await transcribe_audio_file(content, "audio/webm")
+                chunk.transcript_text = await transcribe_audio_file(content, "audio/webm", session.language)
                 chunk.status = NoteAudioChunkStatus.transcribed
             except Exception:
                 logger.exception(
@@ -63,6 +64,124 @@ async def reconcile_audio_task(ctx, session_id: str) -> None:
             c.transcript_text.strip() for c in chunks if c.transcript_text and c.transcript_text.strip()
         )
         await db.commit()
+
+
+async def finalize_bot_session_task(ctx, session_id: str) -> None:
+    """Встреча с ботом закончилась: текст, звук, проверка качества, черновик
+    конспекта и уведомление ментору (services/meeting_bot/service.py)."""
+    from app.services.meeting_bot.service import finalize_bot_session
+
+    result = await finalize_bot_session(uuid.UUID(session_id))
+    logger.info("finalize_bot_session_task %s -> %s", session_id, result)
+
+
+async def simulate_mock_bot_task(ctx, session_id: str, bot_id: str) -> None:
+    """Имитация бота (MEETING_BOT_PROVIDER=mock): проигрывает сценарий событий
+    через тот же обработчик, что и настоящие вебхуки."""
+    from app.services.meeting_bot.mock import MOCK_SCRIPT
+    from app.services.meeting_bot.service import handle_provider_event
+
+    elapsed = 0.0
+    for index, (delay, event) in enumerate(MOCK_SCRIPT):
+        await asyncio.sleep(max(0.0, delay - elapsed))
+        elapsed = delay
+        payload = {
+            **event,
+            "idempotency_key": f"mock:{bot_id}:{index}",
+            "bot_id": bot_id,
+            "bot_metadata": {"note_session_id": session_id},
+        }
+        async with AsyncSessionLocal() as db:
+            session = await db.get(NoteSession, uuid.UUID(session_id))
+            # Ментор остановил бота или отправил новый — имитацию прекращаем.
+            if not session or session.bot_external_id != bot_id or session.bot_status in ("failed", "done"):
+                return
+            await handle_provider_event(db, "mock", payload)
+
+
+async def transcribe_uploaded_audio_task(ctx, session_id: str, mime_type: str) -> None:
+    """Загруженная ментором запись → реплики по говорящим → черновик конспекта."""
+    from app.services.note_upload import process_uploaded_audio
+
+    result = await process_uploaded_audio(uuid.UUID(session_id), mime_type)
+    logger.info("transcribe_uploaded_audio_task %s -> %s", session_id, result)
+
+
+async def retranscribe_session_task(ctx, session_id: str) -> None:
+    """«Распознать заново»: звук встречи из MinIO → Deepgram (язык сессии) →
+    резервный текст. Если конспекта ещё нет — собираем его."""
+    from app.models.note_transcript import NoteTranscript
+    from app.models.student import Student
+    from app.services.meeting_bot.service import send_session_notification
+    from app.models.student_note import StudentNote
+    from app.services.note_session_finalize import (
+        build_note_for_session,
+        rebuild_note_draft,
+        session_source_text,
+    )
+
+    async with AsyncSessionLocal() as db:
+        session = await db.get(NoteSession, uuid.UUID(session_id))
+        if not session or not session.audio_storage_path:
+            return
+        try:
+            content = await minio_download(session.audio_storage_path)
+            text = await transcribe_audio_file(content, "audio/mpeg", session.language)
+        except Exception:
+            logger.exception("Retranscription failed for session %s", session_id)
+            await send_session_notification(
+                db, session, kind="meeting_bot_failed",
+                title="Не удалось распознать заново",
+                body=f"Попробуйте позже или допишите конспект вручную. [session:{session.id}]",
+            )
+            return
+        session.backup_transcript_text = text
+        if not text.strip():
+            await db.commit()
+            await send_session_notification(
+                db, session, kind="meeting_bot_failed",
+                title="В записи не распознано ни слова",
+                body=f"Проверьте выбранный язык встречи. [session:{session.id}]",
+            )
+            return
+        rows = list((await db.scalars(
+            select(NoteTranscript).where(NoteTranscript.session_id == session.id).order_by(NoteTranscript.sequence_no)
+        )).all())
+        student = await db.get(Student, session.student_id) if session.student_id else None
+        if session.note_id:
+            # «Запись неполная»: черновик уже есть, и кнопка стоит на его
+            # странице. Пересобираем его по новому тексту, пока не утверждён.
+            note = await db.get(StudentNote, session.note_id)
+            # Только новый текст: он распознан по всему звуку встречи, а живой
+            # транскрипт неполной записи дал бы в конспекте повтор разговора.
+            rebuilt = note is not None and await rebuild_note_draft(
+                db, session, note,
+                source_text=text,
+                student=student,
+                actor_id=session.created_by,
+            )
+            await db.commit()
+            await send_session_notification(
+                db, session, kind="note_ready",
+                title="Конспект пересобран — проверьте" if rebuilt else "Текст распознан заново",
+                body=(f"Черновик собран заново по распознанному тексту. [session:{session.id}]" if rebuilt
+                      else f"Конспект уже проверен, поэтому не изменён; новый текст сохранён в сессии. [session:{session.id}]"),
+            )
+            return
+        await build_note_for_session(
+            db, session,
+            source_text=session_source_text(session, rows),
+            student=student,
+            student_name=student.full_name if student else None,
+            actor_id=session.created_by,
+        )
+        session.bot_status = "done" if session.capture_mode == "bot" else session.bot_status
+        await db.commit()
+        await send_session_notification(
+            db, session, kind="note_ready",
+            title="Конспект готов — проверьте",
+            body=f"Текст распознан заново, черновик конспекта ждёт проверки. [session:{session.id}]",
+        )
 
 
 async def process_telegram_attachment_task(ctx, attachment_id: str) -> None:
@@ -232,6 +351,10 @@ async def on_startup(ctx: dict) -> None:
     else:
         logger.info("Notion sync disabled: NOTION_API_KEY / NOTION_DATABASE_ID not configured")
 
+    if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS and settings.TELEGRAM_BOT_TOKEN:
+        from app.services.meeting_telegram import meeting_telegram_loop
+        tasks.append(asyncio.create_task(meeting_telegram_loop()))
+
     if settings.ENABLE_PAYMENT_NOTIFICATIONS:
         from app.services.payment_notifier import payment_notifier_loop
         tasks.append(asyncio.create_task(payment_notifier_loop()))
@@ -267,6 +390,20 @@ async def on_startup(ctx: dict) -> None:
     else:
         logger.info("Task SLA enforcement disabled")
 
+    if settings.ENABLE_NOTE_SESSION_CLEANUP:
+        from app.services.note_session_cleanup import note_session_cleanup_loop
+        tasks.append(asyncio.create_task(note_session_cleanup_loop()))
+        logger.info("Note session cleanup loop started")
+    else:
+        logger.info("Note session cleanup disabled")
+
+    if settings.MEETING_BOT_ENABLED:
+        from app.services.meeting_bot.service import meeting_bot_watchdog_loop
+        tasks.append(asyncio.create_task(meeting_bot_watchdog_loop()))
+        logger.info("Meeting bot watchdog started")
+    else:
+        logger.info("Meeting bot disabled")
+
     if settings.ENABLE_DAILY_CHECKIN:
         from app.services.checkin_notifier import checkin_loop
         tasks.append(asyncio.create_task(checkin_loop()))
@@ -291,6 +428,11 @@ async def on_shutdown(ctx: dict) -> None:
 class WorkerSettings:
     functions = [
         reconcile_audio_task,
+        finalize_bot_session_task,
+        simulate_mock_bot_task,
+        retranscribe_session_task,
+        # Час записи Deepgram распознаёт минуты — общий job_timeout (300 с) мал.
+        func(transcribe_uploaded_audio_task, timeout=1800),
         process_telegram_attachment_task,
         extract_telegram_insight_task,
     ]

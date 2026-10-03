@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.services.ai_client import complete_with_fallback, provider_chain
@@ -35,6 +37,8 @@ from app.models.student_note import StudentNote, StudentNoteStatus
 from app.schemas.meeting import MeetingOut, MeetingCreate, MeetingUpdate
 from app.schemas.student_note import StudentNoteResponse
 from app.services.ws_hub import manager
+
+ALMATY = ZoneInfo("Asia/Almaty")
 
 router = APIRouter(tags=["meetings"])
 
@@ -198,6 +202,11 @@ async def _assert_staff(db: AsyncSession, student_id: uuid.UUID, user) -> None:
     await require_student_access(db, student_id, user)
 
 
+def _local_time(moment: datetime) -> str:
+    # В БД время в UTC; ученик и команда живут по Алматы (как в Telegram-уведомлениях).
+    return moment.astimezone(ALMATY).strftime('%d.%m.%Y %H:%M')
+
+
 async def _list(db: AsyncSession, student_id: uuid.UUID) -> list[Meeting]:
     res = await db.execute(
         select(Meeting)
@@ -240,6 +249,10 @@ async def create_meeting(body: MeetingCreate, current_user: CurrentUser, db: Ann
         created_by=current_user.id,
     )
     db.add(meeting)
+    await db.flush()
+    if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS:
+        from app.services.meeting_telegram import queue_meeting_notices
+        await queue_meeting_notices(db, meeting)
 
     student = await db.get(Student, body.student_id)
     if student and student.user_id:
@@ -247,7 +260,7 @@ async def create_meeting(body: MeetingCreate, current_user: CurrentUser, db: Ann
             user_id=student.user_id,
             kind="meeting_scheduled",
             title="Назначена встреча",
-            body=f"{meeting.title} — {meeting.starts_at.strftime('%d.%m.%Y %H:%M')}",
+            body=f"{meeting.title} — {_local_time(meeting.starts_at)}",
             link="/portal/meetings",
             priority="normal",
         ))
@@ -269,6 +282,11 @@ async def update_meeting(meeting_id: uuid.UUID, body: MeetingUpdate, current_use
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(meeting, field, value)
+    if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS and {"starts_at", "meeting_link", "status"} & changes.keys():
+        from app.services.meeting_telegram import queue_meeting_notices
+        await queue_meeting_notices(
+            db, meeting, rescheduled="starts_at" in changes, link_changed="meeting_link" in changes,
+        )
 
     if {"starts_at", "ends_at", "status"} & changes.keys():
         student = await db.get(Student, meeting.student_id)
@@ -283,7 +301,7 @@ async def update_meeting(meeting_id: uuid.UUID, body: MeetingUpdate, current_use
                 user_id=student.user_id,
                 kind=kind,
                 title=title,
-                body=f"{meeting.title} — {meeting.starts_at.strftime('%d.%m.%Y %H:%M')}",
+                body=f"{meeting.title} — {_local_time(meeting.starts_at)}",
                 link="/portal/meetings",
                 priority="normal",
             ))
@@ -299,7 +317,12 @@ async def delete_meeting(meeting_id: uuid.UUID, current_user: CurrentUser, db: A
     if not meeting:
         raise _NOT_FOUND
     await _assert_staff(db, meeting.student_id, current_user)
-    await db.delete(meeting)
+    if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS:
+        meeting.status = MeetingStatus.cancelled
+        from app.services.meeting_telegram import queue_meeting_notices
+        await queue_meeting_notices(db, meeting)
+    else:
+        await db.delete(meeting)
     await db.commit()
 
 

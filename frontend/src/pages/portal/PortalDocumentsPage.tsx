@@ -19,8 +19,7 @@ function fmtSize(bytes: number): string {
 
 /** Одна правда об ограничениях загрузки: подпись под кнопкой, текст ошибки и
  *  сам `accept` должны совпадать — раньше они жили в трёх разных строках. */
-const UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp'
-const UPLOAD_LIMITS_HINT = 'PDF, JPG, PNG или WebP · до 25 МБ'
+const UPLOAD_LIMITS_HINT = 'Любой тип файла · до 250 МБ'
 
 export const PortalDocumentsPage: React.FC = () => {
   const queryClient = useQueryClient()
@@ -113,7 +112,7 @@ export const PortalDocumentsPage: React.FC = () => {
     <PageShell maxWidth="lg" className="animate-fade-in">
       <div className="mb-6">
         <div>
-          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Кабинет</p>
+          <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Кабинет</p>
           <h1 className="mt-2 font-display text-[32px] font-black tracking-tight text-p-text">Документы</h1>
         </div>
       </div>
@@ -122,7 +121,6 @@ export const PortalDocumentsPage: React.FC = () => {
         ref={fileRef}
         type="file"
         className="hidden"
-        accept={UPLOAD_ACCEPT}
         onChange={(e) => {
           const f = e.target.files?.[0]
           if (f) uploadMutation.mutate(f)
@@ -132,7 +130,7 @@ export const PortalDocumentsPage: React.FC = () => {
 
       <div className="rounded-card border border-p-line bg-p-panel p-5">
         <h4 className="mb-3.5 flex items-center gap-2 font-display text-sm font-extrabold text-p-text">
-          <FileText className="h-4 w-4 text-p-accent" />
+          <FileText className="h-4 w-4 text-p-accent-text" />
           Документы
         </h4>
 
@@ -151,14 +149,14 @@ export const PortalDocumentsPage: React.FC = () => {
             {docs.map((d, i) => (
               <div key={d.id} className={cn('flex flex-wrap items-center gap-3.5 rounded-panel border border-p-line bg-transparent p-3.5 transition hover:border-p-accent-dim hover:bg-p-panel2', d.signature_status === 'pending' ? 'border-l-4 border-l-p-accent' : '', i < docs.length - 1 ? 'mb-2.5' : '')}>
                 <div className="grid h-[34px] w-[34px] place-items-center rounded-ctl bg-p-accent/15 shrink-0">
-                  <FileText className="h-4 w-4 text-p-accent" />
+                  <FileText className="h-4 w-4 text-p-accent-text" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13.5px] font-bold text-p-text">{d.file_name}</div>
                   <div className="mt-0.5 text-[11.5px] text-p-muted">
                     {DOC_TYPE_LABELS[d.doc_type as keyof typeof DOC_TYPE_LABELS] ?? d.doc_type} · {fmtSize(d.file_size)}
                   </div>
-                  {d.signature_status === 'pending' && <div className="mt-1 text-xs font-bold text-p-accent">Ожидает вашей подписи</div>}
+                  {d.signature_status === 'pending' && <div className="mt-1 text-xs font-bold text-p-accent-text">Ожидает вашей подписи</div>}
                   {d.signature_status === 'signed' && <div className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-3 w-3" /> Подписан</div>}
                 </div>
                 {d.signature_status === 'pending' && (
@@ -179,7 +177,7 @@ export const PortalDocumentsPage: React.FC = () => {
                       if (window.confirm('Удалить документ?')) deleteMutation.mutate(d.id)
                     }}
                     disabled={deleteMutation.isPending}
-                    className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-2.5 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-danger/60 hover:text-p-danger shrink-0"
+                    className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-2.5 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-danger/60 hover:text-p-danger-text shrink-0"
                     aria-label="Удалить документ"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

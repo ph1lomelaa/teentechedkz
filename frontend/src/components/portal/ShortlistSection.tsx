@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { UniversityPicker } from './UniversityPicker'
 import { QueryError } from '@/components/shared/QueryState'
+import { useAuth } from '@/contexts/AuthContext'
 
 /** Shortlist of universities shared by a student and their mentor.
  *
@@ -20,6 +21,7 @@ export const ShortlistSection: React.FC<{
   basePath?: string
 }> = ({ mode, studentId, basePath = '/portal/universities' }) => {
   const queryClient = useQueryClient()
+  const { can } = useAuth()
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const queryKey = mode === 'self' ? ['shortlist', 'mine'] : ['shortlist', studentId]
@@ -99,6 +101,7 @@ export const ShortlistSection: React.FC<{
         excludeIds={items.map((i) => i.university_id)}
         onPick={(id) => addMutation.mutate(id)}
         isPending={addMutation.isPending}
+        canCreate={mode === 'staff' && can('universities', 'manage')}
       />
     </div>
   )
@@ -137,7 +140,7 @@ const ShortlistCard: React.FC<{
         type="button"
         onClick={onRemove}
         aria-label={`Убрать ${u.name} из избранного`}
-        className="grid h-8 w-8 flex-none place-items-center rounded-ctl text-p-muted2 transition-colors hover:text-p-danger"
+        className="grid h-8 w-8 flex-none place-items-center rounded-ctl text-p-muted2 transition-colors hover:text-p-danger-text"
       >
         <Trash2 className="h-4 w-4" />
       </button>

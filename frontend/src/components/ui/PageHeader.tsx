@@ -13,8 +13,8 @@ interface PageHeaderProps {
 }
 
 const EYEBROW_CLASS: Record<ColorPrefix, string> = {
-  ds: 'text-ds-accent',
-  p: 'text-p-accent',
+  ds: 'text-ds-accentText',
+  p: 'text-p-accent-text',
   w: 'text-w-accentText',
 }
 

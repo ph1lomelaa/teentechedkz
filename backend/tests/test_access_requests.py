@@ -19,8 +19,11 @@ from unittest import mock
 from app.api.v1.endpoints.public import _mentor_code_matches
 from fastapi import HTTPException
 
+from app.api.v1.endpoints import access_requests as endpoints
+from app.models.access_request import STATUS_APPROVED, STATUS_NEW
 from app.models.user import UserRole
 from app.services.access_requests import (
+    backfill_unlinked_student_requests,
     find_student_candidates,
     link_user_to_student,
     prepare_candidate_index,
@@ -233,6 +236,155 @@ class ReplaceExistingCabinetTests(unittest.IsolatedAsyncioTestCase):
             await self._link(student, _user(), _db(staff), replace=True)
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertTrue(staff.is_active)
+
+    async def test_replace_with_self_is_explicit_refusal_and_disables_nobody(self) -> None:
+        me = _user(UserRole.student, "me@mail.com")
+        student = mock.Mock(id=uuid.uuid4(), user_id=me.id)
+        db = _db(me)
+        for replace in (False, True):
+            with self.subTest(replace=replace), self.assertRaises(HTTPException) as ctx:
+                revoke = await self._link(student, me, db, replace=replace)
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertIn("этому же аккаунту", ctx.exception.detail)
+            self.assertNotIn("другой карточке", ctx.exception.detail)
+        self.assertTrue(me.is_active)
+        self.assertEqual(me.role, UserRole.student)
+        self.assertEqual(student.user_id, me.id)
+
+
+class CloseLinkedRequestTests(unittest.IsolatedAsyncioTestCase):
+    """«Закрыть заявку» у аккаунта, который уже владеет карточкой."""
+
+    def _req(self, user):
+        return mock.Mock(
+            id=uuid.uuid4(), user_id=user.id, user=user, status=STATUS_NEW, requested_role="student"
+        )
+
+    def _db(self, card):
+        db = mock.Mock()
+        db.execute = mock.AsyncMock(
+            return_value=mock.Mock(scalars=lambda: mock.Mock(first=lambda: card))
+        )
+        db.commit = mock.AsyncMock()
+        return db
+
+    async def _close(self, actor, req, card):
+        db = self._db(card)
+        with mock.patch.object(endpoints, "_load_open", new=mock.AsyncMock(return_value=req)), \
+                mock.patch.object(endpoints, "record_audit") as audit:
+            result = await endpoints.close_linked_request(
+                req.id, mock.Mock(), actor, db
+            )
+        return result, audit, db
+
+    async def test_admin_closes_own_linked_request_without_touching_account(self) -> None:
+        user = _user(UserRole.student, "me@mail.com")
+        card = mock.Mock(id=uuid.uuid4(), user_id=user.id)
+        req = self._req(user)
+        admin = _user(UserRole.admin, "admin@mail.com")
+
+        result, audit, db = await self._close(admin, req, card)
+
+        self.assertEqual(result["status"], STATUS_APPROVED)
+        self.assertEqual(req.status, STATUS_APPROVED)
+        self.assertEqual(req.decided_by, admin.id)
+        self.assertTrue(user.is_active)
+        self.assertEqual(user.role, UserRole.student)
+        self.assertEqual(card.user_id, user.id)
+        audit.assert_called_once()
+        self.assertEqual(audit.call_args.kwargs["meta"]["decision"], "closed_already_linked")
+        db.commit.assert_awaited_once()
+
+    async def test_refuses_when_applicant_owns_no_card(self) -> None:
+        user = _user(UserRole.student, "stranger@mail.com")
+        req = self._req(user)
+        with self.assertRaises(HTTPException) as ctx:
+            await self._close(_user(UserRole.admin, "admin@mail.com"), req, None)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("не привязан ни к одной карточке", ctx.exception.detail)
+        self.assertEqual(req.status, STATUS_NEW)
+
+    async def test_manager_gets_403(self) -> None:
+        user = _user(UserRole.student, "me@mail.com")
+        card = mock.Mock(id=uuid.uuid4(), user_id=user.id)
+        req = self._req(user)
+        manager = mock.Mock(id=uuid.uuid4(), role=UserRole.mzk_manager, permission_grants=[])
+        with self.assertRaises(HTTPException) as ctx:
+            await self._close(manager, req, card)
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(req.status, STATUS_NEW)
+
+class BackfillAndReplaceQueueTests(unittest.IsolatedAsyncioTestCase):
+    """Отключённый аккаунт не должен возвращаться в очередь заявок."""
+
+    async def test_backfill_query_excludes_inactive_accounts(self) -> None:
+        db = mock.Mock()
+        db.execute = mock.AsyncMock(return_value=mock.Mock(all=lambda: []))
+        db.flush = mock.AsyncMock()
+        await backfill_unlinked_student_requests(db)
+        sql = str(db.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("users.is_active IS true", sql)
+
+    async def test_backfill_still_queues_active_student_without_card(self) -> None:
+        user = mock.Mock(id=uuid.uuid4(), name="Активный", phone="+7 701 000 00 00", role=UserRole.student)
+        db = mock.Mock()
+        db.execute = mock.AsyncMock(return_value=mock.Mock(all=lambda: [(user, None)]))
+        db.flush = mock.AsyncMock()
+        created = await backfill_unlinked_student_requests(db)
+        self.assertEqual(created, 1)
+        added = db.add.call_args.args[0]
+        self.assertEqual(added.user_id, user.id)
+        self.assertEqual(added.status, STATUS_NEW)
+
+    async def _replace(self, existing_request):
+        old = _user(UserRole.student, "old@mail.com")
+        old.name, old.phone = "Старый", None
+        student = mock.Mock(id=uuid.uuid4(), user_id=old.id)
+        db = mock.Mock()
+        db.get = mock.AsyncMock(return_value=old)
+        # Первый запрос — «есть ли у старого аккаунта заявка», второй — «не привязан
+        # ли новый к другой карточке» (нет).
+        db.execute = mock.AsyncMock(
+            side_effect=[
+                mock.Mock(scalar_one_or_none=lambda: existing_request),
+                mock.Mock(scalar_one_or_none=lambda: None),
+            ]
+        )
+        admin = _user(UserRole.admin, "admin@mail.com")
+        with mock.patch("app.services.access_requests.record_audit"), mock.patch(
+            "app.services.access_requests.revoke_all_sessions", new=mock.AsyncMock(return_value=1)
+        ):
+            await link_user_to_student(
+                db, student=student, user=_user(), actor=admin, via="test", replace_existing=True
+            )
+        return old, db, admin
+
+    async def test_replaced_account_without_request_gets_closed_marker(self) -> None:
+        old, db, admin = await self._replace(existing_request=None)
+        self.assertFalse(old.is_active)
+        marker = db.add.call_args.args[0]
+        self.assertEqual(marker.user_id, old.id)
+        self.assertEqual(marker.status, "rejected")
+        self.assertEqual(marker.decided_by, admin.id)
+
+    async def test_replaced_account_with_request_is_left_alone(self) -> None:
+        old, db, _ = await self._replace(existing_request=uuid.uuid4())
+        self.assertFalse(old.is_active)
+        db.add.assert_not_called()
+
+    def test_candidate_has_city_and_no_email_of_its_own(self) -> None:
+        card = {"id": uuid.uuid4(), "full_name": "А Б", "phone": "+7", "intake_year": 2026, "city": "Алматы", "user_id": None}
+        out = endpoints._candidate_to_dict(card, "phone")
+        self.assertEqual(out["city"], "Алматы")
+        self.assertNotIn("email", out)
+
+    async def test_queue_is_closed_to_roles_without_view(self) -> None:
+        for role in (UserRole.student, UserRole.mentor):
+            with self.subTest(role=role), self.assertRaises(HTTPException) as ctx:
+                await endpoints.list_requests(
+                    mock.Mock(id=uuid.uuid4(), role=role, permission_grants=[]), mock.Mock()
+                )
+            self.assertEqual(ctx.exception.status_code, 403)
 
 
 class MentorCodeTests(unittest.TestCase):

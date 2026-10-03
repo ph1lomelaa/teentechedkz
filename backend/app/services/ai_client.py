@@ -16,7 +16,7 @@ def provider_chain() -> list[str]:
     return chain
 
 
-async def _complete_openai(system: str, user_message: str) -> str:
+async def _complete_openai(system: str, user_message: str, *, max_tokens: int = 2500) -> str:
     from openai import AsyncOpenAI  # type: ignore
 
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -27,18 +27,18 @@ async def _complete_openai(system: str, user_message: str) -> str:
             {"role": "user", "content": user_message},
         ],
         temperature=0.1,
-        max_tokens=2500,
+        max_tokens=max_tokens,
     )
     return response.choices[0].message.content or ""
 
 
-async def _complete_anthropic(system: str, user_message: str) -> str:
+async def _complete_anthropic(system: str, user_message: str, *, max_tokens: int = 2500) -> str:
     import anthropic  # type: ignore
 
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     response = await client.messages.create(
         model="claude-3-5-sonnet-latest",
-        max_tokens=2500,
+        max_tokens=max_tokens,
         temperature=0.1,
         system=system,
         messages=[{"role": "user", "content": user_message}],
@@ -46,14 +46,14 @@ async def _complete_anthropic(system: str, user_message: str) -> str:
     return "".join(block.text for block in response.content if hasattr(block, "text"))
 
 
-async def complete_with_fallback(system: str, user_message: str) -> str:
+async def complete_with_fallback(system: str, user_message: str, *, max_tokens: int = 2500) -> str:
     last_error: Exception | None = None
     for provider in provider_chain():
         try:
             if provider == "openai":
-                return await _complete_openai(system, user_message)
+                return await _complete_openai(system, user_message, max_tokens=max_tokens)
             if provider == "anthropic":
-                return await _complete_anthropic(system, user_message)
+                return await _complete_anthropic(system, user_message, max_tokens=max_tokens)
         except Exception as exc:  # pragma: no cover - provider specific
             last_error = exc
             logger.exception("AI provider %s failed", provider)

@@ -38,8 +38,8 @@ function statusLabel(status: Meeting['status']) {
 }
 
 function statusTone(status: Meeting['status']) {
-  if (status === 'completed') return 'bg-p-good/25 text-p-good'
-  if (status === 'cancelled') return 'bg-p-danger/20 text-p-danger'
+  if (status === 'completed') return 'bg-[color-mix(in_srgb,var(--p-good)_25%,transparent)] text-p-good-text'
+  if (status === 'cancelled') return 'bg-[color-mix(in_srgb,var(--p-danger)_20%,transparent)] text-p-danger-text'
   return 'bg-brand/20 text-brand'
 }
 
@@ -67,7 +67,7 @@ export const PortalMeetingsPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Календарь сопровождения</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Календарь сопровождения</p>
       <h1 className="mt-2 font-display text-3xl font-black leading-none tracking-tight text-p-text sm:text-[40px]">Встречи</h1>
       <p className="mt-2 max-w-[520px] text-sm text-p-muted">
         Созвоны с ментором: планируйте, подключайтесь и возвращайтесь к записям.

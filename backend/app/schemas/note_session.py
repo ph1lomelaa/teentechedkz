@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,11 +11,24 @@ from app.models.note_session_audio_chunk import NoteAudioChunkStatus
 from app.models.student_note import StudentNoteStatus
 
 
+LanguageCode = Literal["ru", "kk", "en"]
+
+
 class NoteSessionCreate(BaseModel):
     student_id: uuid.UUID | None = None
     meeting_id: uuid.UUID | None = None
     title: str | None = None
     source: str = "deepgram"
+    language: LanguageCode = "ru"
+
+
+class NoteSessionUpdate(BaseModel):
+    language: LanguageCode | None = None
+
+
+class NoteSessionBotStart(BaseModel):
+    meeting_url: str = Field(min_length=8, max_length=2048)
+    language: LanguageCode | None = None
 
 
 class NoteTranscriptCreate(BaseModel):
@@ -36,12 +49,25 @@ class NoteSessionResponse(BaseModel):
     title: str
     source: str
     status: NoteSessionStatus
+    language: str = "ru"
+    capture_mode: str = "browser"
     started_at: datetime
     ended_at: datetime | None = None
     last_heartbeat_at: datetime | None = None
     created_by: uuid.UUID | None = None
     transcript_count: int = 0
     latest_transcript: str | None = None
+    # Запись ботом
+    meeting_url: str | None = None
+    bot_status: str | None = None
+    bot_status_reason: str | None = None
+    bot_status_message: str | None = None
+    bot_joined_at: datetime | None = None
+    has_audio: bool = False
+    # Проверка качества перед конспектом
+    quality: str | None = None
+    quality_reasons: list[str] = Field(default_factory=list)
+    quality_warnings: list[str] = Field(default_factory=list)
 
 
 class NoteTranscriptResponse(BaseModel):
@@ -77,6 +103,7 @@ class NoteSessionNoteSummary(BaseModel):
 
 class NoteSessionDetail(NoteSessionResponse):
     transcripts: list[NoteTranscriptResponse] = Field(default_factory=list)
+    backup_transcript_text: str | None = None
     note: NoteSessionNoteSummary | None = None
 
 

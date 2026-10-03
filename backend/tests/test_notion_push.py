@@ -107,6 +107,71 @@ def test_pipeline_status_no_matching_option_returns_none():
     assert _match_option(options, "on_visa", parse_pipeline_status) is None
 
 
+def test_pipeline_statuses_with_distinct_business_meaning_do_not_collapse():
+    assert parse_pipeline_status("Работа окончена - Поступил") == "completed_admitted"
+    assert parse_pipeline_status("Работа окончена- Поступил") == "completed_admitted"
+    assert parse_pipeline_status("Работа окончена — Передумал") == "changed_mind"
+    assert parse_pipeline_status("Переподача") == "reapplication"
+    assert parse_pipeline_status("Пропал абитуриент") == "lost_applicant"
+    assert parse_pipeline_status("Проблема") == "problem"
+    assert parse_pipeline_status("Подвешено") == "suspended"
+
+
+def test_every_live_notion_status_option_is_recognised():
+    # Опции «Статус выплат» в живой базе Notion на 03.10.2026 (GET data_sources).
+    # Одна нераспознанная опция останавливает перенос Notion → CRM целиком
+    # (apply_report), поэтому каждая обязана сопоставляться.
+    live = {
+        "Работа окончена- Поступил": "completed_admitted",
+        "Работа окончена - Передумали": "changed_mind",
+        "Пропал абитуриент": "lost_applicant",
+        "Не оплачено": "unpaid",
+        "На возврате": "refund",
+        "Пауза": "paused",
+        "Активная работа": "active_work",
+        "На визе": "on_visa",
+        "Проблема": "problem",
+        "Подвешено": "suspended",
+        "Пересдача IELTS": "ielts_retake",
+        "Перевели на другой продукт": "transferred_pipeline",
+        "Переподача": "reapplication",
+    }
+    for raw, expected in live.items():
+        assert parse_pipeline_status(raw) == expected, raw
+
+
+def test_every_current_notion_status_option_is_recognised():
+    # Опции «Статус выплат» живой базы Notion на 03.10.2026, как их отдаёт API.
+    # Одна нераспознанная опция останавливает перенос Notion → CRM целиком
+    # (apply_report), поэтому список проверяется весь, а не выборочно.
+    expected = {
+        "Работа окончена- Поступил": "completed_admitted",
+        "Работа окончена - Передумали": "changed_mind",
+        "Пропал абитуриент": "lost_applicant",
+        "Не оплачено": "unpaid",
+        "На возврате": "refund",
+        "Пауза": "paused",
+        "Активная работа": "active_work",
+        "На визе": "on_visa",
+        "Проблема": "problem",
+        "Подвешено": "suspended",
+        "Пересдача IELTS": "ielts_retake",
+        "Перевели на другой продукт": "transferred_pipeline",
+        "Переподача": "reapplication",
+    }
+    for raw, status in expected.items():
+        assert parse_pipeline_status(raw) == status, raw
+
+
+def test_unknown_notion_pipeline_status_requires_review():
+    import pytest
+
+    with pytest.raises(ValueError, match="Неизвестный статус"):
+        parse_pipeline_status("Новый этап без сопоставления")
+    with pytest.raises(ValueError, match="Неизвестный статус"):
+        parse_pipeline_status("Активная работа — новый этап")
+
+
 def test_degree_matches_existing_option():
     options = notion_write.select_options(_schema(), "Degree")
     assert _match_option(options, "undergraduate", parse_degree_or_none) == "Бакалавриат"

@@ -7,6 +7,9 @@ import { meetingsApi, Meeting } from '@/api/meetings'
 import { portalApi } from '@/api/portal'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import { givenName } from '@/lib/personName'
+import { formatProfileValue } from '@/lib/contextDraft'
+import { studentDueText, studentOverdueDays } from '@/lib/studentDeadline'
 import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { QueryError } from '@/components/shared/QueryState'
@@ -32,14 +35,8 @@ function roadmapProgress(roadmaps: Roadmap[] | undefined) {
   }
 }
 
-function dueLabel(date: string | null) {
-  if (!date) return 'без дедлайна'
-  return new Date(date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
-}
-
-function isOverdue(task: { status: string; due_date: string | null }): boolean {
-  if (!task.due_date || task.status === 'done') return false
-  return new Date(task.due_date) < new Date(new Date().toDateString())
+function isOverdue(task: { status: string; due_date: string | null; overdue_days?: number }): boolean {
+  return studentOverdueDays(task, task.status === 'done') > 0
 }
 
 function meetingTime(m: Meeting) {
@@ -49,7 +46,7 @@ function meetingTime(m: Meeting) {
 
 export const PortalHomePage: React.FC = () => {
   const { user } = useAuth()
-  const firstName = user?.name?.split(' ')[0] || 'студент'
+  const firstName = givenName(user?.name)
 
   const roadmapsQuery = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
   const tasksQuery = useQuery({ queryKey: ['portal', 'tasks'], queryFn: roadmapApi.myTasks })
@@ -75,7 +72,7 @@ export const PortalHomePage: React.FC = () => {
   // «Открыто» = задачи, требующие действия студента; заявленные ждут ментора
   const openTasks = notDone.filter((t) => t.review_status !== 'pending')
   const pendingCount = notDone.length - openTasks.length
-  const overdue = openTasks.filter((t) => t.due_date && new Date(t.due_date) < new Date(new Date().toDateString())).length
+  const overdue = openTasks.filter((t) => isOverdue(t)).length
   const nextTasks = [...notDone]
     .sort((a, b) => (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31'))
     .slice(0, 4)
@@ -89,15 +86,15 @@ export const PortalHomePage: React.FC = () => {
       {/* HERO */}
       <div className="mb-7 flex flex-wrap items-end justify-between gap-5">
         <div>
-          <div className="mb-2 font-display text-[11px] uppercase tracking-[.24em] text-p-accent">
+          <div className="mb-2 font-display text-[11px] uppercase tracking-[.24em] text-p-accent-text">
             Панель студента
           </div>
           <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text sm:text-4xl">
-            Привет, <span className="text-p-accent">{firstName}</span>
+            Привет, <span className="text-p-accent-text">{firstName}</span>
           </h1>
           <p className="mt-2 max-w-[440px] text-sm text-p-muted">
             Здесь собраны ваши ближайшие задачи, встречи и общий прогресс по дорожной карте.{' '}
-            <Link to="/portal/roadmap" className="font-bold text-p-accent hover:underline">
+            <Link to="/portal/roadmap" className="font-bold text-p-accent-text hover:underline">
               Открыть roadmap →
             </Link>
           </p>
@@ -138,14 +135,14 @@ export const PortalHomePage: React.FC = () => {
           icon={<CheckCircle2 className="h-4 w-4" />}
         />
         <StatCard colorPrefix="p" label="Дедлайны" value={String(overdue)} sub={overdue > 0 ? 'требуют внимания' : 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={overdue > 0} />
-        <StatCard colorPrefix="p" label="Программа" value={String(profile?.student?.intake_year ?? '—')} sub={profile?.student?.degree_level || 'профиль'} icon={<Trophy className="h-4 w-4" />} />
+        <StatCard colorPrefix="p" label="Программа" value={String(profile?.student?.intake_year ?? '—')} sub={profile?.student?.degree_level ? formatProfileValue(profile.student.degree_level) : 'профиль'} icon={<Trophy className="h-4 w-4" />} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Ближайшие задачи */}
         <div className="rounded-card border border-p-line bg-p-panel p-[22px]">
           <h3 className="flex items-center gap-2 font-display text-base font-extrabold text-p-text">
-            <CheckCircle2 className="h-5 w-5 text-p-accent" />
+            <CheckCircle2 className="h-5 w-5 text-p-accent-text" />
             Ближайшие задачи
           </h3>
           <div className="mb-4 mt-1 text-xs text-p-muted">Задачи с приоритетом и дедлайном</div>
@@ -176,8 +173,8 @@ export const PortalHomePage: React.FC = () => {
                   />
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-[13.5px] font-bold text-p-text">{t.title}</b>
-                    <small className={cn('block text-[11.5px]', isOverdue(t) ? 'text-p-danger' : 'text-p-muted')}>
-                      Этап: {t.stage_name} · дедлайн {dueLabel(t.due_date)}
+                    <small className={cn('block text-[11.5px]', isOverdue(t) ? 'text-p-danger-text' : 'text-p-muted')}>
+                      Этап: {t.stage_name} · {studentDueText(t, false)}
                       {t.review_status === 'pending' && ' · на проверке у ментора'}
                     </small>
                     {t.review_status === 'returned' && t.review_comment && (
@@ -193,7 +190,7 @@ export const PortalHomePage: React.FC = () => {
         {/* Ближайшие встречи */}
         <div className="rounded-card border border-p-line bg-p-panel p-[22px]">
           <h3 className="flex items-center gap-2 font-display text-base font-extrabold text-p-text">
-            <CalendarDays className="h-5 w-5 text-p-accent" />
+            <CalendarDays className="h-5 w-5 text-p-accent-text" />
             Ближайшие встречи
           </h3>
           <div className="mb-4 mt-1 text-xs text-p-muted">Запланированные сессии с ментором</div>
@@ -217,7 +214,7 @@ export const PortalHomePage: React.FC = () => {
                   )}
                 >
                   <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-ctl bg-p-panel2">
-                    <CalendarDays className="h-4 w-4 text-p-accent" />
+                    <CalendarDays className="h-4 w-4 text-p-accent-text" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-[13px] font-bold text-p-text">{m.title}</b>

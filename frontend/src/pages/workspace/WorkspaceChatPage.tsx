@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, Paperclip, Plus, Search, Send, Sparkles, X } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Download, Paperclip, Plus, Search, X } from 'lucide-react'
 import { chatApi, ConversationListItem } from '@/api/chat'
 import { telegramApi } from '@/api/telegram'
 import { workspaceApi, WorkspaceScopeParams } from '@/api/workspace'
@@ -11,43 +11,31 @@ import { ContextDraftReviewDialog } from '@/components/shared/ContextDraftReview
 import { useAuth } from '@/contexts/AuthContext'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn, formatDate } from '@/lib/utils'
-import { compactContextDraft } from '@/lib/contextDraft'
+import { applySummaryText } from '@/lib/contextDraft'
+import { getErrorMessage } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
-import { useWsEvent } from '@/lib/ws'
-import { AppButton, AppCard, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
+import { AppButton, AppCard, EmptyState, PageHeader, SegmentedTabs } from '@/components/ui'
 import { QueryError } from '@/components/shared/QueryState'
+import {
+  ChatHeader,
+  DaySeparator,
+  MessageBubble,
+  MessageComposer,
+  SearchableParticipantSelect,
+  UserAvatar,
+  groupFlags,
+  type ChatVariant,
+} from '@/components/shared/ChatPrimitives'
 
 // Roles that render on the staff side of the dialog (right, accented). Everyone
 // else — student/client/unknown — renders on the client side (left). Keyed off
 // sender_role so the layout is consistent for every viewer, not just the person
 // whose own messages happen to be theirs (is_current_user).
-// Роли сотрудников — те, что есть в UserRole. 'staff' здесь была лишней:
-// такого значения в системе нет, и проверка на неё никогда не срабатывала.
-const STAFF_SIDE_ROLES = new Set(['mentor', 'admin', 'mzk_manager'])
+// API normalizes messages sent from the CRM as `staff`; identified Telegram
+// accounts retain their concrete user role.
+const STAFF_SIDE_ROLES = new Set(['staff', 'mentor', 'admin', 'mzk_manager', 'academic_head'])
 function isStaffSide(senderRole?: string | null): boolean {
   return senderRole ? STAFF_SIDE_ROLES.has(senderRole) : false
-}
-
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '—'
-  return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase()
-}
-
-// Deterministic avatar tint so the same student keeps the same colour across the
-// list — makes a long inbox scannable by colour, not just by reading names.
-const AVATAR_GRADIENTS = [
-  'from-amber-400 to-yellow-600',
-  'from-sky-400 to-blue-600',
-  'from-violet-400 to-purple-600',
-  'from-emerald-400 to-green-600',
-  'from-rose-400 to-red-600',
-  'from-cyan-400 to-teal-600',
-]
-function avatarGradient(seed: string): string {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]
 }
 
 type Channel = 'all' | 'telegram' | 'internal'
@@ -79,7 +67,7 @@ export const WorkspaceChatPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const { mentorId, params, isPreview } = useWorkspaceScope()
-  const isManager = user?.role === 'admin' || user?.role === 'mzk_manager'
+  const isManager = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head'
   const effectiveWorkspaceParams: WorkspaceScopeParams = useMemo(() => {
     if (mentorId) return { mentor_id: mentorId }
     return isManager ? { scope: 'all' } : params
@@ -88,7 +76,6 @@ export const WorkspaceChatPage: React.FC = () => {
   const searchParams = new URLSearchParams(window.location.search)
   const requestedStudentId = searchParams.get('student_id')
   const requestedChannel = searchParams.get('channel')
-  const requestedMessageId = searchParams.get('message_id')
   const [channel, setChannel] = useState<Channel>(
     requestedChannel === 'internal' ? 'internal' : 'telegram',
   )
@@ -235,6 +222,7 @@ export const WorkspaceChatPage: React.FC = () => {
     }).catch(() => {})
   }, [channel, isPreview, queryClient, selected?.studentId])
 
+  const variant: ChatVariant = channel === 'telegram' ? 'telegram' : 'internal'
   const loading = internalLoading || telegramLoading
   // Список склеен из внутренних диалогов и Telegram: упади любой — «Ничего не
   // найдено» отправит крутить фильтр вместо повтора запроса.
@@ -261,7 +249,7 @@ export const WorkspaceChatPage: React.FC = () => {
 
   return (
     <div className="fade-in">
-      <PageHeader colorPrefix="w"
+      <PageHeader colorPrefix="w" className="mb-4 sm:mb-4"
         eyebrow={isPreview ? 'Preview чатов ментора' : 'Кабинет ментора'}
         title="Чат"
         description="Telegram и внутренние диалоги со студентами в одном рабочем разделе."
@@ -385,7 +373,7 @@ export const WorkspaceChatPage: React.FC = () => {
         </AppCard>
       )}
 
-      <div className="mb-5">
+      <div className="mb-3">
         <SegmentedTabs colorPrefix="w"
           value={channel}
           onChange={(value) => setChannel(value as Channel)}
@@ -415,9 +403,9 @@ export const WorkspaceChatPage: React.FC = () => {
           ) : undefined}
         />
       ) : (
-      <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <AppCard colorPrefix="w" className="flex max-h-[280px] flex-col p-3 sm:max-h-[420px] lg:max-h-[600px]">
-          <div className="mb-2 space-y-2">
+      <div data-chat-variant={variant} className="grid min-w-0 gap-3 md:h-[calc(100dvh-250px)] md:min-h-[520px] md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+        <AppCard colorPrefix="w" className="flex min-w-0 max-h-[280px] flex-col overflow-hidden p-0 sm:max-h-[420px] md:h-full md:max-h-none">
+          <div className="shrink-0 space-y-2 border-b border-w-line p-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-w-muted2" />
               <input
@@ -431,14 +419,14 @@ export const WorkspaceChatPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setUnreadOnly(false)}
-                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', !unreadOnly ? 'bg-w-accent text-black' : 'border border-w-line text-w-muted hover:text-w-ink')}
+                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', !unreadOnly ? 'bg-[var(--chat-send-bg)] text-[var(--chat-send-text)]' : 'border border-w-line text-w-muted hover:text-w-ink')}
               >
                 Все
               </button>
               <button
                 type="button"
                 onClick={() => setUnreadOnly(true)}
-                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', unreadOnly ? 'bg-w-accent text-black' : 'border border-w-line text-w-muted hover:text-w-ink')}
+                className={cn('rounded-full px-3 py-1 text-[11px] font-bold transition', unreadOnly ? 'bg-[var(--chat-send-bg)] text-[var(--chat-send-text)]' : 'border border-w-line text-w-muted hover:text-w-ink')}
               >
                 Требуют ответа{unreadTotal > 0 ? ` · ${unreadTotal}` : ''}
               </button>
@@ -453,7 +441,7 @@ export const WorkspaceChatPage: React.FC = () => {
               {unreadOnly ? 'Непрочитанных диалогов нет.' : 'Ничего не найдено.'}
             </p>
           ) : (
-            <div className="-mr-1 space-y-1.5 overflow-y-auto pr-1">
+            <div className="chat-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
               {visibleItems.map((item) => {
                 const active = selected?.key === item.key
                 const itemChannel = 'channel' in item ? item.channel : 'all'
@@ -465,35 +453,32 @@ export const WorkspaceChatPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedKey(item.key)}
                     className={cn(
-                      'flex w-full items-start gap-2.5 rounded-panel border border-w-line px-3 py-2.5 text-left transition',
+                      'flex w-full items-start gap-2.5 rounded-panel border px-2.5 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent',
                       active
-                        ? 'border-l-[3px] border-l-w-accent bg-w-accent/10 text-w-ink'
-                        : 'bg-w-panel2 text-w-ink hover:border-w-accentDim',
+                        ? 'border-transparent bg-[var(--chat-active)] text-[var(--chat-active-text)]'
+                        : 'border-transparent bg-w-panel text-w-ink hover:bg-w-panel2',
                     )}
                   >
-                    <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-[11px] font-black text-black', avatarGradient(item.studentId || item.title))}>
-                      {initialsFrom(item.title)}
-                    </span>
+                    <UserAvatar name={item.title} size="list" />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className={cn('min-w-0 flex-1 truncate text-sm font-black', active && 'text-w-accentText')}>{item.title}</span>
-                        <span className="shrink-0 text-[10px] text-w-muted2">{formatDate(item.updatedAt)}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{item.title}</span>
+                        <span className={cn('shrink-0 text-[10px] tabular-nums', active ? 'text-[var(--chat-active-muted)]' : 'text-w-muted')}>{formatDate(item.updatedAt)}</span>
                       </span>
                       {item.preview && (
-                        <span className={cn('mt-0.5 block truncate text-xs', hasUnread ? 'font-semibold text-w-ink' : 'text-w-muted')}>
+                        <span className={cn('mt-0.5 block truncate text-xs', active ? 'text-[var(--chat-active-muted)]' : hasUnread ? 'font-semibold text-w-ink' : 'text-w-muted')}>
                           {item.preview}
                         </span>
                       )}
                       <span className="mt-1 flex items-center gap-1.5">
-                        <span className={cn('rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
-                          itemChannel === 'telegram' ? 'bg-sky-500/15 text-sky-300' : itemChannel === 'internal' ? 'bg-white/8 text-w-muted' : 'bg-white/8 text-w-muted')}>
+                        <span className="rounded border border-w-line bg-w-panel2 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-w-muted">
                           {itemChannel === 'all' ? 'TG + внутр.' : itemChannel === 'telegram' ? 'Telegram' : 'Внутренний'}
                         </span>
-                        {hasUnread && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-w-accent text-black">Ответить</span>}
+                        {hasUnread && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-[var(--chat-badge)] text-[var(--chat-send-text)]">Ответить</span>}
                         {paused && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide border border-w-line text-w-muted2">Пауза</span>}
                         <span className="ml-auto" />
                         {hasUnread && (
-                          <span className="grid h-5 min-w-5 place-items-center rounded-full bg-w-accent px-1.5 text-[10px] font-black text-black">
+                          <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--chat-badge)] px-1.5 text-[10px] font-black text-[var(--chat-send-text)]">
                             {item.unread}
                           </span>
                         )}
@@ -506,33 +491,20 @@ export const WorkspaceChatPage: React.FC = () => {
           )}
         </AppCard>
 
-        <AppCard colorPrefix="w" className="p-3 sm:p-5">
+        <AppCard colorPrefix="w" className="flex min-h-[520px] min-w-0 flex-col overflow-hidden p-0 md:h-full md:min-h-0">
           {!selected || !user ? (
             <EmptyState colorPrefix="w" title="Выберите диалог" description="Сообщения откроются справа." />
-          ) : channel === 'all' ? (
-            selected.studentId ? (
-              <UnifiedThread
-                studentId={selected.studentId}
-                title={selected.title}
-                internal={selected.internal}
-                telegram={selected.telegram}
-                scopeParams={params}
-                highlightedMessageId={requestedMessageId}
-                readOnly={isPreview}
-                onOpenChannel={setChannel}
-              />
-            ) : selected.telegram ? (
-              <TelegramThread chat={selected.telegram} readOnly={isPreview} />
-            ) : null
           ) : 'channel' in selected && selected.channel === 'internal' && selected.internal ? (
             <>
-              <ConversationHeader title={selected.title} channel="Внутренний чат" />
+              <ChatHeader variant="internal" title={selected.title} source="Внутренний чат" />
               <ChatThread
                 conversationId={selected.internal.id}
+                peerName={selected.title}
                 currentUserId={user.id}
-                heightClass="h-[min(560px,60dvh)] lg:h-[560px]"
+                heightClass="min-h-0 flex-1"
                 variant="portal"
                 readOnly={selected.internal.can_write === false}
+                shellClassName="min-h-0 flex-1 rounded-none border-0"
               />
             </>
           ) : selected.telegram ? (
@@ -545,303 +517,19 @@ export const WorkspaceChatPage: React.FC = () => {
   )
 }
 
-function UnifiedThread({
-  studentId,
-  title,
-  internal,
-  telegram,
-  scopeParams,
-  highlightedMessageId,
-  readOnly,
-  onOpenChannel,
-}: {
-  studentId: string
-  title: string
-  internal?: ConversationListItem
-  telegram?: TelegramChat
-  scopeParams: WorkspaceScopeParams
-  highlightedMessageId: string | null
-  readOnly: boolean
-  onOpenChannel: (channel: Channel) => void
-}) {
-  const queryClient = useQueryClient()
-  const [messageText, setMessageText] = useState('')
-  const [search, setSearch] = useState('')
-  const [draft, setDraft] = useState<TelegramContextDraft | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const queryKey = ['workspace', 'chat', 'unified-messages', studentId, scopeParams.mentor_id, search]
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey,
-    queryFn: ({ pageParam }) => workspaceApi.studentMessages(studentId, {
-      ...scopeParams,
-      limit: 100,
-      offset: pageParam,
-      q: search.trim() || undefined,
-    }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) => lastPage.next_offset ?? undefined,
-    refetchInterval: 15_000,
-  })
-  const messages = useMemo(() => (data?.pages.flatMap((page) => page.items) ?? [])
-    .filter((message, index, all) => all.findIndex((item) => item.id === message.id && item.source === message.source) === index)
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [data?.pages])
-
-  const latestMessageId = messages[messages.length - 1]?.id
-  useEffect(() => {
-    if (!highlightedMessageId || !data) return
-    const element = document.getElementById(`workspace-message-${highlightedMessageId}`)
-    if (!element && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
-      return
-    }
-    element?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    })
-  }, [data, fetchNextPage, hasNextPage, highlightedMessageId, isFetchingNextPage])
-
-  useEffect(() => {
-    if (readOnly) return
-    workspaceApi.markMessagesRead(studentId, 'all').then(() => {
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'unread'] })
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'conversations'] })
-    }).catch(() => {})
-  }, [latestMessageId, queryClient, readOnly, studentId])
-
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey })
-    queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'conversations'] })
-  }
-
-  useWsEvent('message.new', (payload) => {
-    const event = payload as { conversation_id?: string }
-    if (internal && event.conversation_id === internal.id) refresh()
-  })
-
-  const sendMutation = useMutation({
-    mutationFn: () => chatApi.send(internal!.id, messageText.trim()),
-    onSuccess: () => {
-      setMessageText('')
-      refresh()
-    },
-    onError: () => toast({ title: 'Не удалось отправить сообщение', variant: 'destructive' }),
-  })
-
-  const uploadMutation = useMutation({
-    mutationFn: (file: File) => chatApi.uploadAttachment(internal!.id, file),
-    onSuccess: () => {
-      refresh()
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      toast({ title: 'Файл отправлен и сохранён в документах' })
-    },
-    onError: () => toast({
-      title: 'Не удалось отправить файл',
-      description: 'Доступны PDF, JPG, PNG и WEBP до 25 МБ.',
-      variant: 'destructive',
-    }),
-  })
-
-  const draftMutation = useMutation({
-    mutationFn: () => workspaceApi.createContextDraft(studentId, {
-      limit: 120,
-      q: search.trim() || undefined,
-      mentor_id: scopeParams.mentor_id,
-    }),
-    onSuccess: setDraft,
-    onError: () => toast({ title: 'Не удалось подготовить общий AI-разбор', variant: 'destructive' }),
-  })
-  const applyDraftMutation = useMutation({
-    mutationFn: () => workspaceApi.applyContextDraft(studentId, compactContextDraft(draft!)),
-    onSuccess: (result) => {
-      setDraft(null)
-      queryClient.invalidateQueries({ queryKey: ['workspace'] })
-      toast({ title: 'AI-разбор применён', description: `Создано задач: ${result.tasks_created}` })
-    },
-    onError: () => toast({ title: 'Не удалось применить AI-разбор', variant: 'destructive' }),
-  })
-
-  const download = async (kind: 'internal' | 'telegram', attachmentId: string, fileName: string) => {
-    try {
-      const blob = kind === 'internal'
-        ? await chatApi.downloadAttachment(attachmentId)
-        : await telegramApi.downloadAttachment(attachmentId)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast({ title: 'Не удалось скачать файл', variant: 'destructive' })
-    }
-  }
-
-  return (
-    <>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <ConversationHeader title={title} channel="Все каналы" />
-        <div className="flex gap-2">
-          {!readOnly && (
-            <AppButton colorPrefix="w" size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
-              <Sparkles className="h-3.5 w-3.5" />{draftMutation.isPending ? 'AI анализирует...' : 'Общий AI-разбор'}
-            </AppButton>
-          )}
-          {telegram && <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => onOpenChannel('telegram')}>Telegram-инструменты</AppButton>}
-          {internal && <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => onOpenChannel('internal')}>Внутренний чат</AppButton>}
-        </div>
-      </div>
-
-      <ContextDraftReviewDialog
-        variant="workspace"
-        open={!!draft}
-        draft={draft}
-        onDraftChange={setDraft}
-        onCancel={() => setDraft(null)}
-        onConfirm={() => applyDraftMutation.mutate()}
-        isApplying={applyDraftMutation.isPending}
-        title="Общий AI-разбор"
-        description="Заметки/документы/противоречия попадут в один общий конспект, follow-up станут задачами. Проверьте список перед сохранением."
-        confirmLabel="Подтвердить и применить"
-      />
-
-      <div className="relative mb-3">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" />
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Поиск по Telegram и внутреннему чату"
-          className="h-10 w-full rounded-ctl border border-w-line bg-w-panel2 pl-9 pr-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
-        />
-      </div>
-
-      <div className="h-[min(520px,60dvh)] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-3 sm:p-4 lg:h-[520px]">
-        {hasNextPage && (
-          <div className="text-center">
-            <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>
-              {isFetchingNextPage ? 'Загрузка...' : 'Загрузить более ранние сообщения'}
-            </AppButton>
-          </div>
-        )}
-        {isLoading ? (
-          <p className="text-center text-sm text-w-muted">Загрузка общей истории...</p>
-        ) : messages.length === 0 ? (
-          <p className="mt-8 text-center text-sm text-w-muted">Сообщений пока нет.</p>
-        ) : messages.map((message) => {
-          const staffSide = isStaffSide(message.sender_role)
-          return (
-          <div
-            id={`workspace-message-${message.id}`}
-            key={`${message.source}-${message.id}`}
-            className={cn(
-              'flex rounded-panel transition',
-              staffSide ? 'justify-end' : 'justify-start',
-              highlightedMessageId === message.id && 'ring-2 ring-w-accent ring-offset-2 ring-offset-w-panel2',
-            )}
-          >
-            <div className={cn(
-              'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
-              staffSide ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
-            )}>
-              <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.08em]">
-                <span className={staffSide ? 'text-black/90' : 'text-w-accentText'}>{message.sender_name || 'Участник'}</span>
-                <span className={cn('rounded-full px-1.5 py-0.5', staffSide ? 'bg-black/15 text-black/85' : 'bg-w-panel2 text-w-muted')}>
-                  {message.source === 'telegram' ? 'Telegram' : 'Внутренний'}
-                </span>
-              </div>
-              {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
-              {message.attachments.map((attachment) => (
-                <button
-                  key={`${attachment.kind}-${attachment.id}`}
-                  type="button"
-                  disabled={!attachment.can_download}
-                  onClick={() => download(attachment.kind, attachment.id, attachment.file_name || 'attachment')}
-                  className="mt-2 flex w-full items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted disabled:opacity-50"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
-                  <Download className="h-3.5 w-3.5" />
-                </button>
-              ))}
-              <div className={cn('mt-1 text-[10px] tabular-nums', staffSide ? 'text-black/80' : 'text-w-muted2')}>
-                {formatDate(message.created_at)}
-              </div>
-            </div>
-          </div>
-          )
-        })}
-      </div>
-
-      {!readOnly && internal?.can_write !== false && internal && (
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            aria-label="Выберите файл для внутреннего чата"
-            accept="application/pdf,image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={(event) => {
-              const selectedFile = event.target.files?.[0]
-              if (selectedFile) uploadMutation.mutate(selectedFile)
-            }}
-          />
-          <AppButton colorPrefix="w"
-            size="sm"
-            variant="ghost"
-            disabled={uploadMutation.isPending}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Прикрепить файл"
-          >
-            <Paperclip className="h-4 w-4" />
-          </AppButton>
-          <input
-            value={messageText}
-            onChange={(event) => setMessageText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && messageText.trim()) {
-                event.preventDefault()
-                sendMutation.mutate()
-              }
-            }}
-            placeholder="Ответить во внутренний чат…"
-            className="h-10 flex-1 rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
-          />
-          <AppButton colorPrefix="w"
-            size="sm"
-            disabled={!messageText.trim() || sendMutation.isPending}
-            onClick={() => sendMutation.mutate()}
-            aria-label="Отправить во внутренний чат"
-          >
-            <Send className="h-4 w-4" />
-          </AppButton>
-        </div>
-      )}
-      {!internal && (
-        <p className="mt-3 text-xs text-w-muted">Внутренний диалог ещё не создан. Его можно открыть из карточки студента.</p>
-      )}
-    </>
-  )
-}
-
-function ConversationHeader({ title, channel }: { title: string; channel: string }) {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div>
-        <div className="font-display text-lg font-black text-w-ink">{title}</div>
-        <div className="mt-1 text-xs text-w-muted">{channel}</div>
-      </div>
-      <Pill colorPrefix="w">{channel}</Pill>
-    </div>
-  )
-}
-
 function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOnly?: boolean }) {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<TelegramContextDraft | null>(null)
   const [outgoingText, setOutgoingText] = useState('')
+  const bottomRef = useRef<HTMLDivElement>(null)
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['workspace', 'chat', 'telegram-messages', chat.id],
     queryFn: () => telegramApi.listMessages(chat.id, { limit: 200 }),
     refetchInterval: 15_000,
+  })
+  const { data: participants = [] } = useQuery({
+    queryKey: ['workspace', 'chat', 'telegram-participants', chat.id],
+    queryFn: () => telegramApi.listParticipants(chat.id),
   })
   const latestTelegramMessageId = messages[messages.length - 1]?.id
   useEffect(() => {
@@ -850,19 +538,23 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
       queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'unread'] })
     }).catch(() => {})
   }, [chat.student_id, latestTelegramMessageId, queryClient, readOnly])
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [latestTelegramMessageId, chat.id])
+
   const draftMutation = useMutation({
     mutationFn: () => telegramApi.createContextDraft(chat.id, { limit: 200 }),
     onSuccess: setDraft,
-    onError: () => toast({ title: 'Не удалось подготовить AI-разбор', variant: 'destructive' }),
+    onError: (error) => toast({ title: 'Не удалось подготовить AI-разбор', description: getErrorMessage(error), variant: 'destructive' }),
   })
   const applyMutation = useMutation({
-    mutationFn: () => telegramApi.applyContextDraft(chat.id, compactContextDraft(draft!)),
+    mutationFn: (payload: TelegramContextDraft) => telegramApi.applyContextDraft(chat.id, payload),
     onSuccess: (result) => {
-      toast({ title: 'AI-разбор применён', description: `Сохранено заметок: ${result.profile_notes_saved}` })
+      toast({ title: 'AI-разбор применён', description: applySummaryText(result) })
       setDraft(null)
       queryClient.invalidateQueries({ queryKey: ['workspace'] })
     },
-    onError: () => toast({ title: 'Не удалось применить AI-разбор', variant: 'destructive' }),
+    onError: (error) => toast({ title: 'Не удалось применить AI-разбор', description: getErrorMessage(error), variant: 'destructive' }),
   })
   const sendMutation = useMutation({
     mutationFn: () => telegramApi.sendMessage(chat.id, outgoingText.trim()),
@@ -870,11 +562,43 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
       setOutgoingText('')
       queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-messages', chat.id] })
       queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram'] })
-      toast({ title: 'Сообщение отправлено в Telegram' })
     },
     onError: (error: unknown) => {
       const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
       toast({ title: 'Не удалось отправить в Telegram', description: detail, variant: 'destructive' })
+    },
+  })
+
+  // Student defaults to the chat's linked Telegram contact; mentor to whoever
+  // is tagged as staff (the logged-in user after identify-self). Manual picks
+  // are persisted as participant roles, so every viewer sees the same sides.
+  const studentTgId = participants.find((p) => p.role === 'student')?.telegram_user_id
+    ?? (chat.student_telegram_user_id ? Number(chat.student_telegram_user_id) : undefined)
+  const mentorTgId = participants.find((p) => p.is_current_user)?.telegram_user_id
+    ?? participants.find((p) => p.role === 'mentor')?.telegram_user_id
+  const options = participants.map((p) => ({
+    value: String(p.telegram_user_id),
+    label: p.display_name || p.sender_name || `ID ${p.telegram_user_id}`,
+  }))
+
+  const roleMutation = useMutation({
+    mutationFn: async ({ role, telegramUserId }: { role: 'student' | 'mentor'; telegramUserId: number }) => {
+      // Only one participant per role: demote the previous holder first.
+      const previous = role === 'student' ? studentTgId : mentorTgId
+      if (previous && previous !== telegramUserId) {
+        const prev = participants.find((p) => p.telegram_user_id === previous)
+        if (prev && prev.role === role) await telegramApi.setParticipantRole(chat.id, previous, 'unknown')
+      }
+      if (role === 'mentor') return telegramApi.identifySelf(chat.id, telegramUserId)
+      return telegramApi.setParticipantRole(chat.id, telegramUserId, 'student')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-participants', chat.id] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'chat', 'telegram-messages', chat.id] })
+    },
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      toast({ title: 'Не удалось сохранить участника', description: detail, variant: 'destructive' })
     },
   })
 
@@ -894,15 +618,33 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <ConversationHeader title={chat.student_name || chat.title || String(chat.chat_id)} channel="Telegram" />
-        {!readOnly && (
-          <AppButton colorPrefix="w" size="sm" onClick={() => draftMutation.mutate()} disabled={draftMutation.isPending}>
-            <Sparkles className="h-3.5 w-3.5" />
-            {draftMutation.isPending ? 'AI анализирует...' : 'AI-разбор'}
-          </AppButton>
-        )}
-      </div>
+      <ChatHeader
+        variant="telegram"
+        title={chat.student_name || chat.title || String(chat.chat_id)}
+        source="Telegram"
+        onAi={readOnly ? undefined : () => draftMutation.mutate()}
+        aiPending={draftMutation.isPending}
+      />
+      {!readOnly && (
+        <div className="grid shrink-0 gap-2 border-b border-w-line bg-w-panel px-3 py-2 sm:grid-cols-2 sm:px-4">
+          <SearchableParticipantSelect
+            label="Студент"
+            value={studentTgId ? String(studentTgId) : undefined}
+            options={options}
+            placeholder="Выберите студента"
+            disabled={roleMutation.isPending || options.length === 0}
+            onChange={(value) => roleMutation.mutate({ role: 'student', telegramUserId: Number(value) })}
+          />
+          <SearchableParticipantSelect
+            label="Ментор"
+            value={mentorTgId ? String(mentorTgId) : undefined}
+            options={options}
+            placeholder="Вы (не выбран)"
+            disabled={roleMutation.isPending || options.length === 0}
+            onChange={(value) => roleMutation.mutate({ role: 'mentor', telegramUserId: Number(value) })}
+          />
+        </div>
+      )}
 
       <ContextDraftReviewDialog
         variant="workspace"
@@ -910,69 +652,71 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
         draft={draft}
         onDraftChange={setDraft}
         onCancel={() => setDraft(null)}
-        onConfirm={() => applyMutation.mutate()}
+        onConfirm={(payload) => applyMutation.mutate(payload)}
         isApplying={applyMutation.isPending}
-        title="Предпросмотр AI-разбора"
-        confirmLabel="Подтвердить и применить"
       />
 
-      <div className="h-[560px] space-y-2.5 overflow-y-auto rounded-panel border border-w-line bg-w-panel2 p-4">
+      <div className="chat-scrollbar min-h-0 flex-1 overflow-y-auto [background:var(--chat-canvas)] p-3 sm:p-4">
         {isLoading ? (
-          <p className="text-center text-sm text-w-muted">Загрузка сообщений...</p>
+          <div className="space-y-2" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={cn('h-10 animate-pulse rounded-2xl bg-w-line/60', i % 2 ? 'ml-auto w-1/3' : 'w-1/2')} />
+            ))}
+          </div>
         ) : messages.length === 0 ? (
           <p className="mt-8 text-center text-sm text-w-muted">Сообщений пока нет.</p>
         ) : (
-          messages.map((message) => {
-            const staffSide = isStaffSide(message.sender_role)
+          messages.map((message, index) => {
+            const { groupStart, groupEnd, startsDay } = groupFlags(
+              messages,
+              index,
+              (m) => `${isStaffSide(m.sender_role) ? 'staff' : 'client'}:${m.sender_tg_id ?? m.sender_name ?? ''}`,
+              (m) => m.created_at,
+            )
+            const outgoing = isStaffSide(message.sender_role)
             return (
-            <div key={message.id} className={cn('flex', staffSide ? 'justify-end' : 'justify-start')}>
-              <div className={cn(
-                'max-w-[82%] rounded-ctl border px-3 py-2 text-sm',
-                staffSide ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-ink',
-              )}>
-                <div className={cn('mb-1 text-[11px] font-bold', staffSide ? 'text-black/90' : 'text-w-accentText')}>
-                  {message.sender_display_name || message.sender_name || 'Telegram'}
-                </div>
-                {message.raw_text && <div className="whitespace-pre-wrap break-words">{message.raw_text}</div>}
-                {message.attachments.map((attachment) => (
-                  <button
-                    key={attachment.id}
-                    type="button"
-                    disabled={!attachment.can_download}
-                    onClick={() => download(attachment.id, attachment.file_name || 'telegram-file')}
-                    className="mt-2 flex w-full items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-left text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:opacity-50"
-                  >
-                    <Paperclip className="h-3.5 w-3.5" />
-                    <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                ))}
-                <div className={cn('mt-1 text-[10px] tabular-nums', staffSide ? 'text-black/80' : 'text-w-muted2')}>{formatDate(message.created_at)}</div>
-              </div>
-            </div>
+              <React.Fragment key={message.id}>
+                {startsDay && <DaySeparator date={message.created_at} variant="telegram" />}
+                <MessageBubble
+                  variant="telegram"
+                  outgoing={outgoing}
+                  sender={message.sender_display_name || message.sender_name}
+                  showSender={chat.chat_type !== 'private' && !outgoing && groupStart}
+                  groupStart={groupStart}
+                  groupEnd={groupEnd}
+                  timestamp={message.created_at}
+                  avatar={<UserAvatar name={message.sender_display_name || message.sender_name || 'Telegram'} size="message" />}
+                >
+                  {message.raw_text}
+                  {message.attachments.map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      disabled={!attachment.can_download}
+                      onClick={() => download(attachment.id, attachment.file_name || 'telegram-file')}
+                      className="mt-2 flex w-full items-center gap-2 rounded-ctl border border-black/15 bg-black/5 px-2.5 py-2 text-left text-xs font-bold transition hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-w-accent disabled:opacity-50"
+                    >
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{attachment.file_name || message.message_type}</span>
+                      <Download className="h-3.5 w-3.5 shrink-0" />
+                    </button>
+                  ))}
+                </MessageBubble>
+              </React.Fragment>
             )
           })
         )}
+        <div ref={bottomRef} />
       </div>
       {!readOnly && chat.status === 'active' && (
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            value={outgoingText}
-            maxLength={4096}
-            onChange={(event) => setOutgoingText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && outgoingText.trim()) {
-                event.preventDefault()
-                sendMutation.mutate()
-              }
-            }}
-            placeholder="Отправить сообщение в Telegram…"
-            className="h-10 flex-1 rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink outline-none placeholder:text-w-muted2 focus:border-w-accentDim"
-          />
-          <AppButton colorPrefix="w" size="sm" disabled={!outgoingText.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate()}>
-            <Send className="h-4 w-4" />
-          </AppButton>
-        </div>
+        <MessageComposer
+          variant="telegram"
+          value={outgoingText}
+          onChange={setOutgoingText}
+          onSend={() => sendMutation.mutate()}
+          disabled={sendMutation.isPending}
+          placeholder="Отправить сообщение в Telegram…"
+        />
       )}
     </>
   )

@@ -50,7 +50,7 @@ const TEXT_CLASS: Record<ColorPrefix, string> = {
 
 const ICON_CLASS: Record<ColorPrefix, string> = {
   ds: 'border-ds-danger/25 bg-ds-danger/[0.08] text-ds-danger',
-  p: 'border-p-danger/25 bg-p-danger/[0.08] text-p-danger',
+  p: 'border-p-danger/25 bg-p-danger/[0.08] text-p-danger-text',
   w: 'border-w-danger/25 bg-w-danger/[0.08] text-w-danger',
 }
 

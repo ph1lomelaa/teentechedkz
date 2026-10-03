@@ -15,6 +15,7 @@ import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -23,9 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import log_change
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
+from app.services.activity_tasks import validate_activity_task
 from app.services import background_jobs
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_assignment_exists, primary_mentor_id, require_student_access
@@ -47,7 +50,7 @@ from app.models.roadmap import (
 from app.schemas.roadmap import (
     TemplateCreate, TemplateMetaUpdate, StructureIn, AssignRequest,
     TemplateOut, TemplateListItem, RoadmapOut, TaskFlatOut, RoadmapSubtaskOut,
-    TaskCreate, TaskUpdate, SubtaskIn, SubtaskUpdate, StageUpdate,
+    TaskCreate, TaskUpdate, SubtaskCreate, SubtaskUpdate, StageUpdate,
     TaskReviewIn, TaskClaimOut, ClaimProgressOut,
 )
 
@@ -65,6 +68,10 @@ class NotionRoadmapImportRequest(BaseModel):
 
 
 _IMPORT_JOB_KIND = "roadmap_import"
+
+
+def _deadline_from_offset(base_date: date, offset_days: int | None) -> date | None:
+    return base_date + timedelta(days=offset_days) if offset_days is not None else None
 
 
 # --------------------------------------------------------------------------
@@ -325,14 +332,16 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
     db.add(roadmap)
     await db.flush()  # assign roadmap.id before creating children
 
-    today = date.today()
+    # Срок = день назначения + число дней из шаблона. День берём по Алматы:
+    # сервер живёт в UTC, и назначение до 05:00 считалось бы от вчера.
+    today = datetime.now(ZoneInfo(settings.COMPANY_TIMEZONE)).date()
     created_tasks: list[RoadmapTask] = []
     for ts in tpl.stages:
         stage = Stage(roadmap_id=roadmap.id, name=ts.name, description=ts.description, position=ts.position)
         db.add(stage)
         await db.flush()  # assign stage.id
         for tt in ts.tasks:
-            due = today + timedelta(days=tt.due_offset_days) if tt.due_offset_days is not None else None
+            due = _deadline_from_offset(today, tt.due_offset_days)
             task = RoadmapTask(
                 stage_id=stage.id, roadmap_id=roadmap.id,
                 title=tt.title, description=tt.description,
@@ -343,7 +352,14 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
                 priority=tt.priority,
                 audience=tt.audience, due_date=due, position=tt.position, created_by=current_user.id,
             )
-            task.subtasks = [RoadmapSubtask(title=st.title, position=st.position) for st in tt.subtasks]
+            task.subtasks = [
+                RoadmapSubtask(
+                    title=st.title,
+                    position=st.position,
+                    due_date=_deadline_from_offset(today, st.due_offset_days),
+                )
+                for st in tt.subtasks
+            ]
             db.add(task)
             created_tasks.append(task)
 
@@ -532,7 +548,7 @@ async def claim_task_complete(task_id: uuid.UUID, current_user: CurrentUser, db:
         day_key = f"[unassigned:{date.today().isoformat()}]"
         managers = await db.execute(
             select(User.id).where(
-                User.role.in_((UserRole.admin, UserRole.mzk_manager)),
+                User.role.in_((UserRole.admin, UserRole.mzk_manager, UserRole.academic_head)),
                 User.is_active == True,  # noqa: E712
             )
         )
@@ -737,7 +753,11 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, stage.roadmap_id)
     await _assert_staff(db, student_id, current_user)
+    if body.activity_participation_id:
+        require_access(current_user, "portfolio", Action.manage)
+        await validate_activity_task(db, body.activity_participation_id, student_id)
     task = RoadmapTask(
+        activity_participation_id=body.activity_participation_id,
         stage_id=stage.id, roadmap_id=stage.roadmap_id, title=body.title,
         description=body.description,
         expected_result=body.expected_result,
@@ -851,13 +871,13 @@ async def delete_task(task_id: uuid.UUID, current_user: CurrentUser, db: Annotat
 
 
 @router.post("/roadmap-tasks/{task_id}/subtasks", response_model=RoadmapOut, status_code=201)
-async def create_subtask(task_id: uuid.UUID, body: SubtaskIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+async def create_subtask(task_id: uuid.UUID, body: SubtaskCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     task = await db.get(RoadmapTask, task_id)
     if not task:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
-    db.add(RoadmapSubtask(task_id=task.id, title=body.title))
+    db.add(RoadmapSubtask(task_id=task.id, title=body.title, due_date=body.due_date))
     await db.commit()
     return await _load_roadmap(db, task.roadmap_id)
 
@@ -892,11 +912,18 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
         await _assert_staff(db, student_id, current_user)
         source = "workspace"
     old_is_done = sub.is_done
+    old_due_date = sub.due_date
     for field, value in data.items():
         setattr(sub, field, value)
     if "is_done" in data and old_is_done != sub.is_done:
         await log_change(
             db, "roadmap_subtask", sub.id, "is_done", str(old_is_done), str(sub.is_done),
+            str(current_user.id), source=source,
+        )
+    if "due_date" in data and old_due_date != sub.due_date:
+        await log_change(
+            db, "roadmap_subtask", sub.id, "due_date",
+            old_due_date.isoformat() if old_due_date else "", sub.due_date.isoformat() if sub.due_date else "",
             str(current_user.id), source=source,
         )
     await db.commit()
@@ -933,7 +960,12 @@ def _apply_template_structure(tpl: RoadmapTemplate, stages: list) -> None:
                 audience=t.audience, due_offset_days=t.due_offset_days, position=ti,
             )
             task.subtasks = [
-                TemplateSubtask(title=st.title, position=sti, source_notion_page_id=st.source_notion_page_id)
+                TemplateSubtask(
+                    title=st.title,
+                    due_offset_days=st.due_offset_days,
+                    position=sti,
+                    source_notion_page_id=st.source_notion_page_id,
+                )
                 for sti, st in enumerate(t.subtasks)
             ]
             stage.tasks.append(task)
@@ -953,6 +985,7 @@ async def _get_template_or_404(db: AsyncSession, template_id: uuid.UUID) -> Road
 def _flat_task_out(stage: Stage, task: RoadmapTask) -> TaskFlatOut:
     return TaskFlatOut(
         id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
+        activity_participation_id=task.activity_participation_id,
         stage_name=stage.name, stage_position=stage.position,
         title=task.title, description=task.description,
         expected_result=task.expected_result,

@@ -144,7 +144,7 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
         {student.assignment_status === 'awaiting_signature' && (
           <span
             title="Специалист ещё не подписал регламент — назначение ждёт подписи"
-            className="shrink-0 rounded-pill border border-p-accent/40 bg-p-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-p-accent"
+            className="shrink-0 rounded-pill border border-p-accent/40 bg-p-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-p-accent-text"
           >
             ждёт подписи
           </span>
@@ -317,7 +317,7 @@ function Column({
           <span
             className={cn(
               'flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-caps',
-              warning ? 'text-p-accent' : 'text-p-text',
+              warning ? 'text-p-accent-text' : 'text-p-text',
             )}
           >
             {warning && <AlertTriangle className="h-3 w-3 shrink-0" />}
@@ -328,7 +328,7 @@ function Column({
           <span
             className={cn(
               'shrink-0 rounded-pill border px-1.5 py-0.5 text-[10px] font-semibold',
-              warning ? 'border-p-accent/45 text-p-accent' : 'border-p-line text-p-muted',
+              warning ? 'border-p-accent/45 text-p-accent-text' : 'border-p-line text-p-muted',
             )}
           >
             {/* При поиске или фильтре показываем «видно из всего», иначе
@@ -373,7 +373,7 @@ function Column({
           className={cn(
             'flex items-center justify-between gap-1 border-t px-3 py-2 text-[11px] font-medium transition-colors',
             warning
-              ? 'border-p-accent/30 text-p-accent hover:bg-p-accent/10'
+              ? 'border-p-accent/30 text-p-accent-text hover:bg-p-accent/10'
               : 'border-p-line text-p-muted hover:bg-p-panel2 hover:text-p-text',
           )}
         >

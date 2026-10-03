@@ -13,13 +13,13 @@ import {
   BoardStudent,
   MENTOR_ROLE_LABELS,
   PIPELINE_COLUMNS,
-  PIPELINE_STATUS_LABELS,
 } from '@/types'
 import { PageHeader, SegmentedTabs } from '@/components/ui'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { QueryState } from '@/components/shared/QueryState'
 import { FilterField, FilterPopover } from '@/components/shared/FilterPopover'
+import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
 import { Checkbox } from '@/components/ui/primitives/checkbox'
 import {
   BoardCardAction,
@@ -368,12 +368,12 @@ export const StudentsDistributionPage: React.FC = () => {
             />
           </div>
           <FilterPopover activeCount={activeFilterCount} onReset={resetFilters}>
-            <FilterField label="Статус студента">
+            <FilterField label="Статус выплат">
               <div className="space-y-1.5">
                 {PIPELINE_COLUMNS.map((status) => (
                   <label key={status} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
                     <Checkbox checked={statuses.has(status)} onCheckedChange={() => toggleStatus(status)} />
-                    {PIPELINE_STATUS_LABELS[status]}
+                    <PipelineStatusTag status={status} />
                   </label>
                 ))}
               </div>
@@ -439,7 +439,7 @@ export const StudentsDistributionPage: React.FC = () => {
       {summary && (
         <div className="mb-2 text-xs text-p-muted">
           {summary.students} студентов ·{' '}
-          <span className={summary.unassigned > 0 ? 'font-medium text-p-accent' : undefined}>
+          <span className={summary.unassigned > 0 ? 'font-medium text-p-accent-text' : undefined}>
             {summary.unassigned} без «{roleLabel}»
           </span>
         </div>

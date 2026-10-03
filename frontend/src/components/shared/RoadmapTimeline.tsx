@@ -7,8 +7,8 @@ import {
   RoadmapTask,
   ItemStatus,
 } from '@/api/roadmap'
-import { cn, formatDate } from '@/lib/utils'
-import { StatusPill, PriorityPill, UrgencyBadge, AppButton } from '@/components/ui'
+import { cn } from '@/lib/utils'
+import { StatusPill, PriorityPill, AppButton } from '@/components/ui'
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,8 @@ import { Input } from '@/components/ui/primitives/input'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { Label } from '@/components/ui/primitives/label'
+import { DeadlineField } from '@/components/shared/DeadlineField'
+import { overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
 
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
   planned: 'in_progress',
@@ -138,7 +140,13 @@ export const RoadmapTimeline: React.FC<{
   }
   const addSubtask = (t: RoadmapTask) => {
     const title = window.prompt('Название подзадачи')?.trim()
-    if (title) run(() => roadmapApi.createSubtask(t.id, title))
+    if (!title) return
+    const dueDate = window.prompt('Срок подзадачи (ГГГГ-ММ-ДД, необязательно)')?.trim()
+    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+      toast({ title: 'Введите срок в формате ГГГГ-ММ-ДД', variant: 'destructive' })
+      return
+    }
+    run(() => roadmapApi.createSubtask(t.id, title, dueDate || null))
   }
   const removeSubtask = async (subId: string) => {
     if (busy) return
@@ -241,6 +249,8 @@ export const RoadmapTimeline: React.FC<{
                       onToggle={() => toggleTask(t)}
                       onToggleVisibility={() => toggleTaskVisibility(t)}
                       onToggleSub={toggleSubtask}
+                      onUpdateDate={(dueDate) => run(() => roadmapApi.updateTask(t.id, { due_date: dueDate }))}
+                      onUpdateSubDate={(id, dueDate) => run(() => roadmapApi.updateSubtask(id, { due_date: dueDate || null }))}
                       onAddSub={() => addSubtask(t)}
                       onRemove={() => removeTask(t)}
                       onRemoveSub={removeSubtask}
@@ -360,14 +370,17 @@ const TaskRow: React.FC<{
   onToggle: () => void
   onToggleVisibility: () => void
   onToggleSub: (id: string, isDone: boolean) => void
+  onUpdateDate: (dueDate: string | null) => void
+  onUpdateSubDate: (id: string, dueDate: string | null) => void
   onAddSub: () => void
   onRemove: () => void
   onRemoveSub: (id: string) => void
-}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onAddSub, onRemove, onRemoveSub }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onUpdateSubDate, onAddSub, onRemove, onRemoveSub }) => {
   const isDone = task.status === 'done'
+  const taskOverdue = overdueDaysOf(task, isDone)
   return (
-    <div className="border border-p-line rounded-[13px] bg-p-bg transition hover:translate-x-[3px] hover:border-p-accent-dim">
-      <div className="flex items-start gap-3 px-[18px] py-[15px]">
+    <div className={cn('border rounded-[13px] bg-p-bg transition hover:translate-x-[3px]', taskOverdue > 0 ? 'border-ds-danger/60 bg-ds-danger/5' : 'border-p-line hover:border-p-accent-dim')}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-[18px] py-[15px] sm:flex-nowrap">
         <button
           onClick={onToggle}
           className={cn(
@@ -378,7 +391,7 @@ const TaskRow: React.FC<{
         >
           <Check className="w-3.5 h-3.5" strokeWidth={3} />
         </button>
-        <div className="flex-1 min-w-0">
+        <div className="min-w-[10rem] flex-1">
           <div
             className={cn(
               'text-sm font-bold',
@@ -396,8 +409,6 @@ const TaskRow: React.FC<{
             </div>
           )}
           <div className="flex items-center gap-3 mt-1 text-xs text-p-muted flex-wrap">
-            {task.due_date && <span className="tabular-nums">до {formatDate(task.due_date)}</span>}
-            <UrgencyBadge dueDate={task.due_date} status={task.status} />
             {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
             {!task.visible_to_student && (
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-2xs font-bold text-gray-500">
@@ -430,10 +441,21 @@ const TaskRow: React.FC<{
         )}
       </div>
 
+      {(task.due_date || canManage) && (
+        <div className="-mt-2 flex justify-end px-[18px] pb-2.5 sm:pl-[52px]">
+          <DeadlineField
+            dueDate={task.due_date}
+            overdueDays={taskOverdue}
+            onChange={canManage ? onUpdateDate : undefined}
+            label={`Срок задачи «${task.title}»`}
+          />
+        </div>
+      )}
+
       {(task.subtasks.length > 0 || canManage) && (
-        <div className="border-t border-p-line px-[18px] py-2.5 pl-[52px] space-y-1.5">
-          {task.subtasks.map((st) => (
-            <div key={st.id} className="flex items-center gap-2 group">
+        <div className="border-t border-p-line px-[18px] py-2.5 pl-10 sm:pl-[52px] space-y-1.5">
+          {sortSubtasksByDeadline(task.subtasks).map((st) => (
+            <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 group">
               <button
                 onClick={() => onToggleSub(st.id, st.is_done)}
                 className={cn(
@@ -444,18 +466,27 @@ const TaskRow: React.FC<{
               >
                 <Check className="w-3 h-3" strokeWidth={3} />
               </button>
-              <span className={cn('text-xs', st.is_done ? 'line-through text-p-muted2' : 'text-p-muted')}>
+              <span className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'line-through text-p-muted2' : 'text-p-muted')}>
                 {st.title}
               </span>
               {canManage && (
                 <button
                   onClick={() => onRemoveSub(st.id)}
-                  className="text-p-muted2 hover:text-ds-danger ml-auto opacity-0 group-hover:opacity-100"
+                  className="text-p-muted2 hover:text-ds-danger opacity-0 group-hover:opacity-100"
                   aria-label="Удалить подзадачу"
                 >
                   <X className="w-3 h-3" />
                 </button>
               )}
+              <DeadlineField
+                className="ml-auto"
+                subtle
+                dueDate={st.due_date}
+                overdueDays={overdueDaysOf(st, st.is_done)}
+                taskDueDate={task.due_date}
+                onChange={canManage ? (dueDate) => onUpdateSubDate(st.id, dueDate) : undefined}
+                label={`Срок подзадачи «${st.title}»`}
+              />
             </div>
           ))}
           {canManage && (

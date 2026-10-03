@@ -1,4 +1,5 @@
 import React from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckSquare, ClipboardList, Search } from 'lucide-react'
 import { roadmapApi, FlatTask } from '@/api/roadmap'
@@ -16,13 +17,13 @@ import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { QueryState } from '@/components/shared/QueryState'
 import { useLocalState } from '@/lib/use-local-state'
-import { SegmentedTabs, EmptyState, PriorityPill, StatusPill, UrgencyBadge } from '@/components/ui'
-import { taskUrgency } from '@/lib/taskUrgency'
+import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
+import { studentDueText, studentOverdueDays } from '@/lib/studentDeadline'
 
 type TaskTab = 'open' | 'pending' | 'done'
 
 function isOverdue(t: FlatTask): boolean {
-  return taskUrgency(t.due_date, t.status) !== 'none'
+  return studentOverdueDays(t, t.status === 'done') > 0
 }
 
 function byDue(a: FlatTask, b: FlatTask): number {
@@ -50,6 +51,14 @@ export const PortalTasksPage: React.FC = () => {
   })
   const [tab, setTab] = useLocalState<TaskTab>('portal:tasks:tab', 'open')
   const [search, setSearch] = useLocalState('portal:tasks:search', '')
+  const [urlParams] = useSearchParams()
+  const focusedTask = urlParams.get('task_id')
+  React.useEffect(() => {
+    const task = tasks.find(t => t.id === focusedTask)
+    if (!task) return
+    setTab(task.status === 'done' ? 'done' : task.review_status === 'pending' ? 'pending' : 'open')
+    setSearch(task.title)
+  }, [focusedTask, tasks, setTab, setSearch])
   const [openQ, setOpenQ] = React.useState<string | null>(null)
   const { data: questionnaires = [] } = useQuery({
     queryKey: ['portal', 'questionnaires'],
@@ -81,9 +90,9 @@ export const PortalTasksPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent">Scrum-доска пути</p>
+      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Доска пути</p>
       <div className="mt-2 mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <h1 className="font-display text-3xl font-black leading-none tracking-tight text-p-text sm:text-[40px]">Задачи</h1>
+        <h1 className="font-display text-[1.75rem] font-black leading-none tracking-tight text-p-text sm:text-3xl md:text-4xl">Задачи</h1>
         <label className="relative sm:ml-auto w-full sm:w-[280px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />
           <input
@@ -211,21 +220,16 @@ const TaskCard: React.FC<{ task: FlatTask; onClaim: () => void; onUnclaim: () =>
   const returned = !done && !pending && task.review_status === 'returned'
   const overdue = isOverdue(task)
   const doneSubtasks = task.subtasks.filter((s) => s.is_done).length
-  const meta = done
-    ? `Этап: ${task.stage_name} · выполнено`
-    : task.due_date
-      ? `Этап: ${task.stage_name} · дедлайн ${formatDate(task.due_date)}`
-      : `Этап: ${task.stage_name} · без дедлайна`
+  const meta = done ? `Этап: ${task.stage_name} · выполнено` : `Этап: ${task.stage_name} · ${studentDueText(task, false)}`
   return (
-    <div className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
+    <div id={`task-${task.id}`} className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
       <ClaimCheckbox task={task} size="sm" onClaim={onClaim} onUnclaim={onUnclaim} />
       <div className="flex-1 min-w-0">
         <div className={cn('truncate text-[15px] font-bold', done ? 'text-p-muted2' : 'text-p-text')}>
           {task.title}
         </div>
-        <small className={cn('mt-0.5 flex items-center gap-1.5 truncate text-[11px]', overdue ? 'text-p-danger' : 'text-p-muted')}>
+        <small className={cn('mt-0.5 flex items-center gap-1.5 truncate text-[11px]', overdue ? 'text-p-danger-text' : 'text-p-muted')}>
           {meta}
-          <UrgencyBadge dueDate={task.due_date} status={task.status} />
         </small>
         {pending && (
           <small className="mt-0.5 block text-[11px] text-brand/90">
@@ -251,13 +255,4 @@ const TaskCard: React.FC<{ task: FlatTask; onClaim: () => void; onUnclaim: () =>
       </div>
     </div>
   )
-}
-
-function formatDate(input: string): string {
-  const date = new Date(input)
-  if (Number.isNaN(date.getTime())) return input
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yyyy = date.getFullYear()
-  return `${dd}.${mm}.${yyyy}`
 }

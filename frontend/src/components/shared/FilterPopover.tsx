@@ -10,10 +10,13 @@ export function FilterPopover({
   activeCount,
   onReset,
   children,
+  align = 'right',
 }: {
   activeCount: number
   onReset: () => void
   children: React.ReactNode
+  /** К какому краю кнопки прижата панель: у кнопки слева на странице — 'left'. */
+  align?: 'left' | 'right'
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -34,7 +37,7 @@ export function FilterPopover({
         )}
       </Button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg">
+        <div className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg`}>
           <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
             <button type="button" className="text-p-muted2 hover:text-p-text" onClick={() => setOpen(false)} aria-label="Закрыть">

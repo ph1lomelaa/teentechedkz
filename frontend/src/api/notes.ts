@@ -4,6 +4,7 @@ import {
   NoteSessionAudioChunk,
   NoteSessionDetail,
   NoteSessionDraft,
+  NoteSessionLanguage,
   NoteSessionReconcileResult,
   NoteSessionStatus,
   NoteTranscript,
@@ -33,6 +34,7 @@ export interface NoteSessionCreatePayload {
   meeting_id?: string | null
   title?: string
   source?: string
+  language?: NoteSessionLanguage
 }
 
 export interface NoteTranscriptCreatePayload {
@@ -79,6 +81,53 @@ export const notesApi = {
   },
   heartbeatSession: async (sessionId: string): Promise<void> => {
     await apiClient.post(`/note-sessions/${sessionId}/heartbeat`)
+  },
+  updateSession: async (sessionId: string, data: { language?: NoteSessionLanguage }): Promise<NoteSession> => {
+    const response = await apiClient.patch<NoteSession>(`/note-sessions/${sessionId}`, data)
+    return response.data
+  },
+  /** Отправить бота во встречу по ссылке (Zoom / Google Meet / Teams). */
+  sendBot: async (sessionId: string, data: { meeting_url: string; language?: NoteSessionLanguage }): Promise<NoteSession> => {
+    const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/bot`, data)
+    return response.data
+  },
+  stopBot: async (sessionId: string): Promise<NoteSession> => {
+    const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/bot/leave`)
+    return response.data
+  },
+  /** Конспект из записи файлом (Telegram, телефон, встреча вживую). */
+  uploadAudio: async (
+    sessionId: string,
+    file: File,
+    language: NoteSessionLanguage,
+    onProgress?: (percent: number) => void,
+  ): Promise<NoteSession> => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    form.append('language', language)
+    const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/upload-audio`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // Большой файл грузится долго — общий таймаут клиента тут не подходит.
+      timeout: 0,
+      onUploadProgress: (event) => {
+        if (onProgress && event.total) onProgress(Math.round((event.loaded / event.total) * 100))
+      },
+    })
+    return response.data
+  },
+  retranscribe: async (sessionId: string): Promise<NoteSession> => {
+    const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/retranscribe`)
+    return response.data
+  },
+  /** Мои записи ботом, которые ещё идут, — для плашки сверху. */
+  listActiveBots: async (): Promise<NoteSession[]> => {
+    const response = await apiClient.get<NoteSession[]>('/note-sessions/active-bots')
+    return response.data
+  },
+  /** Звук реально пошёл: черновик становится активной записью. */
+  startSession: async (sessionId: string): Promise<NoteSession> => {
+    const response = await apiClient.patch<NoteSession>(`/note-sessions/${sessionId}/start`)
+    return response.data
   },
   endSession: async (sessionId: string): Promise<NoteSession> => {
     const response = await apiClient.patch<NoteSession>(`/note-sessions/${sessionId}/end`)

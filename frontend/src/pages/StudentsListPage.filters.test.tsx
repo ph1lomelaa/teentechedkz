@@ -119,4 +119,30 @@ describe('фильтры общей базы переживают возврат
       expect(localStorage.getItem(`${KEY}countryPrimaryOnly`)).toBe('false'),
     )
   })
+
+  it('несколько статусов передаются одним точным фильтром', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('Фильтры'))
+    fireEvent.click(screen.getByLabelText('Активная работа'))
+    fireEvent.click(screen.getByLabelText('Проблема'))
+
+    await waitFor(() => {
+      expect(listCalls.mock.calls.at(-1)?.[0]).toMatchObject({
+        pipeline_statuses: 'active_work,problem',
+        pipeline_status_operator: 'is',
+      })
+    })
+  })
+
+  it('старый одиночный статус мигрирует без потери выбора', async () => {
+    localStorage.setItem(`${KEY}status`, JSON.stringify('on_visa'))
+    renderPage()
+
+    await waitFor(() => {
+      expect(listCalls.mock.calls.at(-1)?.[0]).toMatchObject({
+        pipeline_statuses: 'on_visa',
+      })
+      expect(localStorage.getItem(`${KEY}status`)).toBe(JSON.stringify(['on_visa']))
+    })
+  })
 })

@@ -13,9 +13,9 @@ const env = Object.fromEntries(
     }),
 )
 
-const email = env.FIRST_ADMIN_EMAIL || 'admin@teenteched.kz'
-const password = env.FIRST_ADMIN_PASSWORD
-if (!password) throw new Error('FIRST_ADMIN_PASSWORD is missing in .env')
+const email = process.env.WORKSPACE_SMOKE_EMAIL || env.FIRST_ADMIN_EMAIL || 'admin@teenteched.kz'
+const password = process.env.WORKSPACE_SMOKE_PASSWORD || env.FIRST_ADMIN_PASSWORD
+if (!password) throw new Error('WORKSPACE_SMOKE_PASSWORD and FIRST_ADMIN_PASSWORD are both missing')
 
 const port = Number(process.argv[2] || 9228)
 const target = await fetch(`http://127.0.0.1:${port}/json/new?http://127.0.0.1:3000/`, { method: 'PUT' }).then((res) => res.json())
@@ -85,16 +85,18 @@ await send('Runtime.enable')
 await send('Log.enable')
 await navigate('http://127.0.0.1:3000/')
 
-const loginStatus = await evaluate(`(async () => {
+const loginResult = await evaluate(`(async () => {
   const response = await fetch('http://127.0.0.1:8001/api/v1/auth/login', {
     method: 'POST',
     credentials: 'include',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(${JSON.stringify({ email, password })})
   });
-  return response.status;
+  const body = response.ok ? await response.json() : null;
+  return {status: response.status, accessToken: body?.access_token || ''};
 })()`)
-if (loginStatus !== 200) throw new Error(`Local admin login failed with ${loginStatus}`)
+if (loginResult.status !== 200) throw new Error(`Local admin login failed with ${loginResult.status}`)
+const accessToken = loginResult.accessToken
 browserErrors.length = 0
 
 const viewports = [
@@ -129,7 +131,7 @@ for (const viewport of viewports) {
       overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       crmLinks: [...document.querySelectorAll('a')].filter((a) => /CRM|Общие данные/i.test(a.textContent || '') || /\\/dashboard/.test(a.getAttribute('href') || '')).length,
       unnamedButtons: [...document.querySelectorAll('button')].filter((el) => !(el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent?.trim())).length,
-      unnamedInputs: [...document.querySelectorAll('input,select,textarea')].filter((el) => !(el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.id && document.querySelector('label[for="' + el.id + '"]') || el.getAttribute('placeholder'))).length,
+      unnamedInputs: [...document.querySelectorAll('input,select,textarea')].filter((el) => !(el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.closest('label') || el.id && document.querySelector('label[for="' + el.id + '"]') || el.getAttribute('placeholder'))).length,
     }))()`)
     results.push({ viewport: viewport.name, route, ...audit })
   }
@@ -142,7 +144,10 @@ const failures = results.filter((item) => item.path !== item.route || !item.head
 await evaluate(`fetch('http://127.0.0.1:8001/api/v1/auth/logout', {
   method: 'POST',
   credentials: 'include',
-  headers: {'Content-Type': 'application/json'}
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${accessToken}'
+  }
 }).then((response) => response.status)`)
 console.log(JSON.stringify({ checked: results.length, failures, browserErrors: [...new Set(browserErrors)], screenshots: ['/tmp/tte-workspace-desktop.png', '/tmp/tte-workspace-mobile.png', '/tmp/tte-workspace-chat-desktop.png', '/tmp/tte-workspace-chat-mobile.png'] }, null, 2))
 socket.close()
