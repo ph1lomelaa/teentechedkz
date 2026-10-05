@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
-import { tasksApi, usersApi } from '@/api'
+import { mentorAssignmentsApi, tasksApi, usersApi } from '@/api'
 import { roadmapApi, type Priority } from '@/api/roadmap'
 import { AppButton, AppInput, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
@@ -132,6 +132,40 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
     },
     enabled: kind === 'staff' && canBulk,
   })
+  // Поручение по студенту сервер даёт только ментору, который этого студента
+  // ведёт (tasks.py → _validate_mentor_task_scope, TASK_ASSIGNEE_OUT_OF_SCOPE).
+  // Раньше форма об этом молчала: МЗК отмечала любого ментора и получала
+  // «Ни одна задача не создана». Условие то же, что на бэкенде.
+  const { data: studentAssignments } = useQuery({
+    queryKey: ['mentor-assignments', 'student', student?.id],
+    queryFn: () => mentorAssignmentsApi.listByStudent(student!.id),
+    enabled: kind === 'staff' && canBulk && Boolean(student),
+  })
+  const studentMentorIds = useMemo(
+    () =>
+      studentAssignments
+        ? new Set(
+            studentAssignments
+              .filter((a) => a.is_active !== false && a.assignment_status === 'active')
+              .map((a) => a.mentor_id),
+          )
+        : null,
+    [studentAssignments],
+  )
+  // Пока назначения не загрузились, никого не запираем: ошибка в сторону
+  // «пустить» стоит одного понятного отказа сервера, а не пустого списка.
+  const isOutOfScope = (person: { id: string; role: string }) =>
+    Boolean(student) && person.role === 'mentor' && studentMentorIds !== null && !studentMentorIds.has(person.id)
+
+  // Сменили студента — снимаем галочки с менторов, которые его не ведут.
+  useEffect(() => {
+    if (!studentMentorIds) return
+    setPicked((current) => current.filter((id) => {
+      const person = staff.find((p) => p.id === id)
+      return !person || person.role !== 'mentor' || studentMentorIds.has(id)
+    }))
+  }, [studentMentorIds, staff])
+
   const visibleStaff = staff.filter((person) => person.name.toLowerCase().includes(staffSearch.trim().toLowerCase()))
   const togglePicked = (id: string) =>
     setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]))
@@ -372,16 +406,26 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                         ) : (
                           visibleStaff.map((person) => {
                             const isPicked = picked.includes(person.id)
+                            const outOfScope = isOutOfScope(person)
+                            const leadsStudent = Boolean(student) && person.role === 'mentor' && Boolean(studentMentorIds?.has(person.id))
                             return (
                               <label
                                 key={person.id}
+                                title={outOfScope ? `Не ведёт ${student?.name}. Назначьте его ментором в карточке студента или уберите студента из задачи.` : undefined}
                                 className={cn(
-                                  'flex cursor-pointer items-center gap-3 rounded-ctl px-2.5 py-2 text-sm transition',
-                                  isPicked ? cn('bg-current/10', t.accentText) : cn(t.ink, 'hover:bg-current/5'),
+                                  'flex items-center gap-3 rounded-ctl px-2.5 py-2 text-sm transition',
+                                  outOfScope ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                                  isPicked ? cn('bg-current/10', t.accentText) : cn(t.ink, !outOfScope && 'hover:bg-current/5'),
                                 )}
                               >
-                                <input type="checkbox" checked={isPicked} onChange={() => togglePicked(person.id)} className="h-4 w-4 shrink-0" />
+                                <input type="checkbox" checked={isPicked} disabled={outOfScope} onChange={() => togglePicked(person.id)} className="h-4 w-4 shrink-0" />
                                 <span className={cn('min-w-0 flex-1 truncate font-bold', t.ink)}>{person.name}</span>
+                                {outOfScope && (
+                                  <span className={cn('shrink-0 text-[10px] font-bold', t.muted)}>Не ведёт ученика</span>
+                                )}
+                                {leadsStudent && (
+                                  <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black', t.borderLine, t.accentText)}>Ведёт</span>
+                                )}
                                 {person.role === 'mzk_manager' && (
                                   <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black', t.borderLine, t.muted)}>МЗК</span>
                                 )}
@@ -396,8 +440,9 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                     </div>
                   ) : (
                     <p className={cn('rounded-ctl border px-3 py-2.5 text-xs leading-5', t.borderLine, t.panel2, t.muted)}>
-                      Задача уйдёт каждому активному {mode === 'all_mentors' ? 'ментору' : 'МЗК-менеджеру'}: у каждого своя
-                      строка и свой срок SLA.
+                      {mode === 'all_mentors' && student
+                        ? `Задача уйдёт менторам, которые ведут ${student.name}: у каждого своя строка и свой срок SLA.`
+                        : `Задача уйдёт каждому активному ${mode === 'all_mentors' ? 'ментору' : 'МЗК-менеджеру'}: у каждого своя строка и свой срок SLA.`}
                     </p>
                   )}
                 </div>

@@ -23,6 +23,7 @@ const toast = vi.fn()
 const studentsList = vi.fn()
 const studentRoadmaps = vi.fn()
 const createRoadmapTask = vi.fn()
+const listByStudent = vi.fn()
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ can: (r: string, a: string) => granted.includes(`${r}:${a}`) }),
@@ -30,7 +31,14 @@ vi.mock('@/contexts/AuthContext', () => ({
 vi.mock('@/hooks/use-toast', () => ({ toast: (...a: unknown[]) => toast(...a) }))
 vi.mock('@/api', () => ({
   tasksApi: { create: (...a: unknown[]) => create(...a), createBulk: (...a: unknown[]) => createBulk(...a) },
-  usersApi: { list: vi.fn(async () => [{ id: 'm1', name: 'Ментор Один', role: 'mentor' }]) },
+  usersApi: {
+    list: vi.fn(async ({ role }: { role: string }) =>
+      role === 'mentor'
+        ? [{ id: 'm1', name: 'Ментор Один', role: 'mentor' }, { id: 'm2', name: 'Ментор Два', role: 'mentor' }]
+        : [],
+    ),
+  },
+  mentorAssignmentsApi: { listByStudent: (...a: unknown[]) => listByStudent(...a) },
 }))
 vi.mock('@/api/roadmap', () => ({
   roadmapApi: {
@@ -160,6 +168,22 @@ describe('задача студенту', () => {
 })
 
 describe('поручение сотруднику', () => {
+  it('после выбора студента менторов, которые его не ведут, отметить нельзя', async () => {
+    listByStudent.mockResolvedValue([
+      { mentor_id: 'm1', is_active: true, assignment_status: 'active' },
+      { mentor_id: 'm2', is_active: false, assignment_status: 'replaced' },
+    ])
+    open({ initialKind: 'staff' })
+    await pickStudent()
+    await waitFor(() => expect(listByStudent).toHaveBeenCalledWith('s1'))
+    const one = await screen.findByRole('checkbox', { name: /Ментор Один/ })
+    const two = screen.getByRole('checkbox', { name: /Ментор Два/ })
+    await waitFor(() => expect(two).toBeDisabled())
+    expect(one).not.toBeDisabled()
+    expect(screen.getByText('Не ведёт ученика')).toBeInTheDocument()
+    expect(screen.getByText('Ведёт')).toBeInTheDocument()
+  })
+
   it('admin видит режимы рассылки; «Все менторы» уходит через /tasks/bulk без студента', async () => {
     createBulk.mockResolvedValue({ created: [], skipped: [], created_count: 1 })
     const { onCreated } = open({ initialKind: 'staff' })

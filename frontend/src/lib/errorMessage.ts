@@ -13,6 +13,19 @@ export function getErrorMessage(error: unknown, fallback = 'Попробуйте
   const detail = responseDetail?.detail ?? responseDetail?.message
   if (typeof detail === 'string' && detail.trim()) return detail
   if (Array.isArray(detail) && detail.length) return detail.map((item) => item?.msg ?? String(item)).join('; ')
+  // Массовые операции отвечают объектом `{message, skipped: [{reason}]}`
+  // (tasks.py → BULK_ASSIGN_EMPTY). Без этой ветки человек видел только
+  // «Request failed with status code 422», а причина отказа терялась.
+  if (detail && typeof detail === 'object') {
+    const { message: summary, skipped } = detail as { message?: unknown; skipped?: unknown }
+    const reasons = Array.isArray(skipped)
+      ? [...new Set(skipped.map((item) => (item as { reason?: unknown })?.reason).filter((r): r is string => typeof r === 'string' && !!r.trim()))]
+      : []
+    if (typeof summary === 'string' && summary.trim()) {
+      return reasons.length ? `${summary}: ${reasons.join('; ')}` : summary
+    }
+    if (reasons.length) return reasons.join('; ')
+  }
 
   const message = (error as Error | undefined)?.message
   if (message && message !== 'Network Error') return message
