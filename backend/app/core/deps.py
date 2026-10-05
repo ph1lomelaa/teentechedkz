@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import decode_access_token
+from app.core.security import GOOGLE_ONLY_PASSWORD, decode_access_token
 from app.models.user import User, UserRole
 from app.models.student import Student
 
@@ -60,6 +60,11 @@ _AGREEMENT_ALLOWED_PATHS = frozenset(
         "/api/v1/auth/me",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
+        # Гейт временного пароля стоит раньше и пускает только на смену пароля.
+        # Если этот путь не пропустить и здесь, новый ментор/студент с
+        # неподписанным регламентом не может ни сменить пароль, ни дойти до
+        # подписи — оба гейта запирают друг друга.
+        "/api/v1/auth/change-password",
         "/api/v1/agreements/pending",
         "/api/v1/portal/profile",
         # См. комментарий в _TEMP_PASSWORD_ALLOWED_PATHS: держим инвариант
@@ -127,6 +132,30 @@ def mark_logged_in(user: User) -> None:
     if not user.is_active:
         return
     user.last_login_at = datetime.now(timezone.utc)
+
+
+def settle_temp_password_on_google_login(user: User) -> bool:
+    """Вход через Google снимает «смените временный пароль».
+
+    Ментор, пришедший через /join, заведён без пароля. При одобрении ему
+    выдают временный (access_requests._grant_staff_role) и ставят
+    must_change_password. Но входит он чаще всего той же кнопкой Google — и
+    упирался в экран смены пароля, где спрашивают временный пароль, который
+    видел только админ. Дальше хода не было: ни в систему, ни к регламенту.
+
+    Google уже подтвердил, что аккаунт его, поэтому временный пароль больше
+    ничего не проверяет — а знает его админ и тот канал, по которому его
+    пересылали. Гасим его и возвращаем аккаунт к «только Google», ровно каким
+    его завели. Свой пароль для такого аккаунта не подменяем: только
+    временный, иначе вход через Google стирал бы пароль, заданный человеком.
+
+    Возвращает True, если временный пароль погашен (для аудита).
+    """
+    if not user.must_change_password:
+        return False
+    user.hashed_password = GOOGLE_ONLY_PASSWORD
+    user.must_change_password = False
+    return True
 
 
 _AGREEMENT_PRE_SIGNATURE_ACTIONS = frozenset({"sign", "preview", "download"})

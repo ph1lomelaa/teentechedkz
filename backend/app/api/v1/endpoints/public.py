@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import mark_logged_in
+from app.core.deps import mark_logged_in, settle_temp_password_on_google_login
 from app.core.security import GOOGLE_ONLY_PASSWORD
 from app.models.access_request import STATUS_AUTO_APPROVED, STATUS_NEW, AccessRequest
 from app.models.audit_log import AuditAction
@@ -162,6 +162,7 @@ async def join(
     # Уже работающий аккаунт: повторный проход по ссылке — это просто вход.
     # Второго User и второй заявки быть не должно.
     if user is not None and user.is_active:
+        temp_password_settled = settle_temp_password_on_google_login(user)
         mark_logged_in(user)
         session = await issue_session(db, response, user)
         record_audit(
@@ -170,7 +171,7 @@ async def join(
             actor=user,
             target_user_id=user.id,
             request=request,
-            meta={"method": "join", "existing": True},
+            meta={"method": "join", "existing": True, "temp_password_settled": temp_password_settled},
         )
         await db.commit()
         return {"status": "active", **session}

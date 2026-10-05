@@ -21,6 +21,7 @@ from app.core.deps import (
     account_revoked_after_activation,
     get_current_user,
     mark_logged_in,
+    settle_temp_password_on_google_login,
     CurrentUser,
 )
 from app.models.user import User
@@ -280,6 +281,7 @@ async def login_with_google(
             detail="Аккаунт отключён администратором.",
         )
 
+    temp_password_settled = settle_temp_password_on_google_login(user)
     mark_logged_in(user)
     session = await issue_session(db, response, user)
     record_audit(
@@ -288,7 +290,7 @@ async def login_with_google(
         actor=user,
         target_user_id=user.id,
         request=request,
-        meta={"method": "google"},
+        meta={"method": "google", "temp_password_settled": temp_password_settled},
     )
     await db.commit()
     await rate_limit.reset(bucket="login_email", subject=identity.email)

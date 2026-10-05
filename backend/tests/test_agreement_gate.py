@@ -73,6 +73,17 @@ class AgreementGateTests(unittest.TestCase):
             agreement_gate_applies(enabled=True, role=UserRole.mentor, path="/api/v1/auth/logout")
         )
 
+    def test_temp_password_paths_never_blocked_by_agreement_gate(self) -> None:
+        # Временный пароль проверяется раньше регламента. Всё, что тот гейт
+        # пускает, обязан пускать и этот — иначе новичок заперт: сменить пароль
+        # мешает регламент, а подписать регламент мешает пароль.
+        from app.core.deps import _TEMP_PASSWORD_ALLOWED_PATHS
+
+        for role in (UserRole.mentor, UserRole.mzk_manager, UserRole.student):
+            for path in _TEMP_PASSWORD_ALLOWED_PATHS:
+                with self.subTest(role=role, path=path):
+                    self.assertFalse(agreement_gate_applies(enabled=True, role=role, path=path))
+
     def test_mentor_can_reach_pending_agreements(self) -> None:
         self.assertFalse(
             agreement_gate_applies(enabled=True, role=UserRole.mentor, path="/api/v1/agreements/pending")
@@ -119,3 +130,28 @@ class AgreementGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoogleLoginSettlesTempPasswordTests(unittest.TestCase):
+    """Вход через Google не должен упираться в «смените временный пароль»."""
+
+    def _user(self, *, must_change: bool, hashed: str) -> "User":
+        from app.models.user import User
+
+        return User(email="x@example.com", name="X", role=UserRole.mentor, hashed_password=hashed, must_change_password=must_change)
+
+    def test_temp_password_is_dropped_and_flag_cleared(self) -> None:
+        from app.core.deps import settle_temp_password_on_google_login
+        from app.core.security import is_google_only
+
+        user = self._user(must_change=True, hashed="$2b$temp-hash")
+        self.assertTrue(settle_temp_password_on_google_login(user))
+        self.assertFalse(user.must_change_password)
+        self.assertTrue(is_google_only(user.hashed_password))
+
+    def test_own_password_is_kept(self) -> None:
+        from app.core.deps import settle_temp_password_on_google_login
+
+        user = self._user(must_change=False, hashed="$2b$own-hash")
+        self.assertFalse(settle_temp_password_on_google_login(user))
+        self.assertEqual(user.hashed_password, "$2b$own-hash")
