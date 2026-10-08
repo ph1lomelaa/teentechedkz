@@ -1,3 +1,4 @@
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { activeResponsibles } from '@/lib/studentFilters'
 import { ASSIGNABLE_MENTOR_ROLES, DEGREE_LEVEL_LABELS, MENTOR_ROLE_LABELS, SERVICE_TYPE_LABELS, type StudentListItem } from '@/types'
@@ -8,7 +9,7 @@ const ROLE_SHORT: Record<string, string> = { career: 'ПО', ielts: 'IE', lead: 
 
 export function BaseStudentTable({
   groups, selectedIds, onToggle, onSelectAll, onOpen, onRole, onSelf, canAssign, isManager,
-  intakeOverview, sortAscending, onSort, isLoading, error, onRetry, selfPending, showCountries, showForms, notionStatuses, showSelection,
+  intakeOverview, sortAscending, onSort, isLoading, error, onRetry, selfPending, showCountries, showForms, notionStatuses, notionStatusColors, showSelection,
 }: {
   groups: [string, StudentListItem[]][]
   selectedIds: Set<string>
@@ -29,8 +30,10 @@ export function BaseStudentTable({
   showCountries: boolean
   showForms: boolean
   notionStatuses: Map<string, string>
+  notionStatusColors: Map<string, string>
   showSelection: boolean
 }) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const all = groups.flatMap(([, students]) => students)
   const allSelected = all.length > 0 && all.every((s) => selectedIds.has(s.id))
   const columnCount = 6 + Number(showSelection) + Number(showCountries) + Number(showForms)
@@ -59,24 +62,24 @@ export function BaseStudentTable({
         {error && <tr><td colSpan={columnCount} className="py-12 text-center" role="alert">Не удалось загрузить список: {error} <Button type="button" variant="outline" size="sm" onClick={onRetry}>Повторить</Button></td></tr>}
         {!error && isLoading && <tr><td colSpan={columnCount} className="py-12 text-center text-ds-muted">Загрузка…</td></tr>}
         {!error && !isLoading && groups.length === 0 && <tr><td colSpan={columnCount} className="py-12 text-center text-ds-muted">В этом виде никого нет. Попробуйте снять фильтры.</td></tr>}
-        {!error && !isLoading && groups.map(([label, students]) => <FragmentGroup key={label} label={label} students={students} selectedIds={selectedIds} onSelectAll={onSelectAll} onToggle={onToggle} onOpen={onOpen} onRole={onRole} onSelf={onSelf} canAssign={canAssign} isManager={isManager} intakeOverview={intakeOverview} selfPending={selfPending} showCountries={showCountries} showForms={showForms} showSelection={showSelection} columnCount={columnCount} notionStatuses={notionStatuses} />)}
+        {!error && !isLoading && groups.map(([label, students]) => <Fragment key={label}><tr className="bg-ds-panel2"><td colSpan={columnCount} className="border-t border-ds-line px-3 py-2.5"><div className="flex items-center gap-3">{showSelection && <input aria-label={`Выбрать группу ${label}`} type="checkbox" disabled={!canAssign} checked={students.length > 0 && students.every((s) => selectedIds.has(s.id))} onChange={(event) => onSelectAll(students.map((s) => s.id), event.target.checked)} />}<button type="button" aria-expanded={!collapsedGroups.has(label)} onClick={() => setCollapsedGroups((previous) => { const next = new Set(previous); if (next.has(label)) next.delete(label); else next.add(label); return next })} className="flex min-h-8 min-w-0 flex-1 items-center gap-2 text-left font-bold hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent"><span aria-hidden="true" className="w-4 text-center text-ds-muted">{collapsedGroups.has(label) ? '▸' : '▾'}</span><span>{label}</span><span className="text-xs font-normal text-ds-muted2">· {students.length}</span></button></div></td></tr>{!collapsedGroups.has(label) && <FragmentGroup students={students} selectedIds={selectedIds} onToggle={onToggle} onOpen={onOpen} onRole={onRole} onSelf={onSelf} canAssign={canAssign} isManager={isManager} intakeOverview={intakeOverview} selfPending={selfPending} showCountries={showCountries} showForms={showForms} showSelection={showSelection} notionStatuses={notionStatuses} notionStatusColors={notionStatusColors} />}</Fragment>)}
       </tbody>
     </table>
   </div>
 }
 
-function FragmentGroup({ label, students, selectedIds, onSelectAll, onToggle, onOpen, onRole, onSelf, canAssign, isManager, intakeOverview, selfPending, showCountries, showForms, showSelection, columnCount, notionStatuses }: {
-  label: string; students: StudentListItem[]; selectedIds: Set<string>; onSelectAll: (ids: string[], selected: boolean) => void;
+function FragmentGroup({ students, selectedIds, onToggle, onOpen, onRole, onSelf, canAssign, isManager, intakeOverview, selfPending, showCountries, showForms, showSelection, notionStatuses, notionStatusColors }: {
+  students: StudentListItem[]; selectedIds: Set<string>;
   onToggle: (studentId: string) => void; onOpen: (student: StudentListItem) => void; onRole: (student: StudentListItem, role: string) => void;
   onSelf: (student: StudentListItem) => void; canAssign: boolean; isManager: boolean;
   intakeOverview: Record<string, { has_package?: boolean; has_cases?: boolean }>;
   selfPending: boolean;
-  showCountries: boolean; showForms: boolean; columnCount: number;
+  showCountries: boolean; showForms: boolean;
   showSelection: boolean;
   notionStatuses: Map<string, string>;
+  notionStatusColors: Map<string, string>;
 }) {
   return <>
-    <tr className="bg-ds-panel2"><td colSpan={columnCount} className="border-t border-ds-line px-3 py-2.5 font-bold"><label className="inline-flex items-center gap-3">{showSelection && <input aria-label={`Выбрать группу ${label}`} type="checkbox" disabled={!canAssign} checked={students.every((s) => selectedIds.has(s.id))} onChange={(event) => onSelectAll(students.map((s) => s.id), event.target.checked)} />}<span>{label}</span><span className="text-xs font-normal text-ds-muted2">{students.length}</span></label></td></tr>
     {students.map((student) => {
       const responsibles = activeResponsibles(student)
       const assignedRoles = new Set(responsibles.map((r) => r.role))
@@ -87,7 +90,7 @@ function FragmentGroup({ label, students, selectedIds, onSelectAll, onToggle, on
         {showSelection && <td className="px-3 py-3 align-top"><input type="checkbox" disabled={!canAssign} aria-label={`Выбрать ${student.full_name}`} checked={selectedIds.has(student.id)} onChange={() => onToggle(student.id)} /></td>}
         <td className="px-3 py-3 align-top"><button type="button" onClick={() => onOpen(student)} className="text-left font-bold hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent">{student.full_name}</button><div className="mt-1 flex items-center gap-1.5 text-xs text-ds-muted2"><span className="rounded-md bg-ds-panel2 px-1.5 py-0.5 font-bold">{DEGREE_LEVEL_LABELS[student.degree_level]}</span>{student.city}</div>{(student.services_summary?.items.length ?? 0) > 0 && <p className="mt-1 max-w-56 truncate text-xs text-ds-muted" title={student.services_summary?.items.map((item) => `${SERVICE_TYPE_LABELS[item.service_type]} · ${item.status}`).join(', ')}>Услуги: {student.services_summary?.items.map((item) => SERVICE_TYPE_LABELS[item.service_type]).join(', ')}</p>}</td>
         {showCountries && <td className="px-3 py-3 align-top text-ds-muted">{student.countries?.map((c) => c.country).join(', ') || '—'}</td>}
-        <td className="border-l border-ds-line px-3 py-3 align-top"><StudentPipelineStatusBadge status={displayStatus} /></td>
+        <td className="border-l border-ds-line px-3 py-3 align-top"><StudentPipelineStatusBadge status={displayStatus} notionColor={notionStatusColors.get(student.id)} /></td>
         <td className="px-3 py-3 align-top">{student.intake_year || '—'}</td>
         <td className="border-l border-ds-line px-3 py-3 align-top">{lead?.name || <span className="text-ds-muted2">нет</span>}</td>
         <td className="px-3 py-3 align-top"><div className="flex items-center gap-1">{ASSIGNABLE_MENTOR_ROLES.map((role) => {

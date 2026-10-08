@@ -65,6 +65,7 @@ import { ReplacementReasonDialog } from '@/components/students/ReplacementReason
 import { StudentExportDialog } from '@/components/students/StudentExportDialog'
 import { BaseStudentDrawer } from '@/components/students/base/BaseStudentDrawer'
 import { BaseStudentTable } from '@/components/students/base/BaseStudentTable'
+import { normalizeStudentPipelineStatus } from '@/components/students/StudentPipelineStatusBadge'
 import { NotionFieldSyncReviewDialog } from '@/components/students/base/NotionFieldSyncReviewDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -1252,6 +1253,16 @@ const CrmStudentsListView: React.FC = () => {
     }
     return statuses
   }, [notionByStudent])
+  const notionStatusColors = useMemo(() => {
+    const colors = new Map<string, string>()
+    const options = notionTable?.option_colors?.['Статус выплат'] ?? {}
+    for (const [studentId, row] of notionByStudent) {
+      const raw = row.values['Статус выплат']
+      const value = Array.isArray(raw) ? raw.find((item) => item != null) : raw
+      if (value != null && options[String(value)]) colors.set(studentId, options[String(value)])
+    }
+    return colors
+  }, [notionByStudent, notionTable?.option_colors])
   const notionOptions = useMemo(() => {
     const values = new Set<string>()
     for (const row of notionTable?.items ?? []) {
@@ -1329,12 +1340,12 @@ const CrmStudentsListView: React.FC = () => {
       const key = baseGrouping === 'intake'
         ? `Набор ${student.intake_year || 'не указан'}`
         : baseGrouping === 'status'
-          ? PIPELINE_STATUS_LABELS[student.pipeline_status ?? 'no_status']
+          ? PIPELINE_STATUS_LABELS[normalizeStudentPipelineStatus(notionStatuses.get(student.id) ?? student.pipeline_status)]
           : activeResponsibles(student).filter((r) => r.role === groupRole).map((r) => r.name).join(', ') || `Без «${MENTOR_ROLE_LABELS[groupRole]}»`
       groups.set(key, [...(groups.get(key) ?? []), student])
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'ru', { numeric: true }))
-  }, [viewedStudents, baseGrouping, groupRole])
+  }, [viewedStudents, baseGrouping, groupRole, notionStatuses])
   useEffect(() => {
     setSelectedIds(new Set())
   }, [baseView, baseGrouping, groupRole, debouncedSearch, operationalFilter, notionValue, scope, intakeYearFilter, leadMentorFilter, degreeFilter, countryFilter, mentorFilter, mzkManagerFilter, serviceTypeFilter, statusFilterOperator, storedStatusFilters, boardMentorId, boardMissingRole])
@@ -2068,6 +2079,7 @@ const CrmStudentsListView: React.FC = () => {
         showCountries={showCountries}
         showForms={showForms}
         notionStatuses={notionStatuses}
+        notionStatusColors={notionStatusColors}
         showSelection={assignMode}
       />
       <p className="text-xs text-ds-muted">Роли: ПО профориентолог · IE учитель IELTS · УП ментор по УП · СТ ментор по стране · ПФ портфолио · МЗ МЗК. Пунктир значит «не назначен».</p>

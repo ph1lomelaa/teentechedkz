@@ -126,7 +126,7 @@ export const DocumentList: React.FC<Props> = ({
   const iconButton = 'grid h-8 w-8 shrink-0 place-items-center rounded-ctl transition hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-current'
 
   return <section
-    className="min-w-0"
+    className="w-full min-w-0 self-stretch"
     onDragOver={event => { if (onFilesDropped && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }}
     onDrop={event => { if (!onFilesDropped) return; event.preventDefault(); setDragging(false); onFilesDropped(Array.from(event.dataTransfer.files)) }}
@@ -148,7 +148,7 @@ export const DocumentList: React.FC<Props> = ({
           const [stem, ext] = parts(doc)
           const editable = canRename?.(doc) ?? canManage
           const deletable = canDelete?.(doc) ?? canManage
-          return <div key={doc.id} className={cn('group relative border-b py-2 last:border-b-0', line)}>
+          return <div key={doc.id} className={cn('group relative w-full border-b py-2 last:border-b-0', line)}>
             {confirmDelete === doc.id ? <div className="flex flex-wrap items-center gap-2 rounded-ctl bg-red-500/10 p-3 text-xs text-red-600"><span className="min-w-0 flex-1">Удалить <strong className="break-all">{documentName(doc)}</strong>? Студент и команда больше не увидят файл.</span><button onClick={() => setConfirmDelete(null)} className="font-bold">Отмена</button><button onClick={() => scheduleDelete(doc)} className="rounded-ctl bg-red-600 px-3 py-1.5 font-bold text-white">Удалить</button></div> :
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
               <div className={cn('grid h-11 w-10 shrink-0 place-items-center rounded-ctl border-t-2 bg-black/5 text-[10px] font-black uppercase', fileColor(ext.toLowerCase()))}>{ext.slice(1, 5) || 'FILE'}</div>

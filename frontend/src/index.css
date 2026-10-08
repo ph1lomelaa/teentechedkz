@@ -1537,8 +1537,8 @@ html[data-crm-theme='light'],
 .student-pipeline-status[data-tone='complete'] { --student-status-bg: #163A40; --student-status-fg: #9BD6DF; }
 .student-pipeline-status[data-tone='neutral'] { --student-status-bg: #2C2B27; --student-status-fg: #C8C5BB; }
 
-:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='active'] { --student-status-bg: #DCEFE0; --student-status-fg: #1D5A2D; }
-:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='waiting'] { --student-status-bg: #FBE2CB; --student-status-fg: #883C00; }
-:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='problem'] { --student-status-bg: #F7D8D7; --student-status-fg: #8C1F1F; }
-:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='complete'] { --student-status-bg: #D6EAEE; --student-status-fg: #13535E; }
-:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='neutral'] { --student-status-bg: #E6E4DD; --student-status-fg: #4A4840; }
+:is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='active'] { --student-status-bg: #DCEFE0; --student-status-fg: #1D5A2D; }
+:is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='waiting'] { --student-status-bg: #FBE2CB; --student-status-fg: #883C00; }
+:is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='problem'] { --student-status-bg: #F7D8D7; --student-status-fg: #8C1F1F; }
+:is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='complete'] { --student-status-bg: #D6EAEE; --student-status-fg: #13535E; }
+:is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='neutral'] { --student-status-bg: #E6E4DD; --student-status-fg: #4A4840; }
