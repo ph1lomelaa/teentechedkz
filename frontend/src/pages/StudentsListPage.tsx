@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Download, Search, RefreshCw, RotateCw, Inbox, EyeOff, Eye, CheckCheck, Filter, X, UserPlus, LayoutGrid } from 'lucide-react'
+import { Plus, Download, Search, EyeOff, Eye, CheckCheck, Filter, X, UserPlus, LayoutGrid, ChevronDown } from 'lucide-react'
 import { studentsApi } from '@/api/students'
 // Общие с «Моими студентами»: обе страницы отбирают один и тот же список,
 // и вторая копия «Контроля работы» отвечала бы иначе на том же вопросе.
@@ -13,29 +13,26 @@ import {
 } from '@/lib/studentFilters'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import { syncApi, IntakeSubmission, SheetCounters } from '@/api/sync'
-import { notionApi, NotionSnapshotItem } from '@/api/notion'
+import { notionApi, NotionSnapshotItem, type NotionPipelineRow } from '@/api/notion'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLocalState } from '@/lib/use-local-state'
 import {
   PipelineStatusFilter,
-  PipelineStatusTag,
   type PipelineStatusOperator,
 } from '@/components/shared/PipelineStatusFilter'
 import {
   PipelineStatus,
   PIPELINE_STATUS_LABELS,
   DEGREE_LEVEL_LABELS,
-  DEGREE_LEVEL_COLORS,
   SERVICE_TYPE_LABELS,
-  SERVICE_STATUS_LABELS,
   ROLE_LABELS,
   MENTOR_ROLE_LABELS,
   ASSIGNABLE_MENTOR_ROLES,
   splitAssignCandidates,
   ServiceType,
+  type StudentListItem,
 } from '@/types'
 import { Button } from '@/components/ui/primitives/button'
-import { PageHeader } from '@/components/ui'
 import { Input } from '@/components/ui/primitives/input'
 import {
   Dialog,
@@ -60,12 +57,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/primitives/select'
-import { downloadBlob } from '@/lib/utils'
 import { debounce } from '@/lib/utils'
 import { fuzzyStudentMatch } from '@/lib/fuzzyName'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { ReplacementReasonDialog } from '@/components/students/ReplacementReasonDialog'
+import { StudentExportDialog } from '@/components/students/StudentExportDialog'
+import { BaseStudentDrawer } from '@/components/students/base/BaseStudentDrawer'
+import { BaseStudentTable } from '@/components/students/base/BaseStudentTable'
+import { NotionFieldSyncReviewDialog } from '@/components/students/base/NotionFieldSyncReviewDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
   package: 'Пакет (менеджер)',
@@ -75,6 +75,16 @@ const SOURCE_LABELS: Record<string, string> = {
 type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
 type StatusFilterOperator = PipelineStatusOperator
+type BaseView = 'all' | 'needs_assignment' | 'diff' | 'mine'
+type BaseGrouping = 'intake' | 'responsible' | 'status'
+
+const REQUIRED_ROLES = ['career', 'ielts', 'lead', 'country'] as const
+
+function needsAssignment(student: StudentListItem, notionRow?: NotionPipelineRow): boolean {
+  if (!notionValues(notionRow, 'Статус выплат').some((value) => value.trim().toLocaleLowerCase('ru') === 'активная работа')) return false
+  const roles = new Set(activeResponsibles(student).map((item) => item.role))
+  return REQUIRED_ROLES.some((role) => !roles.has(role))
+}
 
 
 const SERVICE_FILTER_OPTIONS: ServiceType[] = [
@@ -85,6 +95,11 @@ const SERVICE_FILTER_OPTIONS: ServiceType[] = [
   'portfolio_improvement',
   'english_general',
 ]
+
+function notionValues(row: NotionPipelineRow | undefined, field: string): string[] {
+  const value = row?.values[field]
+  return (Array.isArray(value) ? value : [value]).filter((item) => item != null && String(item).trim()).map(String)
+}
 
 /** Диалог привязки входящей анкеты к студенту */
 function LinkDialog({
@@ -141,24 +156,32 @@ function LinkDialog({
                 ` (${Math.round(submission.suggested_confidence * 100)}%)`}
             </p>
           )}
+          {submission.identity_review_required && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+              Требуется проверить личность заявки
+              {submission.match_candidate_names?.length ? (
+                <span>: {submission.match_candidate_names.join(' · ')}</span>
+              ) : null}
+            </div>
+          )}
           <Input
             placeholder="Поиск студента..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-p-line">
             {filtered.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   selectedId === s.id
-                    ? 'bg-black text-white'
-                    : 'text-p-text hover:bg-p-bg'
+                    ? 'bg-p-chip text-p-chip-text ring-1 ring-inset ring-p-accent-dim'
+                    : 'text-p-text hover:bg-p-panel2'
                 }`}
               >
                 {s.full_name}
-                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-p-muted text-xs ml-2'}>
+                <span className="ml-2 text-xs text-p-muted">
                   {s.intake_year}
                 </span>
               </button>
@@ -278,8 +301,8 @@ function IntakeInbox() {
                 onClick={() => setIntakeView(item.value as typeof intakeView)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                   intakeView === item.value
-                    ? 'bg-white text-black'
-                    : 'text-p-muted hover:text-black hover:bg-p-bg'
+                    ? 'bg-p-panel text-p-text shadow-sm'
+                    : 'text-p-muted hover:text-p-text hover:bg-p-panel2'
                 }`}
               >
                 {item.label}
@@ -352,8 +375,14 @@ function IntakeInbox() {
                         <span className="text-p-muted text-xs ml-1">
                           {Math.round(sub.suggested_confidence * 100)}%
                         </span>
-                      )}
+                        )}
                     </span>
+                  ) : sub.match_candidate_names?.length ? (
+                    <span className="text-amber-800" title={sub.match_candidate_names.join(' · ')}>
+                      Проверить: {sub.match_candidate_names.length} кандидата
+                    </span>
+                  ) : sub.identity_review_required ? (
+                    <span className="text-amber-800">Проверить личность</span>
                   ) : (
                     <span className="text-p-muted2">нет</span>
                   )}
@@ -512,19 +541,19 @@ function NotionLinkDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-gray-100">
+          <div className="max-h-56 overflow-y-auto border border-p-line rounded-panel divide-y divide-p-line">
             {filtered.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   selectedId === s.id
-                    ? 'bg-black text-white'
-                    : 'text-p-text hover:bg-p-bg'
+                    ? 'bg-p-chip text-p-chip-text ring-1 ring-inset ring-p-accent-dim'
+                    : 'text-p-text hover:bg-p-panel2'
                 }`}
               >
                 {s.full_name}
-                <span className={selectedId === s.id ? 'text-white/60 text-xs ml-2' : 'text-p-muted text-xs ml-2'}>
+                <span className="ml-2 text-xs text-p-muted">
                   {s.intake_year}
                 </span>
               </button>
@@ -629,8 +658,8 @@ function NotionInbox() {
                 onClick={() => setView(item.value as typeof view)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                   view === item.value
-                    ? 'bg-white text-black'
-                    : 'text-p-muted hover:text-black hover:bg-p-bg'
+                    ? 'bg-p-panel text-p-text shadow-sm'
+                    : 'text-p-muted hover:text-p-text hover:bg-p-panel2'
                 }`}
               >
                 {item.label}
@@ -831,18 +860,35 @@ function AssigneeOptions({ groups }: { groups: Array<{ title: string; users: Arr
   )
 }
 
-// Общая база — прежний CRM-список (распределение, выбор, фильтры). Notion-вид
-// с таблицей и доской живёт только на Обзоре (DashboardPage).
-export const StudentsListPage: React.FC = () => {
+const CrmStudentsListView: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { can } = useAuth()
   // Панели сверки с интейком и Notion: sync:manage и notion:manage — те же
   // три роли, что стояли здесь по hasRole.
   const isManager = can('sync', 'manage')
+  const canSeeNotion = can('notion', 'manage')
   // Sync/import stays admin-only even though the rest of the CRM is now shared.
   const canRunSync = can('sync', 'create')
   const [searchParams, setSearchParams] = useSearchParams()
+  const [exportOpen, setExportOpen] = useState(false)
+  const [fieldSyncReviewOpen, setFieldSyncReviewOpen] = useState(false)
+  const [dataMenuOpen, setDataMenuOpen] = useState(false)
+  const dataMenuRef = useRef<HTMLDivElement>(null)
+  const filtersRef = useRef<HTMLDivElement>(null)
+  const columnsRef = useRef<HTMLDivElement>(null)
+  const [baseView, setBaseView] = useLocalState<BaseView>('students:list:baseView', 'all')
+  const [baseGrouping, setBaseGrouping] = useLocalState<BaseGrouping>('students:list:baseGrouping', 'intake')
+  const [groupRole, setGroupRole] = useLocalState<string>('students:list:groupRole', 'mzk')
+  const [openStudent, setOpenStudent] = useState<StudentListItem | null>(null)
+  const [roleStudent, setRoleStudent] = useState<StudentListItem | null>(null)
+  const [sortAscending, setSortAscending] = useLocalState('students:list:sortAscending', true)
+  const [showCountries, setShowCountries] = useLocalState('students:list:columnCountries', true)
+  const [showForms, setShowForms] = useLocalState('students:list:columnForms', true)
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  useEffect(() => {
+    if (!canSeeNotion && (baseView === 'needs_assignment' || baseView === 'diff')) setBaseView('all')
+  }, [canSeeNotion, baseView, setBaseView])
 
   // Фильтры переживают уход в карточку и перезагрузку. Раньше они жили в
   // useState: отобрал пять фильтров, долистал до сорокового студента, открыл
@@ -874,6 +920,8 @@ export const StudentsListPage: React.FC = () => {
   const [degreeFilter, setDegreeFilter] = useLocalState('students:list:degree', '')
   const [serviceTypeFilter, setServiceTypeFilter] = useLocalState('students:list:serviceType', '')
   const [operationalFilter, setOperationalFilter] = useLocalState<OperationalFilter>('students:list:operational', 'all')
+  const [notionField, setNotionField] = useLocalState('students:list:notionField', 'Статус выплат')
+  const [notionValue, setNotionValue] = useLocalState('students:list:notionValue', '')
   const [filtersOpen, setFiltersOpen] = useLocalState('students:list:filtersOpen', false)
   // Не сохраняется: это поиск по людям внутри уже открытой панели, а не отбор
   // студентов — на составе списка он никак не сказывается.
@@ -1129,13 +1177,13 @@ export const StudentsListPage: React.FC = () => {
   // Число колонок таблицы — считаем, а не пишем числом: пустые состояния
   // растягиваются на всю ширину через colSpan, и раньше это была захардкоженная
   // константа, которую пришлось бы править при каждой новой колонке.
-  const columnCount = 8 + (isManager ? 1 : 0) + (assignMode ? 1 : 0)
 
   const toggleSelected = (studentId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(studentId)) next.delete(studentId)
-      else next.add(studentId)
+      else if (next.size < 200) next.add(studentId)
+      else toast({ title: 'Можно выбрать не более 200 студентов за одно назначение' })
       return next
     })
   }
@@ -1166,9 +1214,55 @@ export const StudentsListPage: React.FC = () => {
   const { data: notionStatus } = useQuery({
     queryKey: ['notion', 'status'],
     queryFn: notionApi.status,
-    enabled: isManager,
+    enabled: canSeeNotion,
     refetchInterval: 60_000,
   })
+  const { data: notionTable, isLoading: isNotionLoading, isError: isNotionError, refetch: refetchNotionTable } = useQuery({
+    queryKey: ['notion', 'pipeline-table', 'all'],
+    queryFn: () => notionApi.pipelineTable(false),
+    enabled: canSeeNotion,
+    staleTime: 60_000,
+  })
+  const { data: notionReport, isLoading: isReportLoading, isError: isReportError, refetch: refetchNotionReport } = useQuery({
+    queryKey: ['notion', 'pipeline-report'],
+    queryFn: notionApi.pipelineReport,
+    enabled: canSeeNotion,
+    staleTime: 60_000,
+  })
+  const reportDiffIds = useMemo(() => new Set(
+    (notionReport?.rows ?? []).filter((row) => row.student_id && row.changes.length > 0).map((row) => row.student_id!),
+  ), [notionReport])
+  const notionByStudent = useMemo(() => {
+    const rows = new Map<string, NotionPipelineRow>()
+    const duplicated = new Set<string>()
+    for (const row of notionTable?.items ?? []) {
+      if (row.source !== 'notion' || !row.student_id) continue
+      if (rows.has(row.student_id)) duplicated.add(row.student_id)
+      rows.set(row.student_id, row)
+    }
+    for (const id of duplicated) rows.delete(id)
+    return rows
+  }, [notionTable])
+  const notionStatuses = useMemo(() => {
+    const statuses = new Map<string, string>()
+    for (const [studentId, row] of notionByStudent) {
+      const raw = row.values['Статус выплат']
+      const value = Array.isArray(raw) ? raw.find((item) => item != null) : raw
+      statuses.set(studentId, value == null || !String(value).trim() ? 'no_status' : String(value))
+    }
+    return statuses
+  }, [notionByStudent])
+  const notionOptions = useMemo(() => {
+    const values = new Set<string>()
+    for (const row of notionTable?.items ?? []) {
+      if (row.source !== 'notion') continue
+      const raw = row.values[notionField]
+      for (const value of Array.isArray(raw) ? raw : [raw]) {
+        if (value != null && String(value).trim()) values.add(String(value))
+      }
+    }
+    return [...values].sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [notionTable, notionField])
 
   const notionSyncMutation = useMutation({
     mutationFn: notionApi.run,
@@ -1211,17 +1305,68 @@ export const StudentsListPage: React.FC = () => {
       ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
       : allStudents
     return searched.filter((s) => matchesOperationalFilter(s, operationalFilter))
-  }, [allStudents, debouncedSearch, operationalFilter])
+      .filter((s) => !notionValue || notionValues(notionByStudent.get(s.id), notionField).includes(notionValue))
+  }, [allStudents, debouncedSearch, operationalFilter, notionByStudent, notionField, notionValue])
   const total = students.length
+  const incompleteResult = (data?.total ?? 0) > allStudents.length
+  const viewCounts = {
+    all: students.length,
+    needs_assignment: students.filter((student) => needsAssignment(student, notionByStudent.get(student.id))).length,
+    diff: students.filter((student) => reportDiffIds.has(student.id)).length,
+    mine: students.filter((s) => s.is_mine).length,
+  }
+  const viewedStudents = useMemo(() => {
+    const filtered = students.filter((student) =>
+      baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student, notionByStudent.get(student.id)) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
+    )
+    return [...filtered].sort((a, b) => sortAscending
+      ? a.full_name.localeCompare(b.full_name, 'ru')
+      : b.full_name.localeCompare(a.full_name, 'ru'))
+  }, [students, baseView, sortAscending, notionByStudent, reportDiffIds])
+  const groupedStudents = useMemo(() => {
+    const groups = new Map<string, StudentListItem[]>()
+    for (const student of viewedStudents) {
+      const key = baseGrouping === 'intake'
+        ? `Набор ${student.intake_year || 'не указан'}`
+        : baseGrouping === 'status'
+          ? PIPELINE_STATUS_LABELS[student.pipeline_status ?? 'no_status']
+          : activeResponsibles(student).filter((r) => r.role === groupRole).map((r) => r.name).join(', ') || `Без «${MENTOR_ROLE_LABELS[groupRole]}»`
+      groups.set(key, [...(groups.get(key) ?? []), student])
+    }
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'ru', { numeric: true }))
+  }, [viewedStudents, baseGrouping, groupRole])
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [baseView, baseGrouping, groupRole, debouncedSearch, operationalFilter, notionValue, scope, intakeYearFilter, leadMentorFilter, degreeFilter, countryFilter, mentorFilter, mzkManagerFilter, serviceTypeFilter, statusFilterOperator, storedStatusFilters, boardMentorId, boardMissingRole])
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDataMenuOpen(false)
+        setFiltersOpen(false)
+        setColumnsOpen(false)
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [setFiltersOpen])
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (dataMenuOpen && !dataMenuRef.current?.contains(target)) setDataMenuOpen(false)
+      if (filtersOpen && !filtersRef.current?.contains(target)) setFiltersOpen(false)
+      if (columnsOpen && !columnsRef.current?.contains(target)) setColumnsOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [dataMenuOpen, filtersOpen, columnsOpen, setFiltersOpen])
   // «Выбрать всех» относится к тому, что реально видно после фильтров, а не ко
   // всей базе: иначе галочка молча захватила бы студентов вне выборки.
-  const allOnPageSelected = students.length > 0 && students.every((s) => selectedIds.has(s.id))
   // Действуем только по видимым — выделение переживает смену фильтров.
   // Иначе: отметил двадцать, сузил поиск до трёх, нажал «Назначить» — и
   // ответственный молча уехал всем двадцати, включая тех, кого на экране нет.
   const selectedVisible = useMemo(
-    () => students.filter((s) => selectedIds.has(s.id)).map((s) => s.id),
-    [students, selectedIds],
+    () => viewedStudents.filter((s) => selectedIds.has(s.id)).map((s) => s.id),
+    [viewedStudents, selectedIds],
   )
   const newCount = syncStatus?.new_submissions ?? 0
   const activeFiltersCount =
@@ -1234,7 +1379,8 @@ export const StudentsListPage: React.FC = () => {
     (countryFilter.trim() ? 1 : 0) +
     (degreeFilter ? 1 : 0) +
     (serviceTypeFilter ? 1 : 0) +
-    (operationalFilter !== 'all' ? 1 : 0)
+    (operationalFilter !== 'all' ? 1 : 0) +
+    (notionValue ? 1 : 0)
 
   const resetFilters = () => {
     // Поиск и «основная страна» раньше не сбрасывались: после «Сбросить всё»
@@ -1253,6 +1399,7 @@ export const StudentsListPage: React.FC = () => {
     setDegreeFilter('')
     setServiceTypeFilter('')
     setOperationalFilter('all')
+    setNotionValue('')
     setStatusFilters([])
     setStatusFilterOperator('is')
     setResponsibleSearch('')
@@ -1287,7 +1434,7 @@ export const StudentsListPage: React.FC = () => {
   statusFilters.forEach((status) => {
     activeFilterChips.push({
       key: `status-${status}`,
-      label: `Статус ${statusFilterOperator === 'is_not' ? 'не ' : ''}${PIPELINE_STATUS_LABELS[status]}`,
+      label: `Статус CRM ${statusFilterOperator === 'is_not' ? 'не ' : ''}${PIPELINE_STATUS_LABELS[status]}`,
       onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
     })
   })
@@ -1315,6 +1462,9 @@ export const StudentsListPage: React.FC = () => {
       label: `Страна: ${countryFilter}${countryPrimaryOnly ? ' (основная)' : ''}`,
       onRemove: () => { setCountryFilter(''); setCountryPrimaryOnly(false) },
     })
+  if (notionValue) activeFilterChips.push({
+    key: 'notion-value', label: `${notionField}: ${notionValue}`, onRemove: () => setNotionValue(''),
+  })
   const clearResponsible = () => {
     setResponsibleRole('any')
     setMzkManagerFilter('')
@@ -1385,115 +1535,109 @@ export const StudentsListPage: React.FC = () => {
     setResponsibleSearch('')
   }
 
-  const handleExport = async () => {
-    try {
-      const blob = await studentsApi.exportAll()
-      downloadBlob(blob, 'students.xlsx')
-    } catch {
-      alert('Ошибка экспорта')
-    }
-  }
-
   return (
     <div className="space-y-5">
-      <PageHeader
-        eyebrow="Студенты"
-        title="Общая база"
-        description={`Все студенты CRM · всего: ${total}`}
-        action={(
-        <div className="flex items-center gap-2 flex-wrap">
-          {isManager && (
-            <>
-              {canRunSync && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => syncMutation.mutate()}
-                  disabled={syncMutation.isPending}
-                  title={syncStatus?.configured === false ? 'Google Sheets не настроен' : 'Забрать новые анкеты из Google Sheets'}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                  Синхронизировать
-                </Button>
-              )}
-              <Button
-                variant={showInbox ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setShowInbox(!showInbox)}
-              >
-                <Inbox className="w-3.5 h-3.5 mr-1.5" />
-                {showInbox ? 'Все студенты' : 'Входящие'}{newCount > 0 && !showInbox ? ` · ${newCount}` : ''}
-              </Button>
-              {canRunSync && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => notionSyncMutation.mutate()}
-                  disabled={notionSyncMutation.isPending}
-                  title={notionStatus?.configured === false ? 'Notion не настроен' : 'Обновить зеркало Notion'}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${notionSyncMutation.isPending ? 'animate-spin' : ''}`} />
-                  Синк Notion
-                </Button>
-              )}
-              <Button
-                variant={showNotion ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setShowNotion(!showNotion)}
-              >
-                Notion{(notionStatus?.needs_review ?? 0) > 0 && !showNotion ? ` · ${notionStatus?.needs_review}` : ''}
-              </Button>
-            </>
-          )}
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="w-3.5 h-3.5 mr-1.5" />
-            Экспорт
-          </Button>
-          {can('students', 'create') && (
-            <button
-              onClick={() => navigate('/students/new')}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold uppercase tracking-caps
-                         bg-p-accent text-black rounded-ctl hover:brightness-95
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-p-accent-dim
-                         transition-colors duration-150"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Добавить студента
-            </button>
-          )}
+      <StudentExportDialog open={exportOpen} onOpenChange={setExportOpen} currentView={{
+        studentIds: viewedStudents.map((student) => student.id),
+        selectedStudentIds: viewedStudents.filter((student) => selectedIds.has(student.id)).map((student) => student.id),
+        selectedNames: viewedStudents.filter((student) => selectedIds.has(student.id)).map((student) => student.full_name),
+        label: baseView === 'all' ? 'Все' : baseView === 'mine' ? 'Мои' : baseView === 'diff' ? 'Расхождения' : 'Требуют назначения',
+        labels: [
+          ...(baseView !== 'all' ? [`Вид: ${baseView === 'mine' ? 'Мои' : baseView === 'diff' ? 'Расхождения с Notion' : 'Требуют назначения'}`] : []),
+          ...(debouncedSearch.trim() ? [`Поиск: «${debouncedSearch.trim()}»`] : []),
+          ...(intakeYearFilter ? [`Набор: ${intakeYearFilter}`] : []),
+          ...(leadMentorFilter ? [`Lead-Mentor: ${responsibleName(leadMentorFilter)}`] : []),
+          ...(degreeFilter ? [`Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`] : []),
+          ...(countryFilter ? [`Страна: ${countryFilter}`] : []),
+          ...(countryPrimaryOnly ? ['Страна: только основная'] : []),
+          ...(statusFilters.length ? [`Статус CRM: ${statusFilters.map((status) => PIPELINE_STATUS_LABELS[status]).join(', ')}`] : []),
+          ...(serviceTypeFilter ? [`Программа: ${SERVICE_TYPE_LABELS[serviceTypeFilter as ServiceType] ?? serviceTypeFilter}`] : []),
+          ...(leadMentorFilter ? [`Lead-Mentor: ${responsibleName(leadMentorFilter)}`] : []),
+          ...(mzkManagerFilter ? [`МЗК: ${responsibleName(mzkManagerFilter)}`] : []),
+          ...(mentorFilter ? [`Ментор: ${responsibleName(mentorFilter)}`] : []),
+          ...(scope !== 'all' ? [`Область: ${scope === 'mine' ? 'мои' : scope === 'assigned' ? 'с ответственным' : 'без ответственного'}`] : []),
+          ...(notionValue ? [`${notionField}: ${notionValue}`] : []),
+          ...(operationalFilter !== 'all' ? [`Доп. условие: ${operationalFilter}`] : []),
+          ...(boardMentorId ? [`Ментор: ${responsibleName(boardMentorId)}`] : []),
+          ...(boardMissingRole ? [`Не назначена роль: ${MENTOR_ROLE_LABELS[boardMissingRole] ?? boardMissingRole}`] : []),
+          ...(baseGrouping !== 'intake' ? [`Группировка: ${baseGrouping === 'responsible' ? MENTOR_ROLE_LABELS[groupRole] : 'Статус'}`] : []),
+          ...(!sortAscending ? ['Сортировка: Имя ↓'] : []),
+        ],
+      }} />
+      {fieldSyncReviewOpen && <NotionFieldSyncReviewDialog open onOpenChange={setFieldSyncReviewOpen} />}
+      <header className="flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-ds-accentText">Студенты</p>
+          <h1 className="mt-1 text-[36px] font-extrabold tracking-[-.02em] leading-tight text-ds-ink">Общая база</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-ds-muted">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+            <span>{incompleteResult ? `Показано ${total} из ${data?.total} студентов CRM` : `${data?.total ?? total} студентов CRM`}</span>
+            {canSeeNotion && <><span>·</span><span>{notionStatus?.last_run?.ok && notionStatus.last_run.at
+              ? `Notion синхронизирован ${new Date(notionStatus.last_run.at).toLocaleString('ru-RU')}`
+              : 'Время синхронизации Notion неизвестно'}</span>
+              <span>·</span><button type="button" className="font-semibold text-ds-accentText underline underline-offset-2" onClick={() => setShowNotion(true)}>
+                {notionStatus?.needs_review ?? 0} строк Notion без привязки
+              </button></>}
+          </p>
         </div>
-        )}
-      />
+        <div className="flex flex-wrap items-center gap-2">
+          {canSeeBoard && <Button asChild variant="outline" size="sm"><Link to="/students/distribution"><LayoutGrid className="mr-1.5 h-4 w-4" />Распределение</Link></Button>}
+          {(isManager || canSeeNotion) && <div ref={dataMenuRef} className="relative">
+            <Button type="button" variant="outline" size="sm" aria-expanded={dataMenuOpen} onClick={() => setDataMenuOpen(!dataMenuOpen)}>
+              Данные <ChevronDown className="ml-1 h-4 w-4" />
+            </Button>
+            {dataMenuOpen && <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-ds-line bg-ds-panel p-1.5 shadow-lg">
+              {canRunSync && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={syncMutation.isPending} onClick={() => { setDataMenuOpen(false); syncMutation.mutate() }}>Синхронизировать анкеты Google Sheets<span className="block text-xs text-ds-muted">Забрать новые ответы</span></button>}
+              {canRunSync && canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={notionSyncMutation.isPending} onClick={() => { setDataMenuOpen(false); notionSyncMutation.mutate() }}>Обновить данные Notion<span className="block text-xs text-ds-muted">Обновить локальную копию</span></button>}
+              {isManager && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowInbox(true) }}>Входящие анкеты · {newCount}<span className="block text-xs text-ds-muted">Ответы Google Sheets</span></button>}
+              {canSeeNotion && <Link to="/dashboard" className="block rounded-lg px-3 py-2 text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => setDataMenuOpen(false)}>Обзор Notion<span className="block text-xs text-ds-muted">Пайплайн клиентов</span></Link>}
+              {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setFieldSyncReviewOpen(true) }}>Сверка полей CRM ↔ Notion<span className="block text-xs text-ds-muted">Очередь проверок и конфликтов</span></button>}
+              {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowNotion(true) }}>Привязки Notion · {notionStatus?.needs_review ?? 0}<span className="block text-xs text-ds-muted">Страницы без студента CRM</span></button>}
+            </div>}
+          </div>}
+          {can('export', 'manage') && <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} title="Выгрузка настраивается отдельно и не наследует фильтры таблицы"><Download className="mr-1.5 h-4 w-4" />Экспорт</Button>}
+          {can('students', 'create') && <Button size="sm" className="bg-ds-accent font-bold text-[#141413] hover:brightness-95" onClick={() => navigate('/students/new')}><Plus className="mr-1 h-4 w-4" />Студент</Button>}
+        </div>
+      </header>
+
+      {canSeeNotion && isNotionError && <div role="alert" className="rounded-card border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        Не удалось загрузить данные Notion. CRM-колонки доступны. <button className="font-semibold underline" onClick={() => refetchNotionTable()}>Повторить</button>
+      </div>}
+
+      <nav aria-label="Виды общей базы" className="flex flex-wrap gap-1 border-b border-ds-line">
+        {([{ value: 'all', label: 'Все' }, ...(canSeeNotion ? [{ value: 'needs_assignment', label: 'Требуют назначения' } as const, { value: 'diff', label: 'Расхождения с Notion' } as const] : []), { value: 'mine', label: 'Мои' }] as const).map((view) =>
+          <button key={view.value} type="button" title={view.value === 'needs_assignment' ? 'Связанные с Notion студенты со статусом «Активная работа», которым не назначена одна из обязательных ролей: профориентолог, учитель IELTS, ментор по УП, ментор по стране' : undefined} aria-current={baseView === view.value ? 'page' : undefined} onClick={() => setBaseView(view.value)} className={`min-h-10 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseView === view.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink'}`}>
+            {view.label} <span className="ml-1 rounded-full bg-ds-panel2 px-2 py-0.5 text-xs tabular-nums">{view.value === 'diff' ? 'не сверено' : view.value === 'needs_assignment' && (isNotionLoading || isNotionError) ? '—' : incompleteResult ? `${viewCounts[view.value]}+` : viewCounts[view.value]}</span>
+          </button>)}
+      </nav>
+      {baseView === 'diff' && <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+        {isReportError ? <>Не удалось загрузить отчёт сверки. <button type="button" className="font-bold underline" onClick={() => refetchNotionReport()}>Повторить</button></>
+          : isReportLoading ? 'Загружаем подтверждённые различия…' : 'Показаны подтверждённые различия проверенных связей по статусу, набору и странам. Автоматические связи и остальные поля сверяйте в карточке студента; общий счётчик пока недоступен.'}
+      </p>}
+      {baseView === 'needs_assignment' && (isNotionLoading || isNotionError) && <p className="rounded-xl border border-ds-line bg-ds-panel2 px-3 py-2 text-xs text-ds-muted">{isNotionLoading ? 'Загружаем статусы Notion для этого вида…' : 'Не удалось загрузить статусы Notion. Повторите запрос выше.'}</p>}
 
       {/* Inbox */}
       {isManager && showInbox && <IntakeInbox />}
 
       {/* Notion без привязки */}
-      {isManager && showNotion && <NotionInbox />}
+      {canSeeNotion && showNotion && <NotionInbox />}
 
       {/* Filters */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-[280px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-3.5 h-3.5" />
           <Input
-            placeholder="Поиск студентов..."
+            placeholder="Имя, телефон"
             value={search}
             onChange={handleSearchChange}
             className="pl-8 h-9 text-sm"
           />
         </div>
-        <div className="flex items-center gap-2">
-        {/* Назначить можно и отсюда, но увидеть, КОМУ уже назначено, в таблице
-            нельзя: фильтр отвечает про одного человека за раз. Доска отвечает
-            про всех сразу — потому и стоит рядом с назначением. */}
-        {canSeeBoard && (
-          <Button asChild type="button" variant="outline" size="sm" className="h-9 gap-1.5">
-            <Link to="/students/distribution">
-              <LayoutGrid className="w-3.5 h-3.5" />
-              Распределение
-            </Link>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+        <Select value={intakeYearFilter || 'all'} onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Набор" /></SelectTrigger><SelectContent><SelectItem value="all">Набор</SelectItem>{(facets?.years ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{item.value} · {item.count}</SelectItem>)}</SelectContent></Select>
+        <Select value={leadMentorFilter || 'all'} onValueChange={(v) => setLeadMentorFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-28 text-xs"><SelectValue placeholder="Lead-Mentor" /></SelectTrigger><SelectContent><SelectItem value="all">Ментор заявки</SelectItem>{leadMentorUsers.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
+        <Select value={degreeFilter || 'all'} onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Ступень" /></SelectTrigger><SelectContent><SelectItem value="all">Ступень</SelectItem>{(facets?.degrees ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{DEGREE_LEVEL_LABELS[item.value as keyof typeof DEGREE_LEVEL_LABELS] ?? item.value}</SelectItem>)}</SelectContent></Select>
+        <Select value={countryFilter || 'all'} onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Страна" /></SelectTrigger><SelectContent><SelectItem value="all">Страна</SelectItem>{(facets?.countries ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{item.value}</SelectItem>)}</SelectContent></Select>
         {canAssign && (
           <Button
             type="button"
@@ -1506,7 +1650,7 @@ export const StudentsListPage: React.FC = () => {
             {assignMode ? 'Выйти из выбора' : 'Выбрать студентов'}
           </Button>
         )}
-        <div className="relative">
+        <div ref={filtersRef} className="relative">
           <Button
             type="button"
             variant={activeFiltersCount > 0 ? 'default' : 'outline'}
@@ -1515,7 +1659,7 @@ export const StudentsListPage: React.FC = () => {
             onClick={() => setFiltersOpen(!filtersOpen)}
           >
             <Filter className="w-3.5 h-3.5" />
-            Фильтры
+            + Фильтр
             {activeFiltersCount > 0 && (
               <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-white/15 text-2xs font-semibold">
                 {activeFiltersCount}
@@ -1523,7 +1667,7 @@ export const StudentsListPage: React.FC = () => {
             )}
           </Button>
           {filtersOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg">
+            <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-ds-line bg-ds-panel text-ds-ink shadow-lg">
               <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
                 <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
                 <button
@@ -1550,8 +1694,8 @@ export const StudentsListPage: React.FC = () => {
                         onClick={() => setScope(item.value as typeof scope)}
                         className={`px-2 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
                           scope === item.value
-                            ? 'bg-white text-black shadow-sm'
-                            : 'text-p-muted hover:text-black hover:bg-p-bg'
+                            ? 'bg-p-panel text-p-text shadow-sm'
+                            : 'text-p-muted hover:text-p-text hover:bg-p-panel2'
                         }`}
                       >
                         {item.label}
@@ -1561,7 +1705,7 @@ export const StudentsListPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус выплат</p>
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус CRM</p>
                   <PipelineStatusFilter
                     value={statusFilters}
                     onChange={setStatusFilters}
@@ -1570,6 +1714,21 @@ export const StudentsListPage: React.FC = () => {
                     counts={Object.fromEntries((facets?.statuses ?? []).map((option) => [option.value, option.count]))}
                   />
                 </div>
+
+                {canSeeNotion && <div className="space-y-2 border-t border-p-line pt-3">
+                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Данные Notion</p>
+                  <Select value={notionField} onValueChange={(value) => { setNotionField(value); setNotionValue('') }}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Поле Notion" /></SelectTrigger>
+                    <SelectContent>{(notionTable?.columns ?? ['Статус выплат']).filter((field) => field !== 'Статус CRM').map((field) =>
+                      <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={notionValue || '__all__'} onValueChange={(value) => setNotionValue(value === '__all__' ? '' : value)}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Любое значение" /></SelectTrigger>
+                    <SelectContent><SelectItem value="__all__">Все значения</SelectItem>{notionOptions.map((value) =>
+                      <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <p className="text-xs text-p-muted">Фильтр применён к связанным строкам Notion. Несвязанные доступны в разделе «Notion».</p>
+                </div>}
 
                 <div className="space-y-2">
                   <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Контроль работы</p>
@@ -1722,8 +1881,8 @@ export const StudentsListPage: React.FC = () => {
                           onClick={() => setResponsibleFilter(responsibleRole)}
                           className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
                             selectedResponsibleId === ''
-                              ? 'border-black bg-black text-white'
-                              : 'border-p-line bg-white hover:bg-p-bg text-p-text'
+                              ? 'border-p-accent-dim bg-p-chip text-p-chip-text'
+                              : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
                           }`}
                         >
                           Все в выбранной роли
@@ -1737,8 +1896,8 @@ export const StudentsListPage: React.FC = () => {
                               onClick={() => setResponsibleFilter(responsibleRole, user.id)}
                               className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
                                 selectedResponsibleId === user.id
-                                  ? 'border-black bg-black text-white'
-                                  : 'border-p-line bg-white hover:bg-p-bg text-p-text'
+                                ? 'border-p-accent-dim bg-p-chip text-p-chip-text'
+                                : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
                               }`}
                             >
                               {user.name}
@@ -1776,6 +1935,17 @@ export const StudentsListPage: React.FC = () => {
           )}
         </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+          <span className="text-xs font-semibold text-ds-muted">Группировка</span>
+          <div className="flex rounded-[10px] bg-ds-panel2 p-[3px]">
+            {([{ value: 'intake', label: 'Набор' }, { value: 'responsible', label: 'Ответственный' }, { value: 'status', label: 'Статус' }] as const).map((item) => <button key={item.value} type="button" onClick={() => setBaseGrouping(item.value)} className={`min-h-8 rounded-lg px-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseGrouping === item.value ? 'bg-ds-panel text-ds-ink shadow-sm' : 'text-ds-muted'}`}>{item.label}</button>)}
+          </div>
+          {baseGrouping === 'responsible' && <Select value={groupRole} onValueChange={setGroupRole}><SelectTrigger className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger><SelectContent>{ASSIGNABLE_MENTOR_ROLES.map((role) => <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>)}</SelectContent></Select>}
+          <div ref={columnsRef} className="relative">
+            <Button type="button" variant="outline" size="sm" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(!columnsOpen)}>Столбцы · {7 + Number(showCountries) + Number(showForms)}</Button>
+            {columnsOpen && <div className="absolute right-0 top-full z-30 mt-2 w-44 rounded-xl border border-ds-line bg-ds-panel p-3 text-sm text-ds-ink shadow-lg"><p className="mb-2 text-xs font-bold text-ds-muted">Дополнительные столбцы</p><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showCountries} onChange={(event) => setShowCountries(event.target.checked)} />Страны</label><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showForms} onChange={(event) => setShowForms(event.target.checked)} />Анкеты</label></div>}
+          </div>
+        </div>
       </div>
 
       {/* Активные фильтры — видны без открытия панели */}
@@ -1812,9 +1982,9 @@ export const StudentsListPage: React.FC = () => {
           управляет и строчным «+ Назначить». Спрятанный за выделением, он
           превращал бы строчную кнопку в скрытый режим — назначает то ли ментора
           по УП, то ли профориентолога, и по экрану не понять. */}
-      {canAssign && assignMode && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <span className="text-sm font-semibold text-p-text">
+      {canAssign && (assignMode || selectedVisible.length > 0) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ds-line bg-ds-ink px-3 py-2 text-ds-bg">
+          <span className="text-sm font-semibold">
             {selectedVisible.length > 0 ? `Выбрано: ${selectedVisible.length}` : 'Назначить:'}
           </span>
           <Select value={assignRole} onValueChange={changeAssignRole}>
@@ -1843,7 +2013,7 @@ export const StudentsListPage: React.FC = () => {
           </Select>
           <Button
             size="sm"
-            disabled={!bulkMentorId || selectedVisible.length === 0 || assignMutation.isPending}
+            disabled={!bulkMentorId || selectedVisible.length === 0 || selectedVisible.length > 200 || assignMutation.isPending}
             onClick={() =>
               assignMutation.mutate({
                 studentIds: selectedVisible,
@@ -1852,8 +2022,9 @@ export const StudentsListPage: React.FC = () => {
               })
             }
           >
-            {assignMutation.isPending ? 'Назначаем…' : 'Назначить ответственного'}
+            {assignMutation.isPending ? 'Назначаем…' : 'Назначить'}
           </Button>
+          {selectedVisible.length > 200 && <span className="text-xs">За одно действие можно назначить не более 200 студентов.</span>}
           {selectedVisible.length === 0 && (
             <span className="text-xs text-p-muted">
               Выберите студентов галочками — или назначайте по одному прямо в строке.
@@ -1869,277 +2040,59 @@ export const StudentsListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Table */}
-      <div className="border-y border-p-line">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-p-line hover:bg-transparent">
-              {assignMode && (
-                <TableHead className="w-9">
-                  <input
-                    type="checkbox"
-                    aria-label="Выбрать всех на странице"
-                    className="h-4 w-4 cursor-pointer accent-black"
-                    checked={allOnPageSelected}
-                    onChange={(e) =>
-                      setSelectedIds(
-                        e.target.checked ? new Set(students.map((s) => s.id)) : new Set()
-                      )
-                    }
-                  />
-                </TableHead>
-              )}
-              <TableHead>Студент</TableHead>
-              <TableHead>Степень</TableHead>
-              <TableHead>Статус</TableHead>
-              <TableHead>Год</TableHead>
-              <TableHead>Страны</TableHead>
-              <TableHead>Программы</TableHead>
-              <TableHead>Ответственные</TableHead>
-              {isManager && <TableHead>Анкеты</TableHead>}
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isError ? (
-              /* Строкой, а не карточкой QueryError: карточка внутри tbody
-                 сломала бы таблицу. Раньше упавший запрос выглядел как
-                 «Студенты не найдены» — сотрудник шёл менять фильтры вместо
-                 того, чтобы повторить запрос. */
-              <TableRow>
-                <TableCell colSpan={columnCount} className="py-12 text-center" role="alert">
-                  <p className="text-sm font-bold text-p-text">Не удалось загрузить список</p>
-                  <p className="mt-1 text-sm text-p-muted">
-                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
-                  </p>
-                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
-                    <RotateCw className="mr-1.5 h-3.5 w-3.5" />
-                    Повторить
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ) : isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columnCount} className="text-center py-12 text-p-muted text-sm">
-                  Загрузка...
-                </TableCell>
-              </TableRow>
-            ) : students.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columnCount} className="text-center py-12 text-p-muted text-sm">
-                  Студенты не найдены
-                </TableCell>
-              </TableRow>
-            ) : (
-              students.map((student) => {
-                const intake = intakeOverview[student.id]
-                return (
-                <TableRow key={student.id} className="border-p-line hover:bg-p-bg transition-colors">
-                  {assignMode && (
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        aria-label={`Выбрать ${student.full_name}`}
-                        className="h-4 w-4 cursor-pointer accent-black"
-                        checked={selectedIds.has(student.id)}
-                        onChange={() => toggleSelected(student.id)}
-                      />
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <Link
-                      to={`/students/${student.id}`}
-                      className="font-medium text-p-text hover:text-black hover:underline underline-offset-4 transition-colors text-sm"
-                    >
-                      {student.full_name}
-                    </Link>
-                    {student.city && (
-                      <p className="text-xs text-p-muted mt-0.5">{student.city}</p>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <span className={`whitespace-nowrap text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
-                      {DEGREE_LEVEL_LABELS[student.degree_level]}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {student.pipeline_status ? (
-                      <PipelineStatusTag status={student.pipeline_status} />
-                    ) : (
-                      <span className="text-p-muted2 text-xs">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-p-muted">{student.intake_year}</TableCell>
-                  <TableCell>
-                    <div className="flex max-w-[180px] flex-col gap-0.5">
-                      {(student.countries ?? []).length > 0 ? (
-                        [...(student.countries ?? [])]
-                          .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
-                          .map((c, idx) => (
-                            <span
-                              key={`${c.country}-${idx}`}
-                              className={`truncate text-xs ${c.is_primary ? 'font-semibold text-p-text' : 'text-p-muted2'}`}
-                            >
-                              {c.flag_emoji ? `${c.flag_emoji} ` : ''}{c.country}
-                            </span>
-                          ))
-                      ) : (
-                        <span className="text-xs text-p-muted2">—</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex max-w-[220px] flex-wrap gap-1.5">
-                      {(student.services_summary?.items ?? []).length > 0 ? (
-                        student.services_summary!.items.slice(0, 3).map((service) => (
-                          <span
-                            key={service.id}
-                            title={`${SERVICE_TYPE_LABELS[service.service_type]} · ${SERVICE_STATUS_LABELS[service.status]}${service.assigned_mentor_name ? ` · ${service.assigned_mentor_name}` : ''}`}
-                            className={`whitespace-nowrap rounded-pill border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
-                              service.status === 'completed'
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                : service.status === 'in_progress' || service.status === 'scheduled'
-                                  ? 'border-blue-200 bg-blue-50 text-blue-700'
-                                  : 'border-p-line bg-p-bg text-p-muted'
-                            }`}
-                          >
-                            {SERVICE_TYPE_LABELS[service.service_type]}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-p-muted2">—</span>
-                      )}
-                      {(student.services_summary?.items.length ?? 0) > 3 && (
-                        <span className="rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-2xs font-semibold text-p-muted">
-                          +{(student.services_summary?.items.length ?? 0) - 3}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      {student.is_mine && (
-                        <span className="w-fit text-2xs px-1.5 py-0.5 rounded-pill border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium uppercase tracking-wide">
-                          Мой
-                        </span>
-                      )}
-                      {/* С ролью, а не просто списком имён: «Зира» в этой
-                          колонке одинаково выглядела и как МЗК, и как ментор по
-                          УП, а действия по ним разные. Роль есть в данных
-                          (responsibles[].role) и раньше просто не выводилась. */}
-                      {activeResponsibles(student).length > 0 ? (
-                        <div className="flex max-w-[200px] flex-wrap gap-1">
-                          {activeResponsibles(student).map((r) => (
-                            <span
-                              key={r.assignment_id ?? `${r.role}-${r.id}`}
-                              className="max-w-full truncate rounded-pill border border-p-line bg-p-bg px-1.5 py-0.5 text-2xs font-medium text-p-muted"
-                              title={`${MENTOR_ROLE_LABELS[r.role ?? ''] ?? r.role ?? 'Ответственный'}: ${r.name || 'Без имени'}`}
-                            >
-                              <span className="text-p-muted2">
-                                {MENTOR_ROLE_LABELS[r.role ?? ''] ?? r.role ?? '—'}:
-                              </span>{' '}
-                              {r.name || 'Без имени'}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-p-muted2">—</span>
-                      )}
-
-                      {/* Ментор «только по имени»: строка, приехавшая импортом
-                          из Notion, а не настоящее назначение. Такой ментор не
-                          видит студента у себя — на глаз это неотличимо от
-                          нормально назначенного, поэтому показываем явно. */}
-                      {activeResponsibles(student).length === 0 &&
-                        (student.mentors?.length ?? 0) > 0 && (
-                          <span
-                            title="Ментор указан текстом из импорта, а не привязан к аккаунту — студента он у себя не видит. Назначьте ответственного."
-                            className="w-fit max-w-[180px] truncate rounded-pill border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-700"
-                          >
-                            по имени: {student.mentors?.join(', ')}
-                          </span>
-                        )}
-
-                      {assignMode && (
-                        <Select
-                          value=""
-                          onValueChange={(mentorId) =>
-                            assignMutation.mutate({
-                              studentIds: [student.id],
-                              mentorId,
-                              role: assignRole,
-                            })
-                          }
-                        >
-                          {/* Роль вынесена в подпись: она общая с панелью
-                              массового назначения и может быть не «Ментор по
-                              УП». Кнопка «+ Назначить» без роли молча ставила
-                              бы не того специалиста, которого ждут. */}
-                          <SelectTrigger className="h-7 w-[170px] text-xs">
-                            <SelectValue placeholder={`+ ${MENTOR_ROLE_LABELS[assignRole]}`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <AssigneeOptions groups={assignCandidateGroups} />
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                  </TableCell>
-                  {isManager && (
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <span
-                          title="Пакет сопровождения (менеджер)"
-                          className={`text-2xs w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
-                            intake?.has_package
-                              ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                              : 'border-p-line text-p-muted2'
-                          }`}
-                        >
-                          П
-                        </span>
-                        <span
-                          title="Кейс студента"
-                          className={`text-2xs w-5 h-5 flex items-center justify-center rounded-pill border font-semibold ${
-                            intake?.has_cases
-                              ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                              : 'border-p-line text-p-muted2'
-                          }`}
-                        >
-                          К
-                        </span>
-                      </div>
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        className={`label-caps transition-colors ${
-                          student.is_mine ? 'text-emerald-700 hover:text-emerald-800' : 'text-p-muted hover:text-black'
-                        }`}
-                        disabled={assignSelfMutation.isPending || unassignSelfMutation.isPending}
-                        onClick={() =>
-                          student.is_mine
-                            ? unassignSelfMutation.mutate(student.id)
-                            : assignSelfMutation.mutate(student.id)
-                        }
-                      >
-                        {student.is_mine ? '★ Мой' : '☆ Взять'}
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )})
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <BaseStudentTable
+        groups={groupedStudents}
+        selectedIds={selectedIds}
+        onToggle={toggleSelected}
+        onSelectAll={(ids, selected) => setSelectedIds((previous) => {
+          const next = new Set(previous)
+          for (const id of ids) {
+            if (selected && next.size < 200) next.add(id)
+            else if (!selected) next.delete(id)
+          }
+          if (selected && ids.some((id) => !next.has(id))) toast({ title: 'Выбраны первые 200 студентов', description: 'Назначьте их, затем выберите оставшихся.' })
+          return next
+        })}
+        onOpen={setOpenStudent}
+        onRole={(student, role) => { changeAssignRole(role); setRoleStudent(student) }}
+        onSelf={(student) => student.is_mine ? unassignSelfMutation.mutate(student.id) : assignSelfMutation.mutate(student.id)}
+        canAssign={canAssign}
+        isManager={isManager}
+        intakeOverview={intakeOverview}
+        sortAscending={sortAscending}
+        onSort={() => setSortAscending(!sortAscending)}
+        isLoading={isLoading || (baseView === 'diff' && isReportLoading) || (baseView === 'needs_assignment' && isNotionLoading)}
+        error={isError ? getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.') : undefined}
+        onRetry={() => refetch()}
+        selfPending={assignSelfMutation.isPending || unassignSelfMutation.isPending}
+        showCountries={showCountries}
+        showForms={showForms}
+        notionStatuses={notionStatuses}
+        showSelection={assignMode}
+      />
+      <p className="text-xs text-ds-muted">Роли: ПО профориентолог · IE учитель IELTS · УП ментор по УП · СТ ментор по стране · ПФ портфолио · МЗ МЗК. Пунктир значит «не назначен».</p>
 
       <p className="text-sm text-p-muted">
         {debouncedSearch.trim()
-          ? `Найдено: ${students.length} из ${allStudents.length}`
-          : `Всего студентов: ${students.length}`}
+          ? `Найдено: ${viewedStudents.length} из ${allStudents.length}${incompleteResult ? ` (всего в запросе ${data?.total})` : ''}`
+          : `Показано студентов: ${viewedStudents.length}${incompleteResult ? ` из ${data?.total}` : ''}`}
       </p>
+
+      {openStudent && <BaseStudentDrawer student={allStudents.find((student) => student.id === openStudent.id) ?? openStudent} intake={intakeOverview[openStudent.id]} canSeeNotion={canSeeNotion} canAssign={canAssign} onClose={() => setOpenStudent(null)} onRole={(role) => { changeAssignRole(role); setRoleStudent(allStudents.find((student) => student.id === openStudent.id) ?? openStudent) }} />}
+
+      {roleStudent && <Dialog open onOpenChange={(open) => { if (!open) setRoleStudent(null) }}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader><p className="text-xs font-bold uppercase tracking-[.16em] text-ds-accentText">{MENTOR_ROLE_LABELS[assignRole]}</p><DialogTitle>{roleStudent.full_name}</DialogTitle><DialogDescription>Набор {roleStudent.intake_year} · {roleStudent.countries?.map((country) => country.country).join(', ') || 'Страна не указана'}</DialogDescription></DialogHeader>
+          <div className="max-h-[50vh] space-y-2 overflow-y-auto">
+            {assignCandidateGroups.flatMap((group) => group.users).map((user) => {
+              const current = activeResponsibles(roleStudent).some((responsible) => responsible.role === assignRole && responsible.id === user.id)
+              return <button key={user.id} type="button" disabled={assignMutation.isPending} onClick={() => { assignMutation.mutate({ studentIds: [roleStudent.id], mentorId: user.id, role: assignRole }); setRoleStudent(null) }} className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${current ? 'border-ds-accent bg-ds-accent/15' : 'border-ds-line bg-ds-panel hover:bg-ds-panel2'}`}>{user.name}{current && <span className="ml-2 text-xs font-normal text-ds-muted">· сейчас ведёт</span>}</button>
+            })}
+            {assignableUsers.length === 0 && <p className="text-sm text-ds-muted">Сотрудники для этой роли не найдены.</p>}
+          </div>
+          <DialogFooter><Button variant="outline" type="button" onClick={() => setRoleStudent(null)}>Отмена</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>}
 
       {/* Замена ответственного пишется в историю, поэтому причина обязательна.
           Спрашиваем её только по тем студентам, у кого ответственный уже был, —
@@ -2162,3 +2115,5 @@ export const StudentsListPage: React.FC = () => {
     </div>
   )
 }
+
+export const StudentsListPage = CrmStudentsListView

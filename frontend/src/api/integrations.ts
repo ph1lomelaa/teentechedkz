@@ -25,6 +25,10 @@ export const integrationsApi = {
 export interface ZoomStatus {
   /** Запись ботом включена на сервере (Meet и Teams работают и без Zoom). */
   bot_enabled: boolean
+  /** Пускаем ли бота в Zoom (до одобрения приложения Zoom — нет, только Meet/Teams). */
+  zoom_bot_enabled?: boolean
+  /** off — нет; company — только корпоративный Zoom, подключать не нужно; obf — любые встречи с подключением. */
+  zoom_mode?: 'off' | 'company' | 'obf'
   /** Подключение Zoom настроено на сервере. */
   available: boolean
   connected: boolean

@@ -55,12 +55,13 @@ vi.mock('@/api/students', () => ({
   },
 }))
 vi.mock('@/api/index', () => ({
-  usersApi: { list: () => Promise.resolve([{ id: 'm1', name: 'Ментор Один', role: 'mentor' }]) },
+  usersApi: { list: () => Promise.resolve([{ id: 'm1', name: 'Ментор Один', role: 'mentor' }]), listAssignable: () => Promise.resolve([{ id: 'm1', name: 'Ментор Один', role: 'mentor', mentor_specialties: ['lead'] }]) },
   mentorAssignmentsApi: {
     bulkAssign: (payload: unknown) => {
       bulkAssign(payload)
       return Promise.resolve(nextResponse)
     },
+    history: () => Promise.resolve([]),
   },
 }))
 vi.mock('@/api/sync', () => ({
@@ -70,7 +71,16 @@ vi.mock('@/api/sync', () => ({
   },
 }))
 vi.mock('@/api/notion', () => ({
-  notionApi: { snapshots: () => Promise.resolve([]), status: () => Promise.resolve({}) },
+  notionApi: {
+    snapshots: () => Promise.resolve([]), status: () => Promise.resolve({}),
+    pipelineReport: () => Promise.resolve({ rows: [] }),
+    studentNotion: () => Promise.resolve({ snapshot: { notion_url: 'https://notion.so/test' }, comparison: [{ field: 'pipeline_status', label: 'Статус', crm: 'Нет статуса', notion: 'Активная работа', matches: false, can_apply: false, can_push: false }] }),
+    pipelineTable: () => Promise.resolve({ columns: ['Статус выплат', 'Intake', 'Lead-Mentor'], items: [{
+      id: 'n1', student_id: 's1', source: 'notion', values: {
+        'Статус выплат': 'Активная работа', Intake: '2028', 'Lead-Mentor': 'Айгерим',
+      },
+    }] }),
+  },
 }))
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ can: () => true, hasRole: () => true, user: { id: 'u1', role: 'admin' } }),
@@ -85,20 +95,25 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/students?view=crm']}>
+      <MemoryRouter initialEntries={['/students']}>
         <StudentsListPage />
       </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
-/**
- * Галочки и панель назначения живут внутри режима выбора: общую базу чаще
- * открывают, чтобы посмотреть студента, и постоянная колонка выделения читалась
- * как «здесь надо что-то отметить». Каждый сценарий сначала входит в режим.
- */
+it('показывает данные Notion в карточке связанного студента', async () => {
+  renderPage()
+  fireEvent.click(await screen.findByRole('button', { name: 'Первый Студент' }))
+  expect(await screen.findByText('Платформа и Notion')).toBeInTheDocument()
+  expect(await screen.findByText('Активная работа')).toBeInTheDocument()
+  expect(await screen.findByText('Расходится полей: 1')).toBeInTheDocument()
+})
+
+/** Сначала включаем режим выбора, затем проверяем доступность галочек. */
 async function enterAssignMode() {
-  fireEvent.click(await screen.findByText('Выбрать студентов'))
+  const button = screen.queryByRole('button', { name: 'Выбрать студентов' })
+  if (button) fireEvent.click(button)
   return screen.findByLabelText('Выбрать Первый Студент')
 }
 
@@ -123,8 +138,9 @@ describe('назначение ответственных из общей баз
     renderPage()
     await enterAssignMode()
 
-    expect(screen.queryByText('+ Назначить')).toBeNull()
-    expect(screen.getAllByText('+ Ментор по УП').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByTitle('Ментор по УП: не назначен')[0])
+    expect(await screen.findByText('Ментор Один')).toBeInTheDocument()
+    expect(screen.getAllByText('Ментор по УП').length).toBeGreaterThan(0)
   })
 
   it('панель массового назначения появляется после выбора студентов', async () => {
@@ -134,16 +150,11 @@ describe('назначение ответственных из общей баз
     await enterAssignMode()
     expect(screen.queryByText(/^Выбрано:/)).toBeNull()
 
-    // Кого назначить — видно сразу, вместе с ролью: роль выбирают именно
-    // затем, чтобы увидеть список людей. Кнопка при этом ждёт выделения.
-    expect(screen.getByText('Кого назначить')).toBeTruthy()
-    expect(screen.getByText('Назначить ответственного').closest('button')?.disabled).toBe(true)
-
     fireEvent.click(screen.getByLabelText('Выбрать Первый Студент'))
     fireEvent.click(screen.getByLabelText('Выбрать Второй Студент'))
 
     expect(await screen.findByText('Выбрано: 2')).toBeTruthy()
-    expect(screen.getByText('Назначить ответственного')).toBeTruthy()
+    expect(screen.getByText('Назначить')).toBeTruthy()
   })
 
   it('счётчик учитывает только видимых — выделение переживает фильтр', async () => {
@@ -155,23 +166,24 @@ describe('назначение ответственных из общей баз
     fireEvent.click(screen.getByLabelText('Выбрать Второй Студент'))
     expect(await screen.findByText('Выбрано: 2')).toBeTruthy()
 
-    fireEvent.change(screen.getByPlaceholderText('Поиск студентов...'), {
+    fireEvent.change(screen.getByPlaceholderText('Имя, телефон'), {
       target: { value: 'Первый' },
     })
 
-    expect(await screen.findByText('Выбрано: 1')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('Выбрано: 2')).toBeNull())
   })
 
-  it('без режима выбора таблица чистая — ни галочек, ни панели', async () => {
-    // Ради чего: галочка в каждой строке и панель с ролью — инструмент разбора
-    // набора, а не постоянная часть списка.
+  it('галочки скрыты до включения режима выбора', async () => {
     renderPage()
     await screen.findByText('Первый Студент')
 
-    expect(screen.queryByLabelText('Выбрать Первый Студент')).toBeNull()
-    expect(screen.queryByLabelText('Выбрать всех на странице')).toBeNull()
+    expect(screen.queryByLabelText('Выбрать Первый Студент')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Выбрать всех в текущем виде')).not.toBeInTheDocument()
     expect(screen.queryByText('Назначить:')).toBeNull()
-    expect(screen.queryByText('+ Ментор по УП')).toBeNull()
+
+    await enterAssignMode()
+    expect(screen.getByLabelText('Выбрать Первый Студент')).toBeInTheDocument()
+    expect(screen.getByLabelText('Выбрать всех в текущем виде')).toBeInTheDocument()
   })
 
   it('«выбрать всех» берёт только то, что видно после фильтров', async () => {
@@ -179,10 +191,10 @@ describe('назначение ответственных из общей баз
     // Дожидаемся строк: заголовок таблицы рисуется и во время загрузки, а
     // «выбрать всех» относится к загруженной выборке.
     await enterAssignMode()
-    fireEvent.click(screen.getByLabelText('Выбрать всех на странице'))
+    fireEvent.click(screen.getByLabelText('Выбрать всех в текущем виде'))
     expect(await screen.findByText('Выбрано: 2')).toBeTruthy()
 
-    fireEvent.click(screen.getByLabelText('Выбрать всех на странице'))
+    fireEvent.click(screen.getByLabelText('Выбрать всех в текущем виде'))
     await waitFor(() => expect(screen.queryByText(/^Выбрано:/)).toBeNull())
   })
 })

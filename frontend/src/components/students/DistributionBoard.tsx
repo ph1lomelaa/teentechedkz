@@ -27,7 +27,8 @@ export const UNASSIGNED_COLUMN = 'unassigned'
  * нельзя было бы ни показать, ни скрыть.
  */
 export function boardStatusKey(student: BoardStudent): string {
-  return student.pipeline_status || 'no_status'
+  const value = student.status_source === 'notion' ? student.pipeline_status : student.crm_status ?? student.pipeline_status
+  return value || 'no_status'
 }
 
 /**
@@ -122,6 +123,7 @@ export function resolveDrop(
 
 function StudentCard({ student, isDragging }: { student: BoardStudent; isDragging?: boolean }) {
   const status = student.pipeline_status
+  const crmStatus = student.crm_status
   return (
     <div
       className={cn(
@@ -136,10 +138,10 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
       <div className="mt-1.5 flex items-center gap-1.5">
         {status ? (
           <span className="truncate text-[10px] font-medium text-p-muted">
-            {PIPELINE_STATUS_LABELS[status as keyof typeof PIPELINE_STATUS_LABELS] ?? status}
+            Notion: {PIPELINE_STATUS_LABELS[status as keyof typeof PIPELINE_STATUS_LABELS] ?? status}
           </span>
         ) : (
-          <span className="text-[10px] text-p-muted2">Без статуса</span>
+          <span className="text-[10px] text-p-muted2">{student.status_source === 'notion_unlinked' ? 'Нет связи с Notion' : 'Нет статуса Notion'}</span>
         )}
         {student.assignment_status === 'awaiting_signature' && (
           <span
@@ -150,6 +152,7 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
           </span>
         )}
       </div>
+      {crmStatus && crmStatus !== status && <div className="mt-1 text-[10px] text-amber-700" title="Статус договора в CRM">CRM: {PIPELINE_STATUS_LABELS[crmStatus as keyof typeof PIPELINE_STATUS_LABELS] ?? crmStatus}</div>}
     </div>
   )
 }

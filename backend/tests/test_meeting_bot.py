@@ -221,3 +221,80 @@ class ZoomStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZoomBotFlagTests(unittest.IsolatedAsyncioTestCase):
+    """Пока Zoom не одобрил приложение, бот не заходит во встречи чужих
+    аккаунтов. Отказ должен быть сразу и с советом про Meet, а не через
+    минуты ожидания бота во встрече (06.10.2026)."""
+
+    def _session(self):
+        from types import SimpleNamespace
+        import uuid
+        return SimpleNamespace(id=uuid.uuid4(), note_id=None, status=None, bot_status=None, language="ru")
+
+    def _user(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(zoom_user_id="zu_1", zoom_connection_state="connected")
+
+    async def test_zoom_link_refused_while_flag_off(self):
+        from unittest import mock
+        from app.core.config import settings
+        from app.services.meeting_bot import service
+
+        with mock.patch.multiple(settings, MEETING_BOT_ENABLED=True, ZOOM_BOT_MODE="off"), \
+             mock.patch.object(service, "get_provider") as provider:
+            with self.assertRaises(service.BotStartError) as ctx:
+                await service.start_bot(None, self._session(), user=self._user(), meeting_url="https://zoom.us/j/123")
+        self.assertEqual(ctx.exception.code, "ZOOM_BOT_UNAVAILABLE")
+        self.assertIn("Google Meet", ctx.exception.message)
+        provider.assert_not_called()
+
+    async def test_meet_link_not_affected_by_zoom_flag(self):
+        from unittest import mock
+        from app.core.config import settings
+        from app.services.meeting_bot import service
+
+        provider = mock.Mock()
+        provider.name = "mock"
+        provider.create_bot = mock.AsyncMock(return_value=mock.Mock(external_id="b1"))
+        with mock.patch.multiple(settings, MEETING_BOT_ENABLED=True, ZOOM_BOT_MODE="off"), \
+             mock.patch.object(service, "get_provider", return_value=provider):
+            session = await service.start_bot(
+                None, self._session(), user=self._user(), meeting_url="https://meet.google.com/abc-defg-hij"
+            )
+        self.assertEqual(session.bot_status, "joining")
+        provider.create_bot.assert_awaited_once()
+
+    async def _start_zoom(self, mode, user):
+        from unittest import mock
+        from app.core.config import settings
+        from app.services.meeting_bot import service
+
+        provider = mock.Mock()
+        provider.name = "mock"
+        provider.create_bot = mock.AsyncMock(return_value=mock.Mock(external_id="b1"))
+        with mock.patch.multiple(settings, MEETING_BOT_ENABLED=True, ZOOM_BOT_MODE=mode), \
+             mock.patch.object(service, "get_provider", return_value=provider):
+            await service.start_bot(None, self._session(), user=user, meeting_url="https://zoom.us/j/123")
+        return provider.create_bot.await_args.args[0]
+
+    async def test_company_mode_needs_no_zoom_connection_and_sends_no_obf(self):
+        from types import SimpleNamespace
+        request = await self._start_zoom("company", SimpleNamespace(zoom_user_id=None, zoom_connection_state=None))
+        self.assertIsNone(request.zoom_user_id)
+
+    async def test_obf_mode_requires_connection_and_sends_obf(self):
+        from types import SimpleNamespace
+        from app.services.meeting_bot import service
+        with self.assertRaises(service.BotStartError) as ctx:
+            await self._start_zoom("obf", SimpleNamespace(zoom_user_id=None, zoom_connection_state=None))
+        self.assertEqual(ctx.exception.code, "ZOOM_NOT_CONNECTED")
+        request = await self._start_zoom("obf", self._user())
+        self.assertEqual(request.zoom_user_id, "zu_1")
+
+    def test_unknown_mode_rejected(self):
+        from pydantic import ValidationError
+        from app.core.config import Settings
+        with self.assertRaises(ValidationError):
+            Settings(ZOOM_BOT_MODE="yes")

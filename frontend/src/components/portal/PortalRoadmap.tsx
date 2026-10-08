@@ -21,7 +21,7 @@ import { toast } from '@/hooks/use-toast'
 import { useWsEvent } from '@/lib/ws'
 import { PriorityPill, StatusPill } from '@/components/ui'
 import { DeadlineField } from '@/components/shared/DeadlineField'
-import { formatDeadline, overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
+import { formatDeadline, overdueDaysOf, sortSubtasksByPosition } from '@/lib/roadmapDeadline'
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
   planned: 'Впереди',
@@ -679,7 +679,7 @@ const StageDetail: React.FC<{
               <div className="expandable" data-open={expandedTask === t.id}>
                 <div>
                   <div className="pl-[36px] mt-2 grid gap-1.5">
-                {sortSubtasksByDeadline(t.subtasks).map((st) =>
+                {sortSubtasksByPosition(t.subtasks).map((st) =>
                   claimable ? (
                     <button
                       key={st.id}

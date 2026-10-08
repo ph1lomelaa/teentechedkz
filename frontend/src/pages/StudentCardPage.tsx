@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   Edit2,
   Plus,
-  Check,
   Eye,
   Shield,
   Download,
@@ -15,10 +14,7 @@ import {
   BookText,
   UserRoundCheck,
   Link2Off,
-  Trash2,
   ListChecks,
-  FileSignature,
-  Upload,
 } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
 import { emergencyContactsApi } from '@/api/emergencyContacts'
@@ -48,7 +44,7 @@ import { StudentRoadmapSection } from '@/components/shared/StudentRoadmapSection
 import { StudentResponsibilitiesSection } from '@/components/shared/StudentResponsibilitiesSection'
 import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
 import { StudentMeetingsSection } from '@/components/shared/StudentMeetingsSection'
-import { DocVisibilityToggle } from '@/components/shared/DocVisibilityToggle'
+import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { StudentChatSection } from '@/components/shared/StudentChatSection'
 import { ContractAddendaSection } from '@/components/shared/ContractAddendaSection'
 import { PortalAccessSection } from '@/components/shared/PortalAccessSection'
@@ -611,13 +607,10 @@ export const StudentCardPage: React.FC = () => {
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [noteMenuOpenId, setNoteMenuOpenId] = useState<string | null>(null)
   const [editingNoteText, setEditingNoteText] = useState('')
-  const [documentOpenId, setDocumentOpenId] = useState<string | null>(null)
   const [documentUploadOpen, setDocumentUploadOpen] = useState(false)
   const [documentUploadType, setDocumentUploadType] = useState<DocType>('other')
   const [documentUploadFile, setDocumentUploadFile] = useState<File | null>(null)
   const [documentUploadPending, setDocumentUploadPending] = useState(false)
-  const [documentDeleteTarget, setDocumentDeleteTarget] = useState<Document | null>(null)
-  const [documentDeletePending, setDocumentDeletePending] = useState(false)
   const [unlinkNotionConfirm, setUnlinkNotionConfirm] = useState<string | null>(null)
   const [pushNotionConfirm, setPushNotionConfirm] = useState<NotionComparisonRow | null>(null)
   // Предложение записать в Notion после правки поля договора (см. CONTRACT_PUSH_FIELDS).
@@ -900,7 +893,6 @@ export const StudentCardPage: React.FC = () => {
   }
 
   const handleOpenDocument = async (doc: Document) => {
-    setDocumentOpenId(doc.id)
     try {
       const blob = await documentsApi.download(doc.id)
       const url = URL.createObjectURL(blob)
@@ -912,8 +904,6 @@ export const StudentCardPage: React.FC = () => {
       }
     } catch {
       toast({ title: 'Ошибка', description: 'Не удалось открыть документ', variant: 'destructive' })
-    } finally {
-      setDocumentOpenId(null)
     }
   }
 
@@ -936,21 +926,6 @@ export const StudentCardPage: React.FC = () => {
       })
     } finally {
       setDocumentUploadPending(false)
-    }
-  }
-
-  const handleDeleteDocument = async () => {
-    if (!documentDeleteTarget) return
-    setDocumentDeletePending(true)
-    try {
-      await documentsApi.delete(documentDeleteTarget.id)
-      invalidateStudent(queryClient, id)
-      toast({ title: 'Удалено', description: 'Документ удалён из карточки' })
-      setDocumentDeleteTarget(null)
-    } catch {
-      toast({ title: 'Ошибка', description: 'Не удалось удалить документ', variant: 'destructive' })
-    } finally {
-      setDocumentDeletePending(false)
     }
   }
 
@@ -1896,88 +1871,21 @@ export const StudentCardPage: React.FC = () => {
             </span>
           </AccordionTrigger>
           <AccordionContent>
-            {can('documents', 'manage') && (
-              <div className="mb-3 flex justify-end">
-                <Button size="sm" onClick={() => setDocumentUploadOpen(true)}>
-                  <Upload className="mr-1.5 h-3.5 w-3.5" />
-                  Загрузить документ
-                </Button>
-              </div>
-            )}
-            {student.documents && student.documents.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {student.documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="border border-p-line rounded-panel p-3 bg-p-bg flex flex-col gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-p-text truncate">{doc.file_name}</p>
-                      <p className="text-xs text-p-muted mt-1">
-                        {DOC_TYPE_LABELS[doc.doc_type as keyof typeof DOC_TYPE_LABELS] ?? doc.doc_type}
-                        {' · '}
-                        {formatFileSize(doc.file_size)}
-                        {' · '}
-                        {doc.source}
-                      </p>
-                      {doc.is_verified && (
-                        <span className="inline-flex items-center gap-1 text-xs text-green-700 mt-2">
-                          <Check className="w-3 h-3" />
-                          Проверен
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        onClick={() => handleOpenDocument(doc)}
-                        disabled={documentOpenId === doc.id}
-                      >
-                        <Eye className="w-3.5 h-3.5 mr-1.5" />
-                        {documentOpenId === doc.id ? 'Открытие…' : 'Открыть'}
-                      </Button>
-                      {can('documents', 'manage') && (
-                        <DocVisibilityToggle
-                          docId={doc.id}
-                          visible={!!doc.visible_to_student}
-                          studentId={id!}
-                        />
-                      )}
-                      {can('documents', 'manage') && doc.signature_status !== 'signed' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => handleRequestDocumentSignature(doc)}
-                        >
-                          <FileSignature className="mr-1.5 h-3.5 w-3.5" />
-                          {doc.signature_status === 'pending' ? 'Отправлено' : 'На подпись'}
-                        </Button>
-                      )}
-                      {doc.signature_status === 'signed' && (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                          <Check className="h-3 w-3" /> Подписан
-                        </span>
-                      )}
-                      {can('documents', 'manage') && (
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 text-red-600 hover:text-red-700"
-                          onClick={() => setDocumentDeleteTarget(doc)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-p-muted py-2">Документы не загружены</p>
-            )}
+            <DocumentList
+              tone="p"
+              showTitle={false}
+              documents={student.documents ?? []}
+              canManage={can('documents', 'manage')}
+              onOpen={doc => { void handleOpenDocument(doc) }}
+              onDownload={async doc => { try { const blob = await documentsApi.download(doc.id); downloadBlob(blob, documentName(doc)) } catch (error) { toast({ title: 'Не удалось скачать документ', description: getErrorMessage(error), variant: 'destructive' }) } }}
+              onUploadClick={can('documents', 'manage') ? () => setDocumentUploadOpen(true) : undefined}
+              onFilesDropped={can('documents', 'manage') ? files => { if (files[0]) { setDocumentUploadFile(files[0]); setDocumentUploadOpen(true) } } : undefined}
+              onChanged={() => invalidateStudent(queryClient, id)}
+              onDelete={doc => documentsApi.delete(doc.id)}
+              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateStudent(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
+              onSignature={doc => { void handleRequestDocumentSignature(doc) }}
+              uploadingName={documentUploadPending ? documentUploadFile?.name : null}
+            />
 
             <Dialog
               open={documentUploadOpen}
@@ -2455,29 +2363,6 @@ export const StudentCardPage: React.FC = () => {
               onClick={() => revealConfirm && revealIin(revealConfirm)}
             >
               Раскрыть
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!documentDeleteTarget} onOpenChange={() => setDocumentDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Удалить документ?</DialogTitle>
-            <DialogDescription>
-              {documentDeleteTarget?.file_name} будет удалён из карточки студента и из хранилища.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDocumentDeleteTarget(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteDocument}
-              disabled={documentDeletePending}
-            >
-              Удалить
             </Button>
           </DialogFooter>
         </DialogContent>

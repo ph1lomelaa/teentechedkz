@@ -247,6 +247,8 @@ export interface BoardStudent {
   id: string
   full_name: string
   pipeline_status?: string | null
+  crm_status?: string | null
+  status_source?: 'notion' | 'notion_unlinked' | 'crm'
   /** Поля фильтров доски: она приходит целиком и отбирается на клиенте. */
   intake_year?: number | null
   degree_level?: string | null
@@ -272,6 +274,7 @@ export interface BoardColumn {
 export interface AssignmentBoard {
   role: string
   totals: { students: number; assigned: number; unassigned: number }
+  notion_reconciliation?: { active_unlinked_rows: number; platform_without_notion: number }
   columns: BoardColumn[]
   /** Кого забыли назначить на эту роль — первая колонка доски. */
   unassigned: BoardStudent[]
@@ -438,12 +441,15 @@ export type DocType =
   | 'contract_scan'
   | 'transcript'
   | 'resume'
+  | 'onboarding'
   | 'other'
 
 export interface Document {
   id: string
+  uploaded_by?: string
   doc_type: string
   file_name: string
+  display_name?: string | null
   file_size: number
   mime_type: string
   source: string
@@ -466,6 +472,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   contract_scan: 'Скан договора',
   transcript: 'Транскрипт',
   resume: 'Резюме',
+  onboarding: 'Онбординг',
   other: 'Другое',
 }
 

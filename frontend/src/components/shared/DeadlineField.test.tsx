@@ -36,6 +36,7 @@ describe('DeadlineField', () => {
     const onChange = vi.fn()
     render(<DeadlineField dueDate="2026-10-20" taskDueDate="2026-10-15" overdueDays={0} onChange={onChange} label="Срок подзадачи" />)
     expect(screen.getByTestId('later-warning').textContent).toBe('позже срока задачи')
+    fireEvent.click(screen.getByRole('button', { name: 'Срок подзадачи' }))
     fireEvent.change(screen.getByLabelText('Срок подзадачи'), { target: { value: '2026-10-25' } })
     expect(onChange).toHaveBeenCalledWith('2026-10-25')
   })

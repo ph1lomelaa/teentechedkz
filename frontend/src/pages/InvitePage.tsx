@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { inviteApi, type InviteInfo } from '@/api/invite'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { useAuth } from '@/contexts/AuthContext'
 import { getDefaultPath } from '@/lib/authRouting'
+import { PasswordChecklist, PasswordField, newPasswordReady } from '@/components/auth/PasswordField'
 
 /**
  * Публичная страница приёма приглашения: /invite/:token
@@ -14,6 +15,9 @@ export const InvitePage: React.FC = () => {
   const { token = '' } = useParams()
   const navigate = useNavigate()
   const { setSession } = useAuth()
+  // ?reset=1 — пришли из письма «Забыли пароль?»: та же ссылка, другие слова.
+  const [params] = useSearchParams()
+  const isReset = params.get('reset') === '1'
 
   const [checking, setChecking] = useState(true)
   const [info, setInfo] = useState<InviteInfo | null>(null)
@@ -71,15 +75,14 @@ export const InvitePage: React.FC = () => {
     }
   }
 
-  const inputCls =
-    'h-12 w-full rounded-ctl border px-4 text-sm transition-colors'
-
   const title = checking
     ? 'Проверяем приглашение…'
     : done
       ? 'Доступ готов'
       : info?.valid
-        ? 'Задайте пароль'
+        ? isReset
+          ? 'Новый пароль'
+          : 'Задайте пароль'
         : 'Ссылка недействительна'
 
   const description = checking
@@ -87,11 +90,13 @@ export const InvitePage: React.FC = () => {
     : done
       ? 'Пароль установлен. Открываем ваш кабинет…'
       : info?.valid
-        ? `${info.name ? `${info.name}, ` : ''}придумайте постоянный пароль для входа${info.email ? ` — ${info.email}` : ''}.`
-        : 'Ссылка устарела или уже использована. Попросите менеджера прислать новую.'
+        ? `${info.name ? `${info.name}, ` : ''}придумайте ${isReset ? 'новый' : 'постоянный'} пароль для входа${info.email ? ` — ${info.email}` : ''}.`
+        : isReset
+          ? 'Ссылка устарела или уже использована. Запросите новую: «Забыли пароль?» на странице входа.'
+          : 'Ссылка устарела или уже использована. Попросите менеджера прислать новую.'
 
   return (
-    <AuthShell eyebrow="Активация аккаунта" title={title} description={description}>
+    <AuthShell eyebrow={isReset ? 'Восстановление доступа' : 'Активация аккаунта'} title={title} description={description}>
         {checking ? null : done ? (
           <div className="text-center text-sm text-white/45">Открываем кабинет…</div>
         ) : info?.valid ? (
@@ -102,39 +107,28 @@ export const InvitePage: React.FC = () => {
               </div>
             )}
 
-            <div className="space-y-2">
-              <label className="auth-field-label block" htmlFor="next">
-                Новый пароль
-              </label>
-              <input
-                id="next"
-                type="password"
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-                required
-                autoComplete="new-password"
-                className={inputCls}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="auth-field-label block" htmlFor="confirm">
-                Повторите пароль
-              </label>
-              <input
-                id="confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                required
-                autoComplete="new-password"
-                className={inputCls}
-              />
-            </div>
+            <PasswordField
+              id="next"
+              label="Новый пароль"
+              value={next}
+              onChange={setNext}
+              autoComplete="new-password"
+              describedBy="password-rules"
+            />
+            <PasswordField
+              id="confirm"
+              label="Повторите пароль"
+              value={confirm}
+              onChange={setConfirm}
+              autoComplete="new-password"
+              invalid={confirm.length > 0 && confirm !== next}
+              describedBy="password-rules"
+            />
+            <PasswordChecklist id="password-rules" next={next} confirm={confirm} />
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !newPasswordReady(next, confirm)}
               className="auth-primary-button h-12 w-full text-[13px] uppercase tracking-[0.14em]"
             >
               {submitting ? 'Сохраняем…' : 'Сохранить пароль'}

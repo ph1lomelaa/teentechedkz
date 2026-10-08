@@ -843,7 +843,7 @@ async def list_students(
     if roadmap_ids:
         totals_result = await db.execute(
             select(RoadmapTask.roadmap_id, func.count())
-            .where(RoadmapTask.roadmap_id.in_(roadmap_ids))
+            .where(RoadmapTask.roadmap_id.in_(roadmap_ids), RoadmapTask.deleted_at.is_(None))
             .group_by(RoadmapTask.roadmap_id)
         )
         roadmap_tasks_total_by_roadmap = dict(totals_result.all())
@@ -851,6 +851,7 @@ async def list_students(
             select(RoadmapTask.roadmap_id, func.count())
             .where(
                 RoadmapTask.roadmap_id.in_(roadmap_ids),
+                RoadmapTask.deleted_at.is_(None),
                 RoadmapTask.status == RoadmapItemStatus.done,
             )
             .group_by(RoadmapTask.roadmap_id)
@@ -1872,12 +1873,15 @@ def _student_to_dict(s: Student) -> dict:
                 "id": str(d.id),
                 "doc_type": d.doc_type.value,
                 "file_name": d.file_name,
+                "display_name": d.display_name,
+                "uploaded_by": str(d.uploaded_by),
                 "file_size": d.file_size,
                 "mime_type": d.mime_type,
                 "source": d.source.value,
                 "ai_description": d.ai_description,
                 "is_verified": d.is_verified,
                 "visible_to_student": d.visible_to_student,
+                "signature_status": d.signature_status,
                 "uploaded_at": d.uploaded_at.isoformat(),
             }
             for d in (s.documents if s.documents else [])

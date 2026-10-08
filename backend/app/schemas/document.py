@@ -19,6 +19,7 @@ class DocumentResponse(BaseModel):
     uploaded_by: uuid.UUID
     doc_type: DocType
     file_name: str
+    display_name: str | None = None
     file_size: int
     mime_type: str
     storage_path: str

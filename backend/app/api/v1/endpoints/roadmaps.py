@@ -142,7 +142,7 @@ async def _sync_stage_after_task_change(
     rows = (
         await db.execute(
             select(RoadmapTask.priority, RoadmapTask.status).where(
-                RoadmapTask.stage_id == stage.id
+                RoadmapTask.stage_id == stage.id, RoadmapTask.deleted_at.is_(None)
             )
         )
     ).all()
@@ -344,6 +344,7 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
             due = _deadline_from_offset(today, tt.due_offset_days)
             task = RoadmapTask(
                 stage_id=stage.id, roadmap_id=roadmap.id,
+                source_notion_page_id=tt.source_notion_page_id,
                 title=tt.title, description=tt.description,
                 expected_result=tt.expected_result,
                 needs_document=tt.needs_document,
@@ -355,6 +356,7 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
             task.subtasks = [
                 RoadmapSubtask(
                     title=st.title,
+                    source_notion_page_id=st.source_notion_page_id,
                     position=st.position,
                     due_date=_deadline_from_offset(today, st.due_offset_days),
                 )
@@ -459,7 +461,7 @@ async def _student_claim_context(
         select(RoadmapTask).where(RoadmapTask.id == task_id).with_for_update()
     )
     task = res.scalar_one_or_none()
-    if not task:
+    if not task or task.deleted_at is not None:
         raise _NOT_FOUND
     rm = await db.execute(
         select(Roadmap.student_id, Roadmap.status, Roadmap.mentor_id).where(Roadmap.id == task.roadmap_id)
@@ -611,7 +613,7 @@ async def review_task(task_id: uuid.UUID, body: TaskReviewIn, current_user: Curr
         select(RoadmapTask).where(RoadmapTask.id == task_id).with_for_update()
     )
     task = res.scalar_one_or_none()
-    if not task:
+    if not task or task.deleted_at is not None:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
@@ -726,7 +728,7 @@ async def update_stage(stage_id: uuid.UUID, body: StageUpdate, current_user: Cur
             )
     if data.get("status") == RoadmapItemStatus.done:
         task_result = await db.execute(
-            select(RoadmapTask.priority, RoadmapTask.status).where(RoadmapTask.stage_id == stage.id)
+            select(RoadmapTask.priority, RoadmapTask.status).where(RoadmapTask.stage_id == stage.id, RoadmapTask.deleted_at.is_(None))
         )
         required_tasks = [row for row in task_result.all() if row[0].value == "required"]
         incomplete_required = sum(row[1] != RoadmapItemStatus.done for row in required_tasks)
@@ -756,6 +758,9 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
     if body.activity_participation_id:
         require_access(current_user, "portfolio", Action.manage)
         await validate_activity_task(db, body.activity_participation_id, student_id)
+    last_position = (
+        await db.execute(select(RoadmapTask.position).where(RoadmapTask.stage_id == stage.id).order_by(RoadmapTask.position.desc()).limit(1))
+    ).scalar_one_or_none()
     task = RoadmapTask(
         activity_participation_id=body.activity_participation_id,
         stage_id=stage.id, roadmap_id=stage.roadmap_id, title=body.title,
@@ -765,7 +770,7 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
         needs_zoom=body.needs_zoom,
         questionnaire_url=body.questionnaire_url,
         priority=body.priority, audience=body.audience,
-        due_date=body.due_date, created_by=current_user.id,
+        due_date=body.due_date, created_by=current_user.id, position=(last_position or 0) + 1,
     )
     db.add(task)
     await db.commit()
@@ -777,7 +782,7 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
     # Staff-only: студент заявляет выполнение через /portal/tasks/{id}/complete,
     # это отдельный контракт без единого записываемого поля.
     task = await db.get(RoadmapTask, task_id)
-    if not task:
+    if not task or task.deleted_at is not None:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
@@ -786,6 +791,9 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
     old_values = {field: getattr(task, field) for field in data}
     for field, value in data.items():
         setattr(task, field, value)
+    edited = {field for field in data if field in {"title", "description", "expected_result", "priority", "due_date", "needs_document", "needs_zoom", "questionnaire_url"}}
+    if edited:
+        task.manual_fields = sorted(set(task.manual_fields or []) | edited)
     def _plain(v):
         return v.value if hasattr(v, "value") else (v.isoformat() if hasattr(v, "isoformat") else v)
     for field, value in data.items():
@@ -862,22 +870,36 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
 @router.delete("/roadmap-tasks/{task_id}", status_code=204)
 async def delete_task(task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     task = await db.get(RoadmapTask, task_id)
-    if not task:
+    if not task or task.deleted_at is not None:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
-    await db.delete(task)
+    task.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+
+
+@router.post("/roadmap-tasks/{task_id}/restore", response_model=RoadmapOut)
+async def restore_task(task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    task = await db.get(RoadmapTask, task_id)
+    if not task or not task.deleted_at:
+        raise _NOT_FOUND
+    await _assert_staff(db, await _student_of_roadmap(db, task.roadmap_id), current_user)
+    task.deleted_at = None
+    await db.commit()
+    return await _load_roadmap(db, task.roadmap_id)
 
 
 @router.post("/roadmap-tasks/{task_id}/subtasks", response_model=RoadmapOut, status_code=201)
 async def create_subtask(task_id: uuid.UUID, body: SubtaskCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     task = await db.get(RoadmapTask, task_id)
-    if not task:
+    if not task or task.deleted_at is not None:
         raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
-    db.add(RoadmapSubtask(task_id=task.id, title=body.title, due_date=body.due_date))
+    last_position = (
+        await db.execute(select(RoadmapSubtask.position).where(RoadmapSubtask.task_id == task.id).order_by(RoadmapSubtask.position.desc()).limit(1))
+    ).scalar_one_or_none()
+    db.add(RoadmapSubtask(task_id=task.id, title=body.title, due_date=body.due_date, position=(last_position or 0) + 1))
     await db.commit()
     return await _load_roadmap(db, task.roadmap_id)
 
@@ -885,9 +907,11 @@ async def create_subtask(task_id: uuid.UUID, body: SubtaskCreate, current_user: 
 @router.patch("/roadmap-subtasks/{subtask_id}", response_model=RoadmapOut)
 async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     sub = await db.get(RoadmapSubtask, subtask_id)
-    if not sub:
+    if not sub or getattr(sub, "deleted_at", None) is not None:
         raise _NOT_FOUND
     task = await db.get(RoadmapTask, sub.task_id)
+    if not task or getattr(task, "deleted_at", None) is not None:
+        raise _NOT_FOUND
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     data = body.model_dump(exclude_unset=True)
     if current_user.role == UserRole.student:
@@ -913,8 +937,13 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
         source = "workspace"
     old_is_done = sub.is_done
     old_due_date = sub.due_date
+    old_title = sub.title
+    old_position = getattr(sub, "position", 0)
     for field, value in data.items():
         setattr(sub, field, value)
+    edited = {field for field in data if field in {"title", "due_date", "position"}}
+    if edited:
+        sub.manual_fields = sorted(set(getattr(sub, "manual_fields", None) or []) | edited)
     if "is_done" in data and old_is_done != sub.is_done:
         await log_change(
             db, "roadmap_subtask", sub.id, "is_done", str(old_is_done), str(sub.is_done),
@@ -926,6 +955,10 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
             old_due_date.isoformat() if old_due_date else "", sub.due_date.isoformat() if sub.due_date else "",
             str(current_user.id), source=source,
         )
+    if "title" in data and old_title != sub.title:
+        await log_change(db, "roadmap_subtask", sub.id, "title", old_title, sub.title, str(current_user.id), source=source)
+    if "position" in data and old_position != sub.position:
+        await log_change(db, "roadmap_subtask", sub.id, "position", old_position, sub.position, str(current_user.id), source=source)
     await db.commit()
     return await _load_roadmap(db, task.roadmap_id)
 
@@ -933,13 +966,25 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
 @router.delete("/roadmap-subtasks/{subtask_id}", status_code=204)
 async def delete_subtask(subtask_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     sub = await db.get(RoadmapSubtask, subtask_id)
-    if not sub:
+    if not sub or sub.deleted_at is not None:
         raise _NOT_FOUND
     task = await db.get(RoadmapTask, sub.task_id)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
-    await db.delete(sub)
+    sub.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+
+
+@router.post("/roadmap-subtasks/{subtask_id}/restore", response_model=RoadmapOut)
+async def restore_subtask(subtask_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    sub = await db.get(RoadmapSubtask, subtask_id)
+    if not sub or not sub.deleted_at:
+        raise _NOT_FOUND
+    task = await db.get(RoadmapTask, sub.task_id)
+    await _assert_staff(db, await _student_of_roadmap(db, task.roadmap_id), current_user)
+    sub.deleted_at = None
+    await db.commit()
+    return await _load_roadmap(db, task.roadmap_id)
 
 
 # --------------------------------------------------------------------------
@@ -997,7 +1042,7 @@ def _flat_task_out(stage: Stage, task: RoadmapTask) -> TaskFlatOut:
         completed_at=task.completed_at, reviewed_at=task.reviewed_at,
         review_comment=task.review_comment,
         due_date=task.due_date, position=task.position,
-        subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks],
+        subtasks=[RoadmapSubtaskOut.model_validate(st) for st in task.subtasks if st.deleted_at is None],
     )
 
 
@@ -1013,6 +1058,7 @@ def _flatten_tasks(roadmaps: list[Roadmap], *, for_student: bool = False) -> lis
         for roadmap in roadmaps
         for stage in roadmap.stages
         for task in stage.tasks
+        if task.deleted_at is None
         if not for_student
         or task_visible_to_student(
             audience=task.audience,
@@ -1035,7 +1081,7 @@ def _strip_hidden_for_student(roadmaps: list[Roadmap]) -> list[Roadmap]:
             stage.tasks = [
                 t
                 for t in stage.tasks
-                if task_visible_to_student(
+                if t.deleted_at is None and task_visible_to_student(
                     audience=t.audience,
                     task_visible=t.visible_to_student,
                     stage_visible=stage.visible_to_student,

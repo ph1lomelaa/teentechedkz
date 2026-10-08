@@ -68,7 +68,7 @@ describe('фильтры общей базы переживают возврат
 
   it('строка поиска остаётся после ухода со страницы', async () => {
     const first = renderPage()
-    fireEvent.change(await screen.findByPlaceholderText('Поиск студентов...'), {
+    fireEvent.change(await screen.findByPlaceholderText('Имя, телефон'), {
       target: { value: 'Абылай' },
     })
     // Уход в карточку студента: страница списка размонтируется целиком.
@@ -76,7 +76,7 @@ describe('фильтры общей базы переживают возврат
 
     renderPage()
 
-    expect(await screen.findByPlaceholderText('Поиск студентов...')).toHaveValue('Абылай')
+    expect(await screen.findByPlaceholderText('Имя, телефон')).toHaveValue('Абылай')
   })
 
   it('сохранённые фильтры доезжают до запроса, а не только до полей', async () => {
@@ -97,13 +97,13 @@ describe('фильтры общей базы переживают возврат
     // Кнопка появляется только при активном фильтре, поэтому один задаём.
     localStorage.setItem(`${KEY}degree`, JSON.stringify('bachelor'))
     renderPage()
-    fireEvent.change(await screen.findByPlaceholderText('Поиск студентов...'), {
+    fireEvent.change(await screen.findByPlaceholderText('Имя, телефон'), {
       target: { value: 'Абылай' },
     })
 
     fireEvent.click(await screen.findByText('Сбросить всё'))
 
-    expect(screen.getByPlaceholderText('Поиск студентов...')).toHaveValue('')
+    expect(screen.getByPlaceholderText('Имя, телефон')).toHaveValue('')
   })
 
   it('«Сбросить всё» снимает признак основной страны', async () => {
@@ -122,7 +122,7 @@ describe('фильтры общей базы переживают возврат
 
   it('несколько статусов передаются одним точным фильтром', async () => {
     renderPage()
-    fireEvent.click(await screen.findByText('Фильтры'))
+    fireEvent.click(await screen.findByText('+ Фильтр'))
     fireEvent.click(screen.getByLabelText('Активная работа'))
     fireEvent.click(screen.getByLabelText('Проблема'))
 

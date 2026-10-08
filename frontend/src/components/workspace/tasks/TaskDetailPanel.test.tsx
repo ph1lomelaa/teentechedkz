@@ -100,6 +100,7 @@ describe('TaskDetailPanel: шаг roadmap', () => {
 
   it('срок задачи меняется из панели', async () => {
     open(fromRoadmap(row))
+    fireEvent.click(await screen.findByRole('button', { name: 'Срок задачи' }))
     const input = await screen.findByLabelText('Срок задачи')
     fireEvent.change(input, { target: { value: '2099-06-20' } })
     await waitFor(() => expect(updateTask).toHaveBeenCalledWith('t1', { due_date: '2099-06-20' }))

@@ -49,6 +49,21 @@ export const authApi = {
     return response.data
   },
 
+  /** Включена ли отправка ссылки «Забыли пароль?» (настроен ли SMTP). */
+  passwordResetConfig: async (): Promise<{ enabled: boolean }> => {
+    const response = await apiClient.get<{ enabled: boolean }>('/auth/password-reset/config')
+    return response.data
+  },
+
+  /**
+   * Ссылка для нового пароля на почту аккаунта (и на привязанный Gmail).
+   * Ответ одинаковый, есть такая почта или нет.
+   */
+  requestPasswordReset: async (email: string): Promise<{ message: string }> => {
+    const response = await apiClient.post<{ message: string }>('/auth/password-reset', { email })
+    return response.data
+  },
+
   refresh: async (): Promise<RefreshResponse> => {
     const response = await apiClient.post<RefreshResponse>('/auth/refresh')
     return response.data

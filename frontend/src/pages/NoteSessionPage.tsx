@@ -690,7 +690,7 @@ export const NoteSessionPage: React.FC = () => {
             <CardTitle className={cn(cardTitleClass, 'text-xl')}>Записать встречу</CardTitle>
             <CardDescription className={cardDescriptionClass}>
               {botAvailable
-                ? 'Вставьте ссылку на Zoom, Google Meet или Teams — бот подключится и начнёт транскрипцию.'
+                ? 'Вставьте ссылку на Google Meet — бот подключится и начнёт транскрипцию.'
                 : 'Запись встречи по ссылке.'}
             </CardDescription>
           </CardHeader>

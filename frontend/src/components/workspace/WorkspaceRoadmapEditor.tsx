@@ -1,12 +1,14 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, Plus, Video, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, GripVertical, Pencil, Plus, Video, X } from 'lucide-react'
 import {
   roadmapApi,
   Roadmap,
   RoadmapStage,
   RoadmapTask,
   ItemStatus,
+  Priority,
+  Audience,
 } from '@/api/roadmap'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
 import { AppButton, Pill, PriorityPill, StatusPill } from '@/components/ui'
@@ -22,10 +24,11 @@ import { Textarea } from '@/components/ui/primitives/textarea'
 import { Input } from '@/components/ui/primitives/input'
 import { Label } from '@/components/ui/primitives/label'
 import { toast } from '@/hooks/use-toast'
+import { ToastAction } from '@/components/ui/primitives/toast'
 import { withViewTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { DeadlineField } from '@/components/shared/DeadlineField'
-import { overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
+import { overdueDaysOf } from '@/lib/roadmapDeadline'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
 // uses (RoadmapTimeline), restyled with the dark w-* tokens so the mentor manages
@@ -68,6 +71,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const [subtaskTitle, setSubtaskTitle] = useState('')
   const [subtaskDueDate, setSubtaskDueDate] = useState('')
   const [deleteTask, setDeleteTask] = useState<RoadmapTask | null>(null)
+  const [editTask, setEditTask] = useState<RoadmapTask | null>(null)
+  const [editDraft, setEditDraft] = useState({
+    title: '', description: '', expected_result: '', priority: 'required' as Priority,
+    audience: 'applicant' as Audience, needs_document: false, needs_zoom: false, due_date: '',
+  })
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     const current =
@@ -77,7 +85,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     return initial
   })
 
-  const run = async (fn: () => Promise<Roadmap>) => {
+  const run = async (fn: () => Promise<Roadmap>, onSuccess?: () => void) => {
     if (busy) return
     setBusy(true)
     try {
@@ -85,6 +93,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       // Кроссфейд перестройки: галочки, счётчики done/total и статус-пиллы
       // меняются плавно, а не одним кадром.
       withViewTransition(() => onChanged(updated))
+      onSuccess?.()
     } catch (err) {
       const response = (err as {
         response?: { status?: number; headers?: Record<string, string>; data?: { detail?: { message?: string; missing_roles?: string[] } | string }
@@ -206,6 +215,34 @@ export const WorkspaceRoadmapEditor: React.FC<{
       due_date: newTaskDueDate || null,
     }))
   }
+  const openEditTask = (task: RoadmapTask) => {
+    setEditTask(task)
+    setEditDraft({
+      title: task.title,
+      description: task.description || '',
+      expected_result: task.expected_result || '',
+      priority: task.priority,
+      audience: task.audience,
+      needs_document: task.needs_document,
+      needs_zoom: task.needs_zoom,
+      due_date: task.due_date || '',
+    })
+  }
+  const submitEditTask = () => {
+    const task = editTask
+    const title = editDraft.title.trim()
+    if (!task || !title) return
+    run(() => roadmapApi.updateTask(task.id, {
+      title,
+      description: editDraft.description.trim(),
+      expected_result: editDraft.expected_result.trim(),
+      priority: editDraft.priority,
+      audience: editDraft.audience,
+      needs_document: editDraft.needs_document,
+      needs_zoom: editDraft.needs_zoom,
+      due_date: editDraft.due_date || null,
+    }), () => setEditTask(null))
+  }
   const openAddSubtask = (t: RoadmapTask) => {
     setSubtaskParent(t)
     setSubtaskTitle('')
@@ -225,7 +262,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     run(async () => {
       await roadmapApi.deleteTask(t.id)
       return roadmapApi.getRoadmap(roadmap.id)
-    })
+    }, () => toast({ title: `Удалена задача «${t.title}»`, duration: 5000, action: <ToastAction altText="Отменить удаление задачи" onClick={() => run(() => roadmapApi.restoreTask(t.id))}>Отменить</ToastAction> }))
   }
   const removeSubtask = async (subId: string) => {
     if (busy) return
@@ -234,6 +271,9 @@ export const WorkspaceRoadmapEditor: React.FC<{
       await roadmapApi.deleteSubtask(subId)
       const rm = await roadmapApi.getRoadmap(roadmap.id)
       if (rm) withViewTransition(() => onChanged(rm))
+      toast({ title: 'Подзадача удалена', duration: 5000, action: <ToastAction altText="Отменить удаление подзадачи" onClick={() => run(() => roadmapApi.restoreSubtask(subId))}>Отменить</ToastAction> })
+    } catch (error) {
+      toast({ title: 'Не удалось удалить подзадачу', description: String(error), variant: 'destructive' })
     } finally {
       setBusy(false)
     }
@@ -331,8 +371,17 @@ export const WorkspaceRoadmapEditor: React.FC<{
                         onToggleVisibility={() => toggleTaskVisibility(t)}
                         onToggleSub={toggleSubtask}
                         onUpdateDate={(dueDate) => run(() => roadmapApi.updateTask(t.id, { due_date: dueDate }))}
-                        onUpdateSubDate={(id, dueDate) => run(() => roadmapApi.updateSubtask(id, { due_date: dueDate || null }))}
+                        onEdit={() => openEditTask(t)}
+                        onUpdateTask={(body) => run(() => roadmapApi.updateTask(t.id, body))}
+                        onUpdateSubTitle={(id, title) => run(() => roadmapApi.updateSubtask(id, { title }))}
+                        onReorderSubs={(ids) => run(async () => {
+                          let updated = roadmap
+                          for (let index = 0; index < ids.length; index += 1) updated = await roadmapApi.updateSubtask(ids[index], { position: index })
+                          return updated
+                        })}
+                        onCreateSub={(title) => run(() => roadmapApi.createSubtask(t.id, title))}
                         onAddSub={() => openAddSubtask(t)}
+                        onUpdateSubDate={(id, dueDate) => run(() => roadmapApi.updateSubtask(id, { due_date: dueDate || null }))}
                         onRemove={() => setDeleteTask(t)}
                         onRemoveSub={removeSubtask}
                         onOpenQuestionnaire={() => setQTask({ id: t.id, title: t.title })}
@@ -474,6 +523,61 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
 
+    <Dialog open={Boolean(editTask)} onOpenChange={(o) => !o && setEditTask(null)}>
+      <DialogContent className="portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
+        <DialogHeader>
+          <DialogTitle className="font-display font-black text-w-ink">Изменить задачу</DialogTitle>
+          <DialogDescription className="text-w-muted">
+            Правка применяется к этой задаче в roadmap студента. Исходный шаблон Notion не меняется.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="roadmap-task-edit-title" className="text-w-muted">Название</Label>
+            <Input id="roadmap-task-edit-title" value={editDraft.title} onChange={(e) => setEditDraft((draft) => ({ ...draft, title: e.target.value }))}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim" />
+          </div>
+          <div>
+            <Label htmlFor="roadmap-task-edit-description" className="text-w-muted">Описание</Label>
+            <Textarea id="roadmap-task-edit-description" value={editDraft.description} onChange={(e) => setEditDraft((draft) => ({ ...draft, description: e.target.value }))}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim" />
+          </div>
+          <div>
+            <Label htmlFor="roadmap-task-edit-result" className="text-w-muted">Ожидаемый результат</Label>
+            <Textarea id="roadmap-task-edit-result" value={editDraft.expected_result} onChange={(e) => setEditDraft((draft) => ({ ...draft, expected_result: e.target.value }))}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-w-muted">Приоритет
+              <select value={editDraft.priority} onChange={(e) => setEditDraft((draft) => ({ ...draft, priority: e.target.value as Priority }))}
+                className="mt-1 h-10 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink">
+                <option value="required">Обязательно</option><option value="recommended">Желательно</option><option value="optional">По желанию</option>
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-w-muted">Для кого
+              <select value={editDraft.audience} onChange={(e) => setEditDraft((draft) => ({ ...draft, audience: e.target.value as Audience }))}
+                className="mt-1 h-10 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 text-sm text-w-ink">
+                <option value="applicant">Абитуриент</option><option value="coordinator">Координатор</option>
+              </select>
+            </label>
+          </div>
+          <div>
+            <Label htmlFor="roadmap-task-edit-due-date" className="text-w-muted">Срок</Label>
+            <Input id="roadmap-task-edit-due-date" type="date" value={editDraft.due_date} onChange={(e) => setEditDraft((draft) => ({ ...draft, due_date: e.target.value }))}
+              className="mt-1 border-w-line bg-w-panel2 text-w-ink focus-visible:border-w-accentDim focus-visible:ring-w-accentDim" />
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm text-w-ink">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={editDraft.needs_document} onChange={(e) => setEditDraft((draft) => ({ ...draft, needs_document: e.target.checked }))} />Нужен документ</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={editDraft.needs_zoom} onChange={(e) => setEditDraft((draft) => ({ ...draft, needs_zoom: e.target.checked }))} />Нужен Zoom</label>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <AppButton colorPrefix="w" variant="subtle" size="sm" onClick={() => setEditTask(null)}>Отмена</AppButton>
+          <AppButton colorPrefix="w" size="sm" disabled={!editDraft.title.trim() || busy} onClick={submitEditTask}>Сохранить</AppButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     {/* Подзадача и удаление — свои диалоги вместо window.prompt/confirm:
         системные окна игнорируют тему платформы и выпадают из вёрстки. */}
     <Dialog open={Boolean(subtaskParent)} onOpenChange={(o) => !o && setSubtaskParent(null)}>
@@ -578,6 +682,26 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
   </button>
 )
 
+const InlineField: React.FC<{ value: string; canEdit: boolean; onSave: (value: string) => void; label: string; className?: string; multiline?: boolean; required?: boolean; emptyLabel?: string }> = ({ value, canEdit, onSave, label, className, multiline, required, emptyLabel }) => {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const input = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
+  const skipBlur = useRef(false)
+  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+  useEffect(() => { if (editing) { skipBlur.current = false; input.current?.select() } }, [editing])
+  useEffect(() => { if (editing && input.current instanceof HTMLTextAreaElement) { input.current.style.height = 'auto'; input.current.style.height = `${input.current.scrollHeight}px` } }, [draft, editing])
+  const save = () => {
+    if (skipBlur.current) { skipBlur.current = false; return }
+    const next = draft.trim()
+    setEditing(false)
+    if (next !== value && (!required || next)) onSave(next)
+  }
+  if (!canEdit && !value) return null
+  if (!editing) return canEdit ? <button type="button" onClick={() => setEditing(true)} className={cn('max-w-full whitespace-pre-wrap text-left hover:underline focus-visible:outline-2 focus-visible:outline-w-accent', className)} aria-label={`Изменить: ${label}`}>{value || emptyLabel}</button> : <span className={cn('whitespace-pre-wrap', className)}>{value}</span>
+  const common = { ref: input, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: save, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Escape') { skipBlur.current = true; setEditing(false); setDraft(value) } else if (event.key === 'Enter' && (!multiline || event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); skipBlur.current = true } }, 'aria-label': label, className: 'w-full rounded-ctl border border-w-accentDim bg-w-panel px-2 py-1 text-sm text-w-ink outline-none focus:border-w-accent' }
+  return multiline ? <textarea {...common} rows={Math.max(2, draft.split('\n').length)} /> : <input {...common} />
+}
+
 const TaskCard: React.FC<{
   task: RoadmapTask
   canManage: boolean
@@ -585,14 +709,37 @@ const TaskCard: React.FC<{
   onToggleVisibility: () => void
   onToggleSub: (id: string, isDone: boolean) => void
   onUpdateDate: (dueDate: string | null) => void
-  onUpdateSubDate: (id: string, dueDate: string | null) => void
+  onEdit: () => void
+  onUpdateTask: (body: Parameters<typeof roadmapApi.updateTask>[1]) => void
+  onUpdateSubTitle: (id: string, title: string) => void
+  onReorderSubs: (ids: string[]) => void
+  onCreateSub: (title: string) => void
   onAddSub: () => void
+  onUpdateSubDate: (id: string, dueDate: string | null) => void
   onRemove: () => void
   onRemoveSub: (id: string) => void
   onOpenQuestionnaire?: () => void
   onApproveReview?: () => void
   onReturnReview?: () => void
-}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onUpdateSubDate, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onEdit, onUpdateTask, onUpdateSubTitle, onReorderSubs, onCreateSub, onUpdateSubDate, onAddSub, onRemove, onRemoveSub, onOpenQuestionnaire, onApproveReview, onReturnReview }) => {
+  const [addingSub, setAddingSub] = useState(false)
+  const [newSubTitle, setNewSubTitle] = useState('')
+  const [confirmSub, setConfirmSub] = useState<string | null>(null)
+  const [dragSub, setDragSub] = useState<string | null>(null)
+  const orderedSubs = [...task.subtasks].sort((a, b) => a.position - b.position)
+  const move = (from: string, to: string) => {
+    if (from === to) return
+    const ids = orderedSubs.map(sub => sub.id)
+    ids.splice(ids.indexOf(from), 1)
+    ids.splice(ids.indexOf(to), 0, from)
+    onReorderSubs(ids)
+  }
+  const addSub = () => {
+    const title = newSubTitle.trim()
+    if (!title) return
+    onCreateSub(title)
+    setNewSubTitle('')
+  }
   const isDone = task.status === 'done'
   const taskOverdue = overdueDaysOf(task, isDone)
   return (
@@ -610,17 +757,9 @@ const TaskCard: React.FC<{
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </button>
         <div className="min-w-[10rem] flex-1">
-          <div className={cn('text-sm font-bold', isDone ? 'text-w-muted line-through' : 'text-w-ink')}>
-            {task.title}
-          </div>
-          {task.description && (
-            <div className="mt-1 line-clamp-2 text-xs text-w-muted">{task.description}</div>
-          )}
-          {task.expected_result && (
-            <div className="mt-1 text-xs text-w-muted">
-              <span className="font-bold text-w-ink">Результат:</span> {task.expected_result}
-            </div>
-          )}
+          <InlineField value={task.title} canEdit={canManage} required className={cn('text-sm font-bold', isDone ? 'text-w-muted line-through' : 'text-w-ink')} onSave={title => onUpdateTask({ title })} label="Название задачи" />
+          <div className="mt-1"><InlineField value={task.description} canEdit={canManage} multiline emptyLabel="+ описание" className="text-xs text-w-muted" onSave={description => onUpdateTask({ description })} label="Описание задачи" /></div>
+          {(canManage || task.expected_result) && <div className="mt-1 text-xs text-w-muted">{task.expected_result && <span className="font-bold text-w-ink">Результат: </span>}<InlineField value={task.expected_result} canEdit={canManage} multiline emptyLabel="+ результат" className="text-xs text-w-muted" onSave={expected_result => onUpdateTask({ expected_result })} label="Результат задачи" /></div>}
           {task.review_status === 'returned' && task.review_comment && (
             <div className="mt-1 text-xs text-w-muted">
               <span className="font-bold text-w-ink">Комментарий ментора:</span> {task.review_comment}
@@ -681,7 +820,13 @@ const TaskCard: React.FC<{
             ) : null}
           </div>
         </div>
-        <PriorityPill priority={task.priority} colorPrefix="w" className="shrink-0" />
+        {canManage ? <button type="button" onClick={() => onUpdateTask({ priority: task.priority === 'required' ? 'optional' : 'required' })} title="Изменить обязательность" aria-label="Изменить обязательность"><PriorityPill priority={task.priority} colorPrefix="w" className="shrink-0" /></button> : <PriorityPill priority={task.priority} colorPrefix="w" className="shrink-0" />}
+        {canManage && (
+          <button type="button" onClick={onEdit} className="shrink-0 text-w-muted2 transition hover:text-w-accentText"
+            aria-label={`Изменить задачу «${task.title}»`} title="Изменить задачу">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
         {canManage && (
           <button
             type="button"
@@ -711,6 +856,7 @@ const TaskCard: React.FC<{
             tone="w"
             dueDate={task.due_date}
             overdueDays={taskOverdue}
+            done={isDone}
             onChange={canManage ? onUpdateDate : undefined}
             label={`Срок задачи «${task.title}»`}
           />
@@ -719,8 +865,9 @@ const TaskCard: React.FC<{
 
       {(task.subtasks.length > 0 || canManage) && (
         <div className="space-y-1.5 border-t border-w-line px-[18px] py-2 pl-10 sm:pl-[52px]">
-          {sortSubtasksByDeadline(task.subtasks).map((st) => (
-            <div key={st.id} className="group flex flex-wrap items-center gap-x-2 gap-y-1">
+          {orderedSubs.map((st, index) => (
+            <div key={st.id} className="group flex flex-wrap items-center gap-x-2 gap-y-1" onDragOver={event => { if (canManage) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (dragSub) move(dragSub, st.id); setDragSub(null) }}>
+              {canManage && <span draggable onDragStart={() => setDragSub(st.id)} onDragEnd={() => setDragSub(null)} className="cursor-grab text-w-muted2" title="Перетащить подзадачу"><GripVertical className="h-3.5 w-3.5" /></span>}
               <button
                 type="button"
                 onClick={() => onToggleSub(st.id, st.is_done)}
@@ -732,13 +879,12 @@ const TaskCard: React.FC<{
               >
                 <Check className="h-3 w-3" strokeWidth={3.2} />
               </button>
-              <span className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')}>
-                {st.title}
-              </span>
+              <InlineField value={st.title} canEdit={canManage} required className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'text-w-muted2 line-through' : 'text-w-ink/85')} onSave={title => onUpdateSubTitle(st.id, title)} label="Название подзадачи" />
+              {canManage && <span className="flex items-center"><button type="button" disabled={index === 0} onClick={() => move(st.id, orderedSubs[index - 1].id)} aria-label="Переместить подзадачу выше" title="Выше" className="text-w-muted2 disabled:opacity-30"><ArrowUp className="h-3 w-3" /></button><button type="button" disabled={index === orderedSubs.length - 1} onClick={() => move(st.id, orderedSubs[index + 1].id)} aria-label="Переместить подзадачу ниже" title="Ниже" className="text-w-muted2 disabled:opacity-30"><ArrowDown className="h-3 w-3" /></button></span>}
               {canManage && (
-                <button
+                confirmSub === st.id ? <span className="text-xs text-w-danger">Удалить? <button onClick={() => { onRemoveSub(st.id); setConfirmSub(null) }} className="font-bold underline">Да</button> <button onClick={() => setConfirmSub(null)} className="underline">Нет</button></span> : <button
                   type="button"
-                  onClick={() => onRemoveSub(st.id)}
+                  onClick={() => setConfirmSub(st.id)}
                   className="text-w-muted2 opacity-0 transition hover:text-w-danger group-hover:opacity-100"
                   aria-label="Удалить подзадачу"
                 >
@@ -751,21 +897,23 @@ const TaskCard: React.FC<{
                 subtle
                 dueDate={st.due_date}
                 overdueDays={overdueDaysOf(st, st.is_done)}
+                done={st.is_done}
                 taskDueDate={task.due_date}
                 onChange={canManage ? (dueDate) => onUpdateSubDate(st.id, dueDate) : undefined}
                 label={`Срок подзадачи «${st.title}»`}
               />
             </div>
           ))}
-          {canManage && (
+          {canManage && (addingSub ? <input autoFocus value={newSubTitle} onChange={event => setNewSubTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addSub(); if (event.key === 'Escape') { setAddingSub(false); setNewSubTitle('') } }} placeholder="Название подзадачи" aria-label="Новая подзадача" className="w-full rounded-ctl border border-w-line bg-w-panel px-2 py-1 text-xs text-w-ink" /> :
             <button
               type="button"
-              onClick={onAddSub}
+              onClick={() => setAddingSub(true)}
               className="inline-flex items-center gap-1 text-2xs font-bold text-w-muted2 transition hover:text-w-accentText"
             >
               <Plus className="h-3 w-3" /> подзадача
             </button>
           )}
+          {canManage && <button type="button" onClick={onAddSub} className="ml-3 text-2xs text-w-muted2 hover:text-w-accentText">+ подзадача со сроком</button>}
         </div>
       )}
     </div>

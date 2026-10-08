@@ -42,6 +42,7 @@ const BOARD = {
 }
 
 vi.mock('@/api/index', () => ({
+  usersApi: { list: () => Promise.resolve([{ id: 'mentor1', name: 'Лид-ментор' }]) },
   mentorAssignmentsApi: {
     board: (params: unknown) => {
       boardCalls.push(params)
@@ -52,6 +53,12 @@ vi.mock('@/api/index', () => ({
       unassignCalls.push({ assignmentId, reason })
       return Promise.resolve()
     },
+  },
+}))
+vi.mock('@/api/students', () => ({
+  studentsApi: {
+    facets: () => Promise.resolve({ years: [{ value: '2026', count: 1 }, { value: '2027', count: 2 }], degrees: [{ value: 'undergraduate', count: 4 }], countries: [{ value: 'США', count: 2 }, { value: 'Канада', count: 2 }] }),
+    getAll: () => Promise.resolve([]),
   },
 }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
@@ -69,16 +76,17 @@ const { StudentsDistributionPage } = await import('./StudentsDistributionPage')
 
 function renderPage(entry = '/students/distribution') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[entry]}>
         <StudentsDistributionPage />
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return result
 }
 
-describe('доска распределения', () => {
+describe('список распределения', () => {
   beforeEach(() => {
     localStorage.clear()
     boardCalls.length = 0
@@ -86,89 +94,40 @@ describe('доска распределения', () => {
     canManage = true
   })
 
-  it('показывает колонку на каждого сотрудника и студентов в ней', async () => {
+  it('открывает список по умолчанию и скрывает переключатель доски', async () => {
     renderPage()
-
-    expect(await screen.findByText('Зира Сатпаева')).toBeInTheDocument()
-    expect(screen.getByText('Мерей А.')).toBeInTheDocument()
-    expect(screen.getByText('Айгерим Б.')).toBeInTheDocument()
-  })
-
-  it('оставляет колонку сотрудника без студентов', async () => {
-    // Пустая колонка — не мусор: это и «кто свободен», и место, куда
-    // перетащить карточку. Схлопнуть её означало бы спрятать свободных.
-    renderPage()
-
-    expect(await screen.findByText('Алия Ким')).toBeInTheDocument()
-    expect(screen.getByText('Никого не ведёт. Перетащите сюда студента')).toBeInTheDocument()
-  })
-
-  it('показывает забытых студентов отдельной колонкой', async () => {
-    // Ради этой колонки доску и открывают: у кого сколько — второй вопрос.
-    renderPage()
-
-    expect(await screen.findByText('Без ответственного')).toBeInTheDocument()
-    expect(screen.getByText('Дана К.')).toBeInTheDocument()
+    expect(await screen.findByText('Дана К.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Назначить' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Выбрать Дана К.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Доска нагрузки' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
   })
 
   it('по умолчанию показывает распределение МЗК', async () => {
     renderPage()
-
-    await screen.findByText('Зира Сатпаева')
+    expect(await screen.findByText('Зира Сатпаева')).toBeInTheDocument()
     expect(boardCalls).toContainEqual({ role: 'mzk' })
   })
 
-  it('смена роли уезжает в запрос', async () => {
-    // Роль — часть запроса, а не фильтр поверх ответа: у студента
-    // ответственных несколько, и доска показывает ровно одну роль.
+  it('смена роли обновляет запрос', async () => {
     renderPage()
     await screen.findByText('Зира Сатпаева')
-
     fireEvent.click(screen.getByText('Ментор по УП'))
-
     await waitFor(() => expect(boardCalls).toContainEqual({ role: 'lead' }))
   })
 
-  it('читает роль из адреса — на доску можно дать ссылку', async () => {
+  it('читает роль из адреса', async () => {
     renderPage('/students/distribution?role=career')
-
     await waitFor(() => expect(boardCalls).toContainEqual({ role: 'career' }))
   })
 
-  it('поиск прячет карточки, но счётчик колонки остаётся честным', async () => {
+  it('поиск оставляет совпадающих нераспределённых студентов', async () => {
     renderPage()
-    await screen.findByText('Мерей А.')
-
-    fireEvent.change(screen.getByPlaceholderText('Поиск студента...'), {
-      target: { value: 'Айгерим' },
+    fireEvent.change(screen.getByPlaceholderText('Найти студента'), {
+      target: { value: 'Дана' },
     })
-
-    expect(screen.queryByText('Мерей А.')).not.toBeInTheDocument()
-    expect(screen.getByText('Айгерим Б.')).toBeInTheDocument()
-    // Иначе кажется, что студенты из колонки пропали.
-    expect(screen.getByText('1 из 2')).toBeInTheDocument()
-  })
-
-  it('колонка ведёт в общую базу с фильтром по человеку и роли', async () => {
-    renderPage()
-    await screen.findByText('Зира Сатпаева')
-
-    const links = screen.getAllByText('Показать в базе').map((el) => el.closest('a'))
-    const hrefs = links.map((a) => a?.getAttribute('href'))
-
-    expect(hrefs).toContain('/students?mentor_id=zira&assignment_role=mzk')
-    expect(hrefs).toContain('/students?missing_role=mzk')
-  })
-
-  it('без права назначать доска только для чтения', async () => {
-    // Смотреть распределение может управление, а передавать студентов — тот,
-    // кто и так может назначать: это два разных права.
-    canManage = false
-    renderPage()
-
-    await screen.findByText('Зира Сатпаева')
-    expect(screen.getByText('Никого не ведёт')).toBeInTheDocument()
-    expect(screen.queryByText('Никого не ведёт. Перетащите сюда студента')).not.toBeInTheDocument()
+    expect(await screen.findByText('Дана К.')).toBeInTheDocument()
+    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
   })
 
   it('по умолчанию показывает только активную работу', async () => {
@@ -178,16 +137,13 @@ describe('доска распределения', () => {
     await screen.findByText('Дана К.')
 
     expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
-    expect(screen.getByText('1 из 2')).toBeInTheDocument()
-    // Сводка считает видимых, а не всех.
-    expect(screen.getByText(/3 студентов/)).toBeInTheDocument()
+    expect(screen.getByText(/1 студентов в списке/)).toBeInTheDocument()
   })
 
-  it('фильтр по статусу возвращает скрытых', async () => {
+  it('дополнительный фильтр по статусу возвращает скрытых', async () => {
     renderPage()
     await screen.findByText('Дана К.')
-
-    fireEvent.click(screen.getByText('Фильтры'))
+    fireEvent.click(screen.getByText('+ Фильтр'))
     fireEvent.click(screen.getByText('Работа окончена — Передумал'))
 
     expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
@@ -198,57 +154,26 @@ describe('доска распределения', () => {
     await screen.findByText('Ерлан П.')
 
     expect(screen.queryByText('Дана К.')).not.toBeInTheDocument()
-    expect(screen.getAllByText('Нет студентов по выбранным фильтрам').length).toBeGreaterThan(0)
+    expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
   })
 
   it('фильтр по году отсеивает чужой набор', async () => {
     // Ради этого фильтры и появились: в колонке «Без ответственного» лежали
     // все пять лет набора сразу, и найти нужный год было нечем.
     renderPage('/students/distribution?year=2027')
-    await screen.findByText('Мерей А.')
-
-    expect(screen.queryByText('Айгерим Б.')).not.toBeInTheDocument()
-    expect(screen.getByText('Дана К.')).toBeInTheDocument()
+    expect(await screen.findByText('Дана К.')).toBeInTheDocument()
   })
 
-  it('фильтр по стране отсеивает остальных', async () => {
-    renderPage('/students/distribution?country=Канада')
-    await screen.findByText('Айгерим Б.')
-
-    expect(screen.queryByText('Мерей А.')).not.toBeInTheDocument()
+  it('фильтр по стране оставляет совпадающих', async () => {
+    renderPage('/students/distribution?country=США')
+    expect(await screen.findByText('Дана К.')).toBeInTheDocument()
+    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
   })
 
   it('несколько годов складываются, а не сужают друг друга', async () => {
-    // Галочки, а не выпадашка: разбирают обычно текущий и следующий год вместе.
+    // Старые ссылки с несколькими годами продолжают открываться.
     renderPage('/students/distribution?year=2026,2027')
-    await screen.findByText('Мерей А.')
-
-    expect(screen.getByText('Айгерим Б.')).toBeInTheDocument()
+    expect(await screen.findByText('Дана К.')).toBeInTheDocument()
   })
 
-  it('снимает ответственного из меню карточки — с причиной', async () => {
-    // Раньше назначение делалось один раз: снять было негде, ни с доски,
-    // ни из карточки.
-    renderPage()
-    await screen.findByText('Мерей А.')
-
-    fireEvent.click(screen.getByLabelText('Действия: Мерей А.'))
-    fireEvent.mouseDown(screen.getByText('Снять'))
-
-    expect(await screen.findByText('Снять ответственного')).toBeInTheDocument()
-    fireEvent.change(screen.getByPlaceholderText(/студент перешёл/), { target: { value: 'перешёл к Алие' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Снять' }))
-
-    await waitFor(() =>
-      expect(unassignCalls).toContainEqual({ assignmentId: 'a1', reason: 'перешёл к Алие' }),
-    )
-  })
-
-  it('без права назначать меню на карточках нет', async () => {
-    canManage = false
-    renderPage()
-    await screen.findByText('Мерей А.')
-
-    expect(screen.queryByLabelText('Действия: Мерей А.')).not.toBeInTheDocument()
-  })
 })

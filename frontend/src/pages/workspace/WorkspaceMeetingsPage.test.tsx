@@ -106,7 +106,7 @@ it('диалог не принимает мусор вместо ссылки и
   const dialog = within(screen.getByRole('dialog'))
   fireEvent.change(dialog.getByLabelText('Студент'), { target: { value: 's1' } })
   fireEvent.change(dialog.getByLabelText('Дата и время'), { target: { value: '2026-10-04T15:30' } })
-  const field = dialog.getByPlaceholderText('https://')
+  const field = dialog.getByLabelText('Ссылка на встречу')
   fireEvent.change(field, { target: { value: 'ss' } })
   expect(dialog.getByRole('button', { name: 'Создать' })).toBeDisabled()
   fireEvent.change(field, { target: { value: 'zoom.us/j/123' } })

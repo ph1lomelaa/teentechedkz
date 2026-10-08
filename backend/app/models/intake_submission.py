@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, DateTime, Float, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Text, DateTime, Float, ForeignKey, Enum as SAEnum, Boolean, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,16 @@ class IntakeSubmission(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # sha256(source|timestamp|ФИО) — защита от дублей при повторных синках
     row_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Stable identity of the source row. Google Forms normally has an immutable
+    # Timestamp column; explicit response IDs take precedence when present.
+    source_key: Mapped[str | None] = mapped_column(String(500), unique=True, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    content_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    identity_review_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    match_candidate_ids: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     raw_data: Mapped[dict] = mapped_column(JSONB)
 
     full_name: Mapped[str | None] = mapped_column(String(500), nullable=True)

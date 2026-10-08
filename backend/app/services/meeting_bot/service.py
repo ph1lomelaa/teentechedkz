@@ -154,7 +154,13 @@ async def start_bot(
             "Вставьте ссылку на встречу Zoom, Google Meet или Microsoft Teams.",
             status=422,
         )
-    if platform == ZOOM and not (user.zoom_user_id and user.zoom_connection_state != "disconnected"):
+    zoom_mode = settings.ZOOM_BOT_MODE
+    if platform == ZOOM and zoom_mode == "off":
+        raise BotStartError("ZOOM_BOT_UNAVAILABLE", reason_message("zoom_bot_unavailable") or "", status=409)
+    # OBF-токен нужен только для чужих аккаунтов (режим obf). Во встречи своего
+    # корпоративного аккаунта бот заходит без него — и без подключения Zoom.
+    use_obf = platform == ZOOM and zoom_mode == "obf"
+    if use_obf and not (user.zoom_user_id and user.zoom_connection_state != "disconnected"):
         raise BotStartError("ZOOM_NOT_CONNECTED", reason_message("zoom_not_connected") or "", status=409)
 
     if language:
@@ -173,7 +179,7 @@ async def start_bot(
                 webhook_url=webhook_url(provider.name),
                 # Повторная отправка после сбоя — новый бот, а не дубль живого.
                 deduplication_key=f"{session.id}:{int(_now().timestamp())}",
-                zoom_user_id=user.zoom_user_id if platform == ZOOM else None,
+                zoom_user_id=user.zoom_user_id if use_obf else None,
             )
         )
     except MeetingBotError as exc:

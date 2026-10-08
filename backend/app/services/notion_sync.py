@@ -1,10 +1,9 @@
 """Синк Notion-базы «Весь пайплайн клиентов» в notion_snapshots (read-only зеркало).
 
 В карточки студентов ничего не пишется автоматически. Каждая строка Notion
-целиком обновляет свой снапшот; привязка к студенту:
-- точный матч по телефону или ФИО (confidence 1.0) — привязывается сразу;
-- нечёткий матч — только предложение, решение за менеджером;
-- нет матча — остаётся в «Notion без привязки».
+целиком обновляет свой снапшот; только единственный сильный матч по имени или
+телефону привязывается автоматически. Неоднозначные/нечёткие совпадения остаются
+предложениями для ручной проверки.
 """
 from __future__ import annotations
 
@@ -80,7 +79,7 @@ async def _load_students_index(db: AsyncSession) -> list[dict]:
 # обеих сторон, чтобы сравнение было честным.
 EDITABLE_FIELDS = (
     "full_name", "phone", "degree_level", "intake_year", "pipeline_status",
-    "signed_date", "client_fee", "english_sum", "english_paid",
+    "signed_date", "client_fee", "english_sum", "english_paid", "mentor_total",
     "client_remaining", "client_remaining_date",
 )
 
@@ -146,26 +145,46 @@ def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, st
         "client_fee": (_money_canon(d.get("client_fee")), _money_canon(crm("amount", contract))),
         "english_sum": (_money_canon(d.get("english_sum")), _money_canon(crm("english_sum", contract))),
         "english_paid": (_money_canon(d.get("english_paid")), _money_canon(crm("english_paid", contract))),
+        "mentor_total": (_money_canon(d.get("mentor_total")), _money_canon(crm("mentor_total_owed", contract))),
         "client_remaining": (_money_canon(d.get("client_remaining")), _money_canon(crm("client_remaining_amount", contract))),
         "client_remaining_date": (_date_canon(d.get("client_remaining_date")), _date_canon(crm("client_remaining_date", contract))),
     }
 
 
-def field_direction(base: str | None, canon_notion: str | None, canon_crm: str | None) -> str:
+def field_direction(
+    base: str | None,
+    canon_notion: str | None,
+    canon_crm: str | None,
+    *,
+    has_baseline: bool | None = None,
+) -> str:
     """Куда синхронизировать поле относительно эталона base:
     resolved — стороны совпадают; unknown — эталона ещё нет; notion_newer/crm_newer —
-    изменилась одна сторона; conflict — обе стороны разошлись с эталоном по-разному."""
-    if canon_notion == canon_crm:
-        return "resolved"
-    if base is None:
-        return "unknown"
-    notion_changed = canon_notion != base
-    crm_changed = canon_crm != base
-    if notion_changed and not crm_changed:
-        return "notion_newer"
-    if crm_changed and not notion_changed:
-        return "crm_newer"
-    return "conflict"
+    изменилась одна сторона; conflict — обе стороны разошлись с эталоном по-разному
+    или одна из сторон стёрла значение без подтверждённого события очистки.
+
+    По умолчанию совместимость со старыми вызовами: `None` означает отсутствие
+    baseline. API передаёт наличие ключа отдельно, чтобы отличать сохранённый
+    пустой baseline от отсутствующего эталона.
+    """
+    from app.services.notion_field_sync_policy import FieldDecision, reconcile_field
+
+    if has_baseline is None:
+        has_baseline = base is not None
+    result = reconcile_field(
+        baseline=base,
+        has_baseline=has_baseline,
+        crm_value=canon_crm,
+        notion_value=canon_notion,
+    )
+    return {
+        FieldDecision.RESOLVED: "resolved",
+        FieldDecision.CRM_CHANGED: "crm_newer",
+        FieldDecision.NOTION_CHANGED: "notion_newer",
+        FieldDecision.CONFLICT: "conflict",
+        FieldDecision.UNKNOWN_BASELINE: "unknown",
+        FieldDecision.UNSAFE_CLEAR: "conflict",
+    }[result.decision]
 
 
 def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
@@ -181,6 +200,65 @@ def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
             changed = True
     if changed:
         snapshot.synced_baseline = baseline
+
+
+AUTO_RECONCILE_FIELDS = frozenset({"full_name", "phone", "degree_level", "intake_year"})
+
+
+async def _enqueue_field_reconciliation(
+    db: AsyncSession,
+    snapshot: NotionSnapshot,
+    student: Student,
+    contract: Contract | None,
+    canon: dict[str, tuple[str | None, str | None]],
+) -> None:
+    """Persist only reviewed profile-field decisions for the gated worker.
+
+    The general sync continues to be read-only. Creating outbox items is
+    disabled with the writer flag, and financial/status fields stay out until
+    their own pilot policy is reviewed.
+    """
+    if not settings.ENABLE_NOTION_FIELD_SYNC:
+        return
+
+    from app.services.notion_field_sync_outbox import enqueue_reconciliation
+    from app.services.notion_field_sync_policy import reconcile_field
+
+    baseline = snapshot.synced_baseline or {}
+    for field in AUTO_RECONCILE_FIELDS:
+        pair = canon.get(field)
+        if pair is None:
+            continue
+        notion_value, crm_value = pair
+        has_baseline = field in baseline
+        baseline_value = baseline.get(field)
+        result = reconcile_field(
+            baseline=baseline_value,
+            has_baseline=has_baseline,
+            notion_value=notion_value,
+            crm_value=crm_value,
+        )
+        if result.decision.value == "resolved":
+            continue
+        # Dedupe by this field's value state; an unrelated page-property edit
+        # must not create a second copy of the same unresolved decision.
+        state = repr((field, notion_value, crm_value, has_baseline, baseline_value))
+        import hashlib
+
+        source_revision = hashlib.sha256(state.encode("utf-8")).hexdigest()
+        await enqueue_reconciliation(
+            db,
+            notion_snapshot_id=snapshot.id,
+            student_id=student.id,
+            notion_page_id=snapshot.notion_page_id,
+            field_key=field,
+            source_revision=source_revision,
+            result=result,
+            baseline_value=baseline_value,
+            has_baseline=has_baseline,
+            expected_notion_last_edited_at=snapshot.notion_last_edited_at,
+            reason="Автосверка разрешена только для имени, телефона, ступени и набора; конфликт требует проверки.",
+        )
 
 
 async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]) -> None:
@@ -207,7 +285,10 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
         student = students.get(snapshot.student_id)
         if student is None:
             continue
-        reconcile_baseline(snapshot, student, contracts.get(snapshot.student_id))
+        contract = contracts.get(snapshot.student_id)
+        canon = editable_canon(snapshot.normalized_data or {}, student, contract)
+        await _enqueue_field_reconciliation(db, snapshot, student, contract, canon)
+        reconcile_baseline(snapshot, student, contract)
 
 
 def _normalize_id(value: str | None) -> str:
@@ -250,7 +331,10 @@ async def run_sync(db: AsyncSession) -> dict:
     async with _sync_lock:
         from migration.sources.notion import fetch_all_pages, transform_notion_records
         from migration.transformers.normalize import normalize_phone
-        from migration.transformers.match import fuzzy_match
+        from app.services.intake_identity import (
+            is_strong_unique_name_match,
+            plausible_student_candidates,
+        )
 
         loop = asyncio.get_event_loop()
 
@@ -292,6 +376,14 @@ async def run_sync(db: AsyncSession) -> dict:
                     await db.delete(snapshot)
                 removed = len(gone)
             students_index = await _load_students_index(db)
+            linked_student_ids = {
+                student_id for student_id in (await db.execute(
+                    select(NotionSnapshot.student_id).where(
+                        NotionSnapshot.status == NotionMatchStatus.linked,
+                        NotionSnapshot.student_id.isnot(None),
+                    )
+                )).scalars().all()
+            }
 
             now = datetime.now(timezone.utc)
             created = updated = unchanged = auto_linked = 0
@@ -304,17 +396,30 @@ async def run_sync(db: AsyncSession) -> dict:
                     snapshot.suggested_student_id = None
                     snapshot.suggested_confidence = None
                     return False
-                match = fuzzy_match(row.get("full_name", ""), row.get("phone", ""), students_index)
+                match = plausible_student_candidates(
+                    row.get("full_name", ""), row.get("phone", ""), students_index
+                )
                 # После ручной отвязки автопривязка запрещена — только предложение
-                if match.student_id and match.confidence >= 1.0 and not snapshot.manual_unlink:
-                    snapshot.student_id = match.student_id
+                # Предложение собирает ВСЕх возможных кандидатов. Для автопривязки
+                # требуется один кандидат с точным/транслитерированным именем или
+                # совпавшим телефоном; похожее написание само по себе не достаточно.
+                if (
+                    len(match.student_ids) == 1
+                    and match.confidence >= 0.95
+                    and is_strong_unique_name_match(match)
+                    and not snapshot.manual_unlink
+                    and match.student_ids[0] not in linked_student_ids
+                ):
+                    student_id = match.student_ids[0]
+                    snapshot.student_id = student_id
                     snapshot.status = NotionMatchStatus.linked
                     snapshot.linked_at = now
-                    snapshot.suggested_student_id = match.student_id
-                    snapshot.suggested_confidence = 1.0
+                    snapshot.suggested_student_id = student_id
+                    snapshot.suggested_confidence = round(match.confidence, 3)
+                    linked_student_ids.add(student_id)
                     return True
-                snapshot.suggested_student_id = match.student_id
-                snapshot.suggested_confidence = round(match.confidence, 3) if match.student_id else None
+                snapshot.suggested_student_id = match.student_ids[0] if len(match.student_ids) == 1 else None
+                snapshot.suggested_confidence = round(match.confidence, 3) if match.student_ids else None
                 return False
 
             for row in rows:
@@ -367,6 +472,19 @@ async def run_sync(db: AsyncSession) -> dict:
 
             await db.commit()
 
+            field_sync_counters = {
+                "claimed": 0, "dry_run": 0, "applied": 0,
+                "conflict": 0, "superseded": 0, "retry": 0,
+            }
+            if settings.ENABLE_NOTION_FIELD_SYNC:
+                from app.services.notion_field_sync_runtime import process_outbox_batch
+
+                field_sync_counters = await process_outbox_batch(
+                    db,
+                    limit=20,
+                    dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN,
+                )
+
             # Перенос Notion → CRM из синка не запускается никогда (решение
             # 03.10.2026): ручное распределение, аккаунты и карточки — в CRM.
 
@@ -379,6 +497,7 @@ async def run_sync(db: AsyncSession) -> dict:
                 "auto_linked": auto_linked,
                 "needs_review": needs_review,
                 "removed": removed,
+                "field_sync": field_sync_counters,
             }
             await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Notion sync done: {counters}")

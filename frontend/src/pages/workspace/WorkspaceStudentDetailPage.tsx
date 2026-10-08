@@ -34,6 +34,8 @@ import { useStartNotes } from '@/hooks/useStartNotes'
 import { normalizeMeetingLink } from '@/lib/meetingLink'
 import { telegramApi } from '@/api/telegram'
 import { documentsApi } from '@/api/documents'
+import { getErrorMessage } from '@/lib/errorMessage'
+import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { chatApi } from '@/api/chat'
 import { workspaceApi } from '@/api/workspace'
 import { syncApi, StudentIntake } from '@/api/sync'
@@ -63,6 +65,7 @@ import {
   SERVICE_TYPE_LABELS,
   ResponsibleUser,
   DocType,
+  Document,
   Service,
   StudentFull,
   TelegramChat,
@@ -1299,10 +1302,9 @@ function DocumentsTab({
   canUpload,
   onUploaded,
   onToggleVisibility,
-  pendingDocId,
 }: {
   studentId: string
-  documents: Array<{ id: string; file_name: string; doc_type: string; source: string; visible_to_student?: boolean; uploaded_at: string }>
+  documents: Document[]
   canUpload: boolean
   onUploaded: () => void
   onToggleVisibility: (doc: { id: string; visible_to_student?: boolean }) => void
@@ -1350,6 +1352,7 @@ function DocumentsTab({
             <span className="shrink-0 rounded-ctl bg-w-accent px-3 py-1 font-bold text-black">Выбрать файл</span>
             <span className="truncate">{file?.name || 'Файл не выбран'}</span>
             <input
+              id="workspace-doc-upload"
               type="file"
               aria-label="Выберите документ для загрузки"
               disabled={uploadMutation.isPending}
@@ -1367,40 +1370,40 @@ function DocumentsTab({
           </button>
         </div>
       )}
-      {documents.length === 0 ? (
-        <EmptyState colorPrefix="w" title="Документов нет" description={canUpload ? 'Загрузите первый файл для этого студента.' : 'У этого студента пока нет загруженных файлов.'} />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {documents.map((doc) => (
-            <div key={doc.id} className="rounded-card border border-w-line bg-w-panel2 p-4">
-              <div className="flex items-start gap-3">
-                <FileText className="mt-0.5 h-4 w-4 shrink-0 text-w-accentText" />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-w-ink">{doc.file_name}</div>
-                  <div className="mt-1 text-xs text-w-muted">
-                    {DOC_TYPE_LABELS[doc.doc_type as keyof typeof DOC_TYPE_LABELS] || doc.doc_type} · {doc.source} · {formatDate(doc.uploaded_at)}
-                  </div>
-                  <div className="mt-2">
-                    <Badge>{doc.visible_to_student ? 'Виден студенту' : 'Только staff'}</Badge>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={pendingDocId === doc.id}
-                    onClick={() => onToggleVisibility(doc)}
-                    className="mt-3 rounded-ctl border border-w-line px-3 py-1.5 text-xs font-bold text-w-muted transition hover:border-w-accentDim hover:text-w-accentText disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {pendingDocId === doc.id
-                      ? 'Сохраняем...'
-                      : doc.visible_to_student
-                        ? 'Скрыть от студента'
-                        : 'Показать студенту'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <DocumentList
+        tone="w"
+        showTitle={false}
+        documents={documents}
+        canManage={canUpload}
+        onOpen={async doc => {
+          try {
+            const blob = await documentsApi.download(doc.id)
+            const url = URL.createObjectURL(blob)
+            window.open(url, '_blank', 'noopener,noreferrer')
+            window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+          } catch (error) { toast({ title: 'Не удалось открыть документ', description: getErrorMessage(error), variant: 'destructive' }) }
+        }}
+        onDownload={async doc => {
+          try {
+            const blob = await documentsApi.download(doc.id)
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = documentName(doc)
+            link.click()
+            URL.revokeObjectURL(url)
+          } catch (error) { toast({ title: 'Не удалось скачать документ', description: getErrorMessage(error), variant: 'destructive' }) }
+        }}
+        onUploadClick={canUpload ? () => document.getElementById('workspace-doc-upload')?.click() : undefined}
+        onFilesDropped={canUpload ? files => setFile(files[0] ?? null) : undefined}
+        onChanged={onUploaded}
+        onDelete={doc => documentsApi.delete(doc.id)}
+        onVisibility={doc => onToggleVisibility(doc)}
+        onSignature={doc => { void documentsApi.requestSignature(doc.id).then(() => { onUploaded(); toast({ title: 'Документ отправлен на подпись' }) }).catch(error => toast({ title: 'Не удалось отправить на подпись', description: getErrorMessage(error), variant: 'destructive' })) }}
+        uploadingName={uploadMutation.isPending ? file?.name : null}
+        uploadError={uploadMutation.isError ? getErrorMessage(uploadMutation.error) : null}
+        onRetryUpload={file ? () => uploadMutation.mutate() : undefined}
+      />
     </Panel>
   )
 }

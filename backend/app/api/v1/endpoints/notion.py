@@ -69,6 +69,12 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
                 "id": str(assignment.mentor_id),
                 "name": users.get(assignment.mentor_id, ""), "role": assignment.role.value,
             })
+    linked_ids_for_status = {s.student_id for s in snapshots if s.status == NotionMatchStatus.linked and s.student_id}
+    crm_status_by_student = {}
+    if linked_ids_for_status:
+        for contract in (await db.execute(select(Contract).where(Contract.student_id.in_(linked_ids_for_status))
+                               .order_by(Contract.created_at.desc(), Contract.id.desc()))).scalars():
+            crm_status_by_student.setdefault(contract.student_id, contract)
     rows = [{
         "id": s.notion_page_id, "snapshot_id": str(s.id),
         "notion_page_id": s.notion_page_id, "notion_url": s.notion_url,
@@ -78,7 +84,10 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
         "suggested_confidence": s.suggested_confidence,
         "source": "notion", "link_status": s.status.value,
         "responsibles": responsibles.get(s.student_id, []),
-        "values": s.raw_properties or {},
+        "values": {**(s.raw_properties or {}), "Статус CRM": (
+            _PIPELINE_RU.get(crm_status_by_student[s.student_id].pipeline_status.value,
+                             crm_status_by_student[s.student_id].pipeline_status.value)
+            if s.student_id in crm_status_by_student and crm_status_by_student[s.student_id].pipeline_status else None)},
     } for s in snapshots]
     crm_only = []
     if not source_only:
@@ -107,7 +116,8 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
                     "е": student.full_name, "Номер тел": student.phone,
                     "Degree": student.degree_level.value if student.degree_level else None,
                     "Intake": student.intake_year,
-                    "Статус выплат": _PIPELINE_RU.get(contract.pipeline_status.value, contract.pipeline_status.value) if contract and contract.pipeline_status else None,
+                    "Статус выплат": None,
+                    "Статус CRM": _PIPELINE_RU.get(contract.pipeline_status.value, contract.pipeline_status.value) if contract and contract.pipeline_status else None,
                     "Main country": [a.country for a in apps if a.is_primary],
                     "Other countries": [a.country for a in apps if not a.is_primary],
                     "Lead-Mentor": next((name for name in people.student_mentor_labels.get(student.id, []) if name), None),
@@ -131,7 +141,7 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
             pass
     extra_columns = sorted({name for snapshot in snapshots for name in (snapshot.raw_properties or {})
                             if name not in PIPELINE_COLUMNS})
-    return {"columns": (*PIPELINE_COLUMNS, *extra_columns), "items": rows, "total": len(rows),
+    return {"columns": (*PIPELINE_COLUMNS, *([] if source_only else ["Статус CRM"]), *[c for c in extra_columns if c != "Статус CRM"]), "items": rows, "total": len(rows),
             "option_colors": option_colors, "field_meta": field_meta}
 
 
@@ -805,19 +815,20 @@ async def create_student_from_snapshot(
     if snapshot.status != NotionMatchStatus.new:
         raise HTTPException(status_code=400, detail="Запись уже обработана")
 
-    # Защита от дублей: имя в CRM могло быть на другом языке — свежий транслит-матч
-    from migration.transformers.match import fuzzy_match
     from app.services.notion_sync import _load_students_index
+    from app.services.intake_identity import plausible_student_candidates
 
     d = snapshot.normalized_data or {}
     students_index = await _load_students_index(db)
-    match = fuzzy_match(d.get("full_name") or "", d.get("phone") or "", students_index)
-    if match.student_id and match.confidence >= 0.9:
-        existing = next((s for s in students_index if s["id"] == match.student_id), None)
+    matches = plausible_student_candidates(d.get("full_name") or "", d.get("phone") or "", students_index)
+    if matches.student_ids:
+        if len(matches.student_ids) == 1:
+            snapshot.suggested_student_id = matches.student_ids[0]
+            snapshot.suggested_confidence = round(matches.confidence, 3)
+        await db.commit()
         raise HTTPException(
             status_code=409,
-            detail=f"Похоже, этот клиент уже есть в CRM: «{existing['full_name'] if existing else ''}». "
-                   f"Используй «Привязать» вместо создания, чтобы не было дубля.",
+            detail="Найдены возможные существующие карточки. Проверь кандидатов и привяжи нужную; создание остановлено.",
         )
 
     student = await _create_student_from_snapshot(db, snapshot, current_user.id)
@@ -847,19 +858,24 @@ async def ensure_student_from_snapshot(
     if snapshot.status != NotionMatchStatus.new or snapshot.manual_unlink:
         raise HTTPException(status_code=409, detail="Запись требует ручной проверки привязки")
 
-    from migration.transformers.match import fuzzy_match
     from app.services.notion_sync import _load_students_index
+    from app.services.intake_identity import plausible_student_candidates
 
     data = snapshot.normalized_data or {}
     name = data.get("full_name") or snapshot.full_name or ""
     if not name.strip():
         raise HTTPException(status_code=422, detail="В записи Notion нет имени студента")
-    match = fuzzy_match(name, data.get("phone") or "", await _load_students_index(db))
-    if match.student_id and match.confidence >= 0.9:
-        snapshot.suggested_student_id = match.student_id
-        snapshot.suggested_confidence = round(match.confidence, 3)
+    matches = plausible_student_candidates(name, data.get("phone") or "", await _load_students_index(db))
+    if matches.student_ids:
+        if len(matches.student_ids) == 1:
+            snapshot.suggested_student_id = matches.student_ids[0]
+            snapshot.suggested_confidence = round(matches.confidence, 3)
         await db.commit()
-        raise HTTPException(status_code=409, detail="Найден похожий студент. Проверьте и привяжите существующую карточку")
+        raise HTTPException(
+            status_code=409,
+            detail=("Найдены возможные существующие карточки. Проверьте кандидатов и привяжите нужную; "
+                    "создание новой карточки остановлено."),
+        )
 
     student = await _create_student_from_snapshot(db, snapshot, current_user.id)
     await db.commit()
@@ -877,8 +893,8 @@ async def create_missing_students(
     студент нашёлся, запись пропускается и получает кандидата вместо дубля."""
     require_access(current_user, "notion", Action.manage)
 
-    from migration.transformers.match import fuzzy_match
     from app.services.notion_sync import _load_students_index
+    from app.services.intake_identity import plausible_student_candidates
 
     result = await db.execute(
         select(NotionSnapshot).where(
@@ -892,10 +908,11 @@ async def create_missing_students(
     created = skipped = 0
     for snapshot in snapshots:
         d = snapshot.normalized_data or {}
-        match = fuzzy_match(d.get("full_name") or "", d.get("phone") or "", students_index)
-        if match.student_id and match.confidence >= 0.9:
-            snapshot.suggested_student_id = match.student_id
-            snapshot.suggested_confidence = round(match.confidence, 3)
+        matches = plausible_student_candidates(d.get("full_name") or "", d.get("phone") or "", students_index)
+        if matches.student_ids:
+            if len(matches.student_ids) == 1:
+                snapshot.suggested_student_id = matches.student_ids[0]
+                snapshot.suggested_confidence = round(matches.confidence, 3)
             skipped += 1
             continue
         student = await _create_student_from_snapshot(db, snapshot, current_user.id)
@@ -1116,7 +1133,10 @@ async def student_notion(
     for r in comparison:
         pair = canon.get(r["field"])
         if pair is not None:
-            r["direction"] = notion_sync.field_direction(baseline.get(r["field"]), pair[0], pair[1])
+            r["direction"] = notion_sync.field_direction(
+                baseline.get(r["field"]), pair[0], pair[1],
+                has_baseline=r["field"] in baseline,
+            )
 
     # --- Финансы Notion, которых нет в CRM-моделях: просто показываем
     finance = [

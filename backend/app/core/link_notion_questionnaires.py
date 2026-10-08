@@ -122,7 +122,7 @@ async def attach(on_event: Callable[[dict], None] | None = None) -> dict:
         rows = await db.execute(
             select(RoadmapTask)
             .join(Roadmap, Roadmap.id == RoadmapTask.roadmap_id)
-            .where(RoadmapTask.questionnaire_url.is_not(None), Roadmap.status == RoadmapStatus.active)
+            .where(RoadmapTask.questionnaire_url.is_not(None), RoadmapTask.deleted_at.is_(None), Roadmap.status == RoadmapStatus.active)
         )
         tasks = list(rows.scalars().all())
         created = 0

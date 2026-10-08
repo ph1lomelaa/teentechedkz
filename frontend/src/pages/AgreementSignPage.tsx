@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Eye, FileText, X } from 'lucide-react'
+import { CheckCircle2, Download, Eye, FileText, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { agreementsApi, Agreement } from '@/api/agreements'
 import { downloadBlob } from '@/lib/utils'
@@ -11,6 +11,8 @@ import { workspaceHomeFor } from '@/lib/authRouting'
 import { useDocumentPreview } from '@/hooks/useDocumentPreview'
 import { DocumentViewer } from '@/components/shared/DocumentViewer'
 import { QueryError } from '@/components/shared/QueryState'
+import { RegulationReader } from '@/components/agreements/RegulationReader'
+import { cn } from '@/lib/utils'
 
 /**
  * Подписание регламента. Обязательно для менторов, если у их аудитории есть
@@ -54,11 +56,10 @@ export const AgreementSignPage: React.FC = () => {
     setPreviewOpen(false)
   }, [current?.id])
 
-  // No attached file (markdown-only agreement) is already readable inline on
-  // the page itself — don't force the modal round-trip to unlock the checkbox.
-  useEffect(() => {
-    if (current && !current.file_name) setViewed(true)
-  }, [current])
+  // Регламент без файла читается прямо на странице: галочка открывается,
+  // когда человек долистал текст до конца (RegulationReader). С файлом —
+  // после «Я ознакомился» в превью.
+  const markRead = useCallback(() => setViewed(true), [])
 
   // Пока превью открыто — гасим скролл страницы и вешаем Esc на закрытие.
   useEffect(() => {
@@ -151,65 +152,102 @@ export const AgreementSignPage: React.FC = () => {
     )
   }
 
-  const inputCls = 'h-12 w-full rounded-ctl border px-4 text-sm transition-colors'
+  const publishedAt = current.published_at
+    ? new Date(current.published_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null
+  const canSign = viewed && checked && Boolean(fullName.trim())
 
   return (
     <AuthShell
-      eyebrow={`Регламент ${pending.length > 1 ? `${index + 1} из ${pending.length}` : ''}`}
+      eyebrow="Регламент"
       title={current.title}
-      description="Прочитайте и подпишите регламент, чтобы продолжить работу."
+      description={
+        current.version > 1
+          ? 'Регламент обновлён. Прочитайте новую редакцию и подпишите её, чтобы продолжить работу.'
+          : 'Прочитайте и подпишите регламент, чтобы продолжить работу.'
+      }
       wide
       hideHomeLink
     >
-      <div className="space-y-5">
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+          <span className="rounded-full border border-[#FFD400]/30 bg-[#FFD400]/10 px-3 py-1 font-semibold text-[#FFD400]">
+            Редакция {current.version}
+          </span>
+          {publishedAt && (
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/60">от {publishedAt}</span>
+          )}
+          {pending.length > 1 && (
+            <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/60">
+              Документ {index + 1} из {pending.length}
+              <span className="ml-1 flex gap-1" aria-hidden="true">
+                {pending.map((a, i) => (
+                  <span key={a.id} className={cn('h-1.5 w-1.5 rounded-full', i < index ? 'bg-emerald-400' : i === index ? 'bg-[#FFD400]' : 'bg-white/20')} />
+                ))}
+              </span>
+            </span>
+          )}
+        </div>
+
         {error && (
-          <div className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
+          <div role="alert" className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300">
             {error}
           </div>
         )}
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:p-5">
-          <div className="flex items-start gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#FFD400] text-black">
-              <FileText className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-white">Документ для ознакомления</p>
-              <p className="mt-1 text-xs leading-5 text-white/55">
-                Откройте превью и внимательно ознакомьтесь с актуальной версией перед подписью.
-              </p>
-            </div>
-            {viewed && <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-400" aria-label="Документ просмотрен" />}
-          </div>
+          <StepHeader n={1} done={viewed} title="Прочитайте документ">
+            {current.file_name
+              ? 'Откройте документ, прочитайте его целиком и нажмите «Я ознакомился».'
+              : 'Пролистайте текст до конца — полоса сверху покажет, сколько осталось.'}
+          </StepHeader>
+
           {current.body_markdown && (
-            <div className="mt-4 max-h-[30vh] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/80 whitespace-pre-wrap">
-              {current.body_markdown}
+            <div className="mt-4">
+              <RegulationReader markdown={current.body_markdown} onReadToEnd={current.file_name ? () => undefined : markRead} />
             </div>
           )}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={openPreview}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#FFD400] px-4 text-xs font-black text-black transition hover:bg-[#ffe04d]"
-            >
-              <Eye className="h-4 w-4" /> Открыть превью
-            </button>
-            {current.file_name && (
+
+          {current.file_name && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#FFD400] text-black">
+                <FileText className="h-5 w-5" />
+              </div>
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{current.file_name}</p>
+              <button
+                type="button"
+                onClick={openPreview}
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#FFD400] px-4 text-xs font-black text-black transition hover:bg-[#ffe04d]"
+              >
+                <Eye className="h-4 w-4" /> {viewed ? 'Открыть ещё раз' : 'Открыть документ'}
+              </button>
               <button
                 type="button"
                 onClick={handleDownload}
-                className="h-10 rounded-xl border border-white/15 px-4 text-xs font-bold text-white/70 transition hover:border-white/30 hover:text-white"
+                aria-label={`Скачать ${current.file_name}`}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 px-3 text-xs font-bold text-white/70 transition hover:border-white/30 hover:text-white"
               >
-                Скачать {current.file_name}
+                <Download className="h-4 w-4" /> Скачать
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </section>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className={cn(
+            'space-y-5 rounded-2xl border p-4 transition-opacity sm:p-5',
+            viewed ? 'border-white/10 bg-white/[0.04]' : 'border-white/5 bg-white/[0.02] opacity-60',
+          )}
+          aria-disabled={!viewed}
+        >
+          <StepHeader n={2} done={false} title="Подпишите">
+            {viewed ? 'Проверьте ФИО и подтвердите согласие.' : 'Станет доступно, когда документ будет прочитан.'}
+          </StepHeader>
+
           <div className="space-y-2">
             <label className="auth-field-label block" htmlFor="full_name">
-              ФИО
+              ФИО полностью
             </label>
             <input
               id="full_name"
@@ -217,31 +255,45 @@ export const AgreementSignPage: React.FC = () => {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               required
-              className={inputCls}
+              disabled={!viewed}
+              autoComplete="name"
+              className="h-12 w-full rounded-ctl border px-4 text-sm transition-colors"
             />
           </div>
 
-          <label className="flex items-start gap-3 text-sm text-white/80">
+          <label
+            className={cn(
+              'flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-sm leading-6 transition-colors',
+              checked ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-white' : 'border-white/10 text-white/80 hover:border-white/20',
+              !viewed && 'cursor-not-allowed',
+            )}
+          >
             <input
               type="checkbox"
               checked={checked}
               disabled={!viewed}
               onChange={(e) => setChecked(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 disabled:opacity-40"
+              className="mt-1 h-5 w-5 shrink-0 accent-[#FFD400] disabled:opacity-40"
             />
             <span>
-              Я ознакомлен(а) с документом и согласен(на) с его условиями.
-              {!viewed && <span className="mt-1 block text-xs text-[#FFD400]">Сначала откройте превью документа.</span>}
+              Я прочитал(а) регламент «{current.title}» (редакция {current.version}), согласен(на) с его условиями и
+              обязуюсь работать по нему.
             </span>
           </label>
 
           <button
             type="submit"
-            disabled={loading || !viewed || !checked}
+            disabled={loading || !canSign}
             className="auth-primary-button h-12 w-full text-[13px] uppercase tracking-[0.14em]"
           >
-            {loading ? 'Подписываем…' : 'Подписать регламент'}
+            {loading ? 'Подписываем…' : index + 1 < pending.length ? 'Подписать и перейти к следующему' : 'Подписать регламент'}
           </button>
+
+          <p className="flex items-start gap-2 text-xs leading-5 text-white/45">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-white/40" />
+            Подпись фиксирует дату и время, ваш IP-адрес и редакцию документа. Если регламент изменят, система попросит
+            подписать новую редакцию.
+          </p>
         </form>
       </div>
 
@@ -275,7 +327,7 @@ export const AgreementSignPage: React.FC = () => {
                   onClick={() => { setViewed(true); setPreviewOpen(false) }}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#FFD400] px-4 text-xs font-black text-black hover:bg-[#ffe04d]"
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Я ознакомился с документом
+                  <CheckCircle2 className="h-4 w-4" /> Я ознакомился(ась) с документом
                 </button>
               </div>
             </div>
@@ -286,3 +338,24 @@ export const AgreementSignPage: React.FC = () => {
     </AuthShell>
   )
 }
+
+const StepHeader: React.FC<{ n: number; done: boolean; title: string; children: React.ReactNode }> = ({ n, done, title, children }) => (
+  <div className="flex items-start gap-3">
+    <span
+      className={cn(
+        'grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-black',
+        done ? 'bg-emerald-400 text-black' : 'bg-[#FFD400] text-black',
+      )}
+      aria-hidden="true"
+    >
+      {done ? <CheckCircle2 className="h-4 w-4" /> : n}
+    </span>
+    <div className="min-w-0">
+      <p className="text-sm font-bold text-white">
+        {title}
+        {done && <span className="sr-only"> — выполнено</span>}
+      </p>
+      <p className="mt-0.5 text-xs leading-5 text-white/55">{children}</p>
+    </div>
+  </div>
+)

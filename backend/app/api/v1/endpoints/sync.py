@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -16,7 +16,11 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.audit import log_change
-from app.models import IntakeSubmission, IntakeSource, IntakeStatus, Student
+from app.models import (
+    IntakeSubmission, IntakeSource, IntakeStatus, Student,
+    NotionFieldSync, FieldSyncDirection, FieldSyncStatus, NotionSnapshot,
+)
+from app.core.config import settings
 from app.models.user import UserRole
 from app.services import sheets_sync
 from app.services.intake_ai_check import check_same_meaning
@@ -36,7 +40,7 @@ from app.services.intake_promote import (
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
-def _submission_to_dict(s: IntakeSubmission) -> dict:
+def _submission_to_dict(s: IntakeSubmission, candidate_names: dict[str, str] | None = None) -> dict:
     return {
         "id": str(s.id),
         "source": s.source.value,
@@ -47,6 +51,13 @@ def _submission_to_dict(s: IntakeSubmission) -> dict:
         "suggested_student_id": str(s.suggested_student_id) if s.suggested_student_id else None,
         "suggested_student_name": s.suggested_student.full_name if s.suggested_student else None,
         "suggested_confidence": s.suggested_confidence,
+        "match_candidate_ids": [str(value) for value in (s.match_candidate_ids or [])],
+        "match_candidate_names": [
+            candidate_names[str(value)] for value in (s.match_candidate_ids or [])
+            if candidate_names and str(value) in candidate_names
+        ],
+        "identity_review_required": bool(s.identity_review_required),
+        "content_revision": s.content_revision or 1,
         "student_id": str(s.student_id) if s.student_id else None,
         "status": s.status.value,
         "raw_data": s.raw_data,
@@ -108,8 +119,26 @@ async def list_submissions(
         .limit(size)
     )
     items = result.scalars().unique().all()
+    candidate_ids: set[uuid.UUID] = set()
+    for submission in items:
+        for value in submission.match_candidate_ids or []:
+            try:
+                candidate_ids.add(uuid.UUID(str(value)))
+            except (ValueError, TypeError):
+                continue
+    candidate_names = {}
+    if candidate_ids:
+        candidate_names = {
+            str(student_id): name
+            for student_id, name in (await db.execute(
+                select(Student.id, Student.full_name).where(
+                    Student.id.in_(candidate_ids),
+                    Student.is_archived.is_(False),
+                )
+            )).all()
+        }
     return {
-        "items": [_submission_to_dict(s) for s in items],
+        "items": [_submission_to_dict(s, candidate_names) for s in items],
         "total": total,
         "page": page,
         "pages": max(1, -(-total // size)),
@@ -266,10 +295,11 @@ async def create_student_from_submission(
     if submission.status != IntakeStatus.new:
         raise HTTPException(status_code=400, detail="Анкета уже обработана")
 
-    # Защита от дублей: имя могло быть написано на другом языке — проверяем
-    # транслит-матчем по свежему списку студентов, а не только по кандидату синка
-    from migration.transformers.match import fuzzy_match
+    # Защита от дублей: собирать всех кандидатов, не останавливаться на первом
+    # совпадении (например, общий семейный телефон может принадлежать двум людям).
     from app.services.sheets_sync import load_students_index
+    from app.services.intake_identity import plausible_student_candidates
+    from app.services.intake_promote import _valid_auto_create_name
 
     students_index = await load_students_index(db)
     raw_phone = ""
@@ -277,14 +307,35 @@ async def create_student_from_submission(
         if "телефон" in str(key).lower():
             raw_phone = str(value)
             break
-    match = fuzzy_match(submission.full_name or "", raw_phone, students_index)
-    if match.student_id and match.confidence >= 0.9:
-        existing = next((s for s in students_index if s["id"] == match.student_id), None)
+    match = plausible_student_candidates(submission.full_name or "", raw_phone, students_index)
+    if match.student_ids:
+        names = [s["full_name"] for s in students_index if s["id"] in match.student_ids]
         raise HTTPException(
             status_code=409,
-            detail=f"Похоже, студент уже есть в CRM: «{existing['full_name'] if existing else ''}». "
-                   f"Используй «Привязать» вместо создания, чтобы не было дубля.",
+            detail=("Найдены возможные совпадения: " + "; ".join(f"«{name}»" for name in names) + ". "
+                    "Проверь кандидатов и используй «Привязать», чтобы не создать дубль."),
         )
+
+    # Одновременные заявки из двух форм могут быть одним и тем же человеком;
+    # такая пара также требует проверки, даже если в CRM ещё нет карточки.
+    pending_result = await db.execute(
+        select(IntakeSubmission).where(
+            IntakeSubmission.status == IntakeStatus.new,
+            IntakeSubmission.id != submission.id,
+        )
+    )
+    pending = pending_result.scalars().all()
+    pending_match = plausible_student_candidates(
+        submission.full_name or "", raw_phone,
+        [{"id": row.id, "full_name": row.full_name or "", "phone": row.phone_normalized or ""} for row in pending],
+    )
+    if pending_match.student_ids:
+        raise HTTPException(
+            status_code=409,
+            detail="Похожа на другую необработанную анкету. Сначала свяжи анкеты или проверь их вручную.",
+        )
+    if not _valid_auto_create_name(submission.full_name):
+        raise HTTPException(status_code=422, detail="В анкете недостаточно данных для безопасного создания студента.")
 
     student = await _create_student_from_intake(db, submission, current_user.id)
     await db.commit()
@@ -620,3 +671,145 @@ async def intake_overview(
         else:
             entry["has_cases"] = True
     return overview
+
+
+@router.get("/notion-field-sync")
+async def notion_field_sync_queue(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+    limit: int = Query(default=100, ge=1, le=300),
+):
+    """Read-only queue/conflict view; never reads the table before pilot migration/flag."""
+    require_access(current_user, "notion", Action.manage)
+    if not settings.ENABLE_NOTION_FIELD_SYNC:
+        return {"enabled": False, "dry_run": True, "counts": {}, "items": []}
+
+    grouped = (await db.execute(
+        select(NotionFieldSync.status, func.count())
+        .group_by(NotionFieldSync.status)
+    )).all()
+    counts = {status.value: total for status, total in grouped}
+    visible_statuses = [
+        FieldSyncStatus.conflict, FieldSyncStatus.dry_run, FieldSyncStatus.pending,
+        FieldSyncStatus.processing, FieldSyncStatus.superseded, FieldSyncStatus.failed,
+    ]
+    rows = (await db.execute(
+        select(NotionFieldSync)
+        .where(NotionFieldSync.status.in_(visible_statuses))
+        .order_by(NotionFieldSync.updated_at.desc(), NotionFieldSync.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    student_ids = {row.student_id for row in rows if row.student_id}
+    names = dict((await db.execute(
+        select(Student.id, Student.full_name).where(Student.id.in_(student_ids))
+    )).all()) if student_ids else {}
+    return {
+        "enabled": True,
+        "dry_run": settings.NOTION_FIELD_SYNC_DRY_RUN,
+        "counts": counts,
+        "items": [{
+            "id": str(row.id),
+            "student_id": str(row.student_id) if row.student_id else None,
+            "student_name": names.get(row.student_id),
+            "notion_page_id": row.notion_page_id,
+            "field_key": row.field_key,
+            "direction": row.direction.value,
+            "status": row.status.value,
+            "crm_value": row.crm_value,
+            "notion_value": row.notion_value,
+            "baseline_value": row.baseline_value,
+            "has_baseline": row.has_baseline,
+            "reason": row.reason,
+            "last_error": row.last_error,
+            "attempts": row.attempts,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        } for row in rows],
+    }
+
+
+class ResolveNotionFieldSyncBody(BaseModel):
+    side: Literal["crm", "notion"]
+
+
+@router.post("/notion-field-sync/{item_id}/resolve")
+async def resolve_notion_field_sync_conflict(
+    item_id: uuid.UUID,
+    body: ResolveNotionFieldSyncBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Queue an explicit human choice; the normal worker still guards live values."""
+    require_access(current_user, "notion", Action.manage)
+    if not settings.ENABLE_NOTION_FIELD_SYNC:
+        raise HTTPException(status_code=409, detail="Сверка полей CRM ↔ Notion выключена")
+
+    item = (await db.execute(
+        select(NotionFieldSync).where(NotionFieldSync.id == item_id).with_for_update()
+    )).scalars().first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Запись очереди не найдена")
+    if item.status is not FieldSyncStatus.conflict:
+        raise HTTPException(status_code=409, detail="Разрешать можно только открытый конфликт")
+    if item.field_key not in {"full_name", "phone", "degree_level", "intake_year"}:
+        raise HTTPException(status_code=409, detail="Это поле не входит в автоматический пилот")
+
+    from app.models.student import Student as StudentModel
+    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult
+    from app.services.notion_field_sync_runtime import (
+        _SNAPSHOT_VALUE_KEY, _crm_raw, _matches_expected, canonical_profile_value,
+    )
+    from app.services.notion_field_sync_outbox import enqueue_reconciliation
+
+    if not item.student_id or not item.notion_snapshot_id:
+        raise HTTPException(status_code=409, detail="Связь CRM ↔ Notion больше не существует")
+    student = await db.get(StudentModel, item.student_id)
+    snapshot = await db.get(NotionSnapshot, item.notion_snapshot_id)
+    if (
+        student is None or student.is_archived or snapshot is None
+        or snapshot.status.value != "linked"
+        or snapshot.student_id != student.id
+        or snapshot.notion_page_id != item.notion_page_id
+    ):
+        raise HTTPException(status_code=409, detail="Связь CRM ↔ Notion изменилась; обновите сверку")
+
+    field = item.field_key
+    current_crm = _crm_raw(field, student)
+    current_notion = (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
+    if (
+        not _matches_expected(field, current_crm, item.crm_value)
+        or canonical_profile_value(field, current_notion)
+        != canonical_profile_value(field, item.notion_value)
+    ):
+        raise HTTPException(status_code=409, detail="Данные изменились после снимка; обновите сверку")
+
+    chosen_side = FieldSide.CRM if body.side == "crm" else FieldSide.NOTION
+    result = ReconciliationResult(
+        FieldDecision.CONFLICT,
+        crm_value=item.crm_value,
+        notion_value=item.notion_value,
+        winner=chosen_side,
+    )
+    next_item = await enqueue_reconciliation(
+        db,
+        notion_snapshot_id=snapshot.id,
+        student_id=student.id,
+        notion_page_id=snapshot.notion_page_id,
+        field_key=field,
+        source_revision=f"manual-resolution:{item.id}:{body.side}",
+        result=result,
+        baseline_value=item.baseline_value,
+        has_baseline=item.has_baseline,
+        reason=f"Человек выбрал {body.side.upper()}; ожидается проверка текущих значений перед применением.",
+    )
+    now = datetime.now(timezone.utc)
+    item.status = FieldSyncStatus.resolved
+    item.resolution_side = body.side
+    item.resolved_by_id = current_user.id
+    item.resolved_at = now
+    item.updated_at = now
+    await log_change(
+        db, "student", student.id, "notion_field_conflict_resolved", None,
+        f"{field}:{body.side}", str(current_user.id), "notion_field_sync",
+    )
+    await db.commit()
+    return {"resolved": True, "side": body.side, "queued_item_id": str(next_item.id)}

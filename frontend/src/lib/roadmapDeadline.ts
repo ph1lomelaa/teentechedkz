@@ -48,3 +48,8 @@ export function sortSubtasksByDeadline<T extends { due_date: string | null; posi
     return a.position - b.position
   })
 }
+
+/** Explicit order chosen in the roadmap editor. */
+export function sortSubtasksByPosition<T extends { position: number }>(subtasks: T[]): T[] {
+  return [...subtasks].sort((a, b) => a.position - b.position)
+}

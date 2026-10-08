@@ -220,9 +220,20 @@ def test_field_direction_conflict_when_both_diverge():
     assert notion_sync.field_direction("100.00", "200.00", "300.00") == "conflict"
 
 
+def test_field_direction_does_not_treat_unconfirmed_clear_as_latest_edit():
+    # Удаление значения без отдельного события очистки остаётся на ручную сверку.
+    assert notion_sync.field_direction("100.00", None, "100.00") == "conflict"
+
+
+def test_field_direction_distinguishes_explicit_empty_baseline_from_missing():
+    assert notion_sync.field_direction(None, "new", None, has_baseline=True) == "notion_newer"
+    assert notion_sync.field_direction(None, "new", None, has_baseline=False) == "unknown"
+
+
 def test_editable_canon_normalizes_both_sides_equally():
     d = {
         "full_name": "  Иван   Иванов ",
+        "mentor_total": "125000",
         "client_remaining": "750000",
         "client_remaining_date": "2026-06-25",
         "payment_status_raw": "Активная работа",
@@ -230,7 +241,8 @@ def test_editable_canon_normalizes_both_sides_equally():
     student = SimpleNamespace(full_name="иван иванов", phone=None, degree_level=None, intake_year=None)
     contract = SimpleNamespace(
         pipeline_status=None, signed_date=None, amount=None, english_sum=None,
-        english_paid=None, client_remaining_amount=Decimal("750000.00"),
+        english_paid=None, mentor_total_owed=Decimal("125000.00"),
+        client_remaining_amount=Decimal("750000.00"),
         client_remaining_date=date(2026, 6, 25),
     )
     canon = notion_sync.editable_canon(d, student, contract)
@@ -238,6 +250,7 @@ def test_editable_canon_normalizes_both_sides_equally():
     assert canon["full_name"] == ("иван иванов", "иван иванов")
     # Деньги: "750000" и Decimal("750000.00") приводятся к одному виду.
     assert canon["client_remaining"] == ("750000.00", "750000.00")
+    assert canon["mentor_total"] == ("125000.00", "125000.00")
     # Дата: строка и date → один ISO-вид.
     assert canon["client_remaining_date"] == ("2026-06-25", "2026-06-25")
 

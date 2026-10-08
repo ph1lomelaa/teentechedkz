@@ -150,9 +150,14 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // AGREEMENT_SIGNATURE_REQUIRED — админ опубликовал новую редакцию
+    // регламента, пока вкладка была открыта. Тот же перечитанный /auth/me
+    // поднимет флаг agreement_signature_required, и роутер сразу уведёт на
+    // страницу подписи, а не оставит человека с непонятными ошибками.
+    const errorCode = error.response?.headers?.['x-error-code']
     if (
       error.response?.status === 403 &&
-      error.response.headers?.['x-error-code'] === 'FORBIDDEN'
+      (errorCode === 'FORBIDDEN' || errorCode === 'AGREEMENT_SIGNATURE_REQUIRED')
     ) {
       onForbidden?.()
     }

@@ -238,7 +238,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
-            <Input placeholder="Ссылка (Zoom/Meet)" value={link} onChange={(e) => setLink(e.target.value)} />
+            <Input placeholder="Ссылка (Google Meet)" value={link} onChange={(e) => setLink(e.target.value)} />
             <Input placeholder="Повестка / что проверить" value={description} onChange={(e) => setDescription(e.target.value)} />
             <label className="text-xs text-gray-500">
               Начало

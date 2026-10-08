@@ -139,7 +139,12 @@ def _zoom_status(user: User) -> dict:
     return {
         # Включена ли запись ботом вообще (Meet и Teams работают и без Zoom).
         "bot_enabled": bool(settings.MEETING_BOT_ENABLED),
-        "available": bool(settings.MEETING_BOT_ENABLED and settings.ZOOM_CLIENT_ID),
+        # Пускаем ли бота в Zoom и как: off | company (только корпоративный
+        # аккаунт, подключение не нужно) | obf (любые встречи после проверки Zoom).
+        "zoom_bot_enabled": bool(settings.MEETING_BOT_ENABLED and settings.ZOOM_BOT_MODE != "off"),
+        "zoom_mode": settings.ZOOM_BOT_MODE if settings.MEETING_BOT_ENABLED else "off",
+        # Подключать свой Zoom нужно только в режиме obf.
+        "available": bool(settings.MEETING_BOT_ENABLED and settings.ZOOM_BOT_MODE == "obf" and settings.ZOOM_CLIENT_ID),
         "connected": connected,
         "state": user.zoom_connection_state,
         "connected_at": user.zoom_connected_at.isoformat() if user.zoom_connected_at else None,

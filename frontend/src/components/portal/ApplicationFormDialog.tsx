@@ -115,7 +115,10 @@ export const ApplicationFormDialog: React.FC<{
           >
             <select
               value={values.university_id ?? ''}
-              onChange={(e) => setValues((v) => ({ ...v, university_id: e.target.value || null }))}
+              onChange={(e) => {
+                const selected = catalog.find((u) => u.id === e.target.value)
+                setValues((v) => ({ ...v, university_id: selected?.id ?? null, university: selected?.name ?? v.university }))
+              }}
               className={CONTROL}
               disabled={!values.country || universitiesForCountry.length === 0}
             >
@@ -128,23 +131,14 @@ export const ApplicationFormDialog: React.FC<{
             </select>
           </Field>
 
-          {!values.university_id && (
-            <Field
-              label="Вуз текстом"
-              hint={
-                values.country && universitiesForCountry.length === 0
-                  ? 'Впишите название вручную'
-                  : 'Если его ещё нет в справочнике'
-              }
-            >
-              <input
-                value={values.university ?? ''}
-                onChange={(e) => setValues((v) => ({ ...v, university: e.target.value || null }))}
-                placeholder="Например, Bogaziçi Üniversitesi"
-                className={CONTROL}
-              />
-            </Field>
-          )}
+          <Field label="Или впишите вуз вручную" hint="Можно указать вуз, которого нет в справочнике. При вводе связь со справочником снимается только у этой заявки.">
+            <input
+              value={values.university ?? ''}
+              onChange={(e) => setValues((v) => ({ ...v, university: e.target.value || null, university_id: null }))}
+              placeholder="Например, Bogaziçi Üniversitesi"
+              className={CONTROL}
+            />
+          </Field>
 
           <Field label="Программа" hint="Необязательно">
             <input

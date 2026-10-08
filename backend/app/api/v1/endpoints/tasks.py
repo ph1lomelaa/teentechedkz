@@ -290,6 +290,12 @@ async def create_tasks_bulk(
     менторам» — на момент создания, без доназначения тем, кто появится позже.
     """
     require_access(current_user, "tasks_bulk", Action.manage)
+    # Права постановщика проверяем до цикла: внутри create_task отказ по
+    # правам попадал в skipped у каждого исполнителя, и человек получал 422
+    # «Ни одна задача не создана» вместо понятного «нет права».
+    require_access(current_user, "tasks", Action.manage)
+    if optional_uuid(body, "student_id") is None:
+        require_access(current_user, "tasks_general", Action.manage)
 
     raw_ids = body.get("assignee_ids") or []
     if not isinstance(raw_ids, list):

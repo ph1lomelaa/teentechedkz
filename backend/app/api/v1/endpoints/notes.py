@@ -262,11 +262,7 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail="Конспект не найден")
 
-    if note.student_id and not allows(resource="notes", action=Action.manage, role=current_user.role):
-        mentor_ids = await _mentor_student_ids(db, current_user.id)
-        if note.student_id not in mentor_ids:
-            raise HTTPException(status_code=403, detail="Access denied")
-    elif not note.student_id and note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
+    if note.created_by != current_user.id and not allows(resource="notes", action=Action.manage, role=current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(note)

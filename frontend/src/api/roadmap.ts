@@ -302,11 +302,13 @@ export const roadmapApi = {
   }>) =>
     data<Roadmap>(apiClient.patch(`/roadmap-tasks/${taskId}`, body)),
   deleteTask: (taskId: string) => apiClient.delete(`/roadmap-tasks/${taskId}`),
+  restoreTask: (taskId: string) => data<Roadmap>(apiClient.post(`/roadmap-tasks/${taskId}/restore`)),
   createSubtask: (taskId: string, title: string, dueDate?: string | null) =>
     data<Roadmap>(apiClient.post(`/roadmap-tasks/${taskId}/subtasks`, { title, due_date: dueDate || null })),
-  updateSubtask: (subtaskId: string, body: { is_done?: boolean; title?: string; due_date?: string | null }) =>
+  updateSubtask: (subtaskId: string, body: { is_done?: boolean; title?: string; due_date?: string | null; position?: number }) =>
     data<Roadmap>(apiClient.patch(`/roadmap-subtasks/${subtaskId}`, body)),
   deleteSubtask: (subtaskId: string) => apiClient.delete(`/roadmap-subtasks/${subtaskId}`),
+  restoreSubtask: (subtaskId: string) => data<Roadmap>(apiClient.post(`/roadmap-subtasks/${subtaskId}/restore`)),
 
   // студенческая заявка о выполнении (T1/T2) — эндпоинт без записываемых полей
   completeTask: (taskId: string) =>

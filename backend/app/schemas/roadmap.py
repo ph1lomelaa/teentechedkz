@@ -149,11 +149,6 @@ class RoadmapSubtaskOut(BaseModel):
         return self
 
 
-def sort_subtasks_by_deadline(subtasks: list) -> list:
-    """По сроку; без срока — в конец; при равенстве сохраняется порядок position."""
-    return sorted(subtasks, key=lambda st: (st.due_date is None, st.due_date or date.max, st.position))
-
-
 class RoadmapTaskOut(BaseModel):
     model_config = _cfg
     activity_participation_id: uuid.UUID | None = None
@@ -180,11 +175,16 @@ class RoadmapTaskOut(BaseModel):
     position: int
     subtasks: list[RoadmapSubtaskOut] = []
 
+    @field_validator("subtasks", mode="before")
+    @classmethod
+    def _active_subtasks(cls, value):
+        return [item for item in value if getattr(item, "deleted_at", None) is None]
+
     @model_validator(mode="after")
     def _fill_urgency(self) -> "RoadmapTaskOut":
         self.urgency = task_urgency(self.due_date, self.status)
         self.overdue_days = overdue_days(self.due_date, done=self.status in NO_URGENCY_STATUSES)
-        self.subtasks = sort_subtasks_by_deadline(self.subtasks)
+        self.subtasks = sorted(self.subtasks, key=lambda subtask: subtask.position)
         return self
 
 
@@ -202,6 +202,11 @@ class StageOut(BaseModel):
     required_done: int = 0
     can_complete: bool = True
     tasks: list[RoadmapTaskOut] = []
+
+    @field_validator("tasks", mode="before")
+    @classmethod
+    def _active_tasks(cls, value):
+        return [item for item in value if getattr(item, "deleted_at", None) is None]
 
 
 class RoadmapOut(BaseModel):
@@ -326,6 +331,7 @@ class SubtaskUpdate(BaseModel):
     title: str | None = None
     is_done: bool | None = None
     due_date: date | None = None
+    position: int | None = Field(default=None, ge=0)
 
     _v_due = field_validator("due_date")(_check_deadline)
 

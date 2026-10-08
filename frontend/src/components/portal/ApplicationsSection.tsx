@@ -227,9 +227,8 @@ const ApplicationCard: React.FC<{
   // Своя дата — главная; пока её нет, показываем справочный ориентир вуза,
   // явно помечая его, чтобы не приняли за подтверждённый дедлайн.
   const referenceDeadline = uni?.deadline_note || null
-  // Заголовок: имя из справочника → свободный текст → страна. Последнее — то
-  // единственное, что заполнено у большинства существующих заявок.
-  const title = uni?.name || app.university || app.country
+  const title = app.university || uni?.name || app.country
+  const differsFromCatalog = Boolean(uni && app.university && app.university.trim() !== uni.name.trim())
   const subtitle = [uni?.country_name || app.country, uni?.city, app.program]
     .filter(Boolean)
     .join(' · ')
@@ -261,6 +260,8 @@ const ApplicationCard: React.FC<{
         </div>
 
         {subtitle && <p className="mt-0.5 truncate text-xs text-p-muted">{subtitle}</p>}
+        {differsFromCatalog && <p className="mt-0.5 text-xs text-p-muted">В справочнике: {uni?.name}</p>}
+        {!uni && app.university && <p className="mt-0.5 text-[11px] text-p-muted2">Название вписано вручную</p>}
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-p-panel2 px-2 py-0.5 text-[10px] font-bold text-p-muted2">

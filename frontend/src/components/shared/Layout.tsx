@@ -384,7 +384,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
         </header>
         {/* Content */}
         <main ref={mainRef} className="app-main flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6">
-          <div className="mx-auto w-full max-w-[1180px]">
+          <div className={`mx-auto w-full ${['/students', '/students/distribution', '/dashboard'].includes(location.pathname) ? 'max-w-[1680px]' : 'max-w-[1180px]'}`}>
             <React.Suspense
               fallback={(
                 <div className="flex min-h-[50vh] items-center justify-center text-sm crm-muted">

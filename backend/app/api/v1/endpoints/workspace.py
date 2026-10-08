@@ -34,7 +34,6 @@ from app.models.student_note import StudentNote, StudentNoteStatus
 from app.models.student_task import StudentTask, TaskStatus
 from app.services.task_sla import SLA_TRACKED_STATUSES, month_bounds
 from app.services.task_urgency import NO_URGENCY_STATUSES, overdue_days, task_urgency
-from app.schemas.roadmap import sort_subtasks_by_deadline
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
 from app.models.telegram_attachment import TelegramAttachment
 from app.models.telegram_message import TelegramMessage
@@ -197,10 +196,10 @@ def _roadmap_detail(roadmap: Roadmap | None) -> dict | None:
                                 "overdue_days": overdue_days(subtask.due_date, done=subtask.is_done),
                                 "position": subtask.position,
                             }
-                            for subtask in sort_subtasks_by_deadline(task.subtasks)
+                            for subtask in sorted(task.subtasks, key=lambda row: row.position) if subtask.deleted_at is None
                         ],
                     }
-                    for task in sorted(stage.tasks, key=lambda row: row.position)
+                    for task in sorted(stage.tasks, key=lambda row: row.position) if task.deleted_at is None
                 ],
             }
             for stage in sorted(roadmap.stages, key=lambda row: row.position)
@@ -221,7 +220,7 @@ def _roadmap_summary(roadmap: Roadmap | None) -> dict:
             "tasks_done": 0,
             "progress": 0,
         }
-    tasks = [task for stage in roadmap.stages for task in stage.tasks]
+    tasks = [task for stage in roadmap.stages for task in stage.tasks if task.deleted_at is None]
     done = len([task for task in tasks if task.status == RoadmapItemStatus.done])
     total = len(tasks)
     emoji, url = flag_for(roadmap.country_name)
@@ -1030,6 +1029,8 @@ async def workspace_roadmap_tasks(
         seen.add(roadmap.student_id)
         for stage in roadmap.stages:
             for task in stage.tasks:
+                if task.deleted_at is not None:
+                    continue
                 is_done = task.status == RoadmapItemStatus.done
                 if status == "open" and is_done:
                     continue
@@ -1055,8 +1056,8 @@ async def workspace_roadmap_tasks(
                         "needs_zoom": task.needs_zoom,
                         "has_questionnaire": bool(task.questionnaire_url),
                         "questionnaire_url": task.questionnaire_url,
-                        "subtasks_total": len(task.subtasks),
-                        "subtasks_done": len([st for st in task.subtasks if st.is_done]),
+                        "subtasks_total": len([st for st in task.subtasks if st.deleted_at is None]),
+                        "subtasks_done": len([st for st in task.subtasks if st.deleted_at is None and st.is_done]),
                         "position": task.position,
                         "review_status": task.review_status.value,
                         "completed_at": task.completed_at.isoformat() if task.completed_at else None,

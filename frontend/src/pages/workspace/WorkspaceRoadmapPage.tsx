@@ -6,6 +6,8 @@ import { workspaceApi } from '@/api/workspace'
 import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn } from '@/lib/utils'
+import { formatDeadline } from '@/lib/roadmapDeadline'
+import { roadmapDeadlineSummary } from '@/lib/roadmapSummary'
 import { AppCard, AppInput, EmptyState, PageHeader, Pill } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 
@@ -15,6 +17,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
   const [studentId, setStudentId] = useState('')
   const [studentListOpen, setStudentListOpen] = useState(false)
   const [updatedRoadmaps, setUpdatedRoadmaps] = useState<Record<string, Roadmap>>({})
+  const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'overdue' | 'next7' | 'withoutDate'>('all')
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'roadmaps', 'full', params],
@@ -26,8 +29,20 @@ export const WorkspaceRoadmapPage: React.FC = () => {
     const q = search.trim().toLowerCase()
     return rows.filter((row) => !q || row.student.full_name.toLowerCase().includes(q))
   }, [rows, search])
-  const visibleRows = rows.filter((row) => !studentId || row.student.id === studentId)
+  const summaries = useMemo(() => new Map(rows.map((row) => [row.student.id, roadmapDeadlineSummary(updatedRoadmaps[row.student.id] || row.roadmap)])), [rows, updatedRoadmaps])
+  const visibleRows = rows.filter((row) => {
+    if (studentId && row.student.id !== studentId) return false
+    const summary = summaries.get(row.student.id)
+    return deadlineFilter === 'all' || Boolean(summary?.[deadlineFilter])
+  })
   const missing = rows.filter((row) => !row.roadmap).length
+  const totals = rows.reduce((sum, row) => {
+    const summary = summaries.get(row.student.id)
+    sum.overdue += summary?.overdue ?? 0
+    sum.next7 += summary?.next7 ?? 0
+    sum.withoutDate += summary?.withoutDate ?? 0
+    return sum
+  }, { overdue: 0, next7: 0, withoutDate: 0 })
 
   return (
     <div className="fade-in">
@@ -56,6 +71,16 @@ export const WorkspaceRoadmapPage: React.FC = () => {
         )}
       >
         <div className="space-y-5">
+          <div className="flex flex-wrap gap-2" aria-label="Фильтр сроков roadmap">
+            {([
+              ['all', `Все студенты · ${rows.length}`],
+              ['overdue', `Просрочено · ${totals.overdue}`],
+              ['next7', `Следующие 7 дней · ${totals.next7}`],
+              ['withoutDate', `Без срока · ${totals.withoutDate}`],
+            ] as const).map(([key, label]) => <button key={key} type="button" onClick={() => setDeadlineFilter(key)}
+              aria-pressed={deadlineFilter === key}
+              className={cn('rounded-ctl border px-3 py-2 text-xs font-bold transition', deadlineFilter === key ? 'border-w-accent bg-w-accent text-black' : 'border-w-line bg-w-panel text-w-muted hover:text-w-ink')}>{label}</button>)}
+          </div>
           <AppCard colorPrefix="w" className="p-3">
             <div className="relative">
               <div className="relative">
@@ -139,6 +164,7 @@ export const WorkspaceRoadmapPage: React.FC = () => {
             <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
               {visibleRows.map((row) => {
                 const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
+                const deadlines = summaries.get(row.student.id)
                 return (
                   <AppCard colorPrefix="w" key={row.student.id} className="min-w-0 p-4">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
@@ -156,6 +182,13 @@ export const WorkspaceRoadmapPage: React.FC = () => {
                         </Pill>
                       )}
                     </div>
+
+                    {roadmap && <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                      {Boolean(deadlines?.overdue) && <span className="rounded-full bg-red-500/15 px-2 py-1 font-bold text-red-600">Просрочено: {deadlines?.overdue}</span>}
+                      {Boolean(deadlines?.next7) && <span className="rounded-full bg-amber-500/15 px-2 py-1 font-bold text-amber-600">7 дней: {deadlines?.next7}</span>}
+                      {Boolean(deadlines?.withoutDate) && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Без срока: {deadlines?.withoutDate}</span>}
+                      {deadlines?.nearest && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Ближайший: {formatDeadline(deadlines.nearest)}</span>}
+                    </div>}
 
                     {roadmap ? (
                       <WorkspaceRoadmapEditor

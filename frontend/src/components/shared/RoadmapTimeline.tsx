@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react'
-import { Check, ChevronRight, Eye, EyeOff, Plus, X, Clock } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, Check, ChevronRight, Eye, EyeOff, GripVertical, Plus, X, Clock } from 'lucide-react'
 import {
   roadmapApi,
   Roadmap,
@@ -19,10 +19,11 @@ import {
 } from '@/components/ui/primitives/dialog'
 import { Input } from '@/components/ui/primitives/input'
 import { toast } from '@/hooks/use-toast'
+import { ToastAction } from '@/components/ui/primitives/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { Label } from '@/components/ui/primitives/label'
 import { DeadlineField } from '@/components/shared/DeadlineField'
-import { overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
+import { overdueDaysOf, sortSubtasksByPosition } from '@/lib/roadmapDeadline'
 
 const STAGE_CYCLE: Record<ItemStatus, ItemStatus> = {
   planned: 'in_progress',
@@ -128,25 +129,18 @@ export const RoadmapTimeline: React.FC<{
     }))
   }
   const removeTask = async (t: RoadmapTask) => {
-    if (busy || !window.confirm('Удалить задачу?')) return
+    if (busy) return
     setBusy(true)
     try {
       await roadmapApi.deleteTask(t.id)
       const rm = await roadmapApi.getRoadmap(roadmap.id)
       if (rm) onChanged(rm)
+      toast({ title: `Удалена задача «${t.title}»`, duration: 5000, action: <ToastAction altText="Отменить удаление задачи" onClick={() => run(() => roadmapApi.restoreTask(t.id))}>Отменить</ToastAction> })
+    } catch (error) {
+      toast({ title: 'Не удалось удалить задачу', description: getErrorMessage(error), variant: 'destructive' })
     } finally {
       setBusy(false)
     }
-  }
-  const addSubtask = (t: RoadmapTask) => {
-    const title = window.prompt('Название подзадачи')?.trim()
-    if (!title) return
-    const dueDate = window.prompt('Срок подзадачи (ГГГГ-ММ-ДД, необязательно)')?.trim()
-    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-      toast({ title: 'Введите срок в формате ГГГГ-ММ-ДД', variant: 'destructive' })
-      return
-    }
-    run(() => roadmapApi.createSubtask(t.id, title, dueDate || null))
   }
   const removeSubtask = async (subId: string) => {
     if (busy) return
@@ -155,6 +149,9 @@ export const RoadmapTimeline: React.FC<{
       await roadmapApi.deleteSubtask(subId)
       const rm = await roadmapApi.getRoadmap(roadmap.id)
       if (rm) onChanged(rm)
+      toast({ title: 'Подзадача удалена', duration: 5000, action: <ToastAction altText="Отменить удаление подзадачи" onClick={() => run(() => roadmapApi.restoreSubtask(subId))}>Отменить</ToastAction> })
+    } catch (error) {
+      toast({ title: 'Не удалось удалить подзадачу', description: getErrorMessage(error), variant: 'destructive' })
     } finally {
       setBusy(false)
     }
@@ -251,7 +248,10 @@ export const RoadmapTimeline: React.FC<{
                       onToggleSub={toggleSubtask}
                       onUpdateDate={(dueDate) => run(() => roadmapApi.updateTask(t.id, { due_date: dueDate }))}
                       onUpdateSubDate={(id, dueDate) => run(() => roadmapApi.updateSubtask(id, { due_date: dueDate || null }))}
-                      onAddSub={() => addSubtask(t)}
+                      onUpdateTask={body => run(() => roadmapApi.updateTask(t.id, body))}
+                      onUpdateSubTitle={(id, title) => run(() => roadmapApi.updateSubtask(id, { title }))}
+                      onReorderSubs={ids => run(async () => { let updated = roadmap; for (let i = 0; i < ids.length; i += 1) updated = await roadmapApi.updateSubtask(ids[i], { position: i }); return updated })}
+                      onAddSub={title => run(() => roadmapApi.createSubtask(t.id, title))}
                       onRemove={() => removeTask(t)}
                       onRemoveSub={removeSubtask}
                     />
@@ -364,6 +364,26 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void }> = ({ stat
   </button>
 )
 
+const InlineRoadmapText: React.FC<{ value: string; editable: boolean; label: string; onSave: (value: string) => void; className?: string; multiline?: boolean; required?: boolean; emptyLabel?: string }> = ({ value, editable, label, onSave, className, multiline, required, emptyLabel }) => {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const input = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
+  const skipBlur = useRef(false)
+  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+  useEffect(() => { if (editing) { skipBlur.current = false; input.current?.select() } }, [editing])
+  useEffect(() => { if (editing && input.current instanceof HTMLTextAreaElement) { input.current.style.height = 'auto'; input.current.style.height = `${input.current.scrollHeight}px` } }, [draft, editing])
+  const save = () => {
+    if (skipBlur.current) { skipBlur.current = false; return }
+    const next = draft.trim()
+    setEditing(false)
+    if (next !== value && (!required || next)) onSave(next)
+  }
+  if (!editable && !value) return null
+  if (!editing) return editable ? <button type="button" onClick={() => setEditing(true)} className={cn('max-w-full whitespace-pre-wrap text-left hover:underline focus-visible:outline-2 focus-visible:outline-p-accent', className)} aria-label={`Изменить: ${label}`}>{value || emptyLabel}</button> : <span className={cn('whitespace-pre-wrap', className)}>{value}</span>
+  const common = { ref: input, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: save, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Escape') { skipBlur.current = true; setEditing(false); setDraft(value) } else if (event.key === 'Enter' && (!multiline || event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); skipBlur.current = true } }, 'aria-label': label, className: 'w-full rounded-ctl border border-p-accent-dim bg-p-panel px-2 py-1 text-sm text-p-text outline-none focus:border-p-accent' }
+  return multiline ? <textarea {...common} rows={Math.max(2, draft.split('\n').length)} /> : <input {...common} />
+}
+
 const TaskRow: React.FC<{
   task: RoadmapTask
   canManage: boolean
@@ -372,10 +392,27 @@ const TaskRow: React.FC<{
   onToggleSub: (id: string, isDone: boolean) => void
   onUpdateDate: (dueDate: string | null) => void
   onUpdateSubDate: (id: string, dueDate: string | null) => void
-  onAddSub: () => void
+  onUpdateTask: (body: Parameters<typeof roadmapApi.updateTask>[1]) => void
+  onUpdateSubTitle: (id: string, title: string) => void
+  onReorderSubs: (ids: string[]) => void
+  onAddSub: (title: string) => void
   onRemove: () => void
   onRemoveSub: (id: string) => void
-}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onUpdateSubDate, onAddSub, onRemove, onRemoveSub }) => {
+}> = ({ task, canManage, onToggle, onToggleVisibility, onToggleSub, onUpdateDate, onUpdateSubDate, onUpdateTask, onUpdateSubTitle, onReorderSubs, onAddSub, onRemove, onRemoveSub }) => {
+  const [addingSub, setAddingSub] = useState(false)
+  const [subDraft, setSubDraft] = useState('')
+  const [confirmTask, setConfirmTask] = useState(false)
+  const [confirmSub, setConfirmSub] = useState<string | null>(null)
+  const [dragSub, setDragSub] = useState<string | null>(null)
+  const orderedSubs = sortSubtasksByPosition(task.subtasks)
+  const move = (from: string, to: string) => {
+    if (from === to) return
+    const ids = orderedSubs.map(sub => sub.id)
+    ids.splice(ids.indexOf(from), 1)
+    ids.splice(ids.indexOf(to), 0, from)
+    onReorderSubs(ids)
+  }
+  const addSub = () => { if (subDraft.trim()) { onAddSub(subDraft.trim()); setSubDraft('') } }
   const isDone = task.status === 'done'
   const taskOverdue = overdueDaysOf(task, isDone)
   return (
@@ -392,22 +429,9 @@ const TaskRow: React.FC<{
           <Check className="w-3.5 h-3.5" strokeWidth={3} />
         </button>
         <div className="min-w-[10rem] flex-1">
-          <div
-            className={cn(
-              'text-sm font-bold',
-              isDone ? 'line-through text-p-muted2' : 'text-p-text'
-            )}
-          >
-            {task.title}
-          </div>
-          {task.description && (
-            <div className="mt-1 line-clamp-2 text-xs text-p-muted">{task.description}</div>
-          )}
-          {task.expected_result && (
-            <div className="mt-1 text-xs text-p-muted">
-              <span className="font-bold text-p-text">Результат:</span> {task.expected_result}
-            </div>
-          )}
+          <InlineRoadmapText value={task.title} editable={canManage} required label="Название задачи" className={cn('text-sm font-bold', isDone ? 'line-through text-p-muted2' : 'text-p-text')} onSave={title => onUpdateTask({ title })} />
+          <div className="mt-1"><InlineRoadmapText value={task.description} editable={canManage} multiline emptyLabel="+ описание" label="Описание задачи" className="text-xs text-p-muted" onSave={description => onUpdateTask({ description })} /></div>
+          {(canManage || task.expected_result) && <div className="mt-1 text-xs text-p-muted">{task.expected_result && <span className="font-bold text-p-text">Результат: </span>}<InlineRoadmapText value={task.expected_result} editable={canManage} multiline emptyLabel="+ результат" label="Результат задачи" className="text-xs text-p-muted" onSave={expected_result => onUpdateTask({ expected_result })} /></div>}
           <div className="flex items-center gap-3 mt-1 text-xs text-p-muted flex-wrap">
             {task.audience === 'coordinator' && <span className="text-p-muted2">координатор</span>}
             {!task.visible_to_student && (
@@ -423,7 +447,7 @@ const TaskRow: React.FC<{
             )}
           </div>
         </div>
-        <PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" />
+        {canManage ? <button type="button" onClick={() => onUpdateTask({ priority: task.priority === 'required' ? 'optional' : 'required' })} aria-label="Изменить обязательность" title="Изменить обязательность"><PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" /></button> : <PriorityPill priority={task.priority} colorPrefix="ds" showIcon={false} className="shrink-0" />}
         {canManage && (
           <button
             onClick={onToggleVisibility}
@@ -435,17 +459,19 @@ const TaskRow: React.FC<{
           </button>
         )}
         {canManage && (
-          <button onClick={onRemove} className="text-p-muted2 hover:text-ds-danger shrink-0" aria-label="Удалить задачу">
+          <button onClick={() => setConfirmTask(true)} className="text-p-muted2 hover:text-ds-danger shrink-0" aria-label="Удалить задачу">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
+      {confirmTask && <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-ctl bg-ds-danger/10 p-2 text-xs text-ds-danger">Удалить «{task.title}»? <button onClick={() => { onRemove(); setConfirmTask(false) }} className="font-bold underline">Удалить</button><button onClick={() => setConfirmTask(false)} className="underline">Отмена</button></div>}
 
       {(task.due_date || canManage) && (
         <div className="-mt-2 flex justify-end px-[18px] pb-2.5 sm:pl-[52px]">
           <DeadlineField
             dueDate={task.due_date}
             overdueDays={taskOverdue}
+            done={isDone}
             onChange={canManage ? onUpdateDate : undefined}
             label={`Срок задачи «${task.title}»`}
           />
@@ -454,8 +480,9 @@ const TaskRow: React.FC<{
 
       {(task.subtasks.length > 0 || canManage) && (
         <div className="border-t border-p-line px-[18px] py-2.5 pl-10 sm:pl-[52px] space-y-1.5">
-          {sortSubtasksByDeadline(task.subtasks).map((st) => (
-            <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 group">
+          {orderedSubs.map((st, index) => (
+            <div key={st.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 group" onDragOver={event => { if (canManage) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (dragSub) move(dragSub, st.id); setDragSub(null) }}>
+              {canManage && <span draggable onDragStart={() => setDragSub(st.id)} onDragEnd={() => setDragSub(null)} className="cursor-grab text-p-muted2" title="Перетащить подзадачу"><GripVertical className="h-3.5 w-3.5" /></span>}
               <button
                 onClick={() => onToggleSub(st.id, st.is_done)}
                 className={cn(
@@ -466,12 +493,11 @@ const TaskRow: React.FC<{
               >
                 <Check className="w-3 h-3" strokeWidth={3} />
               </button>
-              <span className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'line-through text-p-muted2' : 'text-p-muted')}>
-                {st.title}
-              </span>
+              <InlineRoadmapText value={st.title} editable={canManage} required label="Название подзадачи" className={cn('min-w-[7rem] flex-1 text-xs', st.is_done ? 'line-through text-p-muted2' : 'text-p-muted')} onSave={title => onUpdateSubTitle(st.id, title)} />
+              {canManage && <span className="flex gap-1"><button type="button" disabled={index === 0} onClick={() => move(st.id, orderedSubs[index - 1].id)} aria-label="Переместить выше" className="disabled:opacity-30"><ArrowUp className="h-3 w-3" /></button><button type="button" disabled={index === orderedSubs.length - 1} onClick={() => move(st.id, orderedSubs[index + 1].id)} aria-label="Переместить ниже" className="disabled:opacity-30"><ArrowDown className="h-3 w-3" /></button></span>}
               {canManage && (
-                <button
-                  onClick={() => onRemoveSub(st.id)}
+                confirmSub === st.id ? <span className="text-xs text-ds-danger">Удалить? <button onClick={() => { onRemoveSub(st.id); setConfirmSub(null) }} className="font-bold underline">Да</button> <button onClick={() => setConfirmSub(null)} className="underline">Нет</button></span> : <button
+                  onClick={() => setConfirmSub(st.id)}
                   className="text-p-muted2 hover:text-ds-danger opacity-0 group-hover:opacity-100"
                   aria-label="Удалить подзадачу"
                 >
@@ -483,15 +509,16 @@ const TaskRow: React.FC<{
                 subtle
                 dueDate={st.due_date}
                 overdueDays={overdueDaysOf(st, st.is_done)}
+                done={st.is_done}
                 taskDueDate={task.due_date}
                 onChange={canManage ? (dueDate) => onUpdateSubDate(st.id, dueDate) : undefined}
                 label={`Срок подзадачи «${st.title}»`}
               />
             </div>
           ))}
-          {canManage && (
+          {canManage && (addingSub ? <input autoFocus value={subDraft} onChange={event => setSubDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addSub(); if (event.key === 'Escape') { setAddingSub(false); setSubDraft('') } }} placeholder="Название подзадачи" aria-label="Новая подзадача" className="w-full rounded-ctl border border-p-line bg-p-panel px-2 py-1 text-xs text-p-text" /> :
             <button
-              onClick={onAddSub}
+              onClick={() => setAddingSub(true)}
               className="inline-flex items-center gap-1 text-xs font-medium text-p-muted hover:text-p-text"
             >
               <Plus className="w-3 h-3" /> подзадача

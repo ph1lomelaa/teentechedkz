@@ -72,6 +72,7 @@ export const ShortlistSection: React.FC<{
           Добавить вуз
         </button>
       </div>
+      <p className="mb-3 text-xs text-p-muted">В этот список добавляются вузы из справочника. Название вуза, которого в нём нет, можно вписать вручную в разделе «Заявки» при создании заявки.</p>
 
       {isError ? (
         <QueryError colorPrefix="p" error={error} onRetry={refetch} />

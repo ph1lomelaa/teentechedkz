@@ -1,7 +1,7 @@
 import React from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, X, Pencil, Send, FileText, User, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Check, X, Pencil, Send, FileText, User, ChevronRight, Trash2 } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { Button } from '@/components/ui/primitives/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
@@ -92,16 +92,18 @@ function renderDiffPreview(
 export const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const inWorkspace = location.pathname.startsWith('/workspace/')
   const notesHome = inWorkspace ? '/workspace/notes' : '/notes'
   const queryClient = useQueryClient()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
   const [view, setView] = React.useState<'mentor' | 'student' | 'source'>('mentor')
   const [editing, setEditing] = React.useState(false)
   const [editedSummary, setEditedSummary] = React.useState('')
   const [editedStudentSummary, setEditedStudentSummary] = React.useState('')
   const [editedProfileNotes, setEditedProfileNotes] = React.useState<string[]>([])
   const [rejectConfirmOpen, setRejectConfirmOpen] = React.useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [pubTitle, setPubTitle] = React.useState('')
   const [hiddenBlocks, setHiddenBlocks] = React.useState<Set<string>>(new Set())
   const [enabledChangeKeys, setEnabledChangeKeys] = React.useState<Set<string>>(new Set())
@@ -116,6 +118,20 @@ export const NoteDetailPage: React.FC = () => {
     queryKey: ['note-diff', id],
     queryFn: () => notesApi.diff(id!),
     enabled: Boolean(id),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => notesApi.delete(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'notes'] })
+      queryClient.invalidateQueries({ queryKey: ['student-meeting-notes'] })
+      queryClient.invalidateQueries({ queryKey: ['portal', 'notes'] })
+      if (note?.student_id) invalidateStudent(queryClient, note.student_id)
+      toast({ title: 'Конспект удалён' })
+      navigate(notesHome)
+    },
+    onError: () => toast({ title: 'Не удалось удалить конспект', variant: 'destructive' }),
   })
 
   React.useEffect(() => {
@@ -254,7 +270,10 @@ export const NoteDetailPage: React.FC = () => {
             <span className="rounded-full border border-p-line px-3 py-1.5 text-p-muted">{note.published_to_student ? 'Виден ученику' : 'Только для команды'}</span>
           </div>
         </div>
-        {note.student_id && <Button variant="outline" asChild><Link to={inWorkspace ? `/workspace/students/${note.student_id}#meetings` : `/students/${note.student_id}`}><User className="mr-2 h-4 w-4" />Карточка студента<ChevronRight className="ml-2 h-4 w-4" /></Link></Button>}
+        <div className="flex gap-2">
+          {note.student_id && <Button variant="outline" asChild><Link to={inWorkspace ? `/workspace/students/${note.student_id}#meetings` : `/students/${note.student_id}`}><User className="mr-2 h-4 w-4" />Карточка студента<ChevronRight className="ml-2 h-4 w-4" /></Link></Button>}
+          {(can('notes', 'manage') || note.created_by === user?.id) && <Button variant="outline" className="text-red-700" onClick={() => setDeleteConfirmOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Удалить</Button>}
+        </div>
       </header>
 
       {draft && <RecordingQualityBanner recording={note.recording} />}
@@ -299,6 +318,7 @@ export const NoteDetailPage: React.FC = () => {
         </aside>
       </div>
       <Dialog open={rejectConfirmOpen} onOpenChange={setRejectConfirmOpen}><DialogContent className="max-w-sm"><DialogHeader><DialogTitle>Отклонить черновик?</DialogTitle><DialogDescription>Конспект не будет применён к профилю или опубликован ученику. Вернуть его на проверку нельзя.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setRejectConfirmOpen(false)}>Отмена</Button><Button variant="destructive" disabled={busy} onClick={() => { setRejectConfirmOpen(false); reviewMutation.mutate({ action: 'reject' }) }}>Отклонить</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}><DialogContent className="max-w-sm"><DialogHeader><DialogTitle>Удалить конспект?</DialogTitle><DialogDescription>Конспект исчезнет из списка и кабинета ученика. Удаление нельзя отменить. Связь записи встречи с конспектом будет снята.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Отмена</Button><Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>{deleteMutation.isPending ? 'Удаляем…' : 'Удалить конспект'}</Button></DialogFooter></DialogContent></Dialog>
     </div>
   )
 }

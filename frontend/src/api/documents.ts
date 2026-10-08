@@ -47,8 +47,16 @@ export const documentsApi = {
     })
     return response.data
   },
+  rename: async (docId: string, name: string): Promise<Document> => {
+    const response = await apiClient.patch<Document>(`/documents/${docId}/name`, { name })
+    return response.data
+  },
   requestSignature: async (docId: string): Promise<Document> => {
     const response = await apiClient.post<Document>(`/documents/${docId}/request-signature`)
+    return response.data
+  },
+  revokeSignature: async (docId: string): Promise<Document> => {
+    const response = await apiClient.post<Document>(`/documents/${docId}/revoke-signature`)
     return response.data
   },
 

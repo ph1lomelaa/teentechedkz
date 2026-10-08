@@ -3,9 +3,9 @@ import { PortalCredential, PortalCredentialPayload } from '@/api/credentials'
 import { Application } from '@/types'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 
-/** Название подачи для подписи: справочник → текст → страна. */
+/** Название подачи для подписи: сохранённый текст → справочник → страна. */
 export function applicationTitle(app: Application): string {
-  return app.university_ref?.name || app.university || app.country
+  return app.university || app.university_ref?.name || app.country
 }
 
 interface FormValues {

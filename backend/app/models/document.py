@@ -35,6 +35,7 @@ class Document(Base):
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     doc_type: Mapped[DocType] = mapped_column(SAEnum(DocType, name="doc_type"))
     file_name: Mapped[str] = mapped_column(String(500))
+    display_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer)
     mime_type: Mapped[str] = mapped_column(String(100))
     storage_path: Mapped[str] = mapped_column(String(2048))

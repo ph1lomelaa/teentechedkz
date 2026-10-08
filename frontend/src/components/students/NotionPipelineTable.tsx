@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Download, Plus } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { notionApi, type NotionPipelineRow } from '@/api/notion'
 import { studentsApi } from '@/api/students'
@@ -14,6 +14,7 @@ import { MENTOR_ROLE_LABELS } from '@/types'
 import { notionDotClass, notionSoftClass, notionTagClass } from '@/lib/notionColors'
 import { StudentPeekPanel } from '@/components/students/StudentPeekPanel'
 import { StudentAssignmentBar, useCanSelectStudents } from '@/components/students/StudentAssignmentBar'
+import { StudentExportDialog } from '@/components/students/StudentExportDialog'
 import { PipelineToolbar, type OptionCount } from '@/components/students/pipeline/PipelineToolbar'
 import { PipelineViewTabs } from '@/components/students/pipeline/PipelineViewTabs'
 import { SyncStatusLine } from '@/components/students/pipeline/SyncStatusLine'
@@ -107,6 +108,7 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
     staleTime: 60_000,
   })
   const [showReport, setShowReport] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
   const selectedRowRef = useRef<string | null>(null)
   const [resolvedStudentId, setResolvedStudentId] = useState<string | null>(null)
@@ -373,12 +375,29 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
     if (tableScrollRef.current) tableScrollRef.current.scrollLeft = 0
   }, [view, tableGroup, data])
   const recordsTotal = syncStatus?.last_run?.counters?.total ?? sourceRows.length
+  const crmOnlyTotal = overview ? 0 : sourceRows.filter((row) => row.source === 'crm').length
   const tableFields = [TITLE_FIELD, ...visibleFields]
 
   return <div className="space-y-4">
+    <StudentExportDialog open={exportOpen} onOpenChange={setExportOpen} currentView={{
+      studentIds: [...new Set(filtered.map((row) => row.student_id).filter((id): id is string => Boolean(id)))],
+      snapshotIds: [...new Set(filtered.filter((row) => !row.student_id).map((row) => row.snapshot_id).filter((id): id is string => Boolean(id)))],
+      selectedStudentIds: [...new Set(sourceRows.filter((row) => selectedIds.has(row.id)).map((row) => row.student_id).filter((id): id is string => Boolean(id)))],
+      selectedNames: sourceRows.filter((row) => selectedIds.has(row.id)).map((row) => displayValue(row, TITLE_FIELD)),
+      label: overview ? 'Пайплайн' : 'Общая база Notion',
+      labels: [
+        ...(overview ? ['Вид: Пайплайн Notion'] : []),
+        ...(search.trim() ? [`Поиск: «${search.trim()}»`] : []),
+        ...Object.entries(filters).map(([field, condition]) => `${field}: ${condition.values.join(', ') || condition.operator}`),
+        ...(sort !== TITLE_FIELD || direction !== 'asc' ? [`Сортировка: ${sort} ${direction === 'asc' ? '↑' : '↓'}`] : []),
+        ...(tableGroup ? [`Группировка: ${tableGroup}`] : []),
+      ],
+    }} />
     <PageHeader eyebrow={overview ? 'Обзор' : 'Студенты'} title={overview ? 'Пайплайн клиентов' : 'Общая база'} className="!mb-2 sm:!mb-3"
-      description={<SyncStatusLine status={syncStatus} total={recordsTotal} pending={sync.isPending}
-        onSync={can('notion', 'create') ? () => sync.mutate() : undefined} />}
+      description={<div className="space-y-1"><SyncStatusLine status={syncStatus} total={recordsTotal} pending={sync.isPending}
+        onSync={can('notion', 'create') ? () => sync.mutate() : undefined} />
+        {!overview && <p className="text-xs text-p-muted">Всего строк в базе: {sourceRows.length} · из Notion: {sourceRows.length - crmOnlyTotal} · только CRM: {crmOnlyTotal}</p>}
+      </div>}
       action={<div className="flex flex-wrap gap-2">
         {!overview && can('assignment_overview', 'view') && <Button asChild variant="outline" size="sm"><Link to="/students/distribution">Распределение</Link></Button>}
         {!overview && can('sync', 'manage') && <Button asChild variant="outline" size="sm"><Link to="/students?inbox=1">Входящие</Link></Button>}
@@ -387,6 +406,7 @@ export function NotionPipelineTable({ overview = false }: { overview?: boolean }
           ? <Button variant="outline" size="sm" onClick={closeSelection}>Отменить выбор</Button>
           : <Button variant="outline" size="sm" onClick={() => setSelectionMode(true)}>Выбрать студентов</Button>)}
         <Button variant="outline" size="sm" aria-expanded={showReport} onClick={() => setShowReport((value) => !value)}>Сверка с CRM</Button>
+        {can('export', 'manage') && <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}><Download className="mr-1 h-4 w-4" />Выгрузка</Button>}
         {can('students', 'create') && <Button asChild size="sm"><Link to="/students/new"><Plus className="mr-1 h-4 w-4" aria-hidden="true" />Клиент</Link></Button>}
       </div>} />
     {selectionMode && <StudentAssignmentBar

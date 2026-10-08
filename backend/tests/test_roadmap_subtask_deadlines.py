@@ -86,7 +86,7 @@ class RoadmapOverdueRulesTests(unittest.TestCase):
             self.assertEqual(overdue_days(date(2026, 10, 10), done=False), 1)
             fake.now.assert_called_with(ZoneInfo("Asia/Almaty"))
 
-    def test_task_output_marks_overdue_and_sorts_subtasks(self) -> None:
+    def test_task_output_marks_overdue_and_keeps_manual_order(self) -> None:
         def sub(title: str, due: date | None, pos: int, done: bool = False) -> RoadmapSubtaskOut:
             return RoadmapSubtaskOut(id=uuid.uuid4(), title=title, is_done=done, due_date=due, position=pos)
 
@@ -98,8 +98,7 @@ class RoadmapOverdueRulesTests(unittest.TestCase):
                       sub("давно", past, 2), sub("сделана", past, 3, done=True)],
         )
         self.assertGreaterEqual(task.overdue_days, 5)
-        self.assertEqual([s.title for s in task.subtasks][-1], "без срока")
-        self.assertEqual(task.subtasks[0].due_date, past)
+        self.assertEqual([s.title for s in task.subtasks], ["без срока", "поздно", "давно", "сделана"])
         by_title = {s.title: s for s in task.subtasks}
         self.assertGreaterEqual(by_title["давно"].overdue_days, 5)
         self.assertEqual(by_title["сделана"].overdue_days, 0)

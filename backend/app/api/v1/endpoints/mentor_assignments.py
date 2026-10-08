@@ -756,7 +756,7 @@ def _ma_to_dict(a: MentorAssignment) -> dict:
 # карта ролей и свой фильтр, и доска с выпадашкой предлагали разных людей.
 
 
-def _board_student(student, pipeline_status: str | None, assignment=None, country: str | None = None) -> dict:
+def _board_student(student, pipeline_status: str | None, assignment=None, country: str | None = None, crm_status: str | None = None, status_source: str = "crm") -> dict:
     # Год, ступень и страна — не для показа на карточке, а для фильтров доски:
     # у неё нет пагинации и серверных фильтров, отбор идёт на клиенте, и нечем
     # было отсеять пять лет набора сразу.
@@ -764,6 +764,8 @@ def _board_student(student, pipeline_status: str | None, assignment=None, countr
         "id": str(student.id),
         "full_name": student.full_name,
         "pipeline_status": pipeline_status,
+        "crm_status": crm_status,
+        "status_source": status_source,
         "intake_year": student.intake_year,
         "degree_level": student.degree_level.value if student.degree_level else None,
         "country": country,
@@ -780,6 +782,8 @@ def _build_board(
     students: list,
     pipeline_by_student: dict,
     country_by_student: dict | None = None,
+    crm_by_student: dict | None = None,
+    status_source_by_student: dict | None = None,
 ) -> dict:
     """Разложить назначения по колонкам-сотрудникам. Чистая функция.
 
@@ -805,7 +809,8 @@ def _build_board(
         assigned_student_ids.add(student.id)
         by_staff[person.id].append(
             _board_student(
-                student, pipeline_by_student.get(student.id), assignment, countries.get(student.id)
+                student, pipeline_by_student.get(student.id), assignment, countries.get(student.id),
+                (crm_by_student or {}).get(student.id), (status_source_by_student or {}).get(student.id, "crm")
             )
         )
 
@@ -831,7 +836,8 @@ def _build_board(
     columns.sort(key=lambda c: (c["name"] or "").lower())
 
     unassigned = [
-        _board_student(student, pipeline_by_student.get(student.id), None, countries.get(student.id))
+        _board_student(student, pipeline_by_student.get(student.id), None, countries.get(student.id),
+                       (crm_by_student or {}).get(student.id), (status_source_by_student or {}).get(student.id, "crm"))
         for student in students
         if student.id not in assigned_student_ids
     ]
@@ -879,15 +885,34 @@ async def assignment_board(
     from app.models.student import Student
     from app.models.contract import Contract
 
-    # Статус для карточки — из самого свежего договора студента, как в
-    # list_students. Отдельным запросом, чтобы не тащить джойн в остальные.
-    pipeline_by_student: dict[uuid.UUID, str | None] = {}
+    # CRM статус оставляем для сравнения; фильтр доски берёт Notion у связанных
+    # строк. Несвязанных показываем как «нет статуса Notion».
+    crm_by_student: dict[uuid.UUID, str | None] = {}
     contracts_result = await db.execute(
         select(Contract.student_id, Contract.pipeline_status)
         .order_by(Contract.student_id, Contract.created_at.desc())
     )
     for student_id, status in contracts_result.all():
-        pipeline_by_student.setdefault(student_id, status.value if status else None)
+        crm_by_student.setdefault(student_id, status.value if status else None)
+
+    from app.models.notion_snapshot import NotionSnapshot, NotionMatchStatus
+    from migration.transformers.normalize import parse_pipeline_status
+    snapshots = (await db.execute(select(NotionSnapshot).where(
+        NotionSnapshot.status == NotionMatchStatus.linked,
+        NotionSnapshot.student_id.is_not(None),
+    ).order_by(NotionSnapshot.synced_at.desc()))).scalars().all()
+    pipeline_by_student: dict[uuid.UUID, str | None] = {}
+    source_by_student: dict[uuid.UUID, str] = {}
+    for snapshot in snapshots:
+        student_id = snapshot.student_id
+        if student_id in source_by_student:
+            continue
+        source_by_student[student_id] = "notion"
+        raw_status = (snapshot.normalized_data or {}).get("payment_status_raw")
+        try:
+            pipeline_by_student[student_id] = parse_pipeline_status(raw_status) if raw_status else None
+        except (ValueError, KeyError):
+            pipeline_by_student[student_id] = None
 
     # Плейсхолдеры «ответственный требуется» (mentor_id IS NULL) отсекает сам
     # join к users, но статус проверяем явно — заполненный плейсхолдер остаётся
@@ -919,17 +944,34 @@ async def assignment_board(
         .order_by(Student.full_name)
     )
     students = list(students_result.scalars())
+    for student in students:
+        source_by_student.setdefault(student.id, "notion_unlinked")
 
     # Страна для фильтра доски — тем же правилом, что в общей базе, иначе один
     # и тот же ученик попадал бы под фильтр «США» на одном экране и не попадал
     # на другом.
     country_by_student = await primary_country_by_student(db, [s.id for s in students])
 
-    return _build_board(
+    board = _build_board(
         role=mentor_role,
         assignment_rows=list(assignments_result.all()),
         staff=list(staff_result.scalars()),
         students=students,
         pipeline_by_student=pipeline_by_student,
         country_by_student=country_by_student,
+        crm_by_student=crm_by_student,
+        status_source_by_student=source_by_student,
     )
+    active_unlinked_notion = 0
+    for snapshot in (await db.execute(select(NotionSnapshot).where(NotionSnapshot.student_id.is_(None), NotionSnapshot.status != NotionMatchStatus.ignored))).scalars():
+        raw = (snapshot.normalized_data or {}).get("payment_status_raw")
+        try:
+            if raw and parse_pipeline_status(raw) == "active_work":
+                active_unlinked_notion += 1
+        except (ValueError, KeyError):
+            pass
+    board["notion_reconciliation"] = {
+        "active_unlinked_rows": active_unlinked_notion,
+        "platform_without_notion": sum(source_by_student[s.id] == "notion_unlinked" for s in students),
+    }
+    return board

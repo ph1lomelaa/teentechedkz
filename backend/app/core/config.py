@@ -84,14 +84,22 @@ class Settings(BaseSettings):
     NOTION_SYNC_INTERVAL_SECONDS: int = 3600
     # Enable only after a production dry run and a checked backup.
     ENABLE_NOTION_PIPELINE_APPLY: bool = False
+    # Background CRM ↔ Notion field writes remain disabled until pilot approval.
+    ENABLE_NOTION_FIELD_SYNC: bool = False
+    # Validates queued work without mutating CRM or Notion. Keep true until
+    # production dry-run results have been reviewed.
+    NOTION_FIELD_SYNC_DRY_RUN: bool = True
 
     # Google Sheets — автосинк анкет: либо JSON одной строкой, либо путь к файлу ключа
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_SERVICE_ACCOUNT_FILE: str = ""
     SHEETS_SYNC_INTERVAL_SECONDS: int = 300
-    # Анкеты без похожего кандидата после каждого синка сами становятся карточками
-    # в общей базе (без статуса). Выключается без деплоя, если из форм пойдёт мусор.
-    ENABLE_INTAKE_AUTO_CREATE: bool = True
+    # Создание карточек из Google Forms требует 24ч ожидания и успешной
+    # синхронизации обеих форм плюс Notion. Включать отдельно после dry-run.
+    ENABLE_INTAKE_AUTO_CREATE: bool = False
+    # Автопривязка анкет к CRM допустима только для единственного сильного
+    # совпадения по имени; совпадения только по телефону остаются на проверку.
+    ENABLE_INTAKE_AUTO_LINK: bool = False
 
     # AI / transcription
     DEEPGRAM_API_KEY: str = ""
@@ -162,6 +170,16 @@ class Settings(BaseSettings):
     # хранится в Attendee — нашему бэкенду он не нужен.
     ZOOM_CLIENT_ID: str = ""
     ZOOM_REDIRECT_URI: str = ""  # https://teenteched.kz/api/v1/integrations/zoom/callback
+    # Как бот заходит в Zoom (правила Zoom для Meeting SDK, с 02.03.2026):
+    #   off     — не заходит; Zoom-ссылки отклоняем сразу и ведём в Google Meet.
+    #   company — встречи корпоративного Zoom-аккаунта, в котором создано наше
+    #             приложение. Проверка Zoom и OBF не нужны: неопубликованное
+    #             приложение пускают во встречи любого пользователя своего
+    #             аккаунта. Менторы проводят встречи из выданных им учёток.
+    #   obf     — любые встречи (личные аккаунты менторов): только после
+    #             одобрения приложения Zoom; ментор подключает Zoom в профиле,
+    #             бот входит по OBF-токену и ждёт, пока ментор зайдёт.
+    ZOOM_BOT_MODE: str = "off"
     # Проверка качества текста: пока False — только считаем показатели (режим
     # наблюдения), «Запись неполная» ставим лишь при обрыве и пустом тексте.
     NOTE_QUALITY_ENFORCE: bool = False
@@ -179,9 +197,25 @@ class Settings(BaseSettings):
 
     # First admin seed
     # Вход через Google. Пустая строка = способ выключен: /auth/google отвечает
-    # 503, кнопка на экране входа не рисуется. Восстановления пароля в системе
-    # нет и почты тоже, поэтому Google — основной путь для тех, кто забыл пароль.
+    # 503, кнопка на экране входа не рисуется. Забывший пароль может войти
+    # через Google или запросить ссылку на почту (SMTP ниже).
     GOOGLE_OAUTH_CLIENT_ID: str = ""
+
+    # Почта (SMTP) — пока только для ссылки «Забыли пароль?». Пустой SMTP_HOST
+    # = отправка выключена, /auth/password-reset отвечает 503. Порт 465 —
+    # SSL сразу, остальные — STARTTLS. SMTP_FROM пусто → берём SMTP_USERNAME.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USE_SSL: bool = False
+    # Только для локального приёмника писем без TLS; в проде всегда True.
+    SMTP_STARTTLS: bool = True
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_FROM_NAME: str = "TeenTechEd"
+    SMTP_REPLY_TO: str = ""
+    # Сколько живёт ссылка из письма «Забыли пароль?».
+    PASSWORD_RESET_TTL_HOURS: int = 2
 
     # Код в ссылке /join?code=... , по которому ментор попадает в систему сразу,
     # без очереди. Пустая строка = код выключен и любой ментор ждёт админа.
@@ -197,6 +231,8 @@ class Settings(BaseSettings):
     def _forbid_mock_bot_in_production(self) -> "Settings":
         # Mock-провайдер принимает вебхук с подписью "mock" — в проде это
         # дверь для поддельных событий записи. Лучше не стартовать вовсе.
+        if self.ZOOM_BOT_MODE not in ("off", "company", "obf"):
+            raise ValueError("ZOOM_BOT_MODE: допустимо off | company | obf")
         if self.ENVIRONMENT == "production" and self.MEETING_BOT_PROVIDER == "mock":
             raise ValueError("MEETING_BOT_PROVIDER=mock запрещён при ENVIRONMENT=production")
         return self

@@ -23,6 +23,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.country_flags_data import code_for, flag_for
@@ -30,6 +31,10 @@ from app.core.database import AsyncSessionLocal
 from app.models.country_reference import CountryReference
 from app.models.roadmap import (
     RoadmapTemplate,
+    Roadmap,
+    Stage,
+    RoadmapTask,
+    RoadmapSubtask,
     TaskAudience,
     TaskPriority,
     TemplateStage,
@@ -529,6 +534,8 @@ async def upsert_template(
     )
     tpl = res.scalar_one_or_none()
     action = "updated" if tpl else "created"
+    old_task_ids: set[str] = set()
+    old_subtask_ids: set[str] = set()
 
     if tpl is None:
         tpl = RoadmapTemplate(
@@ -543,8 +550,15 @@ async def upsert_template(
         db.add(tpl)
         await db.flush()
     else:
-        old_stages = await db.execute(select(TemplateStage).where(TemplateStage.template_id == tpl.id))
-        for old_stage in old_stages.scalars().all():
+        old_stages = await db.execute(
+            select(TemplateStage).where(TemplateStage.template_id == tpl.id)
+            .options(selectinload(TemplateStage.tasks).selectinload(TemplateTask.subtasks))
+        )
+        old_stage_rows = list(old_stages.scalars().all())
+        old_task_ids = {task.source_notion_page_id for stage in old_stage_rows for task in stage.tasks if task.source_notion_page_id}
+        old_subtask_ids = {sub.source_notion_page_id for stage in old_stage_rows for task in stage.tasks for sub in task.subtasks if sub.source_notion_page_id}
+        await _link_legacy_live_sources(db, tpl.id, old_stage_rows)
+        for old_stage in old_stage_rows:
             await db.delete(old_stage)
         await db.flush()
 
@@ -559,7 +573,110 @@ async def upsert_template(
     for stage in stages:
         stage.template_id = tpl.id
         db.add(stage)
+    # Live roadmaps are independent copies. Reimport only appends Notion pages
+    # that have not yet been materialized; it never writes over local fields.
+    await _append_new_live_tasks(db, tpl.id, stages, old_task_ids=old_task_ids, old_subtask_ids=old_subtask_ids)
     return action
+
+
+async def _link_legacy_live_sources(db: AsyncSession, template_id, old_stages: list[TemplateStage]) -> None:
+    """Attach stable Notion IDs to existing student copies before template rows are replaced.
+
+    Live values never change. Position is used only when unique within an
+    existing stage, so a previously edited title can still be linked.
+    """
+    result = await db.execute(
+        select(Roadmap).where(Roadmap.template_id == template_id)
+        .options(selectinload(Roadmap.stages).selectinload(Stage.tasks).selectinload(RoadmapTask.subtasks))
+    )
+    for roadmap in result.scalars().all():
+        by_stage = {stage.name: stage for stage in roadmap.stages}
+        for old_stage in old_stages:
+            live_stage = by_stage.get(old_stage.name)
+            if live_stage is None:
+                continue
+            for old_task in old_stage.tasks:
+                if not old_task.source_notion_page_id:
+                    continue
+                candidates = [task for task in live_stage.tasks if not task.source_notion_page_id and task.position == old_task.position]
+                match = next((task for task in candidates if task.title == old_task.title), None)
+                if match is None and len(candidates) == 1:
+                    match = candidates[0]
+                if match is None:
+                    continue
+                match.source_notion_page_id = old_task.source_notion_page_id
+                for old_sub in old_task.subtasks:
+                    if not old_sub.source_notion_page_id:
+                        continue
+                    sub_candidates = [sub for sub in match.subtasks if not sub.source_notion_page_id and sub.position == old_sub.position]
+                    sub_match = next((sub for sub in sub_candidates if sub.title == old_sub.title), None)
+                    if sub_match is None and len(sub_candidates) == 1:
+                        sub_match = sub_candidates[0]
+                    if sub_match:
+                        sub_match.source_notion_page_id = old_sub.source_notion_page_id
+
+
+async def _append_new_live_tasks(
+    db: AsyncSession, template_id, imported_stages: list[TemplateStage],
+    *, old_task_ids: set[str] | None = None, old_subtask_ids: set[str] | None = None,
+) -> None:
+    result = await db.execute(
+        select(Roadmap).where(Roadmap.template_id == template_id)
+        .options(selectinload(Roadmap.stages).selectinload(Stage.tasks).selectinload(RoadmapTask.subtasks))
+    )
+    for roadmap in result.scalars().all():
+        live_stages = {stage.name: stage for stage in roadmap.stages}
+        for source_stage in imported_stages:
+            live_stage = live_stages.get(source_stage.name)
+            if live_stage is None:
+                live_stage = Stage(roadmap_id=roadmap.id, name=source_stage.name, description=source_stage.description, position=source_stage.position, tasks=[])
+                db.add(live_stage)
+                await db.flush()
+                live_stages[source_stage.name] = live_stage
+            known = {task.source_notion_page_id: task for task in live_stage.tasks if task.source_notion_page_id}
+            for source_task in source_stage.tasks:
+                source_id = source_task.source_notion_page_id
+                if not source_id:
+                    continue
+                live_task = known.get(source_id)
+                if live_task is None:
+                    # Older live copies predate the source ID column. Match only
+                    # an exact title in the same stage; uncertain rows stay local.
+                    live_task = next((task for task in live_stage.tasks if not task.source_notion_page_id and task.title == source_task.title), None)
+                    if live_task:
+                        live_task.source_notion_page_id = source_id
+                    elif source_id in (old_task_ids or set()):
+                        # A page already in the previous template but missing
+                        # from this student copy may have been deleted locally.
+                        continue
+                    else:
+                        live_task = RoadmapTask(
+                            roadmap_id=roadmap.id, stage_id=live_stage.id,
+                            source_notion_page_id=source_id, title=source_task.title,
+                            description=source_task.description, expected_result=source_task.expected_result,
+                            needs_document=source_task.needs_document, needs_zoom=source_task.needs_zoom,
+                            questionnaire_url=source_task.questionnaire_url, priority=source_task.priority,
+                            audience=source_task.audience, position=source_task.position,
+                            subtasks=[],
+                        )
+                        db.add(live_task)
+                        await db.flush()
+                    known[source_id] = live_task
+                # A soft-deleted task remains in `known`, so it cannot return.
+                if live_task.deleted_at is not None:
+                    continue
+                known_subtasks = {sub.source_notion_page_id: sub for sub in live_task.subtasks if sub.source_notion_page_id}
+                for source_sub in source_task.subtasks:
+                    sub_id = source_sub.source_notion_page_id
+                    if not sub_id or sub_id in known_subtasks:
+                        continue
+                    old = next((sub for sub in live_task.subtasks if not sub.source_notion_page_id and sub.title == source_sub.title), None)
+                    if old:
+                        old.source_notion_page_id = sub_id
+                    elif sub_id in (old_subtask_ids or set()):
+                        continue
+                    else:
+                        db.add(RoadmapSubtask(task_id=live_task.id, source_notion_page_id=sub_id, title=source_sub.title, position=source_sub.position))
 
 
 async def _dedupe(candidates: list[DatabaseCandidate], client: NotionClient) -> list[DatabaseCandidate]:

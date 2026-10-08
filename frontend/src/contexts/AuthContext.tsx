@@ -149,6 +149,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => setForbiddenHandler(null)
   }, [navigate])
 
+  // Вернулся во вкладку — перечитываем профиль: за это время могли
+  // опубликовать новый регламент или поменять права. Не чаще раза в минуту,
+  // чтобы переключение окон не превращалось в поток запросов.
+  useEffect(() => {
+    let lastCheck = Date.now()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !userRef.current) return
+      if (Date.now() - lastCheck < 60_000) return
+      lastCheck = Date.now()
+      void refreshUser()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refreshUser])
+
   const hasRole = useCallback(
     (...roles: UserRole[]): boolean => {
       return !!state.user && roles.includes(state.user.role)

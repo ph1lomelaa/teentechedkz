@@ -58,6 +58,47 @@ export interface StudentFacets {
   countries: FacetOption[]
 }
 
+export interface StudentExportOptions {
+  dataset: 'all' | 'notion_active' | 'platform_access' | 'status_mismatch'
+  format: 'xlsx' | 'csv' | 'tsv'
+  columns: string[]
+  require_portal_access?: boolean
+  require_chat?: boolean
+  require_mzk?: boolean
+  require_mentor?: boolean
+  student_ids?: string[]
+  snapshot_ids?: string[]
+  restrict_to_ids?: boolean
+  filename?: string
+  total_row?: boolean
+  split_by?: 'none' | 'intake_year' | 'notion_status' | 'mzk'
+  only_active_notion?: boolean
+  only_status_mismatch?: boolean
+  search?: string
+  intake_years?: string[]
+  notion_statuses?: string[]
+  crm_statuses?: string[]
+  degrees?: string[]
+  countries?: string[]
+  lead_mentors?: string[]
+  responsible_role?: string
+  responsible_name?: string
+  portal_access?: 'any' | 'yes' | 'no'
+  active_chat?: 'any' | 'yes' | 'no'
+  has_mzk?: 'any' | 'yes' | 'no'
+  has_mentor?: 'any' | 'yes' | 'no'
+  notion_link?: 'any' | 'yes' | 'no'
+  delimiter?: ';' | ',' | '\t'
+  bom?: boolean
+}
+
+export interface StudentExportPreview {
+  count: number
+  columns: string[]
+  rows: Record<string, string>[]
+  groups?: { name: string; count: number; rows: Record<string, string>[] }[]
+}
+
 export const studentsApi = {
   list: async (
     params: StudentsQueryParams = {}
@@ -154,11 +195,58 @@ export const studentsApi = {
     return response.data
   },
 
-  exportAll: async (): Promise<Blob> => {
+  previewExport: async (options: StudentExportOptions): Promise<StudentExportPreview> => {
+    const params = new URLSearchParams()
+    params.set('dataset', options.dataset)
+    options.columns.forEach((column) => params.append('columns', column))
+    options.student_ids?.forEach((id) => params.append('student_ids', id))
+    options.snapshot_ids?.forEach((id) => params.append('snapshot_ids', id))
+    if (options.restrict_to_ids) params.set('limit_to_ids', 'true')
+    if (options.split_by && options.split_by !== 'none') params.set('split_by', options.split_by)
+    for (const key of ['require_portal_access', 'require_chat', 'require_mzk', 'require_mentor', 'only_active_notion', 'only_status_mismatch', 'portal_access', 'active_chat', 'has_mzk', 'has_mentor', 'notion_link'] as const) {
+      const value = options[key]
+      if (value !== undefined && value !== false && value !== 'any') params.set(key, String(value))
+    }
+    if (options.search) params.set('search', options.search)
+    for (const key of ['intake_years', 'notion_statuses', 'crm_statuses', 'degrees', 'countries', 'lead_mentors'] as const) options[key]?.forEach((value) => params.append(key, value))
+    if (options.responsible_role) params.set('responsible_role', options.responsible_role)
+    if (options.responsible_name) params.set('responsible_name', options.responsible_name)
+    const response = await apiClient.get<StudentExportPreview>('/export/students/preview', { params })
+    return response.data
+  },
+
+  exportAll: async (options?: StudentExportOptions): Promise<{ blob: Blob; count: number | null }> => {
+    const params = new URLSearchParams()
+    if (options) {
+      params.set('dataset', options.dataset)
+      params.set('format', options.format)
+      options.columns.forEach((column) => params.append('columns', column))
+      for (const key of ['require_portal_access', 'require_chat', 'require_mzk', 'require_mentor', 'only_active_notion', 'only_status_mismatch'] as const) {
+        if (options[key]) params.set(key, 'true')
+      }
+      options.student_ids?.forEach((id) => params.append('student_ids', id))
+      options.snapshot_ids?.forEach((id) => params.append('snapshot_ids', id))
+      if (options.restrict_to_ids) params.set('limit_to_ids', 'true')
+      if (options.filename) params.set('filename', options.filename)
+      if (options.search) params.set('search', options.search)
+      if (options.total_row) params.set('total_row', 'true')
+      if (options.split_by && options.split_by !== 'none') params.set('split_by', options.split_by)
+      for (const key of ['portal_access', 'active_chat', 'has_mzk', 'has_mentor', 'notion_link'] as const) {
+        const value = options[key]
+        if (value && value !== 'any') params.set(key, value)
+      }
+      for (const key of ['intake_years', 'notion_statuses', 'crm_statuses', 'degrees', 'countries', 'lead_mentors'] as const) options[key]?.forEach((value) => params.append(key, value))
+      if (options.responsible_role) params.set('responsible_role', options.responsible_role)
+      if (options.responsible_name) params.set('responsible_name', options.responsible_name)
+      if (options.delimiter) params.set('delimiter', options.delimiter)
+      if (options.bom === false) params.set('bom', 'false')
+    }
     const response = await apiClient.get('/export/students', {
       responseType: 'blob',
+      params,
     })
-    return response.data
+    const countHeader = response.headers['x-export-count']
+    return { blob: response.data, count: countHeader == null ? null : Number(countHeader) }
   },
 
   exportOne: async (id: string): Promise<Blob> => {

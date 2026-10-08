@@ -13,6 +13,10 @@ export interface IntakeSubmission {
   suggested_student_id?: string
   suggested_student_name?: string
   suggested_confidence?: number
+  match_candidate_ids?: string[]
+  match_candidate_names?: string[]
+  identity_review_required?: boolean
+  content_revision?: number
   student_id?: string
   status: IntakeSubmissionStatus
   raw_data: Record<string, string>
@@ -78,6 +82,31 @@ export interface SyncStatusInfo {
   new_submissions: number
 }
 
+export type NotionFieldSyncStatus = 'pending' | 'processing' | 'dry_run' | 'succeeded' | 'resolved' | 'conflict' | 'failed' | 'superseded'
+export interface NotionFieldSyncItem {
+  id: string
+  student_id: string | null
+  student_name: string | null
+  notion_page_id: string
+  field_key: string
+  direction: string
+  status: NotionFieldSyncStatus
+  crm_value: string | number | null
+  notion_value: string | number | null
+  baseline_value: string | number | null
+  has_baseline: boolean
+  reason: string | null
+  last_error: string | null
+  attempts: number
+  updated_at: string | null
+}
+export interface NotionFieldSyncQueue {
+  enabled: boolean
+  dry_run: boolean
+  counts: Record<string, number>
+  items: NotionFieldSyncItem[]
+}
+
 export const syncApi = {
   run: async () => {
     const res = await apiClient.post('/sync/run')
@@ -123,5 +152,13 @@ export const syncApi = {
   overview: async () => {
     const res = await apiClient.get('/sync/overview')
     return res.data as Record<string, { has_package: boolean; has_cases: boolean }>
+  },
+  notionFieldSyncQueue: async () => {
+    const res = await apiClient.get('/sync/notion-field-sync')
+    return res.data as NotionFieldSyncQueue
+  },
+  resolveNotionFieldConflict: async (itemId: string, side: 'crm' | 'notion') => {
+    const res = await apiClient.post(`/sync/notion-field-sync/${itemId}/resolve`, { side })
+    return res.data as { resolved: boolean; side: 'crm' | 'notion'; queued_item_id: string }
   },
 }

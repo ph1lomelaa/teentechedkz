@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Filter, X } from 'lucide-react'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
@@ -11,14 +11,24 @@ export function FilterPopover({
   onReset,
   children,
   align = 'right',
+  buttonLabel = 'Фильтры',
 }: {
   activeCount: number
   onReset: () => void
   children: React.ReactNode
   /** К какому краю кнопки прижата панель: у кнопки слева на странице — 'left'. */
   align?: 'left' | 'right'
+  buttonLabel?: string
 }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [open])
   return (
     <div className="relative">
       <Button
@@ -27,9 +37,10 @@ export function FilterPopover({
         size="sm"
         className="h-9 gap-1.5"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
       >
         <Filter className="w-3.5 h-3.5" />
-        Фильтры
+        {buttonLabel}
         {activeCount > 0 && (
           <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-white/15 text-[11px] font-semibold">
             {activeCount}
@@ -37,7 +48,7 @@ export function FilterPopover({
         )}
       </Button>
       {open && (
-        <div className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-white shadow-lg`}>
+        <div className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} top-[calc(100%+8px)] z-20 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-p-line bg-p-panel text-p-text shadow-lg`}>
           <div className="flex items-center justify-between px-3 py-2 border-b border-p-line bg-p-bg">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Фильтры</p>
             <button type="button" className="text-p-muted2 hover:text-p-text" onClick={() => setOpen(false)} aria-label="Закрыть">
@@ -87,7 +98,7 @@ export function FilterChips({ chips, onResetAll }: { chips: FilterChip[]; onRese
           <button
             type="button"
             onClick={chip.onRemove}
-            className="text-p-muted2 hover:text-black transition-colors"
+            className="text-p-muted2 hover:text-p-text transition-colors"
             aria-label={`Убрать фильтр ${chip.label}`}
           >
             <X className="w-3 h-3" />
@@ -97,7 +108,7 @@ export function FilterChips({ chips, onResetAll }: { chips: FilterChip[]; onRese
       <button
         type="button"
         onClick={onResetAll}
-        className="text-[12px] text-p-muted hover:text-black underline underline-offset-4 ml-1"
+        className="text-[12px] text-p-muted hover:text-p-text underline underline-offset-4 ml-1"
       >
         Сбросить всё
       </button>
@@ -131,7 +142,7 @@ export function ResponsiblePicker({
           type="button"
           onClick={() => onChange('')}
           className={`w-full text-left px-2 py-1.5 text-sm rounded-ctl border transition-colors ${
-            value === '' ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg text-p-text'
+            value === '' ? 'border-p-accent-dim bg-p-chip text-p-chip-text' : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
           }`}
         >
           Любой
@@ -142,7 +153,7 @@ export function ResponsiblePicker({
             type="button"
             onClick={() => onChange(user.id)}
             className={`w-full text-left px-2 py-1.5 text-sm rounded-ctl border transition-colors ${
-              value === user.id ? 'border-black bg-black text-white' : 'border-p-line bg-white hover:bg-p-bg text-p-text'
+              value === user.id ? 'border-p-accent-dim bg-p-chip text-p-chip-text' : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
             }`}
           >
             {user.name}

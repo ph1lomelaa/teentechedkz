@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import re
 import uuid
 from typing import Annotated
 from urllib.parse import quote
@@ -37,6 +38,11 @@ logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 250 * 1024 * 1024  # 250 MB
 INLINE_PREVIEW_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+
+
+def _download_name(doc: Document) -> str:
+    suffix = "." + doc.file_name.rsplit(".", 1)[1] if "." in doc.file_name else ""
+    return f"{doc.display_name}{suffix}" if doc.display_name else doc.file_name
 
 
 @router.post("/student/{student_id}")
@@ -238,11 +244,12 @@ async def download_document(
     # non-ASCII) characters crash StreamingResponse if interpolated directly.
     # RFC 5987's filename* covers that; the plain ASCII fallback is for
     # older clients that don't parse filename*.
-    ascii_fallback = doc.file_name.encode("ascii", "ignore").decode("ascii") or "file"
+    name = _download_name(doc)
+    ascii_fallback = name.encode("ascii", "ignore").decode("ascii") or "file"
     headers = {
         "Content-Disposition": (
             f'{"inline" if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "attachment"}; filename="{ascii_fallback}"; '
-            f"filename*=UTF-8''{quote(doc.file_name)}"
+            f"filename*=UTF-8''{quote(name)}"
         ),
         "X-Content-Type-Options": "nosniff",
     }
@@ -332,6 +339,29 @@ async def request_document_signature(
     return _doc_to_dict(doc)
 
 
+@router.post("/{doc_id}/revoke-signature")
+async def revoke_document_signature(
+    doc_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    require_access(current_user, "documents", Action.manage)
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    await require_student_access(db, doc.student_id, current_user)
+    if doc.signature_status != "pending":
+        raise HTTPException(status_code=409, detail="Нет ожидающей подписи")
+    doc.signature_status = "none"
+    doc.signature_requested_by = None
+    doc.signature_requested_at = None
+    doc.signature_viewed_at = None
+    await log_change(db, "document", doc.id, "signature_status", "pending", "none", str(current_user.id), source="workspace_documents")
+    await db.commit()
+    await db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
 @router.post("/portal/{doc_id}/signature-viewed")
 async def mark_document_signature_viewed(
     doc_id: uuid.UUID,
@@ -401,6 +431,34 @@ async def set_document_type(
     return _doc_to_dict(doc)
 
 
+@router.patch("/{doc_id}/name")
+async def rename_document(
+    doc_id: uuid.UUID,
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    if current_user.role == UserRole.student:
+        require_access(current_user, "portal", Action.view)
+        if doc.student_id != await _my_student_id(db, current_user) or doc.source != DocSource.manual_upload or not doc.visible_to_student:
+            raise HTTPException(status_code=404, detail="Документ не найден")
+    else:
+        require_access(current_user, "documents", Action.manage)
+        await require_student_access(db, doc.student_id, current_user)
+    name = re.sub(r'[/\\:*?"<>|]', '_', str(body.get("name") or "").strip())
+    if not name or len(name) > 500:
+        raise HTTPException(status_code=422, detail="Укажите название до 500 символов")
+    old_name = _download_name(doc)
+    doc.display_name = name
+    await log_change(db, "document", doc.id, "display_name", old_name, _download_name(doc), str(current_user.id), source="document_list")
+    await db.commit()
+    await db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
 @router.get("/portal/mine")
 async def my_documents(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
     """Documents the student can see in their portal."""
@@ -440,11 +498,12 @@ async def portal_download_document(
         object_name=doc.storage_path,
     )
 
-    ascii_fallback = doc.file_name.encode("ascii", "ignore").decode("ascii") or "file"
+    name = _download_name(doc)
+    ascii_fallback = name.encode("ascii", "ignore").decode("ascii") or "file"
     headers = {
         "Content-Disposition": (
             f'{"inline" if doc.mime_type in INLINE_PREVIEW_MIME_TYPES else "attachment"}; filename="{ascii_fallback}"; '
-            f"filename*=UTF-8''{quote(doc.file_name)}"
+            f"filename*=UTF-8''{quote(name)}"
         ),
         "X-Content-Type-Options": "nosniff",
     }
@@ -535,6 +594,7 @@ def _doc_to_dict(d: Document) -> dict:
         "uploaded_by": str(d.uploaded_by),
         "doc_type": d.doc_type.value,
         "file_name": d.file_name,
+        "display_name": d.display_name,
         "file_size": d.file_size,
         "mime_type": d.mime_type,
         "storage_path": d.storage_path,

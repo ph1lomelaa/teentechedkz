@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
+import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm'
+import { PasswordField } from '@/components/auth/PasswordField'
 import { authApi } from '@/api/auth'
 import { postLoginPath } from '@/lib/authRouting'
 
@@ -114,7 +116,7 @@ export const LoginPage: React.FC = () => {
                 <p className="mt-1">
                   Пароля у него нет: при регистрации вы входили кнопкой Google. Нажмите
                   «Войти через Google» ниже — той же почтой. Если такой возможности нет,
-                  попросите куратора выдать временный пароль.
+                  нажмите «Забыли пароль?» внизу — пришлём ссылку на почту.
                 </p>
               </div>
             )}
@@ -141,21 +143,14 @@ export const LoginPage: React.FC = () => {
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="auth-field-label block" htmlFor="password">
-                Пароль
-              </label>
-              <input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="h-12 w-full rounded-ctl border px-4 text-sm transition-colors"
-              />
-            </div>
+            <PasswordField
+              id="password"
+              label="Пароль"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
 
             <button
               type="submit"
@@ -178,10 +173,8 @@ export const LoginPage: React.FC = () => {
 
           <GoogleSignInButton onCredential={handleGoogle} onError={setError} />
 
-          {/* Самостоятельного сброса пароля пока нет: единственный путь — сотрудник
-              жмёт «сбросить» в карточке студента. Раньше человек об этом нигде не
-              узнавал — на форме была только заявка на новый доступ, а настоящий
-              ответ лежал в FAQ лендинга. */}
+          {/* «Забыли пароль?» — ссылка на почту из заявки и на привязанный Gmail.
+              Если SMTP не настроен, форма сама скажет обратиться к куратору. */}
           <div className="mt-7 border-t border-white/10 pt-5 text-center text-sm text-white/60">
             <button
               type="button"
@@ -191,12 +184,7 @@ export const LoginPage: React.FC = () => {
             >
               Забыли пароль?
             </button>
-            {showRecovery && (
-              <p className="mx-auto mt-3 max-w-[320px] text-[13px] leading-relaxed text-white/55">
-                Напишите своему ментору или МЗК-менеджеру — они сбросят пароль, и вы
-                зададите новый при следующем входе.
-              </p>
-            )}
+            {showRecovery && <ForgotPasswordForm initialEmail={email} />}
             {/* Ведём на /join — регистрацию, а не на /apply. /apply создаёт
                 заявку абитуриента (лид) и НЕ создаёт аккаунт: человек её
                 отправлял и возвращался на лендинг, потому что входить было

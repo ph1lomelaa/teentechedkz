@@ -1,10 +1,11 @@
 from __future__ import annotations
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, Cookie, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -35,7 +36,8 @@ from app.services.sessions import (
     hash_token as _hash_token,
     set_refresh_cookie as _set_refresh_cookie,
 )
-from app.services import rate_limit
+from app.services import mailer, rate_limit
+from app.services.password_reset import prepare_reset
 from app.services.google_auth import (
     GoogleAuthError,
     GoogleAuthNotConfigured,
@@ -53,6 +55,7 @@ from app.services.user_payload import resolve_user_payload
 from app.models.user_email import UserEmail
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 # Two tabs/requests racing to refresh around the same time both hold the same
 # (about-to-rotate) cookie; the loser must not be logged out just because it
@@ -592,3 +595,79 @@ async def change_password(
     await db.commit()
     _set_refresh_cookie(response, new_refresh_raw)
     return {"message": "Пароль изменён"}
+
+
+# --- «Забыли пароль?» — ссылка на почту ----------------------------------------
+
+PASSWORD_RESET_SENT_MESSAGE = (
+    "Если такая почта есть в системе, мы отправили на неё ссылку для нового пароля. "
+    "Письмо не пришло за пару минут — проверьте папки «Спам» и «Промоакции»."
+)
+
+
+async def _deliver_reset_letter(recipients: list[str], subject: str, text: str, html: str, user_id: str) -> None:
+    # После ответа клиенту: время ответа не должно выдавать, есть ли аккаунт.
+    # Сбой SMTP человек всё равно не исправит — пишем в лог, чтобы разобрать
+    # «письмо не пришло».
+    try:
+        await mailer.send_mail(to=recipients, subject=subject, text=text, html=html)
+        logger.info("password reset mail sent: user=%s recipients=%d", user_id, len(recipients))
+    except Exception:
+        logger.exception("password reset mail failed: user=%s", user_id)
+
+
+@router.get("/password-reset/config")
+async def password_reset_config():
+    """Включена ли отправка ссылки — экран входа решает, что показать."""
+    return {"enabled": mailer.is_configured()}
+
+
+@router.post("/password-reset")
+async def request_password_reset(
+    body: dict,
+    request: Request,
+    background: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Отправить ссылку для нового пароля на почту аккаунта.
+
+    Ответ одинаковый, есть такой адрес или нет: иначе форма отвечает на
+    вопрос «зарегистрирован ли этот человек». Подробности — services/password_reset.py.
+    """
+    if not mailer.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Отправка писем пока не настроена. Напишите куратору — он выдаст ссылку для входа.",
+            headers={"X-Error-Code": "MAIL_NOT_CONFIGURED"},
+        )
+
+    email = norm(str(body.get("email") or ""))
+    if "@" not in email or len(email) > 255:
+        raise HTTPException(status_code=422, detail="Введите почту")
+
+    # По IP — от перебора адресов; по адресу — чтобы чужой не засыпал ящик
+    # письмами и не гасил ссылку, которую человек как раз открывает.
+    await rate_limit.enforce(request, bucket="password_reset_ip", limit=10, window_seconds=900)
+    await rate_limit.enforce(request, bucket="password_reset_email", limit=3, window_seconds=3600, subject=email)
+
+    letter = await prepare_reset(db, email)
+    if letter is not None:
+        record_audit(
+            db,
+            action=AuditAction.invite_created,
+            actor=None,
+            actor_email=email,
+            target_user_id=letter.user.id,
+            request=request,
+            meta={"kind": "password_reset_email", "recipients": len(letter.recipients)},
+        )
+        await db.commit()
+        background.add_task(
+            _deliver_reset_letter,
+            letter.recipients,
+            letter.subject,
+            letter.text,
+            letter.html,
+            str(letter.user.id),
+        )
+    return {"message": PASSWORD_RESET_SENT_MESSAGE}

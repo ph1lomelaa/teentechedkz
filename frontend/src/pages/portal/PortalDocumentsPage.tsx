@@ -1,21 +1,14 @@
 import React, { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Download, FileSignature, FileText, Plus, Trash2, X } from 'lucide-react'
+import { CheckCircle2, FileSignature, X } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { QueryState } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { documentsApi } from '@/api/documents'
-import { DOC_TYPE_LABELS } from '@/types'
+import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { cn } from '@/lib/utils'
-import { EmptyState } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { getErrorMessage } from '@/lib/errorMessage'
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
 
 /** Одна правда об ограничениях загрузки: подпись под кнопкой, текст ошибки и
  *  сам `accept` должны совпадать — раньше они жили в трёх разных строках. */
@@ -24,7 +17,8 @@ const UPLOAD_LIMITS_HINT = 'Любой тип файла · до 250 МБ'
 export const PortalDocumentsPage: React.FC = () => {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [downloading, setDownloading] = useState<string | null>(null)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [signatureDoc, setSignatureDoc] = useState<(typeof docs)[number] | null>(null)
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null)
   const [signatureViewed, setSignatureViewed] = useState(false)
@@ -38,20 +32,15 @@ export const PortalDocumentsPage: React.FC = () => {
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => documentsApi.portalUpload(file),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] }),
-    onError: () =>
+    onSuccess: () => { setUploadError(null); queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] }) },
+    onError: (error) => {
+      setUploadError(getErrorMessage(error, 'Файл не загрузился'))
       toast({
         title: 'Файл не загрузился',
         description: UPLOAD_LIMITS_HINT,
         variant: 'destructive',
-      }),
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => documentsApi.portalDelete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] }),
-    onError: () =>
-      toast({ title: 'Документ не удалился', description: 'Попробуйте ещё раз.', variant: 'destructive' }),
+      })
+    },
   })
 
   const signMutation = useMutation({
@@ -72,8 +61,14 @@ export const PortalDocumentsPage: React.FC = () => {
     }),
   })
 
+  const uploadFiles = async (files: File[]) => {
+    for (const file of files) {
+      setUploadFile(file)
+      try { await uploadMutation.mutateAsync(file) } catch { /* error row offers retry */ }
+    }
+  }
+
   const handleDownload = async (id: string, name: string) => {
-    setDownloading(id)
     try {
       const blob = await documentsApi.portalDownload(id)
       const url = URL.createObjectURL(blob)
@@ -82,9 +77,15 @@ export const PortalDocumentsPage: React.FC = () => {
       a.download = name
       a.click()
       URL.revokeObjectURL(url)
-    } finally {
-      setDownloading(null)
-    }
+    } catch (error) { toast({ title: 'Не удалось скачать документ', description: getErrorMessage(error), variant: 'destructive' }) }
+  }
+  const handleOpen = async (id: string) => {
+    try {
+      const blob = await documentsApi.portalDownload(id)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (error) { toast({ title: 'Не удалось открыть документ', description: getErrorMessage(error), variant: 'destructive' }) }
   }
 
   const openSignaturePreview = async (doc: (typeof docs)[number]) => {
@@ -120,87 +121,37 @@ export const PortalDocumentsPage: React.FC = () => {
       <input
         ref={fileRef}
         type="file"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) uploadMutation.mutate(f)
+          const files = Array.from(e.target.files ?? [])
+          if (files.length) void uploadFiles(files)
           e.target.value = ''
         }}
       />
 
       <div className="rounded-card border border-p-line bg-p-panel p-5">
-        <h4 className="mb-3.5 flex items-center gap-2 font-display text-sm font-extrabold text-p-text">
-          <FileText className="h-4 w-4 text-p-accent-text" />
-          Документы
-        </h4>
-
-        <QueryState
-          colorPrefix="p"
-          isLoading={isLoading}
-          isError={isError}
-          error={error}
-          onRetry={refetch}
-          isEmpty={docs.length === 0}
-          empty={(
-            <EmptyState icon={<FileText className="w-5 h-5" />} title="Документов пока нет" description="Загрузите свои документы или дождитесь, пока ментор поделится ими." colorPrefix="p" />
-          )}
-        >
-          <div className="space-y-2">
-            {docs.map((d, i) => (
-              <div key={d.id} className={cn('flex flex-wrap items-center gap-3.5 rounded-panel border border-p-line bg-transparent p-3.5 transition hover:border-p-accent-dim hover:bg-p-panel2', d.signature_status === 'pending' ? 'border-l-4 border-l-p-accent' : '', i < docs.length - 1 ? 'mb-2.5' : '')}>
-                <div className="grid h-[34px] w-[34px] place-items-center rounded-ctl bg-p-accent/15 shrink-0">
-                  <FileText className="h-4 w-4 text-p-accent-text" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13.5px] font-bold text-p-text">{d.file_name}</div>
-                  <div className="mt-0.5 text-[11.5px] text-p-muted">
-                    {DOC_TYPE_LABELS[d.doc_type as keyof typeof DOC_TYPE_LABELS] ?? d.doc_type} · {fmtSize(d.file_size)}
-                  </div>
-                  {d.signature_status === 'pending' && <div className="mt-1 text-xs font-bold text-p-accent-text">Ожидает вашей подписи</div>}
-                  {d.signature_status === 'signed' && <div className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-3 w-3" /> Подписан</div>}
-                </div>
-                {d.signature_status === 'pending' && (
-                  <button onClick={() => openSignaturePreview(d)} className="inline-flex items-center gap-1.5 rounded-ctl bg-p-accent px-3 py-1.5 text-[11.5px] font-black text-black shrink-0">
-                    <FileSignature className="h-3.5 w-3.5" /> Ознакомиться и подписать
-                  </button>
-                )}
-                <button
-                  onClick={() => handleDownload(d.id, d.file_name)}
-                  disabled={downloading === d.id}
-                  className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-3 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-accent-dim hover:bg-p-panel2 hover:text-p-text shrink-0"
-                >
-                  <Download className="h-3.5 w-3.5" /> {downloading === d.id ? '…' : 'Скачать'}
-                </button>
-                {d.source === 'manual_upload' && (
-                  <button
-                    onClick={() => {
-                      if (window.confirm('Удалить документ?')) deleteMutation.mutate(d.id)
-                    }}
-                    disabled={deleteMutation.isPending}
-                    className="inline-flex items-center gap-1.5 rounded-ctl border border-p-line px-2.5 py-1.5 text-[11.5px] font-bold text-p-muted transition hover:border-p-danger/60 hover:text-p-danger-text shrink-0"
-                    aria-label="Удалить документ"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
+        <QueryState colorPrefix="p" isLoading={isLoading} isError={isError} error={error} onRetry={refetch}>
+          <DocumentList
+            tone="p"
+            documents={docs}
+            canRename={doc => doc.source === 'manual_upload'}
+            canDelete={doc => doc.source === 'manual_upload'}
+            onOpen={doc => { void handleOpen(doc.id) }}
+            onDownload={doc => { void handleDownload(doc.id, documentName(doc)) }}
+            onUploadClick={() => fileRef.current?.click()}
+            onFilesDropped={files => { void uploadFiles(files) }}
+            onChanged={() => queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] })}
+            onDelete={doc => documentsApi.portalDelete(doc.id)}
+            uploadingName={uploadMutation.isPending ? uploadFile?.name : null}
+            uploadError={uploadError}
+            onRetryUpload={uploadFile ? () => uploadMutation.mutate(uploadFile) : undefined}
+          />
+          {docs.some(doc => doc.signature_status === 'pending') && <div className="mt-3 space-y-2">
+            {docs.filter(doc => doc.signature_status === 'pending').map(doc => <button key={doc.id} onClick={() => openSignaturePreview(doc)} className="inline-flex items-center gap-2 rounded-ctl bg-p-accent px-3 py-2 text-xs font-bold text-black"><FileSignature className="h-4 w-4" />Ознакомиться и подписать: {documentName(doc)}</button>)}
+          </div>}
+          <p className="mt-2 text-center text-[11px] text-p-muted2">{UPLOAD_LIMITS_HINT}</p>
         </QueryState>
-
-        <button
-          type="button"
-          disabled={uploadMutation.isPending}
-          onClick={() => fileRef.current?.click()}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-ctl border border-p-line bg-p-panel2 px-3 py-2 text-[12px] font-bold text-p-muted transition hover:border-p-accent-dim hover:text-p-text"
-        >
-          <Plus className="h-3.5 w-3.5" /> {uploadMutation.isPending ? 'Загрузка…' : 'Добавить документ'}
-        </button>
-        {/* Ограничения — до попытки, а не в сообщении об ошибке после неё. */}
-        <p className="mt-2 text-center text-[11px] text-p-muted2">
-          {UPLOAD_LIMITS_HINT}
-        </p>
       </div>
 
       {signatureDoc && (

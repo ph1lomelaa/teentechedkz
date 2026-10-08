@@ -239,7 +239,7 @@ async def steps_by_participation(db, participation_ids, *, for_student: bool) ->
         return {}
     rows = (await db.execute(select(RoadmapTask, Stage.visible_to_student, Roadmap.status)
         .join(Stage, RoadmapTask.stage_id == Stage.id).join(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
-        .where(RoadmapTask.activity_participation_id.in_(participation_ids)))).all()
+        .where(RoadmapTask.activity_participation_id.in_(participation_ids), RoadmapTask.deleted_at.is_(None)))).all()
     grouped: dict[uuid.UUID, list[RoadmapTask]] = {}
     for task, stage_visible, roadmap_status in rows:
         if for_student and not (roadmap_status == RoadmapStatus.active and task_visible_to_student(
@@ -396,7 +396,7 @@ async def participation_tasks(participation_id: uuid.UUID, db: DB, user: Current
         require_access(user, 'roadmaps', Action.view)
     rows = (await db.execute(select(RoadmapTask, Stage.visible_to_student, Roadmap.status)
         .join(Stage, RoadmapTask.stage_id == Stage.id).join(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
-        .where(RoadmapTask.activity_participation_id == participation_id)
+        .where(RoadmapTask.activity_participation_id == participation_id, RoadmapTask.deleted_at.is_(None))
         .options(selectinload(RoadmapTask.subtasks)).order_by(RoadmapTask.due_date.asc().nullslast(), RoadmapTask.position))).all()
     return [task for task, visible, roadmap_status in rows if user.role != UserRole.student or
         (roadmap_status == RoadmapStatus.active and task_visible_to_student(audience=task.audience, task_visible=task.visible_to_student, stage_visible=visible))]

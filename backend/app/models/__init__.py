@@ -39,6 +39,7 @@ from .telegram_invite_link import TelegramInviteLink
 from .telegram_participant_identity import TelegramParticipantIdentity
 from .workspace_message_read import WorkspaceMessageRead
 from .notion_snapshot import NotionSnapshot, NotionMatchStatus
+from .notion_field_sync import NotionFieldSync, FieldSyncDirection, FieldSyncStatus
 from .ai_analysis_run import AiAnalysisRun
 from .roadmap import (
     RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
@@ -94,7 +95,7 @@ __all__ = [
     "TelegramInviteLink",
     "TelegramParticipantIdentity",
     "WorkspaceMessageRead",
-    "NotionSnapshot", "NotionMatchStatus",
+    "NotionSnapshot", "NotionMatchStatus", "NotionFieldSync", "FieldSyncDirection", "FieldSyncStatus",
     "AiAnalysisRun",
     "RoadmapTemplate", "TemplateStage", "TemplateTask", "TemplateSubtask",
     "Roadmap", "Stage", "RoadmapTask", "RoadmapSubtask",

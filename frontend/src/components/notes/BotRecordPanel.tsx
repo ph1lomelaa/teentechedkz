@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { LanguagePicker } from '@/components/notes/LanguagePicker'
 import { ZoomConnectCard } from '@/components/notes/ZoomConnectCard'
+import { CreateGoogleMeetLink, GOOGLE_MEET_NEW_URL } from '@/components/shared/CreateGoogleMeetLink'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import { detectMeetingPlatform, MEETING_PLATFORM_LABELS } from '@/lib/meetingBotUi'
@@ -47,7 +48,13 @@ export const BotRecordPanel: React.FC<{
   }, [draftKey, url])
   const [language, setLanguage] = useState<NoteSessionLanguage>(session.language ?? 'ru')
   const platform = detectMeetingPlatform(url)
-  const zoomBlocked = platform === 'zoom' && !zoomStatus?.connected
+  // Пока Zoom не одобрил наше приложение, бот во встречи чужих аккаунтов не
+  // заходит — отказываем сразу и ведём в Meet, а не ждём сбоя через минуты.
+  const zoomUnavailable = platform === 'zoom' && zoomStatus?.zoom_bot_enabled === false
+  // В режиме company бот заходит во встречи корпоративного аккаунта без
+  // подключения Zoom; подключение нужно только в режиме obf.
+  const zoomCompany = platform === 'zoom' && zoomStatus?.zoom_mode === 'company'
+  const zoomBlocked = platform === 'zoom' && (zoomUnavailable || (!zoomCompany && !zoomStatus?.connected))
   const typed = url.trim().length > 6
 
   const sendMutation = useMutation({
@@ -60,13 +67,13 @@ export const BotRecordPanel: React.FC<{
 
   const sendBot = sendMutation.mutate
   useEffect(() => {
-    if (!zoomStatus?.connected || platform !== 'zoom' || session.bot_status) return
+    if (!zoomStatus?.connected || zoomUnavailable || platform !== 'zoom' || session.bot_status) return
     try {
       if (sessionStorage.getItem(`${draftKey}:send-after-oauth`) !== 'true') return
       sessionStorage.removeItem(`${draftKey}:send-after-oauth`)
     } catch { return }
     sendBot()
-  }, [draftKey, platform, zoomStatus?.connected, session.bot_status, sendBot])
+  }, [draftKey, platform, zoomStatus?.connected, zoomUnavailable, session.bot_status, sendBot])
 
   const ink = inWorkspace ? 'text-w-ink' : 'text-p-text'
   const muted = inWorkspace ? 'text-w-muted' : 'text-p-muted'
@@ -81,7 +88,7 @@ export const BotRecordPanel: React.FC<{
             id="meeting-url"
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://meet.google.com/… или https://zoom.us/j/…"
+            placeholder="https://meet.google.com/…"
             className="h-14 pr-36 text-base"
             autoComplete="off"
             inputMode="url"
@@ -94,6 +101,11 @@ export const BotRecordPanel: React.FC<{
             </span>
           )}
         </div>
+        <div className={cn('mt-2 flex flex-wrap items-center gap-x-2 text-xs', muted)}>
+          <span>Нет ссылки?</span>
+          <CreateGoogleMeetLink className={ink} />
+          <span>— скопируйте ссылку встречи и вставьте сюда.</span>
+        </div>
         {typed && !platform && (
           <div className={cn('mt-2 flex flex-wrap items-center justify-between gap-3 rounded-panel border p-3 text-sm', inWorkspace ? 'border-w-danger/50 bg-w-danger/10 text-w-danger' : 'border-red-300 bg-red-50 text-red-800')}>
             <span>Поддерживаются ссылки Zoom, Google Meet и Microsoft Teams.</span>
@@ -101,7 +113,27 @@ export const BotRecordPanel: React.FC<{
         )}
       </div>
 
-      {zoomBlocked && <ZoomConnectCard status={zoomStatus} inWorkspace={inWorkspace} onBeforeConnect={() => {
+      {zoomUnavailable && (
+        <div className={cn('rounded-panel border p-4 text-sm', inWorkspace ? 'border-w-accentDim/60 bg-w-accent/10 text-w-ink' : 'border-amber-300 bg-amber-50 text-p-text')}>
+          <p className="font-semibold">В Zoom бот пока не заходит</p>
+          <p className={cn('mt-1', muted)}>
+            Zoom пускает ботов во встречи других аккаунтов только после проверки нашего приложения — она ещё идёт.
+            Проведите встречу в Google Meet: создайте её, отправьте ссылку ученику и вставьте сюда.
+          </p>
+          <Button asChild size="sm" className="mt-3">
+            <a href={GOOGLE_MEET_NEW_URL} target="_blank" rel="noopener noreferrer">Создать Google Meet</a>
+          </Button>
+        </div>
+      )}
+
+      {zoomCompany && (
+        <div className={cn('rounded-panel border p-3 text-sm', panel, muted)}>
+          В Zoom бот заходит только во встречи корпоративного аккаунта TeenTechEd. Создавайте встречу из рабочей учётки
+          Zoom — из личной бот не пустят.
+        </div>
+      )}
+
+      {zoomBlocked && !zoomUnavailable && <ZoomConnectCard status={zoomStatus} inWorkspace={inWorkspace} onBeforeConnect={() => {
         try {
           sessionStorage.setItem(draftKey, url)
           sessionStorage.setItem(`${draftKey}:send-after-oauth`, 'true')

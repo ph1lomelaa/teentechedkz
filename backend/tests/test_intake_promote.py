@@ -23,6 +23,7 @@ from unittest import mock
 
 from app.models.intake_submission import IntakeSource, IntakeStatus
 from app.services import intake_promote
+from app.services.intake_identity import CandidateSet
 
 
 @dataclass
@@ -45,6 +46,11 @@ class _Submission:
         self.student_id = None
         self.linked_by = None
         self.linked_at = None
+        self.match_candidate_ids = []
+        self.identity_review_required = False
+        self.first_seen_at = None
+        self.content_changed_at = None
+        self.created_at = None
 
 
 class _Result:
@@ -62,9 +68,11 @@ class FakeSession:
     def __init__(self, submissions):
         self._submissions = submissions
         self.committed = False
+        self.calls = 0
 
     async def execute(self, _query):
-        return _Result(self._submissions)
+        self.calls += 1
+        return _Result(self._submissions if self.calls <= 2 else [])
 
 
 class _FakeStudent:
@@ -99,9 +107,14 @@ def _run(session, *, matches, created_names):
     def fake_fuzzy(_name, _phone, _index):
         return queue.pop(0)
 
+    def fake_candidates(name, phone, index):
+        match = fake_fuzzy(name, phone, index)
+        return CandidateSet((match.student_id,), match.confidence, "fake") if match.student_id else CandidateSet((), 0, None)
+
     with mock.patch.object(intake_promote, "create_student_from_intake", fake_create), \
          mock.patch("app.services.sheets_sync.load_students_index", new=_empty_index), \
-         mock.patch("migration.transformers.match.fuzzy_match", fake_fuzzy):
+         mock.patch("app.services.intake_identity.plausible_student_candidates", fake_candidates), \
+         mock.patch("app.services.intake_identity.pair_cross_source_submissions", lambda rows: {}):
         return asyncio.run(intake_promote.promote_new_submissions(session, actor_id=None))
 
 
@@ -134,7 +147,7 @@ class PromoteNewSubmissionsTests(unittest.TestCase):
 
         counters = _run(session, matches=[_Match(None, 0.0)], created_names=created)
 
-        self.assertEqual(counters, {"created": 1, "skipped": 0, "has_more": False})
+        self.assertEqual(counters, {"created": 1, "linked": 0, "skipped": 0, "waiting": 0, "has_more": False})
         self.assertEqual(created, ["Новый Человек"])
         self.assertEqual(submission.status, IntakeStatus.linked)
         # Автоматический проход не подписывается пользователем — некому.
@@ -150,35 +163,30 @@ class PromoteNewSubmissionsTests(unittest.TestCase):
             session, matches=[_Match(existing_id, 0.97)], created_names=created
         )
 
-        self.assertEqual(counters, {"created": 0, "skipped": 1, "has_more": False})
+        self.assertEqual(counters, {"created": 0, "linked": 0, "skipped": 1, "waiting": 0, "has_more": False})
         self.assertEqual(created, [], "дубль создавать нельзя")
         self.assertEqual(submission.suggested_student_id, existing_id)
         self.assertEqual(submission.suggested_confidence, 0.97)
         # Статус остаётся new: анкета ждёт ручной привязки, а не «обработана».
         self.assertEqual(submission.status, IntakeStatus.new)
 
-    def test_match_just_below_threshold_still_creates(self) -> None:
-        # Порог намеренно высокий: слабое совпадение — не повод объединять
-        # двух разных людей, это дороже лишней карточки.
+    def test_plausible_match_below_old_threshold_is_still_blocked(self) -> None:
+        # Любой plausible кандидат блокирует создание; score больше не решает.
         submission = _Submission("Похож Но Не Он")
         session = FakeSession([submission])
         created: list[str] = []
 
         counters = _run(
             session,
-            matches=[_Match(uuid.uuid4(), intake_promote.DUPLICATE_CONFIDENCE - 0.01)],
+            matches=[_Match(uuid.uuid4(), 0.89)],
             created_names=created,
         )
 
-        self.assertEqual(counters, {"created": 1, "skipped": 0, "has_more": False})
-        self.assertEqual(created, ["Похож Но Не Он"])
+        self.assertEqual(counters, {"created": 0, "linked": 0, "skipped": 1, "waiting": 0, "has_more": False})
+        self.assertEqual(created, [])
 
-    def test_second_form_of_same_person_in_one_run_is_not_duplicated(self) -> None:
-        """Пакет и Кейс одного человека приходят двумя строками.
-
-        Первая создаёт карточку, вторая обязана увидеть её в индексе — поэтому
-        созданный студент дописывается в `students_index` прямо в цикле.
-        """
+    def test_same_source_possible_duplicate_waits_for_human_review(self) -> None:
+        """Two responses from one form are ambiguous; do not create either."""
         first = _Submission("Один Человек")
         second = _Submission("Один Человек")
         session = FakeSession([first, second])
@@ -191,6 +199,10 @@ class PromoteNewSubmissionsTests(unittest.TestCase):
             if index:
                 return _Match(index[-1]["id"], 1.0)
             return _Match(None, 0.0)
+
+        def fake_candidates(name, phone, index):
+            match = fake_fuzzy(name, phone, index)
+            return CandidateSet((match.student_id,), match.confidence, "fake") if match.student_id else CandidateSet((), 0, None)
 
         def fake_create(_db, submission, actor_id):
             student = _FakeStudent(submission.full_name)
@@ -205,14 +217,48 @@ class PromoteNewSubmissionsTests(unittest.TestCase):
 
         with mock.patch.object(intake_promote, "create_student_from_intake", fake_create), \
              mock.patch("app.services.sheets_sync.load_students_index", new=_empty_index), \
-             mock.patch("migration.transformers.match.fuzzy_match", fake_fuzzy):
+             mock.patch("app.services.intake_identity.plausible_student_candidates", fake_candidates), \
+             mock.patch("app.services.intake_identity.pair_cross_source_submissions", lambda rows: {}):
             counters = asyncio.run(
                 intake_promote.promote_new_submissions(session, actor_id=None)
             )
 
-        self.assertEqual(counters, {"created": 1, "skipped": 1, "has_more": False})
-        self.assertEqual(created, ["Один Человек"], "второй анкете дубль создавать нельзя")
-        self.assertEqual(seen_index_sizes, [0, 1], "созданный студент не попал в индекс")
+        self.assertEqual(counters, {"created": 0, "linked": 0, "skipped": 2, "waiting": 0, "has_more": False})
+        self.assertEqual(created, [], "same-source duplicates remain for review")
+        self.assertEqual(seen_index_sizes, [0, 1, 0, 1])
+
+    def test_package_and_cases_are_created_once_and_linked_to_same_student(self) -> None:
+        package = _Submission("Один Человек")
+        package.source = IntakeSource.package
+        cases = _Submission("Один Человек")
+        session = FakeSession([package, cases])
+        linked_submissions: list[str] = []
+        created: list[str] = []
+
+        async def fake_create(_db, submission, actor_id):
+            student = _FakeStudent(submission.full_name)
+            submission.student_id = student.id
+            submission.status = IntakeStatus.linked
+            created.append(submission.full_name)
+            return student
+
+        async def fake_link(_db, submission, student, *, actor_id):
+            submission.student_id = student.id
+            submission.status = IntakeStatus.linked
+            linked_submissions.append(submission.source.value)
+
+        with mock.patch.object(intake_promote, "create_student_from_intake", fake_create), \
+             mock.patch.object(intake_promote, "link_submission_to_student", fake_link), \
+             mock.patch("app.services.sheets_sync.load_students_index", new=_empty_index):
+            counters = asyncio.run(
+                intake_promote.promote_new_submissions(session, actor_id=uuid.uuid4())
+            )
+
+        self.assertEqual(created, ["Один Человек"])
+        self.assertEqual(linked_submissions, [IntakeSource.cases.value])
+        self.assertEqual(package.student_id, cases.student_id)
+        self.assertEqual(counters["created"], 1)
+        self.assertEqual(counters["linked"], 1)
 
     def test_run_is_capped_and_says_there_is_more(self) -> None:
         """Проход ограничен потолком, и остаток не выдаётся за пустую очередь.
@@ -229,7 +275,8 @@ class PromoteNewSubmissionsTests(unittest.TestCase):
 
         with mock.patch.object(intake_promote, "create_student_from_intake", _noop_create(created)), \
              mock.patch("app.services.sheets_sync.load_students_index", new=_empty_index), \
-             mock.patch("migration.transformers.match.fuzzy_match", lambda *_: _Match(None, 0.0)):
+             mock.patch("app.services.intake_identity.plausible_student_candidates", lambda *_: CandidateSet((), 0, None)), \
+             mock.patch("app.services.intake_identity.pair_cross_source_submissions", lambda rows: {}):
             counters = asyncio.run(
                 intake_promote.promote_new_submissions(session, actor_id=None, limit=2)
             )

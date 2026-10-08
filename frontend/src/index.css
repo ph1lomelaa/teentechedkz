@@ -1506,3 +1506,39 @@ html[data-crm-theme='light'],
   --dir-8-rgb: 17 94 89;
   --ds-info-rgb: 29 78 216;
 }
+
+/* Student tables share one semantic status scale in both CRM themes. */
+.student-pipeline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--student-status-bg);
+  color: var(--student-status-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.student-pipeline-status__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.student-pipeline-status[data-tone='active'] { --student-status-bg: #1E3825; --student-status-fg: #A6DEB3; }
+.student-pipeline-status[data-tone='waiting'] { --student-status-bg: #432A10; --student-status-fg: #F4BF8B; }
+.student-pipeline-status[data-tone='problem'] { --student-status-bg: #44201F; --student-status-fg: #F1A8A5; }
+.student-pipeline-status[data-tone='complete'] { --student-status-bg: #163A40; --student-status-fg: #9BD6DF; }
+.student-pipeline-status[data-tone='neutral'] { --student-status-bg: #2C2B27; --student-status-fg: #C8C5BB; }
+
+:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='active'] { --student-status-bg: #DCEFE0; --student-status-fg: #1D5A2D; }
+:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='waiting'] { --student-status-bg: #FBE2CB; --student-status-fg: #883C00; }
+:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='problem'] { --student-status-bg: #F7D8D7; --student-status-fg: #8C1F1F; }
+:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='complete'] { --student-status-bg: #D6EAEE; --student-status-fg: #13535E; }
+:is(.crm-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='neutral'] { --student-status-bg: #E6E4DD; --student-status-fg: #4A4840; }

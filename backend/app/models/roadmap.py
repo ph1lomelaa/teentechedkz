@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, date, timezone
 import enum
 
-from sqlalchemy import String, Integer, Text, Date, DateTime, Boolean, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Integer, Text, Date, DateTime, Boolean, ForeignKey, Enum as SAEnum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -187,16 +187,16 @@ class Stage(Base):
 
     @property
     def tasks_total(self) -> int:
-        return len(self.tasks)
+        return sum(task.deleted_at is None for task in self.tasks)
 
     @property
     def required_total(self) -> int:
-        return sum(task.priority == TaskPriority.required for task in self.tasks)
+        return sum(task.deleted_at is None and task.priority == TaskPriority.required for task in self.tasks)
 
     @property
     def required_done(self) -> int:
         return sum(
-            task.priority == TaskPriority.required and task.status == RoadmapItemStatus.done
+            task.deleted_at is None and task.priority == TaskPriority.required and task.status == RoadmapItemStatus.done
             for task in self.tasks
         )
 
@@ -215,6 +215,9 @@ class RoadmapTask(Base):
     stage_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stages.id", ondelete="CASCADE"), index=True)
     roadmap_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmaps.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(500))
+    source_notion_page_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    manual_fields: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     expected_result: Mapped[str] = mapped_column(Text, default="", server_default="")
     needs_document: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -268,6 +271,9 @@ class RoadmapSubtask(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmap_tasks.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(500))
+    source_notion_page_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    manual_fields: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)

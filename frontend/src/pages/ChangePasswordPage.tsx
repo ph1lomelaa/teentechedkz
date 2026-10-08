@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { authApi } from '@/api/auth'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { getDefaultPath } from '@/lib/authRouting'
+import { PasswordChecklist, PasswordField, newPasswordReady } from '@/components/auth/PasswordField'
 
 /**
  * Смена пароля. Обязательна при первом входе (must_change_password) —
@@ -47,14 +48,11 @@ export const ChangePasswordPage: React.FC = () => {
     }
   }
 
-  const inputCls =
-    'h-12 w-full rounded-ctl border px-4 text-sm transition-colors'
-
   return (
     <AuthShell
       eyebrow="Безопасность"
       title={forced ? 'Задайте новый пароль' : 'Смена пароля'}
-      description={forced ? 'Это первый вход. Замените временный пароль на свой, чтобы продолжить.' : 'Используйте не менее 8 символов и не повторяйте старый пароль.'}
+      description={forced ? 'Это первый вход. Замените временный пароль на свой, чтобы продолжить.' : 'Новый пароль не должен совпадать со старым. После смены другие устройства выйдут из аккаунта.'}
     >
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
@@ -63,54 +61,35 @@ export const ChangePasswordPage: React.FC = () => {
             </div>
           )}
 
-          <div className="space-y-2">
-            <label className="auth-field-label block" htmlFor="current">
-              {forced ? 'Временный пароль' : 'Текущий пароль'}
-            </label>
-            <input
-              id="current"
-              type="password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              required
-              autoComplete="current-password"
-              className={inputCls}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="auth-field-label block" htmlFor="next">
-              Новый пароль
-            </label>
-            <input
-              id="next"
-              type="password"
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-              required
-              autoComplete="new-password"
-              className={inputCls}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="auth-field-label block" htmlFor="confirm">
-              Повторите новый пароль
-            </label>
-            <input
-              id="confirm"
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              autoComplete="new-password"
-              className={inputCls}
-            />
-          </div>
+          <PasswordField
+            id="current"
+            label={forced ? 'Временный пароль' : 'Текущий пароль'}
+            value={current}
+            onChange={setCurrent}
+            autoComplete="current-password"
+          />
+          <PasswordField
+            id="next"
+            label="Новый пароль"
+            value={next}
+            onChange={setNext}
+            autoComplete="new-password"
+            describedBy="password-rules"
+          />
+          <PasswordField
+            id="confirm"
+            label="Повторите новый пароль"
+            value={confirm}
+            onChange={setConfirm}
+            autoComplete="new-password"
+            invalid={confirm.length > 0 && confirm !== next}
+            describedBy="password-rules"
+          />
+          <PasswordChecklist id="password-rules" next={next} confirm={confirm} />
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !current || !newPasswordReady(next, confirm)}
             className="auth-primary-button h-12 w-full text-[13px] uppercase tracking-[0.14em]"
           >
             {loading ? 'Сохраняем…' : 'Сохранить пароль'}
