@@ -1994,12 +1994,12 @@ const CrmStudentsListView: React.FC = () => {
           превращал бы строчную кнопку в скрытый режим — назначает то ли ментора
           по УП, то ли профориентолога, и по экрану не понять. */}
       {canAssign && (assignMode || selectedVisible.length > 0) && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ds-line bg-ds-ink px-3 py-2 text-ds-bg">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ds-line bg-ds-panel px-3 py-2 text-ds-ink">
           <span className="text-sm font-semibold">
             {selectedVisible.length > 0 ? `Выбрано: ${selectedVisible.length}` : 'Назначить:'}
           </span>
           <Select value={assignRole} onValueChange={changeAssignRole}>
-            <SelectTrigger className="h-9 w-[190px]">
+            <SelectTrigger className="h-9 w-[190px] border-ds-line bg-ds-panel2 text-ds-ink">
               <SelectValue placeholder="Роль" />
             </SelectTrigger>
             <SelectContent>
@@ -2015,7 +2015,7 @@ const CrmStudentsListView: React.FC = () => {
               назначить. Спрятанный до галочек, он читался как «выбор роли ничего
               не дал». Кнопка ждёт выделения — и говорит об этом рядом. */}
           <Select value={bulkMentorId} onValueChange={setBulkMentorId}>
-            <SelectTrigger className="h-9 w-[220px]">
+            <SelectTrigger className="h-9 w-[220px] border-ds-line bg-ds-panel2 text-ds-ink">
               <SelectValue placeholder="Кого назначить" />
             </SelectTrigger>
             <SelectContent>
@@ -2044,7 +2044,7 @@ const CrmStudentsListView: React.FC = () => {
           <button
             hidden={selectedVisible.length === 0}
             onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-p-muted underline underline-offset-4 hover:text-black"
+            className="min-h-8 rounded-lg px-2 text-xs text-ds-muted underline underline-offset-4 hover:bg-ds-panel2 hover:text-ds-ink"
           >
             Снять выбор
           </button>

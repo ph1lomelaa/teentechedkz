@@ -98,9 +98,38 @@ describe('список распределения', () => {
     renderPage()
     expect(await screen.findByText('Дана К.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Назначить' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Выбрать Дана К.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Выбрать Дана К.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Доска нагрузки' })).not.toBeInTheDocument()
     expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
+  })
+
+  it('показывает галочки только после включения выбора и очищает выбор при выходе', async () => {
+    renderPage()
+    await screen.findByText('Дана К.')
+    expect(screen.queryByLabelText(/Выбрать .*студентов группы/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать студентов' }))
+    fireEvent.click(screen.getByLabelText('Выбрать Дана К.'))
+    expect(screen.getByText('Выбрано 1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Выйти из выбора' }))
+    expect(screen.queryByLabelText('Выбрать Дана К.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Выбрано 1')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать студентов' }))
+    expect(screen.getByLabelText('Выбрать Дана К.')).not.toBeChecked()
+  })
+
+  it('раскрывает и сворачивает каждый год набора', async () => {
+    renderPage('/students/distribution?status=active_work,changed_mind')
+    await screen.findByText('Ерлан П.')
+    for (const year of [2026, 2027]) {
+      const group = screen.getByRole('button', { name: new RegExp(`Набор ${year}`) })
+      if (group.getAttribute('aria-expanded') === 'true') fireEvent.click(group)
+      expect(group).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(group)
+      expect(group).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText(year === 2026 ? 'Ерлан П.' : 'Дана К.')).toBeInTheDocument()
+    }
   })
 
   it('по умолчанию показывает распределение МЗК', async () => {

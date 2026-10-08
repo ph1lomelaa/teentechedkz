@@ -96,6 +96,7 @@ export const StudentsDistributionPage: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string> | null>(null)
   const [groupLimits, setGroupLimits] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
   const [bulkTarget, setBulkTarget] = useState('')
   const [pendingBulk, setPendingBulk] = useState<{ studentIds: string[]; mentorId: string } | null>(null)
 
@@ -109,6 +110,7 @@ export const StudentsDistributionPage: React.FC = () => {
   const isMultiRole = MULTI_MENTOR_ROLES.includes(role)
 
   const setRole = (next: string) => {
+    setSelectionMode(false)
     setBulkTarget('')
     setSelected(new Set())
     setPendingBulk(null)
@@ -460,6 +462,12 @@ export const StudentsDistributionPage: React.FC = () => {
             </FilterField>
 
           </FilterPopover>
+        {canDrag && <Button type="button" variant="outline" size="sm" aria-pressed={selectionMode} onClick={() => {
+          setSelectionMode(!selectionMode)
+          setSelected(new Set())
+          setBulkTarget('')
+          setPendingBulk(null)
+        }}>{selectionMode ? 'Выйти из выбора' : 'Выбрать студентов'}</Button>}
         {view === 'list' && <div className="ml-auto flex flex-wrap items-center gap-1 text-sm">
           <span className="mr-1 text-p-muted">Группировка</span>
           {([['year', 'Набор'], ['country', 'Страна'], ['status', 'Статус']] as const).map(([value, label]) => <button type="button" key={value} onClick={() => { setGroupBy(value); setExpandedGroups(null); setGroupLimits({}); setSelected(new Set()); setPendingBulk(null) }} className={`min-h-9 rounded-ctl px-3 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-p-accent ${groupBy === value ? 'bg-p-panel text-p-text shadow-sm' : 'text-p-muted'}`}>{label}</button>)}
@@ -479,6 +487,7 @@ export const StudentsDistributionPage: React.FC = () => {
           board={data}
           roleLabel={roleLabel}
           canAssign={canDrag}
+          selectionMode={selectionMode}
           rows={listRows}
           groups={groups}
           openGroups={openGroups}
