@@ -29,6 +29,7 @@ import { withViewTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { DeadlineField } from '@/components/shared/DeadlineField'
 import { overdueDaysOf } from '@/lib/roadmapDeadline'
+import { useTheme } from '@/contexts/ThemeContext'
 
 // Workspace-native interactive roadmap editor. Same roadmapApi mutations the CRM
 // uses (RoadmapTimeline), restyled with the dark w-* tokens so the mentor manages
@@ -57,6 +58,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
   canManage?: boolean
   onChanged: (updated: Roadmap) => void
 }> = ({ roadmap, canManage = true, onChanged }) => {
+  const { theme } = useTheme()
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -524,7 +526,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(editTask)} onOpenChange={(o) => !o && setEditTask(null)}>
-      <DialogContent className="portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
+      <DialogContent data-theme={theme} className="portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Изменить задачу</DialogTitle>
           <DialogDescription className="text-w-muted">

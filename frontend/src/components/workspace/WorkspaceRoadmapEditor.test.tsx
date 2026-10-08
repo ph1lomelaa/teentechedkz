@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { roadmapApi, type Roadmap } from '@/api/roadmap'
+import { ThemeProvider, THEME_STORAGE_KEY } from '@/contexts/ThemeContext'
 import { WorkspaceRoadmapEditor } from './WorkspaceRoadmapEditor'
 
 vi.mock('@/lib/motion', () => ({ withViewTransition: (fn: () => void) => fn() }))
@@ -24,14 +25,18 @@ const roadmap: Roadmap = {
 }
 
 describe('редактирование задачи roadmap', () => {
-  beforeEach(() => vi.spyOn(roadmapApi, 'updateTask').mockResolvedValue(roadmap))
+  beforeEach(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+    vi.spyOn(roadmapApi, 'updateTask').mockResolvedValue(roadmap)
+  })
 
   it('сохраняет изменения импортированной задачи через существующий API', async () => {
     const onChanged = vi.fn()
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={roadmap} onChanged={onChanged} /></QueryClientProvider>)
+    render(<ThemeProvider><QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={roadmap} onChanged={onChanged} /></QueryClientProvider></ThemeProvider>)
 
     fireEvent.click(screen.getByRole('button', { name: 'Изменить задачу «Исходное название»' }))
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-theme', 'dark')
     fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Обновлённое название' } })
     fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Новое описание' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -41,5 +46,14 @@ describe('редактирование задачи roadmap', () => {
       priority: 'required', audience: 'applicant', needs_document: false, needs_zoom: false,
     })))
     expect(onChanged).toHaveBeenCalledWith(roadmap)
+  })
+
+  it('передаёт светлую тему в портальное окно и его нативные списки', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'light')
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<ThemeProvider><QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={roadmap} onChanged={vi.fn()} /></QueryClientProvider></ThemeProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить задачу «Исходное название»' }))
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-theme', 'light')
   })
 })
