@@ -95,6 +95,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
       // Кроссфейд перестройки: галочки, счётчики done/total и статус-пиллы
       // меняются плавно, а не одним кадром.
       withViewTransition(() => onChanged(updated))
+      queryClient.invalidateQueries({ queryKey: ['student-roadmap', updated.student_id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
       onSuccess?.()
     } catch (err) {
       const response = (err as {
@@ -190,14 +192,6 @@ export const WorkspaceRoadmapEditor: React.FC<{
     run(() => roadmapApi.updateSubtask(subId, { is_done: !isDone }))
   const cycleStage = (s: RoadmapStage) => {
     const nextStatus = STAGE_CYCLE[s.status]
-    if (nextStatus === 'done' && !s.can_complete) {
-      toast({
-        title: 'Этап ещё нельзя закрыть',
-        description: `Принято обязательных задач: ${s.required_done}/${s.required_total}`,
-        variant: 'destructive',
-      })
-      return
-    }
     return run(() => roadmapApi.updateStage(s.id, { status: nextStatus }))
   }
 
@@ -317,7 +311,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
               <StageNode
                 status={s.status}
                 onClick={() => canManage && cycleStage(s)}
-                disabled={!canManage || (STAGE_CYCLE[s.status] === 'done' && !s.can_complete)}
+                disabled={!canManage}
               />
 
               <div

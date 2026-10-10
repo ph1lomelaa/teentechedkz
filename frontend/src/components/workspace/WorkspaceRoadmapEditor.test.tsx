@@ -30,6 +30,17 @@ describe('редактирование задачи roadmap', () => {
     vi.spyOn(roadmapApi, 'updateTask').mockResolvedValue(roadmap)
   })
 
+  it('закрывает этап даже при незавершённых обязательных задачах', async () => {
+    const updated = { ...roadmap, stages: [{ ...roadmap.stages[0], status: 'done' as const }] }
+    const updateStage = vi.spyOn(roadmapApi, 'updateStage').mockResolvedValue(updated)
+    const onChanged = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<ThemeProvider><QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={roadmap} onChanged={onChanged} /></QueryClientProvider></ThemeProvider>)
+    fireEvent.click(screen.getByTitle('Сменить статус этапа'))
+    await waitFor(() => expect(updateStage).toHaveBeenCalledWith('stage-1', { status: 'done' }))
+    expect(onChanged).toHaveBeenCalledWith(updated)
+  })
+
   it('сохраняет изменения импортированной задачи через существующий API', async () => {
     const onChanged = vi.fn()
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

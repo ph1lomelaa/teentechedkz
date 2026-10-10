@@ -35,8 +35,6 @@ from app.services.mentor_scope import ensure_assignment_exists, primary_mentor_i
 from app.services.notify import dismiss_unread, has_unread, notify, push_notification, push_ws
 from app.services.questionnaire_seed import seed_questionnaire_for_task
 from app.services.roadmap_rules import (
-    is_required,
-    stage_status_after_task_change,
     task_visible_to_student,
 )
 from app.models.student import Student
@@ -123,42 +121,6 @@ async def _load_roadmap(db: AsyncSession, roadmap_id: uuid.UUID) -> Roadmap | No
 async def _student_of_roadmap(db: AsyncSession, roadmap_id: uuid.UUID) -> uuid.UUID | None:
     res = await db.execute(select(Roadmap.student_id).where(Roadmap.id == roadmap_id))
     return res.scalar_one_or_none()
-
-
-async def _sync_stage_after_task_change(
-    db: AsyncSession, task: RoadmapTask, actor_id: uuid.UUID
-) -> None:
-    """Держит инвариант «этап done => все обязательные задачи приняты».
-
-    Правило вынесено в services/roadmap_rules.py — там же его тест.
-    """
-    # Явный flush: новый статус задачи ещё висит в сессии, а пересчёт идёт
-    # запросом к БД — без этого считались бы дофлашевые значения и снятие
-    # отметки не переоткрывало этап.
-    await db.flush()
-    stage = await db.get(Stage, task.stage_id)
-    if not stage:
-        return
-    rows = (
-        await db.execute(
-            select(RoadmapTask.priority, RoadmapTask.status).where(
-                RoadmapTask.stage_id == stage.id, RoadmapTask.deleted_at.is_(None)
-            )
-        )
-    ).all()
-    required = [row for row in rows if is_required(row[0])]
-    required_done = sum(row[1] == RoadmapItemStatus.done for row in required)
-    new_status = stage_status_after_task_change(
-        stage_status=stage.status,
-        required_total=len(required),
-        required_done=required_done,
-    )
-    if new_status != stage.status:
-        await log_change(
-            db, "stage", stage.id, "status", stage.status.value, new_status.value,
-            str(actor_id), source="cascade",
-        )
-        stage.status = new_status
 
 
 # ==========================================================================
@@ -706,42 +668,7 @@ async def update_stage(stage_id: uuid.UUID, body: StageUpdate, current_user: Cur
     # and view progress, they never edit stage/task status directly anymore.
     await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
-    if data.get("status") == RoadmapItemStatus.in_progress and stage.status == RoadmapItemStatus.planned:
-        required_roles = {"career", "ielts", "lead", "country"}
-        assignment_result = await db.execute(
-            select(MentorAssignment.role).where(
-                MentorAssignment.student_id == student_id,
-                MentorAssignment.is_active == True,  # noqa: E712
-                MentorAssignment.assignment_status == "active",
-            )
-        )
-        active_roles = {row[0].value for row in assignment_result.all()}
-        missing_roles = sorted(required_roles - active_roles)
-        if missing_roles:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "Этап нельзя начать: обязательная команда ещё не полностью допущена",
-                    "missing_roles": missing_roles,
-                },
-                headers={"X-Error-Code": "STAGE_REQUIRED_TEAM_INCOMPLETE"},
-            )
-    if data.get("status") == RoadmapItemStatus.done:
-        task_result = await db.execute(
-            select(RoadmapTask.priority, RoadmapTask.status).where(RoadmapTask.stage_id == stage.id, RoadmapTask.deleted_at.is_(None))
-        )
-        required_tasks = [row for row in task_result.all() if row[0].value == "required"]
-        incomplete_required = sum(row[1] != RoadmapItemStatus.done for row in required_tasks)
-        if incomplete_required:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "Этап нельзя завершить: обязательные задачи ещё не приняты",
-                    "required_total": len(required_tasks),
-                    "required_done": len(required_tasks) - incomplete_required,
-                },
-                headers={"X-Error-Code": "STAGE_REQUIRED_TASKS_INCOMPLETE"},
-            )
+    # Stage status is chosen by staff independently of team and task progress.
     for field, value in data.items():
         setattr(stage, field, value)
     await db.commit()
@@ -824,12 +751,7 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
             db, "roadmap_task", task.id, "review_status", "approved", "none",
             str(current_user.id), source="workspace",
         )
-    # Снятие отметки с задачи в завершённом этапе возвращает этап в работу:
-    # иначе этап остаётся `done` с незакрытой обязательной задачей, и ментор,
-    # случайно отметивший задачу, не может её вернуть.
-    if "status" in data:
-        await _sync_stage_after_task_change(db, task, current_user.id)
-
+    # Task edits do not change the stage status chosen by staff.
     if was_pending and "status" in data:
         task.reviewed_by = current_user.id
         task.reviewed_at = datetime.now(timezone.utc)

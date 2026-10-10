@@ -13,7 +13,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
 import { RoadmapTimeline } from '@/components/shared/RoadmapTimeline'
 import { SegmentedTabs } from '@/components/ui'
-import { ResponsibilityBadge } from '@/components/shared/ResponsibilityBadge'
 import { QueryError } from '@/components/shared/QueryState'
 
 export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ studentId }) => {
@@ -123,7 +122,7 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
         <span className="flex flex-wrap items-center gap-2">
           <Route className="w-4 h-4 text-gray-500" />
           Roadmap поступления
-          <ResponsibilityBadge studentId={studentId} area="roadmap" />
+          {roadmaps.length > 0 && <Badge variant="outline">{selected?.mentor_name ? `Ведёт: ${selected.mentor_name}` : 'Roadmap назначен'}</Badge>}
           {roadmaps.length > 0 ? (
             <Badge variant="outline" className="ml-1 text-2xs font-medium">
               {roadmaps.length > 1 ? `${roadmaps.length} активных` : `${roadmaps[0].stages.length} этапов`}
@@ -171,7 +170,11 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
               </div>
             )}
             {showAssignForm && assignForm}
-            {selected && <RoadmapTimeline roadmap={selected} canManage onChanged={(rm) => setRoadmaps((current) => current.map((r) => r.id === rm.id ? rm : r))} />}
+            {selected && <RoadmapTimeline roadmap={selected} canManage onChanged={(rm) => {
+              setRoadmaps((current) => current.map((r) => r.id === rm.id ? rm : r))
+              queryClient.setQueryData<Roadmap[]>(['student-roadmap', studentId], (current) => current?.map((r) => r.id === rm.id ? rm : r))
+              queryClient.invalidateQueries({ queryKey: ['students'] })
+            }} />}
           </div>
         ) : canManageTemplates ? (
           assignForm
