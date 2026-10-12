@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.schemas.auth import ClientErrorReport
 from app.core.security import (
     hash_password,
     verify_password,
@@ -668,3 +669,12 @@ async def request_password_reset(
             str(letter.user.id),
         )
     return {"message": PASSWORD_RESET_SENT_MESSAGE}
+
+
+@router.post("/client-error", status_code=202)
+async def report_client_error(body: ClientErrorReport, request: Request, current_user: CurrentUser):
+    await rate_limit.enforce(request, bucket="client_error", limit=20, window_seconds=60,
+                             subject=str(current_user.id))
+    logger.warning("CLIENT_RUNTIME_ERROR user=%s kind=%s type=%s route=%s components=%s",
+                   current_user.id, body.kind, body.error_type, body.route, ",".join(body.components))
+    return {"accepted": True}

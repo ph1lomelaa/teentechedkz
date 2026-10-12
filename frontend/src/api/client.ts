@@ -97,7 +97,12 @@ apiClient.interceptors.response.use(
       !isAuthRequest
     ) {
       originalRequest._retry = true
-      const token = await refreshAccessToken()
+      // A slower card request may carry a token already replaced by another
+      // request. Retry with the fresh token instead of rotating the cookie again.
+      const sentToken = originalRequest.headers.Authorization
+      const token = accessToken && sentToken !== `Bearer ${accessToken}`
+        ? accessToken
+        : await refreshAccessToken()
       if (!token) {
         if (window.location.pathname !== '/login') window.location.replace('/login')
         return Promise.reject(error)

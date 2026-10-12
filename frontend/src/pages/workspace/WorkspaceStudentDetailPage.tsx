@@ -1,3 +1,4 @@
+import { QueryError } from '@/components/shared/QueryState'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -111,7 +112,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     setActiveTab(tabFromHash(location.hash))
   }, [location.hash])
 
-  const { data: student, isLoading } = useQuery({
+  const { data: student, isLoading, error, refetch } = useQuery({
     queryKey: ['workspace', 'student', studentId],
     queryFn: () => studentsApi.get(studentId!),
     enabled: !!studentId,
@@ -257,9 +258,12 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     () => student ? recommendRoadmaps(student, roadmapTemplates) : [],
     [roadmapTemplates, student],
   )
-  if (isLoading || !student) {
-    return <div className="text-sm text-w-muted">Загрузка карточки...</div>
-  }
+  if (isLoading) return <div className="text-sm text-w-muted">Загрузка карточки...</div>
+  if (error) return <QueryError colorPrefix="w" error={error} onRetry={refetch} />
+  if (!student) return <div className="space-y-3 text-sm text-w-muted">
+    <p>Карточка ученика не найдена.</p>
+    <Link to="/workspace/students">Вернуться к ученикам</Link>
+  </div>
 
   return (
     <div className="fade-in">

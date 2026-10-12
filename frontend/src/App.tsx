@@ -1,3 +1,5 @@
+import { StudentCardErrorBoundary } from '@/components/students/StudentCardErrorBoundary'
+import { reportClientRuntimeError } from '@/lib/clientRuntimeErrors'
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -281,6 +283,7 @@ class AppErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('App runtime error', error)
+    reportClientRuntimeError(error, info.componentStack ?? '')
     // Обычный ErrorBoundary изолирует ошибку от глобального обработчика, поэтому
     // без явного capture в Sentry не попадали ни стек компонента, ни маршрут.
     // При пустом VITE_SENTRY_DSN SDK остаётся no-op.
@@ -569,7 +572,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppLayout>
-              <StudentCardPage />
+              <StudentCardErrorBoundary><StudentCardPage /></StudentCardErrorBoundary>
             </AppLayout>
           </ProtectedRoute>
         }
@@ -967,7 +970,7 @@ function AppRoutes() {
       {/* Staff/mentor workspace — donor-style mentor cabinet backed by CRM data */}
       <Route path="/workspace" element={<WorkspaceRoute><WorkspaceDashboardPage /></WorkspaceRoute>} />
       <Route path="/workspace/students" element={<WorkspaceRoute><WorkspaceStudentsPage /></WorkspaceRoute>} />
-      <Route path="/workspace/students/:studentId" element={<WorkspaceRoute><WorkspaceStudentDetailPage /></WorkspaceRoute>} />
+      <Route path="/workspace/students/:studentId" element={<WorkspaceRoute><StudentCardErrorBoundary workspace><WorkspaceStudentDetailPage /></StudentCardErrorBoundary></WorkspaceRoute>} />
       <Route path="/workspace/roadmap" element={<WorkspaceRoute><WorkspaceRoadmapPage /></WorkspaceRoute>} />
       <Route path="/workspace/tasks" element={<WorkspaceRoute><WorkspaceTasksPage /></WorkspaceRoute>} />
       <Route path="/workspace/review" element={<WorkspaceRoute><WorkspaceReviewPage /></WorkspaceRoute>} />

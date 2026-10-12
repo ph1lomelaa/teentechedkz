@@ -196,6 +196,7 @@ jobs:
             else
               echo "Первый запуск: рабочей БД ещё нет, pre-deploy backup пропущен."
             fi
+            bash scripts/preserve-frontend-assets.sh
             if ! docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180; then
               echo "=== Production compose status ==="
               docker compose -f docker-compose.prod.yml ps -a
