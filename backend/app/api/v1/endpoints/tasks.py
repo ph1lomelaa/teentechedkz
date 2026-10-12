@@ -520,7 +520,7 @@ async def _validate_mentor_task_scope(
             MentorAssignment.mentor_id == mentor_id,
             MentorAssignment.is_active == True,  # noqa: E712
             MentorAssignment.assignment_status == "active",
-        )
+        ).limit(1)
     )
     if assignment.scalar_one_or_none() is None:
         raise HTTPException(

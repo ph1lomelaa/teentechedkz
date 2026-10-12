@@ -63,7 +63,7 @@ async def primary_mentor_id(db: AsyncSession, student_id: uuid.UUID) -> uuid.UUI
             MentorAssignment.role == MentorRole.lead,
             MentorAssignment.is_active == True,  # noqa: E712
         )
-        .order_by(MentorAssignment.assigned_at.desc())
+        .order_by(MentorAssignment.assigned_at.desc(), MentorAssignment.id.desc())
         .limit(1)
     )
     mentor_id = lead.scalar_one_or_none()
@@ -87,54 +87,22 @@ async def primary_mentor_id(db: AsyncSession, student_id: uuid.UUID) -> uuid.UUI
     return any_active.scalar_one_or_none()
 
 
-def default_assignment_role(user: User) -> MentorRole:
-    """Роль, в которой сотрудник по умолчанию встаёт к студенту.
-
-    Раньше роль выводилась из одного только `user.role`, и всё, что не
-    `mzk_manager`, становилось `lead`. Из-за этого профориентолог, заводивший
-    студенту встречу, оказывался в карточке «Ментором по УП» — не той ролью, в
-    которой он работает, и не той, за которую отвечает по регламенту.
-
-    Теперь спрашиваем сначала `mentor_specialties` — поле, где и написано, кем
-    человек работает. Если специализация ровно одна, это и есть ответ. Если их
-    несколько, угадывать нельзя: остаётся `lead`, а правильную роль выберут
-    руками через «Команду ученика».
-
-    Это подпись, а не право доступа: `mentor_specialties` по-прежнему не
-    участвует в require_access (см. models/user.py).
-    """
-    if user.role == UserRole.mzk_manager:
-        return MentorRole.mzk
-
+def default_assignment_role(user: User) -> MentorRole | None:
+    """Use an unambiguous specialty; otherwise require an explicit choice."""
     assignable = {role.value for role in ASSIGNABLE_ROLES}
-    declared = [s for s in (user.mentor_specialties or []) if s in assignable]
+    declared = set(s for s in (user.mentor_specialties or []) if s in assignable)
     if len(declared) == 1:
-        return MentorRole(declared[0])
-
-    return MentorRole.lead
+        return MentorRole(next(iter(declared)))
+    if not declared and user.role == UserRole.mzk_manager:
+        return MentorRole.mzk
+    return None
 
 
 async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, mentor_id: uuid.UUID) -> None:
-    """Сотрудник, которого портальные сценарии уже используют, должен быть виден
-    в назначениях — но ровно один раз и в своей роли.
+    """Показывать участника портальных сценариев в команде в однозначной роли.
 
-    Держит roadmap.mentor_id / meeting.mentor_id / контакты чата согласованными с
-    mentor_assignments.
-
-    Два правила, которых тут раньше не было:
-
-    1. Если у сотрудника уже есть ЛЮБОЕ активное назначение на этого студента —
-       не трогаем ничего. Прежняя версия смотрела только на роль `lead` и потому
-       заводила профориентологу вторую строку «Ментор по УП» при первой же
-       встрече: в «Команде ученика» человек начинал числиться дважды и в чужой
-       роли, а в истории замен об этом не было ни слова.
-    2. Новую строку заводим в роли из `default_assignment_role`, а не всегда в
-       `lead`.
-
-    Это по-прежнему тихая запись в обход `_assign_one` (без причины и истории) —
-    осознанно: тут не замена ответственного, а фиксация того, что и так
-    произошло. Замена чужого назначения этим путём невозможна: занятую роль
-    закрывает пункт 1 и уникальные индексы на назначениях (см. модель).
+    Другие сотрудники остаются в команде. Если специализация неоднозначна,
+    назначение делается вручную с выбором роли.
     """
     existing = await db.execute(
         select(MentorAssignment).where(
@@ -150,6 +118,8 @@ async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, ment
     if mentor is None:
         return
     role = default_assignment_role(mentor)
+    if role is None:
+        return
 
     # Снятое назначение включаем обратно, а не плодим второе — ровно так же
     # ведут себя assign_self и _assign_one.
@@ -158,25 +128,6 @@ async def ensure_assignment_exists(db: AsyncSession, student_id: uuid.UUID, ment
             row.is_active = True
             await _mirror_mzk(db, student_id, mentor_id, role)
             return
-
-    # Роль занята другим — молча вставать вторым нельзя, это работа «Команды
-    # ученика» с причиной и историей. Сотрудник останется mentor_id у встречи,
-    # но ответственным не станет.
-    #
-    # Для мультироли проверка тоже остаётся, хотя второй ответственный там
-    # штатен: страну этот путь не знает, а без неё уникальный индекс отклонит
-    # вторую строку. Первого ментора по стране он заведёт как раньше, второго
-    # добавят руками в «Команде ученика», указав страну.
-    occupied = await db.execute(
-        select(MentorAssignment.id).where(
-            MentorAssignment.student_id == student_id,
-            MentorAssignment.role == role,
-            MentorAssignment.is_active == True,  # noqa: E712
-            MentorAssignment.mentor_id.is_not(None),
-        ).limit(1)
-    )
-    if occupied.scalar_one_or_none() is not None:
-        return
 
     # Плейсхолдер «требуется назначение» заполняем, а не дублируем.
     placeholder = await db.execute(

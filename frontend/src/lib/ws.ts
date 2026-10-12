@@ -79,6 +79,9 @@ function scheduleReconnect() {
           shouldConnect = false
           return
         }
+      } catch {
+        scheduleReconnect()
+        return
       } finally {
         refreshing = false
       }

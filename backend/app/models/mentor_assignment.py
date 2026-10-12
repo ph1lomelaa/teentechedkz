@@ -53,54 +53,19 @@ ASSIGNABLE_ROLES: tuple[MentorRole, ...] = (
 REQUIRED_ROLES: tuple[str, ...] = ("career", "ielts", "lead", "country")
 
 
-# Роли, в которых у ученика может быть несколько активных ответственных сразу.
-#
-# Всё остальное — ровно один человек на роль, и это не соглашение, а инвариант в
-# четырёх слоях: уникальный индекс в БД, замена прежнего в `_assign_one`, отказ
-# «роль уже занята» в `assign_self`, кнопка «Заменить» вместо «Добавить» в
-# карточке. Множественность включается адресно, потому что цена общая: пока
-# ответственный один, «главный ментор» студента и счётчики доски однозначны.
-#
-# `country` в списке потому, что ученик подаётся в несколько стран, и страну
-# ведёт свой человек. Различает их `country_scope` — со второго ответственного
-# он обязателен (см. create_assignment) и входит в уникальный индекс.
-MULTI_ROLES: frozenset[MentorRole] = frozenset({MentorRole.country})
+# В любой роли ученика может вести команда сотрудников.
+MULTI_ROLES: frozenset[MentorRole] = frozenset(MentorRole)
 
 
 class MentorAssignment(Base):
     __tablename__ = "mentor_assignments"
 
-    # Индексы продублированы здесь и в миграциях 093/095 намеренно. Прод растёт
-    # миграциями, но чистая база поднимается иначе — `bootstrap_db` делает
-    # create_all и сразу штампует head, поэтому `alembic upgrade head` на ней
-    # ничего не выполняет. Пока индексы жили только в миграции, в CI и на новых
-    # машинах их не было вовсе: там ограничение просто не проверялось, и тест,
-    # ожидающий отказ на дубле, прошёл бы мимо дефекта.
     __table_args__ = (
         Index(
-            "uq_mentor_assignment_active_role",
-            "student_id",
-            "role",
+            "uq_mentor_assignment_active_person",
+            "student_id", "role", "mentor_id",
             unique=True,
-            postgresql_where=text(
-                "is_active AND mentor_id IS NOT NULL AND role <> 'country'"
-            ),
-        ),
-        # Роль из MULTI_ROLES: ключ расширен страной, поэтому «США» и «Канада»
-        # уживаются, а два ментора на одну страну — нет. NULLS NOT DISTINCT
-        # (Postgres 15+) нужен, чтобы и двух ответственных без страны индекс
-        # считал дублем: иначе «несколько менторов по стране» молча означало бы
-        # «сколько угодно безымянных строк».
-        Index(
-            "uq_mentor_assignment_active_country",
-            "student_id",
-            "role",
-            "country_scope",
-            unique=True,
-            postgresql_nulls_not_distinct=True,
-            postgresql_where=text(
-                "is_active AND mentor_id IS NOT NULL AND role = 'country'"
-            ),
+            postgresql_where=text("is_active AND mentor_id IS NOT NULL"),
         ),
     )
 

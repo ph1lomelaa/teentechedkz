@@ -49,23 +49,23 @@ class DefaultAssignmentRoleTests(unittest.TestCase):
         user = _user(UserRole.mentor, ["mzk"])
         self.assertEqual(default_assignment_role(user), MentorRole.mzk)
 
-    def test_several_specialties_fall_back_instead_of_guessing(self) -> None:
+    def test_several_specialties_require_choice(self) -> None:
         # Угадывать нельзя: человек ведёт и IELTS, и страну, и выбрать за него
         # значило бы снова записать роль, которую он не выбирал. Правильную
         # ставят руками в «Команде ученика».
         user = _user(UserRole.mentor, ["ielts", "country"])
-        self.assertEqual(default_assignment_role(user), MentorRole.lead)
+        self.assertIsNone(default_assignment_role(user))
 
-    def test_no_specialty_falls_back(self) -> None:
+    def test_no_specialty_requires_choice(self) -> None:
         # Специализации заполняются руками и у большинства ещё пустые —
         # поведение до их появления должно остаться прежним.
-        self.assertEqual(default_assignment_role(_user(UserRole.mentor)), MentorRole.lead)
+        self.assertIsNone(default_assignment_role(_user(UserRole.mentor)))
 
     def test_a_specialty_outside_the_assignable_list_is_ignored(self) -> None:
         # MentorRole шире назначаемых ролей: 'sat' остался в старых данных, но
         # роли в команде ученика у него нет.
         user = _user(UserRole.mentor, ["sat"])
-        self.assertEqual(default_assignment_role(user), MentorRole.lead)
+        self.assertIsNone(default_assignment_role(user))
 
     def test_the_mzk_role_never_lands_on_a_plain_mentor_by_accident(self) -> None:
         # Каждая назначаемая роль достижима через специализацию — иначе

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '../types'
@@ -16,6 +16,7 @@ import type { User } from '../types'
  * пришедшему с сервера, и при его отсутствии закрывает доступ, а не открывает.
  */
 const me = vi.fn()
+const refreshToken = vi.fn(async (): Promise<string | null> => 'token')
 
 vi.mock('../api/auth', () => ({
   authApi: {
@@ -27,6 +28,7 @@ vi.mock('../api/auth', () => ({
 }))
 vi.mock('../api/client', () => ({
   setAccessToken: vi.fn(),
+  refreshAccessToken: () => refreshToken(),
   setForbiddenHandler: vi.fn(),
 }))
 vi.mock('../lib/ws', () => ({ ws: { start: vi.fn(), stop: vi.fn() } }))
@@ -66,7 +68,7 @@ function renderWithUser(user: Partial<User>) {
 }
 
 describe('AuthContext.can', () => {
-  beforeEach(() => me.mockReset())
+  beforeEach(() => { me.mockReset(); refreshToken.mockReset(); refreshToken.mockResolvedValue('token') })
 
   it('отвечает по списку, пришедшему с сервера', async () => {
     renderWithUser({ permissions: ['guardians:manage', 'finances:view'] })
@@ -91,6 +93,24 @@ describe('AuthContext.can', () => {
     // permissions. Отказ безопаснее, чем молчаливое «раз не знаю, значит можно».
     renderWithUser({ permissions: undefined })
     expect(await screen.findByText('guardians:manage=false')).toBeInTheDocument()
+  })
+
+  it('shows retry after a temporary outage and restores the same session', async () => {
+    refreshToken.mockRejectedValueOnce({ response: { status: 503 } })
+      .mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce('token')
+    renderWithUser({ permissions: ['finances:view'] })
+    fireEvent.click(await screen.findByText('Повторить', {}, { timeout: 2000 }))
+    expect(await screen.findByText('finances:view=true')).toBeInTheDocument()
+    expect(refreshToken).toHaveBeenCalledTimes(3)
+  })
+
+  it('confirmed expired session returns to unauthenticated state', async () => {
+    refreshToken.mockResolvedValueOnce(null)
+    renderWithUser({})
+    await waitFor(() => expect(refreshToken).toHaveBeenCalled())
+    expect(screen.getByText('нет сессии')).toBeInTheDocument()
+    expect(me).not.toHaveBeenCalled()
+    expect(screen.queryByText('Повторить')).not.toBeInTheDocument()
   })
 
   it('canAccess больше не существует', async () => {

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, History, Repeat, UserMinus, UserPlus } from 'lucide-react'
+import { ChevronDown, History, Repeat, UserMinus, UserPlus } from 'lucide-react'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
 import {
   ASSIGNABLE_MENTOR_ROLES,
@@ -38,17 +38,7 @@ const REQUIRED_ROLES = new Set(['career', 'ielts', 'lead', 'country'])
 /** Порядок строк: МЗК ведёт студента целиком — первым. */
 const ROLE_ORDER = ['mzk', 'lead', 'career', 'ielts', 'country', 'portfolio'] as const
 
-/**
- * «Команда ученика»: по строке на роль, у каждой — назначить, заменить, снять.
- *
- * Раньше блок был «строка МЗК из договора + чипы + форма назначения»: назначить
- * было можно, а поменять или убрать — нет, и назначение делалось один раз и
- * навсегда. Строка МЗК при этом читала зеркало в договоре и показывала «—»
- * рядом с чипом «МЗК · активен». Теперь всё берётся из назначений.
- *
- * Два активных в одной роли — наследие старого «Добавить себя», которое не
- * заменяло текущего. Их не прячем: помечаем, чтобы админ снял лишнего.
- */
+/** Команда ученика: добавление коллег и точечная замена или снятие. */
 export const StudentTeamSection: React.FC<{
   studentId: string
   responsibles: ResponsibleUser[]
@@ -106,10 +96,6 @@ export const StudentTeamSection: React.FC<{
         {roles.map((role) => {
           const current = activeByRole.get(role) ?? []
           const multi = MULTI_MENTOR_ROLES.includes(role)
-          // Для мультироли несколько ответственных — штатное состояние, а не
-          // авария данных: ученик подаётся в несколько стран. Предупреждение
-          // остаётся там, где роль обязана быть одна.
-          const doubled = current.length > 1 && !multi
           return (
             <div key={role} className="flex flex-wrap items-start gap-x-4 gap-y-2 px-3 py-2.5">
               <div className="w-36 shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-p-muted">
@@ -172,12 +158,6 @@ export const StudentTeamSection: React.FC<{
                     )}
                   </div>
                 ))}
-                {doubled && (
-                  <div className="flex items-center gap-1.5 text-xs text-amber-700">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    Два ответственных в одной роли — снимите лишнего или замените обоих одним.
-                  </div>
-                )}
               </div>
               {canManage && (
                 <Button
@@ -302,9 +282,7 @@ function AssignRoleDialog({
   // Замена — либо точечная (мультироль, передан id строки), либо обычная: в
   // одиночной роли назначение на занятую роль и есть замена.
   const replacing = replaceAssignmentId !== null || (occupied && !multi)
-  // Добавление второго и далее: страна — единственное, что различит строки, и
-  // бэкенд без неё отвечает отказом. У первого её ещё может не быть.
-  const countryRequired = multi && occupied && !replacing
+  const countryRequired = false
 
   // Диалог переиспользуется для разных ролей — поля от прошлой роли не тащим.
   const [openedFor, setOpenedFor] = useState<typeof target>(null)
@@ -360,7 +338,7 @@ function AssignRoleDialog({
         description:
           res.assignment_status === 'awaiting_signature'
             ? 'Сотрудник ещё не подписал регламент — назначение ждёт подписи.'
-            : 'Студент появится у сотрудника в «Моих студентах» и в личном кабинете.',
+            : 'Студент появится у сотрудника в «Моих студентах». Остальные участники команды сохранятся.',
       })
     },
     onError: (err) =>
@@ -386,7 +364,7 @@ function AssignRoleDialog({
               ? `Сейчас: ${target?.current.map((c) => c.name).join(', ')}. Замена попадёт в историю.`
               : countryRequired
                 ? `Уже ведут: ${target?.current.map((c) => c.name).join(', ')}. Прежние ответственные остаются — укажите страну нового.`
-                : 'Студент появится у сотрудника в «Моих студентах» и в личном кабинете.'}
+                : 'Студент появится у сотрудника в «Моих студентах». Остальные участники команды сохранятся.'}
           </DialogDescription>
         </DialogHeader>
 

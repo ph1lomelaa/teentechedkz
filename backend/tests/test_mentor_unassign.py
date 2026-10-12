@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 """Снятие ответственного без замены.
 
 Ради чего тест
@@ -88,8 +89,9 @@ class SelfAssignRoleTests(unittest.TestCase):
         # Раньше «Добавить себя» от МЗК-менеджера писало его ментором по УП.
         self.assertEqual(self_assign_role(User(role=UserRole.mzk_manager)), MentorRole.mzk)
 
-    def test_mentor_adds_self_as_lead(self) -> None:
-        self.assertEqual(self_assign_role(User(role=UserRole.mentor)), MentorRole.lead)
+    def test_mentor_without_specialty_must_choose_role(self) -> None:
+        with self.assertRaises(HTTPException):
+            self_assign_role(User(role=UserRole.mentor))
 
 
 if __name__ == "__main__":

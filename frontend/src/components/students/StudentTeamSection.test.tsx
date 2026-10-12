@@ -46,12 +46,14 @@ describe('команда ученика', () => {
     expect(screen.getAllByText('Требуется назначение')).toHaveLength(4)
   })
 
-  it('помечает двух ответственных в одной роли', () => {
+  it('несколько менторов по УП — нормальная команда', () => {
     renderTeam([
       person({ role: 'lead' }),
       person({ id: 'u2', assignment_id: 'a2', name: 'Нусупжанова Аружан', role: 'lead', assignment_status: 'awaiting_signature' }),
     ])
-    expect(screen.getByText(/Два ответственных в одной роли/)).toBeInTheDocument()
+    expect(screen.queryByText(/Два ответственных в одной роли/)).not.toBeInTheDocument()
+    expect(screen.getByText('Добавить')).toBeInTheDocument()
+    expect(screen.getAllByText('Заменить')).toHaveLength(2)
   })
 
   it('двое менторов по стране — норма, а не авария', () => {
@@ -82,10 +84,10 @@ describe('команда ученика', () => {
     expect(screen.queryAllByText('Заменить').length).toBeGreaterThan(0)
   })
 
-  it('в одиночной роли занятая роль по-прежнему заменяется', () => {
+  it('в роли УП можно добавить коллегу или заменить конкретного ментора', () => {
     renderTeam([person({ role: 'lead' })])
     expect(screen.getByText('Заменить')).toBeInTheDocument()
-    expect(screen.queryByText('Добавить')).not.toBeInTheDocument()
+    expect(screen.getByText('Добавить')).toBeInTheDocument()
   })
 
   it('снятые и плейсхолдеры не показываются как люди', () => {

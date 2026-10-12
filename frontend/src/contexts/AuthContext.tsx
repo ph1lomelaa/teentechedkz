@@ -1,3 +1,4 @@
+import { SelfAssignmentRolePicker } from '@/components/students/SelfAssignmentRolePicker'
 import React, {
   createContext,
   useContext,
@@ -11,7 +12,7 @@ import { useNavigate } from 'react-router-dom'
 import { User, UserRole } from '../types'
 import { PermissionAction } from '../api/permissions'
 import { authApi } from '../api/auth'
-import { setAccessToken, setForbiddenHandler } from '../api/client'
+import { setAccessToken, setForbiddenHandler, refreshAccessToken } from '../api/client'
 import { ws } from '../lib/ws'
 import { getDefaultPath } from '../lib/authRouting'
 
@@ -48,6 +49,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const navigate = useNavigate()
+  const [sessionError, setSessionError] = useState(false)
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [state, setState] = useState<AuthState>({
     user: null,
     accessToken: null,
@@ -72,26 +75,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    setSessionError(false)
     const restoreSession = async (isRetry = false) => {
       try {
-        const refreshData = await authApi.refresh()
-        setAccessToken(refreshData.access_token)
+        const token = await refreshAccessToken()
+        if (cancelled) return
+        if (!token) { setAuth(null, null); return }
         const user = await authApi.me()
-        setAuth(user, refreshData.access_token)
+        if (!cancelled) setAuth(user, token)
       } catch (err) {
-        // A real 401 means the session is genuinely gone — sign out.
-        // Anything else (dropped connection, backend hiccup) is transient:
-        // retry once before giving up, instead of forcing a fresh login.
+        if (cancelled) return
         const status = (err as { response?: { status?: number } })?.response?.status
-        if (status !== 401 && !isRetry) {
-          setTimeout(() => restoreSession(true), 800)
+        if (status === 401) { setAuth(null, null); return }
+        if (!isRetry) {
+          retryTimer = setTimeout(() => { void restoreSession(true) }, 800)
           return
         }
-        setAuth(null, null)
+        setSessionError(true)
       }
     }
-    restoreSession()
-  }, [setAuth])
+    void restoreSession()
+    return () => { cancelled = true; clearTimeout(retryTimer) }
+  }, [setAuth, restoreAttempt])
 
   const login = useCallback(
     async (email: string, password: string): Promise<User> => {
@@ -183,9 +190,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     [granted]
   )
 
+  if (sessionError) return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+      <p>Не удалось связаться с сервером. Попробуйте подключиться ещё раз.</p>
+      <button type="button" className="rounded border px-4 py-2" onClick={() => setRestoreAttempt(value => value + 1)}>Повторить</button>
+    </div>
+  )
+
   return (
     <AuthContext.Provider value={{ ...state, login, logout, refreshUser, setSession, hasRole, can }}>
       {children}
+      <SelfAssignmentRolePicker user={state.user} />
     </AuthContext.Provider>
   )
 }

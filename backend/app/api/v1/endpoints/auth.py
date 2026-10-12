@@ -434,31 +434,28 @@ async def refresh(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
             RefreshToken.expires_at > datetime.now(timezone.utc),
-        )
+        ).with_for_update()
     )
     rt = result.scalar_one_or_none()
 
-    if rt and rt.revoked:
-        # Another near-simultaneous request (typically a second open tab)
-        # already rotated this exact token. Within the grace window, follow
-        # the chain to the token that superseded it and answer with that one
-        # instead of forcing a re-login for the request that lost the race.
-        now = datetime.now(timezone.utc)
-        if (
-            rt.replaced_by_hash
-            and rt.revoked_at
-            and now - rt.revoked_at <= timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)
-        ):
-            current_result = await db.execute(
-                select(RefreshToken).where(
-                    RefreshToken.token_hash == rt.replaced_by_hash,
-                    RefreshToken.revoked == False,  # noqa: E712
-                    RefreshToken.expires_at > now,
-                )
-            )
-            rt = current_result.scalar_one_or_none()
-        else:
+    # Serialize rotations across tabs and follow the entire recent chain.
+    now = datetime.now(timezone.utc)
+    for _ in range(20):
+        if rt is None or not rt.revoked:
+            break
+        if not (rt.replaced_by_hash and rt.revoked_at
+                and now - rt.revoked_at <= timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)):
             rt = None
+            break
+        current_result = await db.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == rt.replaced_by_hash,
+                RefreshToken.expires_at > now,
+            ).with_for_update()
+        )
+        rt = current_result.scalar_one_or_none()
+    if rt is not None and rt.revoked:
+        rt = None
 
     if not rt:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
