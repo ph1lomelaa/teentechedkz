@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { ASSIGNABLE_MENTOR_ROLES, MENTOR_ROLE_LABELS } from '@/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { UserPlus } from 'lucide-react'
 import { mentorAssignmentsApi, usersApi } from '@/api/index'
@@ -49,6 +51,7 @@ export function StudentAssignmentBar({
   targetUserId, onTargetChange, resolveStudentIds, onAssigned,
 }: StudentAssignmentBarProps) {
   const { user } = useAuth()
+  const [assignmentRole, setAssignmentRole] = useState('')
   const queryClient = useQueryClient()
   const isAdmin = useCanAssignOthers()
 
@@ -65,17 +68,18 @@ export function StudentAssignmentBar({
 
   const assign = useMutation({
     mutationFn: async ({ assigneeId }: { assigneeId?: string }) => {
+      if (!assignmentRole) throw new Error('Выберите роль в команде ученика')
       const studentIds = await resolveStudentIds()
       if (isAdmin) {
         if (!assigneeId) throw new Error('Выберите ментора или менеджера')
         await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.create(studentId, {
           mentor_id: assigneeId,
-          role: 'lead',
+          role: assignmentRole,
           is_active: true,
         })))
         return studentIds.length
       }
-      await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.assignSelf(studentId)))
+      await Promise.all(studentIds.map((studentId) => mentorAssignmentsApi.assignSelf(studentId, assignmentRole)))
       return studentIds.length
     },
     onSuccess: (count) => {
@@ -105,6 +109,10 @@ export function StudentAssignmentBar({
         <p className="mt-0.5 text-xs text-p-muted">Студенты с отметкой «Уже мой» повторно не назначаются.</p>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Select value={assignmentRole} onValueChange={setAssignmentRole}>
+          <SelectTrigger className="h-9 w-full sm:w-48"><SelectValue placeholder="Роль в команде" /></SelectTrigger>
+          <SelectContent>{ASSIGNABLE_MENTOR_ROLES.map(role => <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>)}</SelectContent>
+        </Select>
         <Button
           variant="outline"
           size="sm"
@@ -116,7 +124,7 @@ export function StudentAssignmentBar({
         <Button
           size="sm"
           variant="outline"
-          disabled={selectedCount === 0 || assign.isPending}
+          disabled={selectedCount === 0 || assign.isPending || !assignmentRole}
           onClick={() => assign.mutate({ assigneeId: user?.id })}
         >
           <UserPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -142,7 +150,7 @@ export function StudentAssignmentBar({
         )}
         <Button
           size="sm"
-          disabled={selectedCount === 0 || assign.isPending || (isAdmin && !targetUserId)}
+          disabled={selectedCount === 0 || assign.isPending || (isAdmin && !targetUserId) || !assignmentRole}
           onClick={() => assign.mutate({ assigneeId: isAdmin ? targetUserId : user?.id })}
         >
           <UserPlus className="mr-1.5 h-3.5 w-3.5" />

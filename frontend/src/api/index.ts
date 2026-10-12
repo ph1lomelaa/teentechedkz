@@ -1,3 +1,4 @@
+import { chooseAssignmentRole } from '@/lib/assignmentRolePicker'
 import apiClient from './client'
 import {
   Contract,
@@ -413,9 +414,10 @@ export const mentorAssignmentsApi = {
     const response = await apiClient.post<BulkAssignResult>('/mentor-assignments/bulk', data)
     return response.data
   },
-  assignSelf: async (studentId: string): Promise<MentorAssignment> => {
+  assignSelf: async (studentId: string, selectedRole?: string): Promise<MentorAssignment> => {
+    const role = selectedRole ?? await chooseAssignmentRole()
     const response = await apiClient.post<MentorAssignment>(
-      `/mentor-assignments/student/${studentId}/self`
+      `/mentor-assignments/student/${studentId}/self`, { role }
     )
     return response.data
   },

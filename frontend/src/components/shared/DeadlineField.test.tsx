@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeadlineField } from './DeadlineField'
 
 describe('DeadlineField', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-01-01T12:00:00Z')) })
+  afterEach(() => vi.useRealTimers())
   it('студент: только просмотр «до 15 окт.», без input', () => {
     render(<DeadlineField dueDate={`${new Date().getFullYear()}-10-15`} overdueDays={0} label="Срок" />)
     expect(screen.getByText('до 15 окт.')).toBeTruthy()
