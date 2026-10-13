@@ -6,5 +6,5 @@ import { useAuth } from '@/contexts/AuthContext'
 // portal, rendered inside the workspace shell (p-* tokens resolve there too).
 export const WorkspaceUniversitiesPage: React.FC = () => {
   const { can } = useAuth()
-  return <UniversitiesCatalog eyebrow="Кабинет ментора" basePath="/workspace/universities" canManage={can('universities', 'manage')} canImport={can('universities', 'create')} />
+  return <UniversitiesCatalog eyebrow="Кабинет ментора" basePath="/workspace/universities" canManage={can('universities', 'manage')} canCreate={can('universities', 'create')} canImport={can('university_import', 'create')} />
 }

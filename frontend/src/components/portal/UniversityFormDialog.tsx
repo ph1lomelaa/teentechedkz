@@ -51,8 +51,10 @@ export const UniversityFormDialog: React.FC<{
   open: boolean
   onOpenChange: (open: boolean) => void
   university?: University | null
+  initialName?: string
+  excludeIds?: string[]
   onSaved?: (u: University) => void
-}> = ({ open, onOpenChange, university = null, onSaved }) => {
+}> = ({ open, onOpenChange, university = null, initialName = '', excludeIds = [], onSaved }) => {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<UniversityInput>(EMPTY)
   const [similar, setSimilar] = useState<Array<{ id: string; name: string; country: string }>>([])
@@ -77,9 +79,9 @@ export const UniversityFormDialog: React.FC<{
             photo_url: university.photo_url ?? '',
             degree_levels: university.degree_levels ?? [],
           }
-        : EMPTY
+        : { ...EMPTY, name: initialName }
     )
-  }, [open, university])
+  }, [open, university, initialName])
 
   const set = (patch: Partial<UniversityInput>) => setForm((f) => ({ ...f, ...patch }))
 
@@ -109,6 +111,16 @@ export const UniversityFormDialog: React.FC<{
     },
   })
 
+  const useExisting = useMutation({
+    mutationFn: (id: string) => universitiesApi.getById(id),
+    onSuccess: (existing) => {
+      onSaved?.(existing)
+      onOpenChange(false)
+      toast({ title: 'Выбран существующий университет' })
+    },
+    onError: (error) => toast({ title: 'Не удалось выбрать вуз', description: getErrorMessage(error), variant: 'destructive' }),
+  })
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[620px]">
@@ -118,8 +130,8 @@ export const UniversityFormDialog: React.FC<{
 
         <div className="grid gap-3 sm:grid-cols-2">
           {similar.length > 0 && <div className="sm:col-span-2 rounded border border-amber-400 p-3 text-sm">
-            <p>Похожие вузы уже есть. Проверьте их в списке выбора перед созданием новой записи:</p>
-            <ul>{similar.map((item) => <li key={item.id}>{item.name} · {item.country}</li>)}</ul>
+            <p>Похожие вузы уже есть. Можно выбрать существующий:</p>
+            <ul>{similar.map((item) => <li key={item.id}><button type="button" className="py-1 text-left font-semibold underline disabled:opacity-50" disabled={excludeIds.includes(item.id) || useExisting.isPending} onClick={() => useExisting.mutate(item.id)}>{item.name} · {item.country}{excludeIds.includes(item.id) ? " · уже добавлен" : " · Выбрать"}</button></li>)}</ul>
           </div>}
           <label className="sm:col-span-2">
             <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-p-muted2">Название</span>

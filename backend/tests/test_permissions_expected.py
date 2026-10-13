@@ -137,7 +137,8 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("telegram_chats", Action.manage): ("admin", "mzk_manager", "academic_head"),
     ("telegram_chats", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
     # review: константа названа ADMIN, но включает МЗК
-    ("universities", Action.create): ("admin",),
+    ("universities", Action.create): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("university_import", Action.create): ("admin",),
     ("universities", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # review: чтение справочника не проверяет роль вообще
     ("universities", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),

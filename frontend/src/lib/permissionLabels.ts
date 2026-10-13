@@ -65,7 +65,7 @@ export const RESOURCE_GROUPS: ResourceGroup[] = [
   {
     title: 'Справочники',
     hint: 'Общие данные, одинаковые для всех учеников',
-    resources: ['universities', 'countries', 'scholarships', 'knowledge'],
+    resources: ['universities', 'university_import', 'countries', 'scholarships', 'knowledge'],
   },
   {
     title: 'Система и доступы',
@@ -132,6 +132,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
 
   // Справочники
   universities: 'Справочник университетов',
+  university_import: 'Импорт каталога университетов',
   countries: 'Справочник стран',
   scholarships: 'Стипендии и гранты',
   knowledge: 'База знаний',

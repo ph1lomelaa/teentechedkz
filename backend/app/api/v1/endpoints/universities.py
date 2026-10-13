@@ -1,7 +1,7 @@
-"""University catalog — readable by any authenticated user, managed by admin/mzk.
+"""University catalog — readable by authenticated users, additions by all staff.
 
-Catalog data is imported from two real sources (Tilda store + Google Sheets),
-not hand-entered — see app/services/university_import.py for why a plain
+Catalog data comes from staff entries and two imported sources (Tilda store +
+Google Sheets) — see app/services/university_import.py for why a plain
 name-string merge between the two isn't reliable and what the import does
 about it (fuzzy match with a threshold, ambiguous pairs surfaced for review).
 """
@@ -13,7 +13,7 @@ from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, AsyncSessionLocal
@@ -32,8 +32,8 @@ from app.services import background_jobs
 
 router = APIRouter(prefix="/universities", tags=["universities"])
 
-# Catalog writes are admin/mzk only: a mentor deleting a row removes that
-# university for every student at once. Mentors keep full read access.
+# Every staff member can add a university; managing existing rows and
+# importing the whole catalog remain separate permissions.
 _IMPORT_JOB_KIND = "university_import"
 
 
@@ -47,18 +47,34 @@ async def list_universities(current_user: CurrentUser, db: Annotated[AsyncSessio
 
 @router.post("", response_model=UniversityOut, status_code=201)
 async def create_university(body: UniversityCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    require_access(current_user, "universities", Action.manage)
+    require_access(current_user, "universities", Action.create)
     from difflib import SequenceMatcher
     import re
+    import unicodedata
 
     def norm(value: str) -> str:
-        return re.sub(r"[^\w]+", " ", value.casefold()).strip()
+        value = "".join(ch for ch in unicodedata.normalize("NFKD", value.casefold()) if not unicodedata.combining(ch))
+        return re.sub(r"[^\w]+", " ", value).strip()
+
+    def acronym(value: str) -> str:
+        return "".join(word[0] for word in norm(value).split() if word not in {"the", "of", "and", "at", "in"})
+
+    def same_name(existing_name: str) -> bool:
+        other = norm(existing_name)
+        return (other == name or SequenceMatcher(None, other, name).ratio() >= 0.92
+                or (len(name.replace(" ", "")) > 1 and name.replace(" ", "") == acronym(existing_name))
+                or (len(other.replace(" ", "")) > 1 and other.replace(" ", "") == acronym(body.name)))
 
     name = norm(body.name)
     country = norm(body.country_name or "")
+    if not name:
+        raise HTTPException(status_code=422, detail="Укажите название университета")
+    # Serialize identical names so concurrent staff additions do not duplicate
+    # the same university. The lock is released by commit/rollback.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:name))"), {"name": f"university:{name}"})
     existing = (await db.execute(select(University))).scalars().all()
-    similar = [u for u in existing if norm(u.country_name or "") == country and
-               (norm(u.name) == name or SequenceMatcher(None, norm(u.name), name).ratio() >= 0.92)]
+    similar = [u for u in existing if (not country or norm(u.country_name or "") == country) and
+               same_name(u.name)]
     if similar:
         raise HTTPException(status_code=409, detail={
             "message": "Похожий университет уже есть в каталоге",
@@ -103,7 +119,7 @@ async def delete_university(uni_id: uuid.UUID, current_user: CurrentUser, db: An
 # --------------------------------------------------------------------------
 @router.post("/import/run", status_code=202)
 async def start_university_import(current_user: CurrentUser, dry_run: bool = False):
-    require_access(current_user, "universities", Action.create)
+    require_access(current_user, "university_import", Action.create)
     running = await background_jobs.get_running_job(_IMPORT_JOB_KIND)
     if running:
         raise HTTPException(status_code=409, detail={"message": "Импорт уже запущен", "job_id": str(running.id)})
@@ -128,7 +144,7 @@ async def start_university_import(current_user: CurrentUser, dry_run: bool = Fal
 
 @router.get("/import/{job_id}")
 async def get_university_import_job(job_id: str, current_user: CurrentUser):
-    require_access(current_user, "universities", Action.create)
+    require_access(current_user, "university_import", Action.create)
     job = await background_jobs.get_job(_IMPORT_JOB_KIND, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Не найдено")
