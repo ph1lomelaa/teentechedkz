@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { activeResponsibles } from '@/lib/studentFilters'
 import { ASSIGNABLE_MENTOR_ROLES, DEGREE_LEVEL_LABELS, MENTOR_ROLE_LABELS, SERVICE_TYPE_LABELS, type StudentListItem } from '@/types'
-import { StudentPipelineStatusBadge } from '@/components/students/StudentPipelineStatusBadge'
+import { normalizeStudentPipelineStatus, StudentPipelineStatusBadge } from '@/components/students/StudentPipelineStatusBadge'
 import { Button } from '@/components/ui/primitives/button'
 
 const ROLE_SHORT: Record<string, string> = { career: 'ПО', ielts: 'IE', lead: 'УП', country: 'СТ', portfolio: 'ПФ', mzk: 'МЗ' }
@@ -85,12 +85,13 @@ function FragmentGroup({ students, selectedIds, onToggle, onOpen, onRole, onSelf
       const assignedRoles = new Set(responsibles.map((r) => r.role))
       const lead = responsibles.find((r) => r.role === 'lead')
       const intake = intakeOverview[student.id]
-      const displayStatus = notionStatuses.get(student.id) ?? student.pipeline_status ?? 'no_status'
+      const displayStatus = student.pipeline_status ?? 'no_status'
+      const notionStatus = notionStatuses.get(student.id)
       return <tr key={student.id} className={`border-t border-ds-line transition-colors hover:bg-ds-panel2 ${selectedIds.has(student.id) ? 'bg-ds-accent/15' : ''}`}>
         {showSelection && <td className="px-3 py-3 align-top"><input type="checkbox" disabled={!canAssign} aria-label={`Выбрать ${student.full_name}`} checked={selectedIds.has(student.id)} onChange={() => onToggle(student.id)} /></td>}
         <td className="px-3 py-3 align-top"><button type="button" onClick={() => onOpen(student)} className="text-left font-bold hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent">{student.full_name}</button><div className="mt-1 flex items-center gap-1.5 text-xs text-ds-muted2"><span className="rounded-md bg-ds-panel2 px-1.5 py-0.5 font-bold">{DEGREE_LEVEL_LABELS[student.degree_level]}</span>{student.city}</div>{(student.services_summary?.items.length ?? 0) > 0 && <p className="mt-1 max-w-56 truncate text-xs text-ds-muted" title={student.services_summary?.items.map((item) => `${SERVICE_TYPE_LABELS[item.service_type]} · ${item.status}`).join(', ')}>Услуги: {student.services_summary?.items.map((item) => SERVICE_TYPE_LABELS[item.service_type]).join(', ')}</p>}</td>
         {showCountries && <td className="px-3 py-3 align-top text-ds-muted">{student.countries?.map((c) => c.country).join(', ') || '—'}</td>}
-        <td className="border-l border-ds-line px-3 py-3 align-top"><StudentPipelineStatusBadge status={displayStatus} notionColor={notionStatusColors.get(student.id)} /></td>
+        <td className="border-l border-ds-line px-3 py-3 align-top"><StudentPipelineStatusBadge status={displayStatus} />{notionStatus && normalizeStudentPipelineStatus(notionStatus) !== displayStatus && <div className="mt-1 text-xs text-ds-muted"><span>Notion: </span><StudentPipelineStatusBadge status={notionStatus} notionColor={notionStatusColors.get(student.id)} /></div>}</td>
         <td className="px-3 py-3 align-top">{student.intake_year || '—'}</td>
         <td className="border-l border-ds-line px-3 py-3 align-top">{lead?.name || <span className="text-ds-muted2">нет</span>}</td>
         <td className="px-3 py-3 align-top"><div className="flex items-center gap-1">{ASSIGNABLE_MENTOR_ROLES.map((role) => {

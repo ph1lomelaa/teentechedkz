@@ -359,7 +359,9 @@ async def promote_new_submissions(
             .with_for_update(skip_locked=True)
         )
         submissions.extend(partner_result.scalars().all())
-    students_index = await load_students_index(db)
+    # Archived cards still identify existing people. A matching form must
+    # be reviewed, never recreate an active duplicate of an archived student.
+    students_index = await load_students_index(db, include_archived=True)
     pending_index = [
         {"id": row.id, "full_name": row.full_name or "", "phone": row.phone_normalized or ""}
         for row in candidate_universe

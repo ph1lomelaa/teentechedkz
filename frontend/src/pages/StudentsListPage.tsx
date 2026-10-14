@@ -81,8 +81,8 @@ type BaseGrouping = 'intake' | 'responsible' | 'status'
 
 const REQUIRED_ROLES = ['career', 'ielts', 'lead', 'country'] as const
 
-function needsAssignment(student: StudentListItem, notionRow?: NotionPipelineRow): boolean {
-  if (!notionValues(notionRow, 'Статус выплат').some((value) => value.trim().toLocaleLowerCase('ru') === 'активная работа')) return false
+function needsAssignment(student: StudentListItem): boolean {
+  if (student.pipeline_status !== 'active_work') return false
   const roles = new Set(activeResponsibles(student).map((item) => item.role))
   return REQUIRED_ROLES.some((role) => !roles.has(role))
 }
@@ -1322,30 +1322,30 @@ const CrmStudentsListView: React.FC = () => {
   const incompleteResult = (data?.total ?? 0) > allStudents.length
   const viewCounts = {
     all: students.length,
-    needs_assignment: students.filter((student) => needsAssignment(student, notionByStudent.get(student.id))).length,
+    needs_assignment: students.filter((student) => needsAssignment(student)).length,
     diff: students.filter((student) => reportDiffIds.has(student.id)).length,
     mine: students.filter((s) => s.is_mine).length,
   }
   const viewedStudents = useMemo(() => {
     const filtered = students.filter((student) =>
-      baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student, notionByStudent.get(student.id)) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
+      baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
     )
     return [...filtered].sort((a, b) => sortAscending
       ? a.full_name.localeCompare(b.full_name, 'ru')
       : b.full_name.localeCompare(a.full_name, 'ru'))
-  }, [students, baseView, sortAscending, notionByStudent, reportDiffIds])
+  }, [students, baseView, sortAscending, reportDiffIds])
   const groupedStudents = useMemo(() => {
     const groups = new Map<string, StudentListItem[]>()
     for (const student of viewedStudents) {
       const key = baseGrouping === 'intake'
         ? `Набор ${student.intake_year || 'не указан'}`
         : baseGrouping === 'status'
-          ? PIPELINE_STATUS_LABELS[normalizeStudentPipelineStatus(notionStatuses.get(student.id) ?? student.pipeline_status)]
+          ? PIPELINE_STATUS_LABELS[normalizeStudentPipelineStatus(student.pipeline_status)]
           : activeResponsibles(student).filter((r) => r.role === groupRole).map((r) => r.name).join(', ') || `Без «${MENTOR_ROLE_LABELS[groupRole]}»`
       groups.set(key, [...(groups.get(key) ?? []), student])
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'ru', { numeric: true }))
-  }, [viewedStudents, baseGrouping, groupRole, notionStatuses])
+  }, [viewedStudents, baseGrouping, groupRole])
   useEffect(() => {
     setSelectedIds(new Set())
   }, [baseView, baseGrouping, groupRole, debouncedSearch, operationalFilter, notionValue, scope, intakeYearFilter, leadMentorFilter, degreeFilter, countryFilter, mentorFilter, mzkManagerFilter, serviceTypeFilter, statusFilterOperator, storedStatusFilters, boardMentorId, boardMissingRole])

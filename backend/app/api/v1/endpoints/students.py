@@ -1579,6 +1579,7 @@ async def get_student(
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
 
+    student.contracts.sort(key=lambda c: (c.created_at, str(c.id)), reverse=True)
     data = _student_to_dict(student)
     responsibles, is_mine, team_readiness = await _student_responsibles(db, student.id, current_user.id)
     data["responsibles"] = responsibles
@@ -1686,7 +1687,9 @@ async def update_student(
     # второй строки ментор правит любого студента по прямому id: до 30.08.2026
     # эта ручка не проверяла ни того, ни другого.
     await require_student_access(db, student_id, current_user)
-    result = await db.execute(select(Student).where(Student.id == student_id))
+    if "pipeline_status" in body.model_fields_set:
+        require_access(current_user, "student_work_status", Action.edit)
+    result = await db.execute(select(Student).where(Student.id == student_id).with_for_update())
     student = result.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Студент не найден")
@@ -1705,6 +1708,23 @@ async def update_student(
             if old_val != new_val:
                 await log_change(db, "student", student.id, field, str(old_val), str(new_val), str(current_user.id))
             setattr(student, field, new_val)
+
+    if "pipeline_status" in updates:
+        contract = (await db.execute(
+            select(Contract).where(Contract.student_id == student_id)
+            .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1)
+        )).scalar_one_or_none()
+        if contract is None:
+            contract = Contract(student_id=student_id, pipeline_status=updates["pipeline_status"])
+            db.add(contract)
+            await db.flush()
+            await log_change(db, "contract", contract.id, "pipeline_status", None, contract.pipeline_status.value, str(current_user.id))
+        else:
+            old_status = contract.pipeline_status.value if contract.pipeline_status else None
+            new_status = updates["pipeline_status"]
+            if old_status != new_status.value:
+                await log_change(db, "contract", contract.id, "pipeline_status", old_status, new_status.value, str(current_user.id))
+                contract.pipeline_status = new_status
 
     student.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -1777,6 +1797,7 @@ def student_card_loaders() -> tuple:
     """
     return (
         selectinload(Student.applications),
+        selectinload(Student.contracts),
         selectinload(Student.services),
         selectinload(Student.portfolio_progress),
         selectinload(Student.documents),
@@ -1789,7 +1810,9 @@ def student_card_loaders() -> tuple:
 
 
 def _student_to_dict(s: Student) -> dict:
+    latest_contract = max(s.contracts, key=lambda c: (c.created_at, str(c.id)), default=None)
     return {
+        "pipeline_status": latest_contract.pipeline_status.value if latest_contract and latest_contract.pipeline_status else None,
         "id": str(s.id),
         "full_name": s.full_name,
         "phone": s.phone,

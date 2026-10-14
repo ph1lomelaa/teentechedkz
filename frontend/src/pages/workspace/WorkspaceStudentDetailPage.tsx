@@ -1,3 +1,4 @@
+import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
 import { QueryError } from '@/components/shared/QueryState'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
@@ -573,6 +574,7 @@ function CardListView({
         )}
 
         <WSection value="profile" title="Профиль студента" icon={<UserRound className="h-4 w-4" />}>
+          <StudentProcessEditor student={student} workspace />
           <div className="grid gap-3 xl:grid-cols-2">
             <div>
               <SimpleList

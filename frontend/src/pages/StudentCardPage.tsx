@@ -1,3 +1,4 @@
+import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useState } from 'react'
@@ -1494,6 +1495,7 @@ export const StudentCardPage: React.FC = () => {
                 </Button>
               )}
             </div>
+            <StudentProcessEditor student={student} />
             <InfoRow label="ФИО" value={student.full_name} />
             <InfoRow label="Телефон" value={student.phone} />
             <InfoRow label="Город" value={student.city} />

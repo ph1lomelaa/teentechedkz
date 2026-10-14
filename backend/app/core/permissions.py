@@ -182,6 +182,7 @@ RULES: tuple[Rule, ...] = (
     # студентов, студенту закрыто.
     Rule("students", Action.create, STAFF,
          extra_rules=("Дубль по телефону отбивается 409 с X-Existing-Id — students.py:975",)),
+    Rule("student_work_status", Action.edit, STAFF, scope=_MENTOR_SCOPED),
     Rule("students", Action.edit, STAFF, scope=_MENTOR_SCOPED,
          extra_rules=(
              "Ментор правит только своих: require_student_access отдаёт 404 на "

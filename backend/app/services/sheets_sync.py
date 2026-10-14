@@ -167,20 +167,19 @@ def _parse_timestamp(raw: str) -> datetime | None:
     return None
 
 
-async def load_students_index(db: AsyncSession) -> list[dict]:
+async def load_students_index(db: AsyncSession, *, include_archived: bool = False) -> list[dict]:
     """Карточки в форме, которую понимает `fuzzy_match`.
 
     `user_id` в наборе не нужен матчингу, но нужен всем, кто по его результату
     что-то привязывает: карточка с уже выданным кабинетом — не кандидат.
     `fuzzy_match` лишний ключ игнорирует, поэтому это чистая добавка.
     """
-    result = await db.execute(
-        select(
-            Student.id, Student.full_name, Student.phone, Student.intake_year, Student.user_id, Student.city
-        ).where(
-            Student.is_archived == False  # noqa: E712
-        )
+    query = select(
+        Student.id, Student.full_name, Student.phone, Student.intake_year, Student.user_id, Student.city
     )
+    if not include_archived:
+        query = query.where(Student.is_archived.is_(False))
+    result = await db.execute(query)
     return [
         {
             "id": r.id,

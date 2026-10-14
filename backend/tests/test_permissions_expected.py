@@ -28,6 +28,7 @@ ALL_ROLES = (
 
 # (ресурс, действие) -> роли, которым доступ открыт. Всё, чего здесь нет, закрыто.
 EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
+    ("student_work_status", Action.edit): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("agreements", Action.manage): ("admin",),
     ("agreements", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     ("applications", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
