@@ -647,14 +647,15 @@ def _board_student(student, pipeline_status: str | None, assignment=None, countr
     # Год, ступень и страна — не для показа на карточке, а для фильтров доски:
     # у неё нет пагинации и серверных фильтров, отбор идёт на клиенте, и нечем
     # было отсеять пять лет набора сразу.
+    notion_is_primary = status_source == "notion"
     return {
         "id": str(student.id),
         "full_name": student.full_name,
-        "pipeline_status": crm_status if status_source in {"notion", "notion_unlinked"} else crm_status or pipeline_status,
+        "pipeline_status": pipeline_status if notion_is_primary else crm_status or pipeline_status,
         "crm_status": crm_status,
-        "notion_status": pipeline_status if status_source == "notion" else None,
-        "notion_linked": status_source == "notion",
-        "status_source": "crm",
+        "notion_status": pipeline_status if notion_is_primary else None,
+        "notion_linked": notion_is_primary,
+        "status_source": "notion" if notion_is_primary else "crm",
         "intake_year": student.intake_year,
         "degree_level": student.degree_level.value if student.degree_level else None,
         "country": country,

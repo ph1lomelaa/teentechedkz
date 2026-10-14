@@ -25,7 +25,7 @@ import asyncio
 import unittest
 import uuid
 
-from app.api.v1.endpoints.mentor_assignments import _build_board, _mirror_mzk_to_contract
+from app.api.v1.endpoints.mentor_assignments import _board_student, _build_board, _mirror_mzk_to_contract
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.student import DegreeLevel
 from app.models.user import User, UserRole
@@ -73,6 +73,19 @@ def _board(*, rows=(), staff=(), students=(), pipeline=None, role=MentorRole.mzk
 
 
 class BoardShapeTests(unittest.TestCase):
+    def test_linked_card_uses_notion_status_as_primary_before_reconciliation(self) -> None:
+        student = _Student("Айша")
+        card = _board_student(
+            student,
+            "active_work",
+            crm_status="no_status",
+            status_source="notion",
+        )
+
+        self.assertEqual(card["pipeline_status"], "active_work")
+        self.assertEqual(card["crm_status"], "no_status")
+        self.assertEqual(card["status_source"], "notion")
+
     def test_staff_without_students_still_gets_a_column(self) -> None:
         # Пустая колонка — не мусор: без неё нового сотрудника некуда
         # перетащить, и «кто свободен» не виден.
