@@ -301,7 +301,7 @@ async def create_student_from_submission(
     from app.services.intake_identity import plausible_student_candidates
     from app.services.intake_promote import _valid_auto_create_name
 
-    students_index = await load_students_index(db)
+    students_index = await load_students_index(db, include_archived=True)
     raw_phone = ""
     for key, value in submission.raw_data.items():
         if "телефон" in str(key).lower():
@@ -750,7 +750,7 @@ async def resolve_notion_field_sync_conflict(
         raise HTTPException(status_code=404, detail="Запись очереди не найдена")
     if item.status is not FieldSyncStatus.conflict:
         raise HTTPException(status_code=409, detail="Разрешать можно только открытый конфликт")
-    if item.field_key not in {"full_name", "phone", "degree_level", "intake_year"}:
+    if item.field_key not in {"full_name", "phone", "degree_level", "intake_year", "pipeline_status"}:
         raise HTTPException(status_code=409, detail="Это поле не входит в автоматический пилот")
 
     from app.models.student import Student as StudentModel
@@ -773,7 +773,12 @@ async def resolve_notion_field_sync_conflict(
         raise HTTPException(status_code=409, detail="Связь CRM ↔ Notion изменилась; обновите сверку")
 
     field = item.field_key
-    current_crm = _crm_raw(field, student)
+    contract = None
+    if field == "pipeline_status":
+        from app.models.contract import Contract
+        contract = (await db.execute(select(Contract).where(Contract.student_id == student.id)
+            .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1))).scalar_one_or_none()
+    current_crm = _crm_raw(field, student, contract)
     current_notion = (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
     if (
         not _matches_expected(field, current_crm, item.crm_value)

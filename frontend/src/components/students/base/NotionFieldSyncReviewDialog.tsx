@@ -9,7 +9,7 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
 
 const FIELD_LABELS: Record<string, string> = {
-  full_name: 'ФИО', phone: 'Телефон', degree_level: 'Ступень', intake_year: 'Набор',
+  full_name: 'ФИО', phone: 'Телефон', degree_level: 'Ступень', intake_year: 'Набор', pipeline_status: 'Статус работы',
 }
 const STATUS_LABELS: Record<string, string> = {
   conflict: 'Нужно выбрать источник', dry_run: 'Проверено без записи', pending: 'Ожидает обработки',

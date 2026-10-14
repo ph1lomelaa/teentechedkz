@@ -272,11 +272,16 @@ async def student_facets(
         .where(active)
         .group_by(Student.degree_level)
     )
+    latest_statuses = select(
+        Contract.student_id, Contract.pipeline_status,
+        func.row_number().over(partition_by=Contract.student_id,
+            order_by=(Contract.created_at.desc(), Contract.id.desc())).label("position"),
+    ).subquery()
     statuses_result = await db.execute(
-        select(Contract.pipeline_status, func.count(func.distinct(Contract.student_id)))
-        .join(Student, Student.id == Contract.student_id)
-        .where(active)
-        .group_by(Contract.pipeline_status)
+        select(latest_statuses.c.pipeline_status, func.count())
+        .join(Student, Student.id == latest_statuses.c.student_id)
+        .where(active, latest_statuses.c.position == 1)
+        .group_by(latest_statuses.c.pipeline_status)
     )
     countries_result = await db.execute(
         select(Application.country, func.count(func.distinct(Application.student_id)))
@@ -792,7 +797,7 @@ async def list_students(
             select(Contract)
             .options(selectinload(Contract.mzk_manager))
             .where(Contract.student_id.in_(student_ids))
-            .order_by(Contract.student_id, Contract.created_at.desc())
+            .order_by(Contract.student_id, Contract.created_at.desc(), Contract.id.desc())
         )
         for c in contracts_result.scalars().all():
             contracts_by_student.setdefault(c.student_id, c)
@@ -1701,11 +1706,13 @@ async def update_student(
         "transcript_resume_url", "intake_year", "degree_level", "intake_season",
         "work_folder_url", "work_phone",
     ]
+    notion_old_values = {}
     for field in scalar_fields:
         if field in updates:
             old_val = getattr(student, field)
             new_val = updates[field]
             if old_val != new_val:
+                notion_old_values[field] = old_val
                 await log_change(db, "student", student.id, field, str(old_val), str(new_val), str(current_user.id))
             setattr(student, field, new_val)
 
@@ -1715,6 +1722,7 @@ async def update_student(
             .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1)
         )).scalar_one_or_none()
         if contract is None:
+            notion_old_values["pipeline_status"] = None
             contract = Contract(student_id=student_id, pipeline_status=updates["pipeline_status"])
             db.add(contract)
             await db.flush()
@@ -1723,10 +1731,13 @@ async def update_student(
             old_status = contract.pipeline_status.value if contract.pipeline_status else None
             new_status = updates["pipeline_status"]
             if old_status != new_status.value:
+                notion_old_values["pipeline_status"] = old_status
                 await log_change(db, "contract", contract.id, "pipeline_status", old_status, new_status.value, str(current_user.id))
                 contract.pipeline_status = new_status
 
     student.updated_at = datetime.now(timezone.utc)
+    from app.services.notion_sync import enqueue_crm_field_edits
+    notion_sync_state = await enqueue_crm_field_edits(db, student, notion_old_values)
     await db.commit()
 
     # _student_to_dict обходит relationships — перечитываем с eager-load,
@@ -1736,7 +1747,9 @@ async def update_student(
         .options(*student_card_loaders())
         .where(Student.id == student_id)
     )
-    return _student_to_dict(result.scalar_one())
+    response = _student_to_dict(result.scalar_one())
+    response["notion_sync"] = notion_sync_state
+    return response
 
 
 @router.delete("/{student_id}")

@@ -650,9 +650,11 @@ def _board_student(student, pipeline_status: str | None, assignment=None, countr
     return {
         "id": str(student.id),
         "full_name": student.full_name,
-        "pipeline_status": pipeline_status,
+        "pipeline_status": crm_status if status_source in {"notion", "notion_unlinked"} else crm_status or pipeline_status,
         "crm_status": crm_status,
-        "status_source": status_source,
+        "notion_status": pipeline_status if status_source == "notion" else None,
+        "notion_linked": status_source == "notion",
+        "status_source": "crm",
         "intake_year": student.intake_year,
         "degree_level": student.degree_level.value if student.degree_level else None,
         "country": country,
@@ -777,7 +779,7 @@ async def assignment_board(
     crm_by_student: dict[uuid.UUID, str | None] = {}
     contracts_result = await db.execute(
         select(Contract.student_id, Contract.pipeline_status)
-        .order_by(Contract.student_id, Contract.created_at.desc())
+        .order_by(Contract.student_id, Contract.created_at.desc(), Contract.id.desc())
     )
     for student_id, status in contracts_result.all():
         crm_by_student.setdefault(student_id, status.value if status else None)

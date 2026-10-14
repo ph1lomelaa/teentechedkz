@@ -123,7 +123,7 @@ export function resolveDrop(
 
 function StudentCard({ student, isDragging }: { student: BoardStudent; isDragging?: boolean }) {
   const status = student.pipeline_status
-  const crmStatus = student.crm_status
+  const notionStatus = student.notion_status
   return (
     <div
       className={cn(
@@ -138,10 +138,10 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
       <div className="mt-1.5 flex items-center gap-1.5">
         {status ? (
           <span className="truncate text-[10px] font-medium text-p-muted">
-            Notion: {PIPELINE_STATUS_LABELS[status as keyof typeof PIPELINE_STATUS_LABELS] ?? status}
+            {PIPELINE_STATUS_LABELS[status as keyof typeof PIPELINE_STATUS_LABELS] ?? status}
           </span>
         ) : (
-          <span className="text-[10px] text-p-muted2">{student.status_source === 'notion_unlinked' ? 'Нет связи с Notion' : 'Нет статуса Notion'}</span>
+          <span className="text-[10px] text-p-muted2">Нет статуса</span>
         )}
         {student.assignment_status === 'awaiting_signature' && (
           <span
@@ -152,7 +152,7 @@ function StudentCard({ student, isDragging }: { student: BoardStudent; isDraggin
           </span>
         )}
       </div>
-      {crmStatus && crmStatus !== status && <div className="mt-1 text-[10px] text-amber-700" title="Статус договора в CRM">CRM: {PIPELINE_STATUS_LABELS[crmStatus as keyof typeof PIPELINE_STATUS_LABELS] ?? crmStatus}</div>}
+      {notionStatus && notionStatus !== status && <div className="mt-1 text-[10px] text-amber-700" title="Ожидает согласования с Notion">Notion: {PIPELINE_STATUS_LABELS[notionStatus as keyof typeof PIPELINE_STATUS_LABELS] ?? notionStatus}</div>}
     </div>
   )
 }

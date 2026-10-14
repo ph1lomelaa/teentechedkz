@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     NOTION_SYNC_INTERVAL_SECONDS: int = 3600
     # Enable only after a production dry run and a checked backup.
     ENABLE_NOTION_PIPELINE_APPLY: bool = False
-    # Background CRM ↔ Notion field writes remain disabled until pilot approval.
+    # Verified profile/work-status synchronization; enable after production dry-run.
     ENABLE_NOTION_FIELD_SYNC: bool = False
     # Validates queued work without mutating CRM or Notion. Keep true until
     # production dry-run results have been reviewed.

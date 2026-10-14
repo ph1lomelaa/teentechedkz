@@ -19,6 +19,7 @@ from app.core.audit import log_change
 from app.models.notion_field_sync import FieldSyncDirection, FieldSyncStatus, NotionFieldSync
 from app.models.notion_snapshot import NotionMatchStatus
 from app.models.student import DegreeLevel
+from app.models.contract import Contract, PipelineStatus
 from app.services import notion_write
 
 
@@ -42,19 +43,21 @@ _FIELD_PROPERTY = {
     "phone": "Номер тел",
     "degree_level": "Degree",
     "intake_year": "Intake",
+    "pipeline_status": "Статус выплат",
 }
 _SNAPSHOT_VALUE_KEY = {
     "full_name": "full_name",
     "phone": "phone",
     "degree_level": "degree_raw",
     "intake_year": "intake_raw",
+    "pipeline_status": "payment_status_raw",
 }
 
 
 def _parse_intake(value: Any) -> str | None:
     text = str(value or "").replace(".", " ")
     for token in text.split():
-        if token.isdigit() and 2020 <= int(token) <= 2035:
+        if token.isdigit() and 1900 <= int(token) <= 2200:
             return str(int(token))
     return None
 
@@ -63,6 +66,8 @@ def canonical_profile_value(field: str, value: Any) -> str | None:
     """Canonical JSON scalar shared by the outbox policy and runtime guard."""
     if isinstance(value, Enum):
         value = value.value
+    if field == "pipeline_status" and value in (None, ""):
+        return "no_status"
     if value in (None, ""):
         return None
     if field == "full_name":
@@ -76,12 +81,22 @@ def canonical_profile_value(field: str, value: Any) -> str | None:
             return parse_degree_or_none(str(value))
         except (TypeError, ValueError):
             return None
+    if field == "pipeline_status":
+        from migration.transformers.normalize import parse_pipeline_status
+        if str(value) in {status.value for status in PipelineStatus}:
+            return str(value)
+        try:
+            return parse_pipeline_status(str(value))
+        except ValueError:
+            return None
     if field == "intake_year":
         return _parse_intake(value)
     return None
 
 
-def _crm_raw(field: str, student: Any) -> Any:
+def _crm_raw(field: str, student: Any, contract: Any = None) -> Any:
+    if field == "pipeline_status":
+        return contract.pipeline_status.value if contract and contract.pipeline_status else None
     if field == "full_name":
         return student.full_name
     if field == "phone":
@@ -129,6 +144,7 @@ def _crm_to_notion_payload(
         "phone": {"phone_number", "rich_text"},
         "degree_level": {"select", "status"},
         "intake_year": {"select", "status"},
+        "pipeline_status": {"select", "status"},
     }
     if prop_type not in expected_types[field]:
         return None
@@ -136,8 +152,12 @@ def _crm_to_notion_payload(
     if canonical is None:
         return None
     notion_value = crm_value
-    if field in ("degree_level", "intake_year"):
+    if field == "pipeline_status" and canonical == "no_status":
+        return notion_write.build_property(prop_type, None)
+    if field in ("degree_level", "intake_year", "pipeline_status"):
         notion_value = _select_option_for(field, notion_write, schema, real_name, canonical)
+        if notion_value is None and field == "intake_year" and prop_type == "select":
+            notion_value = canonical
         if notion_value is None:
             return None
     return notion_write.build_property(prop_type, notion_value)
@@ -157,6 +177,8 @@ def _notion_to_crm_value(field: str, notion_value: Any) -> Any | None:
         if parsed not in {choice.value for choice in DegreeLevel}:
             return None
         return DegreeLevel(parsed)
+    if field == "pipeline_status":
+        return PipelineStatus(canonical_profile_value(field, notion_value))
     if field == "intake_year":
         parsed_year = _parse_intake(notion_value)
         return int(parsed_year) if parsed_year else None
@@ -169,6 +191,7 @@ async def process_profile_field(
     *,
     student: Any,
     snapshot: Any,
+    contract: Any = None,
     dry_run: bool = True,
 ) -> RuntimeResult:
     """Validate live values then optionally apply one supported profile field.
@@ -183,7 +206,7 @@ async def process_profile_field(
         return RuntimeResult(RuntimeDisposition.unsupported, field, "Field is outside the first safe profile-field allowlist")
     if item.direction not in (FieldSyncDirection.crm_to_notion, FieldSyncDirection.notion_to_crm):
         return RuntimeResult(RuntimeDisposition.conflict, field, "Outbox item has no safe write direction")
-    if student is None:
+    if student is None or getattr(student, "is_archived", False):
         return RuntimeResult(RuntimeDisposition.superseded, field, "Linked CRM student changed or is missing")
     if (
         snapshot is None
@@ -195,12 +218,12 @@ async def process_profile_field(
     if item.student_id != student.id:
         return RuntimeResult(RuntimeDisposition.superseded, field, "Linked CRM student changed or is missing")
 
-    current_crm = _crm_raw(field, student)
+    current_crm = _crm_raw(field, student, contract)
     if not _matches_expected(field, current_crm, item.crm_value):
         return RuntimeResult(RuntimeDisposition.superseded, field, "CRM field changed after this item was queued")
 
     expected_notion = canonical_profile_value(field, item.notion_value)
-    if expected_notion is None:
+    if expected_notion is None and item.direction is FieldSyncDirection.notion_to_crm:
         return RuntimeResult(RuntimeDisposition.conflict, field, "Empty/invalid Notion values are not auto-applied")
 
     # Read the actual linked page property, not the potentially stale local mirror.
@@ -235,6 +258,7 @@ async def process_profile_field(
                 snapshot.normalized_data = normalized
                 baseline = dict(snapshot.synced_baseline or {})
                 baseline[field] = current_notion
+                baseline["_initialized_fields"] = sorted(set(baseline.get("_initialized_fields", [])) | {field})
                 snapshot.synced_baseline = baseline
                 return RuntimeResult(RuntimeDisposition.applied, field, "Live Notion already matches the queued CRM value")
             return RuntimeResult(RuntimeDisposition.ready, field, "Live Notion already matches the queued CRM value")
@@ -278,12 +302,21 @@ async def process_profile_field(
         elif field == "phone":
             new_crm = str(target_raw).strip()[:100]
         old_crm = current_crm
-        setattr(student, field, new_crm)
+        if field == "pipeline_status":
+            if contract is None:
+                contract = Contract(student_id=student.id, pipeline_status=new_crm)
+                session.add(contract)
+                await session.flush()
+            else:
+                contract.pipeline_status = new_crm
+        else:
+            setattr(student, field, new_crm)
+        student.updated_at = datetime.now(timezone.utc)
         await log_change(
             session,
-            "student",
-            student.id,
-            f"notion_auto_sync:{field}",
+            "contract" if field == "pipeline_status" else "student",
+            contract.id if field == "pipeline_status" else student.id,
+            "pipeline_status" if field == "pipeline_status" else f"notion_auto_sync:{field}",
             old_crm.value if isinstance(old_crm, Enum) else old_crm,
             new_crm.value if isinstance(new_crm, Enum) else new_crm,
             "system:notion_field_sync",
@@ -305,6 +338,7 @@ async def process_profile_field(
     snapshot.normalized_data = normalized
     baseline = dict(snapshot.synced_baseline or {})
     baseline[field] = target_canonical
+    baseline["_initialized_fields"] = sorted(set(baseline.get("_initialized_fields", [])) | {field})
     snapshot.synced_baseline = baseline
     return RuntimeResult(RuntimeDisposition.applied, field, "Both sides verified and the shared baseline advanced")
 
@@ -340,10 +374,14 @@ async def process_outbox_batch(
         if item is None:
             continue
         try:
-            student = await session.get(Student, item.student_id) if item.student_id else None
-            snapshot = await session.get(NotionSnapshot, item.notion_snapshot_id) if item.notion_snapshot_id else None
+            student = await session.get(Student, item.student_id, with_for_update=True) if item.student_id else None
+            snapshot = await session.get(NotionSnapshot, item.notion_snapshot_id, with_for_update=True) if item.notion_snapshot_id else None
+            contract = None
+            if getattr(item, "field_key", None) == "pipeline_status" and student is not None:
+                contract = (await session.execute(select(Contract).where(Contract.student_id == student.id)
+                    .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1).with_for_update())).scalar_one_or_none()
             result = await process_profile_field(
-                session, item, student=student, snapshot=snapshot, dry_run=dry_run
+                session, item, student=student, snapshot=snapshot, contract=contract, dry_run=dry_run
             )
             if result.disposition is RuntimeDisposition.ready:
                 item.status = FieldSyncStatus.dry_run

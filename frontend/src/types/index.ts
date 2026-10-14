@@ -237,6 +237,8 @@ export interface BoardStudent {
   full_name: string
   pipeline_status?: string | null
   crm_status?: string | null
+  notion_status?: string | null
+  notion_linked?: boolean
   status_source?: 'notion' | 'notion_unlinked' | 'crm'
   /** Поля фильтров доски: она приходит целиком и отбирается на клиенте. */
   intake_year?: number | null
@@ -890,6 +892,7 @@ export const TELEGRAM_FIELD_LABELS_RU: Record<string, string> = {
 }
 
 export interface StudentFull extends StudentListItem {
+  notion_sync?: { state: string; queued: number; conflicts: number; dry_run?: boolean }
   is_archived: boolean
   user_id?: string | null  // linked portal (student) account, if access was granted
   specialty?: string

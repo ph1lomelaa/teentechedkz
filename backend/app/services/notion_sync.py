@@ -1,15 +1,15 @@
-"""Синк Notion-базы «Весь пайплайн клиентов» в notion_snapshots (read-only зеркало).
+"""Notion mirror and field-level CRM ↔ Notion synchronization.
 
-В карточки студентов ничего не пишется автоматически. Каждая строка Notion
-целиком обновляет свой снапшот; только единственный сильный матч по имени или
-телефону привязывается автоматически. Неоднозначные/нечёткие совпадения остаются
-предложениями для ручной проверки.
+Notion supplies initial values for uniquely linked students. Later one-sided
+edits propagate through the verified outbox; two-sided changes need review.
+Ambiguous links and identity matches never choose a target automatically.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import sys
+import uuid
 from datetime import datetime, timezone, date as date_cls
 from decimal import Decimal, InvalidOperation
 
@@ -17,6 +17,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract
 from app.services import background_jobs
 
@@ -108,7 +109,7 @@ def _date_canon(v) -> str | None:
 
 def _intake_canon(v) -> str | None:
     year = next(
-        (t for t in str(v or "").replace(".", " ").split() if t.isdigit() and 2020 <= int(t) <= 2035),
+        (t for t in str(v or "").replace(".", " ").split() if t.isdigit() and 1900 <= int(t) <= 2200),
         None,
     )
     return year
@@ -128,12 +129,12 @@ def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, st
     n_degree = parse_degree_or_none(d.get("degree_raw") or "")
     c_degree = student.degree_level.value if student and student.degree_level else None
     try:
-        n_status = parse_pipeline_status(d.get("payment_status_raw") or "") if d.get("payment_status_raw") else None
+        n_status = parse_pipeline_status(d.get("payment_status_raw") or "") if d.get("payment_status_raw") else "no_status"
     except ValueError:
         # Preserve the raw snapshot so the new option appears in the review
         # report. The pipeline apply step rejects it before changing CRM.
         n_status = None
-    c_status = contract.pipeline_status.value if contract and contract.pipeline_status else None
+    c_status = contract.pipeline_status.value if contract and contract.pipeline_status else "no_status"
 
     return {
         "full_name": (_name_canon(d.get("full_name")), _name_canon(crm("full_name", student))),
@@ -198,11 +199,16 @@ def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
         if cn == cc and cn is not None and baseline.get(field) != cn:
             baseline[field] = cn
             changed = True
+        if cn == cc and cn is not None and settings.ENABLE_NOTION_FIELD_SYNC:
+            initialized = set(baseline.get("_initialized_fields", []))
+            if field not in initialized and field in AUTO_RECONCILE_FIELDS:
+                baseline["_initialized_fields"] = sorted(initialized | {field})
+                changed = True
     if changed:
         snapshot.synced_baseline = baseline
 
 
-AUTO_RECONCILE_FIELDS = frozenset({"full_name", "phone", "degree_level", "intake_year"})
+AUTO_RECONCILE_FIELDS = frozenset({"full_name", "phone", "degree_level", "intake_year", "pipeline_status"})
 
 
 async def _enqueue_field_reconciliation(
@@ -214,15 +220,15 @@ async def _enqueue_field_reconciliation(
 ) -> None:
     """Persist only reviewed profile-field decisions for the gated worker.
 
-    The general sync continues to be read-only. Creating outbox items is
-    disabled with the writer flag, and financial/status fields stay out until
-    their own pilot policy is reviewed.
+    The mirror pull never writes directly to business records. Profile and
+    work-status writes are classified into the feature-gated verified outbox.
+    Financial fields are outside this registry.
     """
     if not settings.ENABLE_NOTION_FIELD_SYNC:
         return
 
     from app.services.notion_field_sync_outbox import enqueue_reconciliation
-    from app.services.notion_field_sync_policy import reconcile_field
+    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_field
 
     baseline = snapshot.synced_baseline or {}
     for field in AUTO_RECONCILE_FIELDS:
@@ -238,6 +244,10 @@ async def _enqueue_field_reconciliation(
             notion_value=notion_value,
             crm_value=crm_value,
         )
+        # For an initial linked record Notion is the primary source. Once
+        # a common baseline exists, either side may propagate a one-sided edit.
+        if field not in baseline.get("_initialized_fields", []) and notion_value is not None and crm_value != notion_value:
+            result = ReconciliationResult(FieldDecision.NOTION_CHANGED, crm_value, notion_value, FieldSide.NOTION)
         if result.decision.value == "resolved":
             continue
         # Dedupe by this field's value state; an unrelated page-property edit
@@ -257,7 +267,7 @@ async def _enqueue_field_reconciliation(
             baseline_value=baseline_value,
             has_baseline=has_baseline,
             expected_notion_last_edited_at=snapshot.notion_last_edited_at,
-            reason="Автосверка разрешена только для имени, телефона, ступени и набора; конфликт требует проверки.",
+            reason="Notion — основной источник при первом согласовании; последующие правки синхронизируются в обе стороны, конфликт требует выбора.",
         )
 
 
@@ -277,13 +287,20 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
     for c in (await db.execute(
         select(Contract)
         .where(Contract.student_id.in_(student_ids))
-        .order_by(Contract.student_id, Contract.created_at.desc())
+        .order_by(Contract.student_id, Contract.created_at.desc(), Contract.id.desc())
     )).scalars().all():
         contracts.setdefault(c.student_id, c)
 
+    duplicate_links = set((await db.execute(
+        select(NotionSnapshot.student_id).where(
+            NotionSnapshot.student_id.in_(student_ids), NotionSnapshot.status == NotionMatchStatus.linked
+        ).group_by(NotionSnapshot.student_id).having(func.count() > 1)
+    )).scalars().all())
     for snapshot in snapshots:
+        if snapshot.student_id in duplicate_links:
+            continue  # No automatic choice between several Notion pages.
         student = students.get(snapshot.student_id)
-        if student is None:
+        if student is None or student.is_archived:
             continue
         contract = contracts.get(snapshot.student_id)
         canon = editable_canon(snapshot.normalized_data or {}, student, contract)
@@ -485,8 +502,8 @@ async def run_sync(db: AsyncSession) -> dict:
                     dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN,
                 )
 
-            # Перенос Notion → CRM из синка не запускается никогда (решение
-            # 03.10.2026): ручное распределение, аккаунты и карточки — в CRM.
+            # Creating/deleting students, assignments and accounts remains
+            # separate from verified synchronization of mapped fields.
 
             needs_review = await unmatched_count(db)
             counters = {
@@ -520,7 +537,7 @@ async def sync_loop() -> None:
     """Фоновый цикл: каждые NOTION_SYNC_INTERVAL_SECONDS. Запускается из lifespan."""
     from app.core.database import AsyncSessionLocal
 
-    interval = max(300, settings.NOTION_SYNC_INTERVAL_SECONDS)
+    interval = max(60, settings.NOTION_SYNC_INTERVAL_SECONDS)
     logger.info(f"Notion sync loop started (every {interval}s)")
     while True:
         try:
@@ -532,3 +549,78 @@ async def sync_loop() -> None:
         except Exception as e:
             logger.error(f"Notion sync failed: {e}")
         await asyncio.sleep(interval)
+
+
+async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values: dict) -> dict:
+    """Record an explicit CRM edit in the same transaction as the edit itself."""
+    from app.models.contract import Contract
+    from app.services.notion_field_sync_outbox import enqueue_reconciliation
+    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_field
+    from app.services.notion_field_sync_runtime import canonical_profile_value
+
+    if not settings.ENABLE_NOTION_FIELD_SYNC:
+        return {"state": "disabled", "queued": 0, "conflicts": 0}
+    if student.is_archived:
+        return {"state": "archived", "queued": 0, "conflicts": 0}
+    fields = set(old_values) & AUTO_RECONCILE_FIELDS
+    if not fields:
+        return {"state": "unchanged", "queued": 0, "conflicts": 0}
+    snapshots = (await db.execute(select(NotionSnapshot).where(
+        NotionSnapshot.student_id == student.id, NotionSnapshot.status == NotionMatchStatus.linked
+    ).with_for_update())).scalars().all()
+    if len(snapshots) != 1:
+        return {"state": "not_linked" if not snapshots else "ambiguous_link", "queued": 0, "conflicts": 0}
+    snapshot = snapshots[0]
+    contract = (await db.execute(select(Contract).where(Contract.student_id == student.id)
+        .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1))).scalar_one_or_none()
+    canon = editable_canon(snapshot.normalized_data or {}, student, contract)
+    baseline = dict(snapshot.synced_baseline or {})
+    queued = conflicts = 0
+    for field in sorted(fields):
+        notion_value, crm_value = canon[field]
+        if canonical_profile_value(field, old_values[field]) == crm_value:
+            continue
+        if crm_value == notion_value:
+            baseline[field] = crm_value
+            continue
+        has_baseline = field in baseline
+        if has_baseline:
+            result = reconcile_field(baseline=baseline[field], has_baseline=True,
+                crm_value=crm_value, notion_value=notion_value)
+        else:
+            # The employee explicitly edited this field. This is a new write
+            # intent, not an old unexplained CRM/Notion discrepancy.
+            result = ReconciliationResult(FieldDecision.CRM_CHANGED, crm_value, notion_value, FieldSide.CRM)
+            # Notion supplied the initial reference. Retain it so a later
+            # Notion edit cannot erase this explicit CRM intent on bootstrap.
+            baseline[field] = notion_value
+            has_baseline = True
+        item = await enqueue_reconciliation(db, notion_snapshot_id=snapshot.id,
+            student_id=student.id, notion_page_id=snapshot.notion_page_id, field_key=field,
+            source_revision=f"crm-edit:{uuid.uuid4()}", result=result,
+            baseline_value=baseline.get(field), has_baseline=has_baseline,
+            expected_notion_last_edited_at=snapshot.notion_last_edited_at,
+            reason="Изменение сотрудником на платформе; перед записью проверяются актуальные значения Notion.")
+        if item.direction.value == "conflict":
+            conflicts += 1
+        else:
+            queued += 1
+    baseline["_initialized_fields"] = sorted(set(baseline.get("_initialized_fields", [])) | fields)
+    snapshot.synced_baseline = baseline
+    return {"state": "conflict" if conflicts else "queued" if queued else "synced",
+            "queued": queued, "conflicts": conflicts, "dry_run": settings.NOTION_FIELD_SYNC_DRY_RUN}
+
+
+async def field_sync_loop() -> None:
+    """Drain CRM edits independently of the slower Notion catalogue polling."""
+    from app.services.notion_field_sync_runtime import process_outbox_batch
+    while True:
+        try:
+            if settings.ENABLE_NOTION_FIELD_SYNC:
+                async with AsyncSessionLocal() as db:
+                    await process_outbox_batch(db, limit=50, dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Notion field synchronization failed; pending writes will retry")
+        await asyncio.sleep(15)

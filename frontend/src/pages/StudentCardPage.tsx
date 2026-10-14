@@ -285,9 +285,9 @@ function EditStudentModal({
   const mutation = useMutation({
     mutationFn: (data: Partial<StudentFull>) =>
       studentsApi.update(student.id, data),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       invalidateStudent(queryClient, student.id)
-      toast({ title: 'Сохранено', description: 'Данные студента обновлены' })
+      toast({ title: 'Сохранено', description: saved.notion_sync?.state === 'not_linked' ? 'Данные обновлены. Для синхронизации нужна привязка к Notion.' : saved.notion_sync?.state === 'conflict' ? 'Данные обновлены; расхождение с Notion требует выбора в сверке.' : saved.notion_sync?.queued ? 'Данные обновлены и поставлены в очередь синхронизации с Notion.' : 'Данные студента обновлены' })
       onClose()
     },
     onError: () => {

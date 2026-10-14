@@ -26,14 +26,21 @@ export function StudentProcessEditor({ student, workspace = false }: { student: 
       ...(allowYear && Number(year) !== student.intake_year ? { intake_year: Number(year) } : {}),
       ...(allowStatus && status !== (student.pipeline_status ?? 'no_status') ? { pipeline_status: status } : {}),
     }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       invalidateStudent(queryClient, student.id)
       queryClient.invalidateQueries({ queryKey: ['workspace'] })
       queryClient.invalidateQueries({ queryKey: ['students'] })
       queryClient.invalidateQueries({ queryKey: ['my-students'] })
       queryClient.invalidateQueries({ queryKey: ['notion'] })
       setEditing(false)
-      toast({ title: 'Год и статус сохранены' })
+      const sync = saved.notion_sync
+      const description = sync?.state === 'not_linked' ? 'Для синхронизации сначала привяжите карточку к Notion.'
+        : sync?.state === 'ambiguous_link' ? 'Найдено несколько связей с Notion — нужна проверка.'
+        : sync?.state === 'conflict' ? 'В Notion тоже изменили данные. Выберите верное значение в сверке полей.'
+        : sync?.dry_run ? 'Синхронизация пока проверяется без записи.'
+        : sync?.queued ? 'Изменения поставлены в очередь синхронизации с Notion.'
+        : sync?.state === 'disabled' ? 'Автоматическая синхронизация с Notion выключена.' : undefined
+      toast({ title: 'Год и статус сохранены', description })
     },
     onError: (error) => toast({ title: 'Не удалось сохранить', description: getErrorMessage(error), variant: 'destructive' }),
   })
@@ -50,7 +57,7 @@ export function StudentProcessEditor({ student, workspace = false }: { student: 
         <label className="grid gap-1 text-sm">Год поступления / набора<input aria-label="Год поступления / набора" type="number" min={1900} max={2200} step={1} required className={fields} value={year} onChange={(event) => setYear(event.target.value)} disabled={save.isPending} /></label>
         <label className="grid gap-1 text-sm">Статус работы<select aria-label="Статус работы" className={fields} value={status} onChange={(event) => setStatus(event.target.value as PipelineStatus)} disabled={!allowStatus || save.isPending}>{Object.entries(PIPELINE_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>
-      <p className={`mt-2 text-xs ${workspace ? 'text-w-muted' : 'text-p-muted'}`}>Статус «Работа окончена» сохраняет карточку и историю. Значения Notion можно сверить в разделе Notion.</p>
+      <p className={`mt-2 text-xs ${workspace ? 'text-w-muted' : 'text-p-muted'}`}>Статус «Работа окончена» сохраняет карточку и историю. Связанные поля синхронизируются с Notion; конфликты доступны в сверке полей.</p>
       <div className="mt-3 flex gap-3"><button type="submit" className="text-sm font-semibold underline disabled:opacity-50" disabled={!validYear || !changed || save.isPending}>{save.isPending ? 'Сохранение…' : 'Сохранить год и статус'}</button><button type="button" className="text-sm underline" disabled={save.isPending} onClick={() => setEditing(false)}>Отмена</button></div>
     </form>}
   </div>

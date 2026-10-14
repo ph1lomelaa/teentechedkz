@@ -70,6 +70,9 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Договор не найден")
 
+    from app.models.student import Student
+    student = (await db.execute(select(Student).where(Student.id == contract.student_id).with_for_update())).scalar_one()
+    notion_old_values = {}
     updates = body.model_dump(exclude_unset=True)
     old_mentor_total = contract.mentor_total_owed
 
@@ -77,6 +80,7 @@ async def update_contract(
         new_ps = updates["pipeline_status"]
         old_ps = contract.pipeline_status.value
         if old_ps != new_ps.value:
+            notion_old_values["pipeline_status"] = old_ps
             await log_change(db, "contract", contract.id, "pipeline_status", old_ps, new_ps.value, str(current_user.id))
         contract.pipeline_status = new_ps
 
@@ -98,6 +102,9 @@ async def update_contract(
         except Exception:  # noqa: BLE001 — уведомление не должно ронять сохранение договора
             logger.exception("Не удалось создать уведомление о выплате ментору")
 
+    if notion_old_values:
+        from app.services.notion_sync import enqueue_crm_field_edits
+        await enqueue_crm_field_edits(db, student, notion_old_values)
     await db.commit()
     contract = await _load_contract(db, contract.id)
     return _contract_to_dict(contract)
