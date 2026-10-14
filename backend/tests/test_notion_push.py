@@ -78,6 +78,28 @@ def test_find_title_property_by_type():
     assert name == "Имя студента" and ptype == "title"
 
 
+def test_find_title_property_uses_id_when_notion_title_name_is_empty():
+    assert notion_write.find_title_property({"": {"id": "title", "type": "title"}}) == ("title", "title")
+
+
+def test_read_value_resolves_property_by_id(monkeypatch):
+    monkeypatch.setattr(
+        notion_write,
+        "get_page",
+        lambda _page_id: {"properties": {"": {"id": "title", "type": "title", "title": [{"plain_text": "A B"}]}}},
+    )
+    assert notion_write.read_value("page-id", "title") == "A B"
+
+
+def test_verify_written_resolves_property_by_id(monkeypatch):
+    monkeypatch.setattr(
+        notion_write,
+        "get_page",
+        lambda _page_id: {"properties": {"": {"id": "title", "type": "title", "title": [{"plain_text": "A B"}]}}},
+    )
+    notion_write._verify_written("page-id", {"title": notion_write.build_property("title", "A B")})
+
+
 def test_formula_column_is_not_writable():
     _, ptype = notion_write.resolve_property(_schema(), "TBP (Mentors)")
     assert ptype not in notion_write.WRITABLE_TYPES
