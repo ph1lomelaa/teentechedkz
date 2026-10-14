@@ -126,3 +126,22 @@ def test_first_activation_prefers_notion_over_historical_crm_discrepancy():
     with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
         asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')}))
     assert enqueue.await_args.kwargs['result'].winning_value == '2026'
+
+
+def test_bootstrap_keeps_audited_portal_edit_for_review_without_baseline():
+    from app.services import notion_sync
+    snapshot=SimpleNamespace(id=uuid.uuid4(),notion_page_id='p1',notion_last_edited_at=None,synced_baseline={})
+    enqueue=AsyncMock()
+    with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
+        asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')},manual_fields={'intake_year'}))
+    assert enqueue.await_args.kwargs['result'].winner is None
+    assert enqueue.await_args.kwargs['result'].decision is FieldDecision.UNKNOWN_BASELINE
+
+
+def test_bootstrap_propagates_audited_portal_edit_when_notion_is_unchanged():
+    from app.services import notion_sync
+    snapshot=SimpleNamespace(id=uuid.uuid4(),notion_page_id='p1',notion_last_edited_at=None,synced_baseline={'intake_year':'2026'})
+    enqueue=AsyncMock()
+    with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
+        asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')},manual_fields={'intake_year'}))
+    assert enqueue.await_args.kwargs['result'].winner is FieldSide.CRM

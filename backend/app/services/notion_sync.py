@@ -217,6 +217,7 @@ async def _enqueue_field_reconciliation(
     student: Student,
     contract: Contract | None,
     canon: dict[str, tuple[str | None, str | None]],
+    manual_fields: set[str] | None = None,
 ) -> None:
     """Persist only reviewed profile-field decisions for the gated worker.
 
@@ -247,7 +248,11 @@ async def _enqueue_field_reconciliation(
         # For an initial linked record Notion is the primary source. Once
         # a common baseline exists, either side may propagate a one-sided edit.
         if field not in baseline.get("_initialized_fields", []) and notion_value is not None and crm_value != notion_value:
-            result = ReconciliationResult(FieldDecision.NOTION_CHANGED, crm_value, notion_value, FieldSide.NOTION)
+            if field not in (manual_fields or set()):
+                result = ReconciliationResult(FieldDecision.NOTION_CHANGED, crm_value, notion_value, FieldSide.NOTION)
+            # An audited manual edit keeps the ordinary baseline decision:
+            # safe one-sided edits propagate, unknown/two-sided edits stay
+            # reviewable. Bootstrap must not erase employees' portal edits.
         if result.decision.value == "resolved":
             continue
         # Dedupe by this field's value state; an unrelated page-property edit
@@ -296,6 +301,20 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
             NotionSnapshot.student_id.in_(student_ids), NotionSnapshot.status == NotionMatchStatus.linked
         ).group_by(NotionSnapshot.student_id).having(func.count() > 1)
     )).scalars().all())
+    from app.models.status_history import StatusHistory
+    from app.services.notion_field_sync_runtime import canonical_profile_value
+    manual_values = {}
+    entity_ids = student_ids | {contract.id for contract in contracts.values()}
+    audit_rows = (await db.execute(select(StatusHistory).where(
+        StatusHistory.entity_id.in_(entity_ids), StatusHistory.source == "manual",
+        StatusHistory.field_changed.in_(AUTO_RECONCILE_FIELDS)
+    ).order_by(StatusHistory.changed_at.desc(), StatusHistory.id.desc()))).scalars().all()
+    for audit in audit_rows:
+        try:
+            uuid.UUID(audit.changed_by)
+        except (ValueError, TypeError, AttributeError):
+            continue
+        manual_values.setdefault((audit.entity_type, audit.entity_id, audit.field_changed), audit.new_value)
     for snapshot in snapshots:
         if snapshot.student_id in duplicate_links:
             continue  # No automatic choice between several Notion pages.
@@ -304,7 +323,13 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
             continue
         contract = contracts.get(snapshot.student_id)
         canon = editable_canon(snapshot.normalized_data or {}, student, contract)
-        await _enqueue_field_reconciliation(db, snapshot, student, contract, canon)
+        manual_fields = set()
+        for field, (_, crm_value) in canon.items():
+            entity_type, entity_id = ("contract", contract.id) if field == "pipeline_status" and contract else ("student", student.id)
+            key = (entity_type, entity_id, field)
+            if key in manual_values and canonical_profile_value(field, manual_values[key]) == crm_value:
+                manual_fields.add(field)
+        await _enqueue_field_reconciliation(db, snapshot, student, contract, canon, manual_fields=manual_fields)
         reconcile_baseline(snapshot, student, contract)
 
 
