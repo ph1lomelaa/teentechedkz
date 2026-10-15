@@ -177,3 +177,17 @@ def reconcile_field(
         FieldDecision.CONFLICT,
         _later_field_side(crm_event, notion_event),
     )
+
+
+def reconcile_profile_field(*, field_key: str, **values) -> ReconciliationResult:
+    """An absent Notion work status preserves and fills from the portal.
+
+    This includes first reconciliation and an old baseline: deleting a Notion
+    property is never an implicit request to clear a student's working status.
+    """
+    if (field_key == "pipeline_status"
+            and values["notion_value"] in (None, "", "no_status")
+            and values["crm_value"] not in (None, "", "no_status")):
+        return ReconciliationResult(FieldDecision.CRM_CHANGED,
+                                    values["crm_value"], values["notion_value"], FieldSide.CRM)
+    return reconcile_field(**values)

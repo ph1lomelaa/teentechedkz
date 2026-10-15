@@ -195,6 +195,9 @@ def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
     canon = editable_canon(snapshot.normalized_data or {}, student, contract)
     baseline = dict(snapshot.synced_baseline or {})
     changed = False
+    if canon.get("pipeline_status", (None, None))[0] == canon.get("pipeline_status", (None, None))[1] and "_portal_status" in baseline:
+        baseline.pop("_portal_status")
+        changed = True
     for field, (cn, cc) in canon.items():
         if cn == cc and cn is not None and baseline.get(field) != cn:
             baseline[field] = cn
@@ -229,7 +232,7 @@ async def _enqueue_field_reconciliation(
         return
 
     from app.services.notion_field_sync_outbox import enqueue_reconciliation
-    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_field
+    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_profile_field
 
     baseline = snapshot.synced_baseline or {}
     for field in AUTO_RECONCILE_FIELDS:
@@ -239,7 +242,7 @@ async def _enqueue_field_reconciliation(
         notion_value, crm_value = pair
         has_baseline = field in baseline
         baseline_value = baseline.get(field)
-        result = reconcile_field(
+        result = reconcile_profile_field(field_key=field,
             baseline=baseline_value,
             has_baseline=has_baseline,
             notion_value=notion_value,
@@ -247,7 +250,7 @@ async def _enqueue_field_reconciliation(
         )
         # For an initial linked record Notion is the primary source. Once
         # a common baseline exists, either side may propagate a one-sided edit.
-        if field not in baseline.get("_initialized_fields", []) and notion_value is not None and crm_value != notion_value:
+        if field not in baseline.get("_initialized_fields", []) and notion_value is not None and not (field == "pipeline_status" and notion_value == "no_status") and crm_value != notion_value:
             if field not in (manual_fields or set()):
                 result = ReconciliationResult(FieldDecision.NOTION_CHANGED, crm_value, notion_value, FieldSide.NOTION)
             # An audited manual edit keeps the ordinary baseline decision:
@@ -580,7 +583,7 @@ async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values
     """Record an explicit CRM edit in the same transaction as the edit itself."""
     from app.models.contract import Contract
     from app.services.notion_field_sync_outbox import enqueue_reconciliation
-    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_field
+    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_profile_field
     from app.services.notion_field_sync_runtime import canonical_profile_value
 
     if not settings.ENABLE_NOTION_FIELD_SYNC:
@@ -603,14 +606,14 @@ async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values
     queued = conflicts = 0
     for field in sorted(fields):
         notion_value, crm_value = canon[field]
-        if canonical_profile_value(field, old_values[field]) == crm_value:
+        if canonical_profile_value(field, old_values[field]) == crm_value and crm_value == notion_value:
             continue
         if crm_value == notion_value:
             baseline[field] = crm_value
             continue
         has_baseline = field in baseline
         if has_baseline:
-            result = reconcile_field(baseline=baseline[field], has_baseline=True,
+            result = reconcile_profile_field(field_key=field, baseline=baseline[field], has_baseline=True,
                 crm_value=crm_value, notion_value=notion_value)
         else:
             # The employee explicitly edited this field. This is a new write

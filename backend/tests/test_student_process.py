@@ -18,12 +18,14 @@ class Result:
     def __init__(self, value): self.value = value
     def scalar_one_or_none(self): return self.value
     def scalar_one(self): return self.value
+    def scalars(self): return self
+    def all(self): return self.value
 
 
 class DB:
     def __init__(self, student, contract):
         self.student = student
-        self.results = iter([student, contract, student])
+        self.results = iter([student, contract, [], student])
         self.added = []
         self.committed = False
     async def execute(self, statement): return Result(next(self.results))
@@ -40,7 +42,7 @@ class StudentProcessTests(unittest.TestCase):
                 student = Student(id=uuid.uuid4(), intake_year=2026, is_archived=False)
                 contract = Contract(id=uuid.uuid4(), student_id=student.id, pipeline_status=PipelineStatus.active_work)
                 db = DB(student, contract)
-                with patch('app.api.v1.endpoints.students.require_student_access', new_callable=AsyncMock), patch('app.api.v1.endpoints.students.log_change', new_callable=AsyncMock) as audit, patch('app.api.v1.endpoints.students._student_to_dict', return_value={}):
+                with patch('app.api.v1.endpoints.students.require_student_access', new_callable=AsyncMock), patch('app.api.v1.endpoints.students.log_change', new_callable=AsyncMock) as audit, patch('app.api.v1.endpoints.students._student_to_dict', return_value={}), patch('app.api.v1.endpoints.students.load_work_statuses', new=AsyncMock(return_value={student.id: {}})):
                     asyncio.run(update_student(student.id, StudentUpdate(intake_year=2027, pipeline_status='completed_admitted'), db, User(id=uuid.uuid4(), role=role)))
                 self.assertEqual(student.intake_year, 2027)
                 self.assertEqual(contract.pipeline_status, PipelineStatus.completed_admitted)
@@ -56,7 +58,7 @@ class StudentProcessTests(unittest.TestCase):
     def test_no_contract_still_allows_work_status(self):
         student = Student(id=uuid.uuid4(), intake_year=2026, is_archived=False)
         db = DB(student, None)
-        with patch('app.api.v1.endpoints.students.require_student_access', new_callable=AsyncMock), patch('app.api.v1.endpoints.students.log_change', new_callable=AsyncMock), patch('app.api.v1.endpoints.students._student_to_dict', return_value={}):
+        with patch('app.api.v1.endpoints.students.require_student_access', new_callable=AsyncMock), patch('app.api.v1.endpoints.students.log_change', new_callable=AsyncMock), patch('app.api.v1.endpoints.students._student_to_dict', return_value={}), patch('app.api.v1.endpoints.students.load_work_statuses', new=AsyncMock(return_value={student.id: {}})):
             asyncio.run(update_student(student.id, StudentUpdate(pipeline_status='changed_mind'), db, User(id=uuid.uuid4(), role=UserRole.mentor)))
         self.assertEqual(len(db.added), 1)
         self.assertEqual(db.added[0].pipeline_status, PipelineStatus.changed_mind)

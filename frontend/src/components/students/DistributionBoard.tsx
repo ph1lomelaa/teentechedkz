@@ -48,10 +48,10 @@ export interface BoardFilters {
 
 /** Проходит ли карточка фильтры. Чистая функция — её же зовёт счётчик страницы. */
 export function matchesBoardFilters(student: BoardStudent, filters: BoardFilters): boolean {
-  if (!filters.statuses.has(boardStatusKey(student))) return false
+  if (filters.statuses.size && !filters.statuses.has(boardStatusKey(student))) return false
   if (filters.years.size && !filters.years.has(String(student.intake_year ?? ''))) return false
   if (filters.degrees.size && !filters.degrees.has(student.degree_level ?? '')) return false
-  if (filters.countries.size && !filters.countries.has(student.country ?? '')) return false
+  if (filters.countries.size && !(student.countries?.length ? student.countries : [student.country ?? '']).some(country => filters.countries.has(country))) return false
   return true
 }
 

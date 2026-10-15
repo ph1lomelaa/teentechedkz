@@ -32,6 +32,7 @@ from app.services.default_services import ensure_default_services
 from app.services.student_purge import delete_stored_files, document_storage_paths, purge_student
 from app.services import contract_finance
 from app.core.config import settings
+from app.services.student_work_status import load_work_statuses, resolve_work_status
 from app.services.people_facets import build_people_index
 from app.services.student_countries import primary_country_by_student
 from app.services.task_sla import SLA_TRACKED_STATUSES
@@ -272,17 +273,9 @@ async def student_facets(
         .where(active)
         .group_by(Student.degree_level)
     )
-    latest_statuses = select(
-        Contract.student_id, Contract.pipeline_status,
-        func.row_number().over(partition_by=Contract.student_id,
-            order_by=(Contract.created_at.desc(), Contract.id.desc())).label("position"),
-    ).subquery()
-    statuses_result = await db.execute(
-        select(latest_statuses.c.pipeline_status, func.count())
-        .join(Student, Student.id == latest_statuses.c.student_id)
-        .where(active, latest_statuses.c.position == 1)
-        .group_by(latest_statuses.c.pipeline_status)
-    )
+    status_students = (await db.execute(select(Student.id).where(active))).scalars().all()
+    work_statuses = await load_work_statuses(db, status_students)
+    status_counts = Counter(item["pipeline_status"] for item in work_statuses.values())
     countries_result = await db.execute(
         select(Application.country, func.count(func.distinct(Application.student_id)))
         .join(Student, Student.id == Application.student_id)
@@ -295,7 +288,7 @@ async def student_facets(
         "years": [{"value": str(y), "count": c} for y, c in years_result.all() if y],
         "degrees": [{"value": d.value, "count": c} for d, c in degrees_result.all() if d],
         "statuses": sorted(
-            ({"value": s.value, "count": c} for s, c in statuses_result.all() if s),
+            ({"value": status, "count": count} for status, count in status_counts.items()),
             key=lambda x: -x["count"],
         ),
         "countries": [{"value": co, "count": c} for co, c in countries_result.all() if co],
@@ -312,9 +305,63 @@ async def student_people_facets(
     поэтому 'Aisulu'/'Aisulu (KG)' и 'Aruzhan'/'Аружан' не двоятся."""
     index = await build_people_index(db)
     return {
-        "mentors": index.mentor_facets(),
-        "managers": index.manager_facets(),
+        "mentors": [{**item, "user_id": str(index.confirmed_links[item["key"]]) if item["key"] in index.confirmed_links else None} for item in index.mentor_facets()],
+        "managers": [{**item, "user_id": str(index.confirmed_links[item["key"]]) if item["key"] in index.confirmed_links else None} for item in index.manager_facets()],
     }
+
+
+class PersonLinkBody(BaseModel):
+    notion_key: str
+    user_id: uuid.UUID | None = None
+
+
+@router.get("/people-links")
+async def person_links(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    require_access(current_user, "students", Action.manage)
+    from app.services.people_facets import canon_person
+    index = await build_people_index(db)
+    users = (await db.execute(select(User).where(
+        User.role.in_([UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor]),
+        User.is_active == True).order_by(User.name))).scalars().all()  # noqa: E712
+    labels = {**index.mentor_labels, **index.manager_labels}
+    rows = []
+    for key, label in sorted(labels.items(), key=lambda item: item[1].casefold()):
+        candidates = [str(u.id) for u in users if canon_person(u.name) == key]
+        student_ids = index.mentor_students.get(key, set()) | index.manager_students.get(key, set())
+        rows.append({"key": key, "label": label, "count": len(student_ids),
+            "user_id": str(index.confirmed_links[key]) if key in index.confirmed_links else None,
+            "suggested_user_id": candidates[0] if len(candidates) == 1 else None,
+            "student_ids": sorted(map(str, student_ids))})
+    return {"items": rows, "users": [{"id": str(u.id), "name": u.name} for u in users]}
+
+
+@router.put("/people-links")
+async def confirm_person_link(body: PersonLinkBody, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    require_access(current_user, "students", Action.manage)
+    from app.models.notion_person_link import NotionPersonLink
+    index = await build_people_index(db)
+    if body.notion_key not in index.mentor_labels and body.notion_key not in index.manager_labels:
+        raise HTTPException(status_code=422, detail="Имя Notion не найдено в связанных карточках")
+    link = await db.get(NotionPersonLink, body.notion_key, with_for_update=True)
+    old = str(link.user_id) if link else None
+    if body.user_id is None:
+        if link:
+            await db.delete(link)
+    else:
+        user = await db.get(User, body.user_id)
+        if not user or not user.is_active or user.role == UserRole.student:
+            raise HTTPException(status_code=422, detail="Выберите действующего сотрудника")
+        if link is None:
+            link = NotionPersonLink(notion_key=body.notion_key, user_id=body.user_id)
+            db.add(link)
+        link.user_id = body.user_id
+        link.confirmed_by = current_user.id
+        link.confirmed_at = datetime.now(timezone.utc)
+    await log_change(db, "user", body.user_id or current_user.id,
+        "notion_person_link:" + body.notion_key, old, str(body.user_id) if body.user_id else None,
+        str(current_user.id))
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/{student_id}/merge")
@@ -569,6 +616,13 @@ async def list_students(
     assignment_role: str | None = None,
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=2000),
+    intake_years: str | None = None,
+    degrees: str | None = None,
+    countries: str | None = None,
+    responsible_ids: str | None = None,
+    responsible_names: str | None = None,
+    assignment_roles: str | None = None,
+    service_types: str | None = None,
 ):
     from app.models.application import Application
 
@@ -626,100 +680,96 @@ async def list_students(
             )
         query = query.where(or_(*search_conditions))
 
-    if intake_year:
-        query = query.where(Student.intake_year == intake_year)
+    def csv(value):
+        return list(dict.fromkeys(part.strip() for part in (value or "").split(",") if part.strip()))
 
-    if degree_level:
+    def enums(value, enum):
         try:
-            query = query.where(Student.degree_level == DegreeLevel(degree_level))
-        except ValueError:
-            pass
+            return [enum(part) for part in csv(value)]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Unknown filter value: {exc}")
 
+    years = csv(intake_years) or ([str(intake_year)] if intake_year else [])
+    if years:
+        try:
+            query = query.where(Student.intake_year.in_([int(y) for y in years]))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid intake years")
+    selected_degrees = enums(degrees or degree_level, DegreeLevel)
+    if selected_degrees:
+        query = query.where(Student.degree_level.in_(selected_degrees))
+
+    work_statuses = await load_work_statuses(db)
     selected_statuses, status_operator = _parse_pipeline_status_filter(
         pipeline_statuses, pipeline_status, pipeline_status_operator
     )
     if selected_statuses:
-        # A student can have several contracts. Filtering a plain join matched
-        # any historical contract, while the row itself displays the latest
-        # one. Use the exact same business record for filtering and display.
-        latest_contract_status = (
-            select(Contract.pipeline_status)
-            .where(Contract.student_id == Student.id)
-            .order_by(Contract.created_at.desc(), Contract.id.desc())
-            .limit(1)
-            .correlate(Student)
-            .scalar_subquery()
-        )
-        includes_no_status = PipelineStatus.no_status in selected_statuses
-        if status_operator == "is":
-            condition = latest_contract_status.in_(selected_statuses)
-            if includes_no_status:
-                condition = or_(condition, latest_contract_status.is_(None))
+        selected = {status.value for status in selected_statuses}
+        # Resolve first, then filter; missing contracts and duplicate Notion links
+        # follow exactly the same policy as list rows and distribution.
+        matching = {sid for sid, item in work_statuses.items() if item["pipeline_status"] in selected}
+        if "no_status" in selected:
+            condition = or_(Student.id.in_(matching), Student.id.not_in(set(work_statuses)))
         else:
-            condition = latest_contract_status.not_in(selected_statuses)
-            # Empty/no-contract rows are logically "not selected" unless the
-            # user explicitly excluded the "Нет статуса" option.
-            if not includes_no_status:
-                condition = or_(latest_contract_status.is_(None), condition)
-        query = query.where(condition)
+            condition = Student.id.in_(matching)
+        query = query.where(condition if status_operator == "is" else ~condition)
 
-    if mzk_manager_id:
-        # «Кто МЗК студента» живёт в двух местах: новое назначение
-        # MentorAssignment(role=mzk) и старое поле contracts.mzk_manager_id.
-        # Источник истины — назначение (его пишет и распределение, и доска), но
-        # договоры, не покрытые бэкфиллом 090, иначе выпали бы из фильтра, и
-        # студент «пропал» бы у своего МЗК. Поэтому ИЛИ, а не одно из двух.
-        #
-        # Подзапросами, а не джойном: scope=mine выше уже присоединяет
-        # MentorAssignment, и второй join той же таблицы сломал бы запрос.
-        by_assignment = select(MentorAssignment.student_id).where(
-            MentorAssignment.mentor_id == mzk_manager_id,
-            MentorAssignment.role == MentorRole.mzk,
-            MentorAssignment.is_active == True,  # noqa: E712
-        )
-        by_contract = select(Contract.student_id).where(
-            Contract.mzk_manager_id == mzk_manager_id
-        )
-        query = query.where(
-            or_(Student.id.in_(by_assignment), Student.id.in_(by_contract))
-        )
-
-    if country:
-        query = query.join(Application, Application.student_id == Student.id, isouter=True)
-        query = query.where(Application.country.ilike(f"%{country}%"))
+    selected_countries = csv(countries) or ([country] if country else [])
+    if selected_countries:
+        by_country = select(Application.student_id).where(or_(
+            *(Application.country.ilike(f"%{value}%") for value in selected_countries)))
         if country_primary_only:
-            query = query.where(Application.is_primary == True)  # noqa: E712
+            by_country = by_country.where(Application.is_primary == True)  # noqa: E712
+        query = query.where(Student.id.in_(by_country))
 
-    if service_type:
-        try:
-            svc_type = ServiceType(service_type)
-            query = query.join(Service, Service.student_id == Student.id).where(
-                Service.service_type == svc_type,
-                Service.included == True,  # noqa: E712
-            )
-        except ValueError:
-            query = query.where(False)
+    selected_services = enums(service_types or service_type, ServiceType)
+    if selected_services:
+        query = query.where(Student.id.in_(select(Service.student_id).where(
+            Service.service_type.in_(selected_services), Service.included == True)))  # noqa: E712
 
+    ids = csv(responsible_ids) or ([str(mentor_id)] if mentor_id else [])
+    roles = enums(assignment_roles or assignment_role, MentorRole)
+    # Legacy Lead selector means the team's lead too; it must agree with its column.
     if lead_mentor_id:
-        query = query.join(Application, Application.student_id == Student.id, isouter=True)
-        query = query.where(Application.lead_mentor_id == lead_mentor_id)
-
-    if mentor_id:
-        # Подзапрос вместо джойна: он не конфликтует с join из scope=mine и не
-        # размножает строки студента по числу его назначений.
-        by_mentor = select(MentorAssignment.student_id).where(
-            MentorAssignment.mentor_id == mentor_id,
+        ids = [str(lead_mentor_id)]
+        roles = [MentorRole.lead]
+    if mzk_manager_id:
+        ids = [str(mzk_manager_id)]
+        roles = [MentorRole.mzk]
+    names = csv(responsible_names)
+    if roles:
+        ids += [str(people.confirmed_links[name]) for name in names if name in people.confirmed_links]
+    if ids or roles:
+        try:
+            user_ids = [uuid.UUID(value) for value in ids]
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid responsible ID")
+        by_person = select(MentorAssignment.student_id).where(
             MentorAssignment.is_active == True,  # noqa: E712
-        )
-        # Роль вместе с человеком: без неё «студенты Зиры как МЗК» и «студенты
-        # Зиры как ментора по УП» — один и тот же список, и переход с колонки
-        # доски распределения в общую базу давал бы не тот набор.
-        if assignment_role:
-            try:
-                by_mentor = by_mentor.where(MentorAssignment.role == MentorRole(assignment_role))
-            except ValueError:
-                raise HTTPException(status_code=422, detail=f"Unknown assignment role: {assignment_role}")
-        query = query.where(Student.id.in_(by_mentor))
+            MentorAssignment.mentor_id.is_not(None),
+            MentorAssignment.assignment_status != "required")
+        if names and roles and not user_ids:
+            by_person = by_person.where(False)
+        if user_ids:
+            by_person = by_person.where(MentorAssignment.mentor_id.in_(user_ids))
+        if roles:
+            by_person = by_person.where(MentorAssignment.role.in_(roles))
+        named_ids = set()
+        # Only confirmed person links extend account searches into Notion.
+        for user_id in user_ids:
+            named_ids.update(people.linked_user_students.get(user_id, set()))
+        if roles:
+            named_ids = set()  # Free-text Notion roles are not team-role evidence.
+        for name in names if not roles else []:
+            named_ids.update(people.mentor_students.get(name, set()))
+            named_ids.update(people.manager_students.get(name, set()))
+        query = query.where(or_(Student.id.in_(by_person), Student.id.in_(named_ids)))
+    elif responsible_names:
+        named_ids = set()
+        for name in csv(responsible_names):
+            named_ids.update(people.mentor_students.get(name, set()))
+            named_ids.update(people.manager_students.get(name, set()))
+        query = query.where(Student.id.in_(named_ids))
 
     if missing_role:
         # «Кого забыли назначить на эту роль» — колонка «Без ответственного» на
@@ -738,7 +788,7 @@ async def list_students(
         )
         query = query.where(Student.id.not_in(has_role))
 
-    count_query = select(func.count()).select_from(query.subquery())
+    count_query = select(func.count()).select_from(query.distinct().subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
@@ -1064,13 +1114,15 @@ async def list_students(
             "city": s.city,
             "degree_level": s.degree_level.value,
             "intake_year": s.intake_year,
-            "pipeline_status": pipeline_status_val,
+            **work_statuses.get(s.id, resolve_work_status(pipeline_status_val)),
             "days_in_work": days_in_work,
             "risk_category": risk_category,
             "is_mine": is_mine,
             "country": country_map.get(s.id),
             "countries": countries_by_student.get(s.id, []),
             "mentors": people.student_mentor_labels.get(s.id, []),
+            "notion_people_keys": [key for key in people.mentor_students.keys() | people.manager_students.keys() if s.id in people.mentor_students.get(key, set()) or s.id in people.manager_students.get(key, set())],
+            "notion_responsible_ids": [str(uid) for uid, ids in people.linked_user_students.items() if s.id in ids],
             "mzk_manager_name": (
                 mzk_from_assignment
                 or (contract.mzk_manager.name if contract and contract.mzk_manager else None)
@@ -1116,6 +1168,7 @@ async def list_students(
     return {
         "items": items,
         "total": total,
+        "total_all": await _count(db, select(func.count()).select_from(Student).where(Student.is_archived == False)),  # noqa: E712
         "page": page,
         "size": size,
         "pages": math.ceil(total / size) if total > 0 else 0,
@@ -1586,6 +1639,7 @@ async def get_student(
 
     student.contracts.sort(key=lambda c: (c.created_at, str(c.id)), reverse=True)
     data = _student_to_dict(student)
+    data.update((await load_work_statuses(db, [student.id]))[student.id])
     responsibles, is_mine, team_readiness = await _student_responsibles(db, student.id, current_user.id)
     data["responsibles"] = responsibles
     data["team_readiness"] = team_readiness
@@ -1716,6 +1770,7 @@ async def update_student(
                 await log_change(db, "student", student.id, field, str(old_val), str(new_val), str(current_user.id))
             setattr(student, field, new_val)
 
+    old_status = None
     if "pipeline_status" in updates:
         contract = (await db.execute(
             select(Contract).where(Contract.student_id == student_id)
@@ -1735,6 +1790,17 @@ async def update_student(
                 await log_change(db, "contract", contract.id, "pipeline_status", old_status, new_status.value, str(current_user.id))
                 contract.pipeline_status = new_status
 
+    if "pipeline_status" in updates:
+        # Persist explicit status intent even while the worker is disabled.
+        # Otherwise a successful save immediately renders the old mirror value.
+        notion_old_values.setdefault("pipeline_status", old_status)
+        links = (await db.execute(select(NotionSnapshot).where(
+            NotionSnapshot.student_id == student_id,
+            NotionSnapshot.status == "linked").with_for_update())).scalars().all()
+        if len(links) == 1:
+            baseline = dict(links[0].synced_baseline or {})
+            baseline["_portal_status"] = updates["pipeline_status"].value
+            links[0].synced_baseline = baseline
     student.updated_at = datetime.now(timezone.utc)
     from app.services.notion_sync import enqueue_crm_field_edits
     notion_sync_state = await enqueue_crm_field_edits(db, student, notion_old_values)
@@ -1748,6 +1814,7 @@ async def update_student(
         .where(Student.id == student_id)
     )
     response = _student_to_dict(result.scalar_one())
+    response.update((await load_work_statuses(db, [student_id]))[student_id])
     response["notion_sync"] = notion_sync_state
     return response
 

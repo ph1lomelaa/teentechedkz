@@ -775,34 +775,13 @@ async def assignment_board(
     from app.models.student import Student
     from app.models.contract import Contract
 
-    # CRM статус оставляем для сравнения; фильтр доски берёт Notion у связанных
-    # строк. Несвязанных показываем как «нет статуса Notion».
-    crm_by_student: dict[uuid.UUID, str | None] = {}
-    contracts_result = await db.execute(
-        select(Contract.student_id, Contract.pipeline_status)
-        .order_by(Contract.student_id, Contract.created_at.desc(), Contract.id.desc())
-    )
-    for student_id, status in contracts_result.all():
-        crm_by_student.setdefault(student_id, status.value if status else None)
-
+    from app.services.student_work_status import load_work_statuses, resolve_work_status
+    work_statuses = await load_work_statuses(db)
+    pipeline_by_student = {sid: value["pipeline_status"] for sid, value in work_statuses.items()}
+    crm_by_student = {sid: value["crm_status"] for sid, value in work_statuses.items()}
+    source_by_student = {sid: value["status_source"] for sid, value in work_statuses.items()}
     from app.models.notion_snapshot import NotionSnapshot, NotionMatchStatus
     from migration.transformers.normalize import parse_pipeline_status
-    snapshots = (await db.execute(select(NotionSnapshot).where(
-        NotionSnapshot.status == NotionMatchStatus.linked,
-        NotionSnapshot.student_id.is_not(None),
-    ).order_by(NotionSnapshot.synced_at.desc()))).scalars().all()
-    pipeline_by_student: dict[uuid.UUID, str | None] = {}
-    source_by_student: dict[uuid.UUID, str] = {}
-    for snapshot in snapshots:
-        student_id = snapshot.student_id
-        if student_id in source_by_student:
-            continue
-        source_by_student[student_id] = "notion"
-        raw_status = (snapshot.normalized_data or {}).get("payment_status_raw")
-        try:
-            pipeline_by_student[student_id] = parse_pipeline_status(raw_status) if raw_status else None
-        except (ValueError, KeyError):
-            pipeline_by_student[student_id] = None
 
     # Плейсхолдеры «ответственный требуется» (mentor_id IS NULL) отсекает сам
     # join к users, но статус проверяем явно — заполненный плейсхолдер остаётся
@@ -852,6 +831,15 @@ async def assignment_board(
         crm_by_student=crm_by_student,
         status_source_by_student=source_by_student,
     )
+    from app.models.application import Application
+    all_countries = defaultdict(set)
+    for sid, country in (await db.execute(select(Application.student_id, Application.country))).all():
+        if country:
+            all_countries[sid].add(country)
+    for entry in [*board["unassigned"], *(student for column in board["columns"] for student in column["students"])]:
+        sid = uuid.UUID(entry["id"])
+        entry["countries"] = sorted(all_countries[sid])
+        entry.update(work_statuses.get(sid, resolve_work_status()))
     active_unlinked_notion = 0
     for snapshot in (await db.execute(select(NotionSnapshot).where(NotionSnapshot.student_id.is_(None), NotionSnapshot.status != NotionMatchStatus.ignored))).scalars():
         raw = (snapshot.normalized_data or {}).get("payment_status_raw")
@@ -862,6 +850,6 @@ async def assignment_board(
             pass
     board["notion_reconciliation"] = {
         "active_unlinked_rows": active_unlinked_notion,
-        "platform_without_notion": sum(source_by_student[s.id] == "notion_unlinked" for s in students),
+        "platform_without_notion": sum(not work_statuses.get(s.id, {}).get("notion_linked") for s in students),
     }
     return board

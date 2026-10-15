@@ -223,7 +223,7 @@ async def process_profile_field(
         return RuntimeResult(RuntimeDisposition.superseded, field, "CRM field changed after this item was queued")
 
     expected_notion = canonical_profile_value(field, item.notion_value)
-    if expected_notion is None and item.direction is FieldSyncDirection.notion_to_crm:
+    if (expected_notion is None or (field == "pipeline_status" and expected_notion == "no_status")) and item.direction is FieldSyncDirection.notion_to_crm:
         return RuntimeResult(RuntimeDisposition.conflict, field, "Empty/invalid Notion values are not auto-applied")
 
     # Read the actual linked page property, not the potentially stale local mirror.
@@ -258,6 +258,8 @@ async def process_profile_field(
                 snapshot.normalized_data = normalized
                 baseline = dict(snapshot.synced_baseline or {})
                 baseline[field] = current_notion
+                if field == "pipeline_status":
+                    baseline.pop("_portal_status", None)
                 baseline["_initialized_fields"] = sorted(set(baseline.get("_initialized_fields", [])) | {field})
                 snapshot.synced_baseline = baseline
                 return RuntimeResult(RuntimeDisposition.applied, field, "Live Notion already matches the queued CRM value")
@@ -338,6 +340,8 @@ async def process_profile_field(
     snapshot.normalized_data = normalized
     baseline = dict(snapshot.synced_baseline or {})
     baseline[field] = target_canonical
+    if field == "pipeline_status":
+        baseline.pop("_portal_status", None)
     baseline["_initialized_fields"] = sorted(set(baseline.get("_initialized_fields", [])) | {field})
     snapshot.synced_baseline = baseline
     return RuntimeResult(RuntimeDisposition.applied, field, "Both sides verified and the shared baseline advanced")
