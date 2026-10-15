@@ -97,10 +97,10 @@ describe('список распределения', () => {
   it('открывает список по умолчанию и скрывает переключатель доски', async () => {
     renderPage()
     expect(await screen.findByText('Дана К.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Назначить' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Назначить' }).length).toBeGreaterThan(0)
     expect(screen.queryByLabelText('Выбрать Дана К.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Доска нагрузки' })).not.toBeInTheDocument()
-    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
+    expect(screen.getByText('Ерлан П.')).toBeInTheDocument()
   })
 
   it('показывает галочки только после включения выбора и очищает выбор при выходе', async () => {
@@ -134,13 +134,13 @@ describe('список распределения', () => {
 
   it('по умолчанию показывает распределение МЗК', async () => {
     renderPage()
-    expect(await screen.findByText('Зира Сатпаева')).toBeInTheDocument()
+    expect((await screen.findAllByText('Зира Сатпаева')).length).toBeGreaterThan(0)
     expect(boardCalls).toContainEqual({ role: 'mzk' })
   })
 
   it('смена роли обновляет запрос', async () => {
     renderPage()
-    await screen.findByText('Зира Сатпаева')
+    await screen.findAllByText('Зира Сатпаева')
     fireEvent.click(screen.getByText('Ментор по УП'))
     await waitFor(() => expect(boardCalls).toContainEqual({ role: 'lead' }))
   })
@@ -159,21 +159,19 @@ describe('список распределения', () => {
     expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
   })
 
-  it('по умолчанию показывает только активную работу', async () => {
-    // Без фильтра колонка «Без ответственного» тонула в тех, с кем уже не
-    // работают, и настоящих нераспределённых было не найти.
+  it('по умолчанию показывает назначенных и завершённых без скрытых статусов', async () => {
     renderPage()
     await screen.findByText('Дана К.')
-
-    expect(screen.queryByText('Ерлан П.')).not.toBeInTheDocument()
-    expect(screen.getByText(/1 студентов в списке/)).toBeInTheDocument()
+    expect(screen.getByText('Ерлан П.')).toBeInTheDocument()
+    expect(screen.getByText('Мерей А.')).toBeInTheDocument()
+    expect(screen.getByText('Айгерим Б.')).toBeInTheDocument()
   })
 
   it('дополнительный фильтр по статусу возвращает скрытых', async () => {
-    renderPage()
+    renderPage('/students/distribution?status=active_work')
     await screen.findByText('Дана К.')
     fireEvent.click(screen.getByText('+ Фильтр'))
-    fireEvent.click(screen.getByText('Работа окончена — Передумал'))
+    fireEvent.click(screen.getByLabelText('Работа окончена — Передумал'))
 
     expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
   })
@@ -205,4 +203,15 @@ describe('список распределения', () => {
     expect(await screen.findByText('Дана К.')).toBeInTheDocument()
   })
 
+})
+
+it('полный сброс очищает сотрудника, поиск и статусы', async () => {
+ renderPage('/students/distribution?status=active_work&year=2027')
+ await screen.findByText('Дана К.')
+ fireEvent.click(screen.getByRole('button', { name: /Зира Сатпаева/ }))
+ fireEvent.change(screen.getByPlaceholderText('Найти студента'), { target: { value: 'Мерей' } })
+ fireEvent.click(screen.getByRole('button', { name: 'Сбросить всё' }))
+ expect(screen.getByPlaceholderText('Найти студента')).toHaveValue('')
+ expect(await screen.findByText('Ерлан П.')).toBeInTheDocument()
+ expect(screen.getByText('Дана К.')).toBeInTheDocument()
 })

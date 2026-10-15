@@ -126,3 +126,4 @@ __all__ = [
 ]
 
 from .activity import Activity, ActivityIntake, StudentActivity
+from .notion_person_link import NotionPersonLink

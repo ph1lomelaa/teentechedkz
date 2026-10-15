@@ -20,7 +20,7 @@ from app.models.notion_snapshot import NotionSnapshot
 from app.models.mentor_assignment import MentorAssignment
 from app.models.telegram_chat import TelegramChat
 from app.models.telegram_chat_session import TelegramChatSession
-from app.services.student_export import COLUMNS, DEFAULT_COLUMNS, make_rows, serialize_rows
+from app.services.student_export import COLUMNS, DEFAULT_COLUMNS, make_rows, serialize_rows, display_export_value
 from app.services.excel_export import export_student_card
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -209,8 +209,8 @@ async def preview_student_export(
             grouped.setdefault(name, []).append(row)
     groups = sorted(grouped.items(), key=lambda item: (item[0].startswith("Без "), item[0].casefold()))
     return {"count": len(rows), "columns": [COLUMNS[key] for key in selected_columns],
-            "rows": [{COLUMNS[key]: row[key] for key in selected_columns} for row in rows[:6]],
-            "groups": [{"name": name, "count": len(group_rows), "rows": [{COLUMNS[key]: row[key] for key in selected_columns} for row in group_rows[:6]]} for name, group_rows in groups]}
+            "rows": [{COLUMNS[key]: display_export_value(key, row) for key in selected_columns} for row in rows[:6]],
+            "groups": [{"name": name, "count": len(group_rows), "rows": [{COLUMNS[key]: display_export_value(key, row) for key in selected_columns} for row in group_rows[:6]]} for name, group_rows in groups]}
 
 
 @router.get("/students/{student_id}")

@@ -84,6 +84,12 @@ export interface StudentListItem {
   intake_year: number
   city?: string
   pipeline_status?: PipelineStatus
+  crm_status?: string | null
+  notion_status?: string | null
+  notion_status_raw?: string | null
+  status_source?: string
+  status_sync_state?: string
+  notion_linked?: boolean
   days_in_work?: number
   risk_category?: 'suspended' | 'paused' | 'renewal' | null
   is_mine?: boolean
@@ -95,6 +101,8 @@ export interface StudentListItem {
     flag_url?: string
   }>
   mentors?: string[]
+  notion_people_keys?: string[]
+  notion_responsible_ids?: string[]
   mzk_manager_name?: string | null
   responsible_count?: number
   responsibles?: ResponsibleUser[]
@@ -243,6 +251,9 @@ export interface BoardStudent {
   /** Поля фильтров доски: она приходит целиком и отбирается на клиенте. */
   intake_year?: number | null
   degree_level?: string | null
+  countries?: string[]
+  notion_status_raw?: string | null
+  status_sync_state?: string
   country?: string | null
   /** Назначение, которое меняет перетаскивание. null — студент ещё ничей. */
   assignment_id: string | null
@@ -1008,6 +1019,7 @@ export interface ClientBalance {
 }
 
 export interface PaginatedResponse<T> {
+  total_all?: number
   items: T[]
   total: number
   page: number

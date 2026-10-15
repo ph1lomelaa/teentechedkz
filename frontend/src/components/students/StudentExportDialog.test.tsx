@@ -33,7 +33,7 @@ describe('StudentExportDialog', () => {
   it('uses selected rows, previews the count, and copies TSV through the read-only export endpoint', async () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } })
     renderDialog()
-    expect(await screen.findByText(/1 строка · 8 столбцов/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 строка · 10 столбцов/)).toBeInTheDocument()
     expect(screen.getByText('Алия')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Скопировать' }))
     fireEvent.click(screen.getByRole('button', { name: /Скопировать 1 строк/ }))

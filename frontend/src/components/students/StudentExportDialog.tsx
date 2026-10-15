@@ -13,12 +13,13 @@ import { notionApi } from '@/api/notion'
 import { DEGREE_LEVEL_LABELS, PIPELINE_STATUS_LABELS } from '@/types'
 
 const FIELD_GROUPS = [
-  { title: 'Студент', keys: ['full_name', 'phone', 'email', 'city', 'degree_level'] },
-  { title: 'Процесс', keys: ['intake_year', 'notion_status', 'crm_status', 'status_match', 'countries', 'programs'] },
-  { title: 'Команда', keys: ['lead_mentor', 'mzk', 'mentors'] },
+  { title: 'Студент', keys: ['full_name', 'phone', 'email', 'city', 'degree_level', 'student_id', 'student_url'] },
+  { title: 'Процесс', keys: ['intake_year', 'effective_status', 'notion_status', 'crm_status', 'status_match', 'status_review', 'countries', 'programs'] },
+  { title: 'Команда', keys: ['lead_mentor', 'mzk', 'mentors', 'notion_mentors', 'notion_mzk'] },
   { title: 'Документы и доступ', keys: ['portal_access', 'active_chat', 'notion_link', 'notion_url'] },
 ] as const
 const LABELS: Record<string, string> = {
+  student_id: 'ID ученика', student_url: 'Карточка платформы', effective_status: 'Текущий статус', status_review: 'Сверка статуса', notion_mentors: 'Имена менторов Notion', notion_mzk: 'Имя МЗК Notion',
   full_name: 'Студент', phone: 'Телефон', email: 'Email', city: 'Город', degree_level: 'Уровень',
   intake_year: 'Год набора', notion_status: 'Статус Notion', crm_status: 'Статус CRM',
   status_match: 'Статусы совпадают', countries: 'Страны', programs: 'Программы', lead_mentor: 'Lead-Mentor',
@@ -33,7 +34,7 @@ const PRESETS: Record<string, string[]> = {
   'Сверка с Notion': ['full_name', 'notion_link', 'notion_status', 'crm_status', 'status_match', 'notion_url'],
   'Все поля': [...FIELD_ORDER],
 }
-const DEFAULT_COLUMNS = ['full_name', 'phone', 'notion_status', 'crm_status', 'portal_access', 'active_chat', 'mzk', 'mentors']
+const DEFAULT_COLUMNS = ['full_name', 'intake_year', 'effective_status', 'notion_status', 'crm_status', 'status_review', 'mzk', 'mentors', 'notion_mentors', 'student_url']
 type Source = 'current' | 'selected' | 'all'
 type ThreeWay = 'any' | 'yes' | 'no'
 type ExportFormat = 'xlsx' | 'csv' | 'tsv'

@@ -1,3 +1,4 @@
+import { MultiFilter, csvValues } from '@/components/shared/MultiFilter'
 import React, { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -51,7 +52,7 @@ const DEFAULT_ROLE = 'mzk'
  * уже не работают (передумали, возврат, подвешено), и настоящих
  * нераспределённых в ней было не найти. Остальные статусы — через фильтр.
  */
-export const DEFAULT_BOARD_STATUSES: readonly string[] = ['active_work']
+export const DEFAULT_BOARD_STATUSES: readonly string[] = []
 
 /**
  * Статусы из URL. Параметра нет — значение по умолчанию; пустой параметр —
@@ -90,7 +91,7 @@ export const StudentsDistributionPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const view = 'list'
-  const [listScope, setListScope] = useState<'unassigned' | 'all'>('unassigned')
+  const [listScope, setListScope] = useState<'unassigned' | 'all'>('all')
   const [staffFilter, setStaffFilter] = useState<string | null>(null)
   const [groupBy, setGroupBy] = useState<'year' | 'country' | 'status'>('year')
   const [expandedGroups, setExpandedGroups] = useState<Set<string> | null>(null)
@@ -115,7 +116,7 @@ export const StudentsDistributionPage: React.FC = () => {
     setSelected(new Set())
     setPendingBulk(null)
     setStaffFilter(null)
-    setListScope('unassigned')
+    setListScope('all')
     setExpandedGroups(null)
     setGroupLimits({})
     const params = new URLSearchParams(searchParams)
@@ -187,6 +188,10 @@ export const StudentsDistributionPage: React.FC = () => {
   const resetFilters = () => {
     const params = new URLSearchParams(searchParams)
     params.delete('status')
+    setSearch('')
+    setStaffFilter(null)
+    setListScope('all')
+    setGroupLimits({})
     for (const key of ['year', 'degree', 'country', 'lead_mentor_id']) params.delete(key)
     setSearchParams(params, { replace: true })
     setSelected(new Set())
@@ -331,14 +336,14 @@ export const StudentsDistributionPage: React.FC = () => {
   const baseRows = useMemo(() => data ? uniqueBoardRows(data, filters, search) : [], [data, filters, search])
   const filteredRows = useMemo(() => baseRows.filter((row) => !leadMentorId || leadMentorStudentIds.has(row.student.id)), [baseRows, leadMentorId, leadMentorStudentIds])
   const listRows = useMemo(() => filteredRows.filter((row) => {
-    if (staffFilter) return row.assignments.some((assignment) => assignment.staffId === staffFilter)
+    if (staffFilter) return row.assignments.some(assignment => csvValues(staffFilter).includes(assignment.staffId))
     return listScope === 'all' || row.assignments.length === 0
   }), [filteredRows, listScope, staffFilter])
   const groups = useMemo(() => groupDistributionRows(listRows, groupBy), [listRows, groupBy])
   const openGroups = useMemo(() => {
     if (expandedGroups !== null) return expandedGroups
     if (search.trim() || staffFilter) return new Set(groups.map((group) => group.key))
-    return new Set(groups.length ? [groups[0].key] : [])
+    return new Set(groups.map(group => group.key))
   }, [expandedGroups, groups, search, staffFilter])
   const selectedVisible = listRows.filter((row) => row.assignments.length === 0 && selected.has(row.student.id)).map((row) => row.student.id)
   const summary = { students: filteredRows.length, unassigned: filteredRows.filter((row) => row.assignments.length === 0).length }
@@ -419,29 +424,15 @@ export const StudentsDistributionPage: React.FC = () => {
           />
         </div>
         {view === 'list' && <>
-          <Select value={staffFilter ?? 'all'} onValueChange={(value) => chooseScope('all', value === 'all' ? null : value)}>
-            <SelectTrigger className="h-9 w-[190px] bg-p-panel"><SelectValue placeholder="Ответственный" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{roleLabel}: все</SelectItem>
-              {data?.columns.map((column) => <SelectItem key={column.staff_id} value={column.staff_id}>{column.name} · ведёт {staffCounts.get(column.staff_id) ?? 0}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <MultiFilter label="Ответственный" value={csvValues(staffFilter ?? '')} onChange={values => chooseScope('all', values.join(',') || null)} options={(data?.columns ?? []).map(column => ({ value: column.staff_id, label: column.name, count: staffCounts.get(column.staff_id) ?? 0 }))} />
           {!staffFilter && <button type="button" onClick={() => chooseScope(listScope === 'unassigned' ? 'all' : 'unassigned')} className={`min-h-9 rounded-ctl border px-3 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-p-accent ${listScope === 'unassigned' ? 'border-p-accent-dim bg-p-chip text-p-chip-text' : 'border-dashed border-p-line bg-p-panel text-p-muted'}`}>
             {listScope === 'unassigned' ? `Только без «${roleLabel}» ×` : `Только без «${roleLabel}»`}
           </button>}
         </>}
-        <Select value={years.size === 1 ? [...years][0] : 'all'} onValueChange={(v) => setParam('year', v === 'all' ? new Set() : new Set([v]))}>
-          <SelectTrigger aria-label="Набор" className="h-9 w-auto min-w-24 bg-p-panel text-xs"><SelectValue placeholder="Набор" /></SelectTrigger><SelectContent><SelectItem value="all">Набор</SelectItem>{(facets?.years ?? []).map((opt) => <SelectItem key={opt.value} value={opt.value}>{opt.value} · {opt.count}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={leadMentorId || 'all'} onValueChange={(v) => { const params = new URLSearchParams(searchParams); v === 'all' ? params.delete('lead_mentor_id') : params.set('lead_mentor_id', v); setSearchParams(params, { replace: true }); setSelected(new Set()); setExpandedGroups(null) }}>
-          <SelectTrigger aria-label="Lead-Mentor" className="h-9 w-auto min-w-32 bg-p-panel text-xs"><SelectValue placeholder="Lead-Mentor" /></SelectTrigger><SelectContent><SelectItem value="all">Lead-Mentor</SelectItem>{leadMentorUsers.map((user) => <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={degrees.size === 1 ? [...degrees][0] : 'all'} onValueChange={(v) => setParam('degree', v === 'all' ? new Set() : new Set([v]))}>
-          <SelectTrigger aria-label="Ступень" className="h-9 w-auto min-w-24 bg-p-panel text-xs"><SelectValue placeholder="Ступень" /></SelectTrigger><SelectContent><SelectItem value="all">Ступень</SelectItem>{(facets?.degrees ?? []).map((opt) => <SelectItem key={opt.value} value={opt.value}>{DEGREE_LEVEL_LABELS[opt.value as keyof typeof DEGREE_LEVEL_LABELS] ?? opt.value}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={countries.size === 1 ? [...countries][0] : 'all'} onValueChange={(v) => setParam('country', v === 'all' ? new Set() : new Set([v]))}>
-          <SelectTrigger aria-label="Страна" className="h-9 w-auto min-w-24 bg-p-panel text-xs"><SelectValue placeholder="Страна" /></SelectTrigger><SelectContent><SelectItem value="all">Страна</SelectItem>{(facets?.countries ?? []).map((opt) => <SelectItem key={opt.value} value={opt.value}>{opt.value}</SelectItem>)}</SelectContent>
-        </Select>
+        <MultiFilter label="Набор" value={[...years]} onChange={values => setParam('year', new Set(values))} options={(facets?.years ?? []).map(item => ({ ...item, label: item.value }))} />
+        <MultiFilter label="Ступень" value={[...degrees]} onChange={values => setParam('degree', new Set(values))} options={(facets?.degrees ?? []).map(item => ({ ...item, label: DEGREE_LEVEL_LABELS[item.value as keyof typeof DEGREE_LEVEL_LABELS] ?? item.value }))} />
+        <MultiFilter label="Страна" value={[...countries]} onChange={values => setParam('country', new Set(values))} options={(facets?.countries ?? []).map(item => ({ ...item, label: item.value }))} />
+        <MultiFilter label="Статус" value={[...statuses]} onChange={values => setStatuses(new Set(values))} options={PIPELINE_COLUMNS.map(value => ({ value, label: PIPELINE_STATUS_LABELS[value] }))} />
           <FilterPopover activeCount={isDefaultStatuses ? 0 : 1} onReset={() => setStatuses(new Set(DEFAULT_BOARD_STATUSES))} buttonLabel="+ Фильтр">
             <FilterField label="Статус">
               <div className="space-y-1.5">
@@ -473,7 +464,7 @@ export const StudentsDistributionPage: React.FC = () => {
           {([['year', 'Набор'], ['country', 'Страна'], ['status', 'Статус']] as const).map(([value, label]) => <button type="button" key={value} onClick={() => { setGroupBy(value); setExpandedGroups(null); setGroupLimits({}); setSelected(new Set()); setPendingBulk(null) }} className={`min-h-9 rounded-ctl px-3 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-p-accent ${groupBy === value ? 'bg-p-panel text-p-text shadow-sm' : 'text-p-muted'}`}>{label}</button>)}
         </div>}
       </div>
-      {filterChips.length > 0 && <div className="mb-4"><FilterChips chips={filterChips} onResetAll={resetFilters} /></div>}
+      {(filterChips.length > 0 || staffFilter || search || listScope !== 'all') && <div className="mb-4"><FilterChips chips={[...filterChips, ...(staffFilter ? [{ key: 'staff', label: `Ответственные: ${csvValues(staffFilter).map(id => data?.columns.find(column => column.staff_id === id)?.name ?? id).join(', ')}`, onRemove: () => chooseScope('all') }] : []), ...(search ? [{ key: 'search', label: `Поиск: ${search}`, onRemove: () => setSearch('') }] : []), ...(listScope !== 'all' ? [{ key: 'scope', label: `Без «${roleLabel}»`, onRemove: () => chooseScope('all') }] : [])]} onResetAll={resetFilters} /></div>}
 
       <QueryState
         colorPrefix="p"

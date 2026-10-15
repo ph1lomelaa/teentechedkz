@@ -595,6 +595,7 @@ export const StudentCardPage: React.FC = () => {
   const [editService, setEditService] = useState<Service | null>(null)
   const [revealedIins, setRevealedIins] = useState<Record<string, string>>({})
   const [revealConfirm, setRevealConfirm] = useState<string | null>(null)
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [newTaskText, setNewTaskText] = useState('')
   const [newTaskAssigneeId, setNewTaskAssigneeId] = useState('')
   const [newTaskExpectedResult, setNewTaskExpectedResult] = useState('')
@@ -806,6 +807,7 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: (task: { id: string; due_date: string | null }) =>
       tasksApi.update(task.id, { due_date: task.due_date }),
     onSuccess: () => invalidateStudent(queryClient, id),
+    onError: error => toast({ title: 'Срок не сохранён', description: getErrorMessage(error), variant: 'destructive' }),
   })
 
   const addTaskMutation = useMutation({
@@ -817,10 +819,12 @@ export const StudentCardPage: React.FC = () => {
         acceptance_criteria: newTaskAcceptanceCriteria.trim() || undefined,
         required_documents: newTaskRequiredDocuments.split('\n').map((item) => item.trim()).filter(Boolean),
         priority: newTaskPriority,
+        ...(newTaskDueDate ? { due_date: newTaskDueDate } : {}),
         ...(newTaskAssigneeId ? { assignee_id: newTaskAssigneeId } : {}),
       }),
     onSuccess: () => {
       invalidateStudent(queryClient, id)
+      setNewTaskDueDate('')
       setNewTaskText('')
       setNewTaskAssigneeId('')
       setNewTaskExpectedResult('')
@@ -829,6 +833,7 @@ export const StudentCardPage: React.FC = () => {
       setNewTaskPriority('normal')
       setAddingTask(false)
     },
+    onError: error => toast({ title: 'Задача не создана', description: getErrorMessage(error), variant: 'destructive' }),
   })
 
   const addNoteMutation = useMutation({
@@ -2170,9 +2175,10 @@ export const StudentCardPage: React.FC = () => {
                         </p>
                         <UrgencyBadge dueDate={task.due_date} status={task.status} />
                       </div>
-                      {can('tasks_deadlines', 'manage') && task.status === 'open' && (
+                      {can('tasks_deadlines', 'manage') && ['open', 'in_progress', 'overdue'].includes(task.status) && (
                         <Input
                           type="date"
+                          aria-label={`Срок задачи: ${task.task_text}`}
                           value={task.due_date || ''}
                           onChange={(e) => setTaskDueDateMutation.mutate({ id: task.id, due_date: e.target.value || null })}
                           className="mt-1.5 h-7 w-40 text-xs"
@@ -2223,6 +2229,7 @@ export const StudentCardPage: React.FC = () => {
                       <option value="urgent">Срочная задача</option>
                     </select>
                   </div>
+                  {can('tasks_deadlines', 'manage') && <label className="grid gap-1 text-xs text-p-muted">Дедлайн задачи<Input aria-label="Дедлайн задачи" type="date" value={newTaskDueDate} onChange={event => setNewTaskDueDate(event.target.value)} className="w-44" /><span>Календарная дата. SLA поручения исполнителю учитывается отдельно.</span></label>}
                   <Textarea
                     placeholder="Критерии приемки результата..."
                     value={newTaskAcceptanceCriteria}

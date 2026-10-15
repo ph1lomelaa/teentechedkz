@@ -24,7 +24,7 @@ vi.mock('@/api/students', () => ({
       return Promise.resolve({ items: [], total: 0 })
     },
     getAll: () => Promise.resolve([]),
-    facets: () => Promise.resolve({ statuses: [], years: [], degrees: [], countries: [] }),
+    facets: () => Promise.resolve({ statuses: [], years: [{ value: '2026', count: 2 }, { value: '2027', count: 1 }], degrees: [], countries: [] }),
   },
 }))
 vi.mock('@/api/index', () => ({
@@ -38,7 +38,7 @@ vi.mock('@/api/sync', () => ({
   },
 }))
 vi.mock('@/api/notion', () => ({
-  notionApi: { snapshots: () => Promise.resolve([]), status: () => Promise.resolve({}) },
+  notionApi: { snapshots: () => Promise.resolve([]), status: () => Promise.resolve({}), pipelineReport: () => Promise.resolve({ rows: [] }) },
 }))
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ can: () => false, hasRole: () => false, user: { id: 'u1', role: 'mzk_manager' } }),
@@ -47,18 +47,18 @@ vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
 
 const { StudentsListPage } = await import('./StudentsListPage')
 
-function renderPage() {
+function renderPage(entry = '/students') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/students']}>
+      <MemoryRouter initialEntries={[entry]}>
         <StudentsListPage />
       </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
-const KEY = 'teenteched_portal:students:list:'
+const KEY = 'teenteched_portal:students:view-v2:u1:'
 
 describe('фильтры общей базы переживают возврат', () => {
   beforeEach(() => {
@@ -88,8 +88,8 @@ describe('фильтры общей базы переживают возврат
 
     await waitFor(() => expect(listCalls).toHaveBeenCalled())
     expect(listCalls.mock.calls.at(-1)?.[0]).toMatchObject({
-      degree_level: 'bachelor',
-      intake_year: 2026,
+      degrees: 'bachelor',
+      intake_years: '2026',
     })
   })
 
@@ -145,4 +145,28 @@ describe('фильтры общей базы переживают возврат
       expect(localStorage.getItem(`${KEY}status`)).toBe(JSON.stringify(['on_visa']))
     })
   })
+})
+
+
+describe('полный сброс и множественный выбор', () => {
+ beforeEach(() => { localStorage.clear(); listCalls.mockClear() })
+ it('сброс одновременно удаляет scope и ссылку на сотрудника доски', async () => {
+  renderPage('/students?scope=mine&mentor_id=m1&assignment_role=lead')
+  fireEvent.click(await screen.findByText('Сбросить всё'))
+  await waitFor(() => expect(listCalls.mock.lastCall?.[0]).toMatchObject({ scope: 'all', responsible_ids: undefined, assignment_roles: undefined }))
+ })
+ it('сброс возвращает из сохранённой вкладки Мои', async () => {
+  localStorage.setItem(`${KEY}baseView`, JSON.stringify('mine'))
+  renderPage()
+  fireEvent.click(await screen.findByText('Сбросить всё'))
+  await waitFor(() => expect(localStorage.getItem(`${KEY}baseView`)).toBe('"all"'))
+ })
+ it('два набора передаются одним OR-условием и меню остаётся открытым', async () => {
+  renderPage()
+  fireEvent.click(await screen.findByLabelText('Набор'))
+  fireEvent.click(await screen.findByLabelText('Набор: 2026'))
+  fireEvent.click(screen.getByLabelText('Набор: 2027'))
+  expect(screen.getByRole('dialog', { name: 'Фильтр: Набор' })).toBeInTheDocument()
+  await waitFor(() => expect(listCalls.mock.lastCall?.[0]).toMatchObject({ intake_years: '2026,2027' }))
+ })
 })

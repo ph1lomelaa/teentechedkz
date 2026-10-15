@@ -8,6 +8,13 @@ import {
 } from '../types'
 
 export interface StudentsQueryParams {
+  intake_years?: string
+  degrees?: string
+  countries?: string
+  responsible_ids?: string
+  responsible_names?: string
+  assignment_roles?: string
+  service_types?: string
   search?: string
   /** Legacy single-value filter; kept for links/clients deployed earlier. */
   pipeline_status?: PipelineStatus
@@ -44,6 +51,7 @@ export interface PeopleFacetOption {
   key: string
   label: string
   count: number
+  user_id?: string | null
 }
 
 export interface PeopleFacets {
