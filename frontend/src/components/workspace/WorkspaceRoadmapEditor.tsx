@@ -56,8 +56,9 @@ function taskCounts(roadmap: Roadmap) {
 export const WorkspaceRoadmapEditor: React.FC<{
   roadmap: Roadmap
   canManage?: boolean
+  studentCard?: boolean
   onChanged: (updated: Roadmap) => void
-}> = ({ roadmap, canManage = true, onChanged }) => {
+}> = ({ roadmap, canManage = true, onChanged, studentCard = false }) => {
   const { theme } = useTheme()
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
   const queryClient = useQueryClient()
@@ -418,7 +419,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       />
     )}
     <Dialog open={Boolean(uncheckTask)} onOpenChange={(o) => !o && setUncheckTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Снять отметку о выполнении</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -444,7 +445,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(returnTask)} onOpenChange={(o) => !o && setReturnTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Вернуть задачу студенту</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -474,7 +475,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая задача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -520,7 +521,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(editTask)} onOpenChange={(o) => !o && setEditTask(null)}>
-      <DialogContent data-theme={theme} className="portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
+      <DialogContent data-theme={theme} className={cn('portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Изменить задачу</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -577,7 +578,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     {/* Подзадача и удаление — свои диалоги вместо window.prompt/confirm:
         системные окна игнорируют тему платформы и выпадают из вёрстки. */}
     <Dialog open={Boolean(subtaskParent)} onOpenChange={(o) => !o && setSubtaskParent(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая подзадача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -626,7 +627,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(deleteTask)} onOpenChange={(o) => !o && setDeleteTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Удалить задачу?</DialogTitle>
           <DialogDescription className="text-w-muted">

@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, Trash2, PlayCircle, FileText, CheckCircle2, Mic, Sparkles, MessageSquareText } from 'lucide-react'
 import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/primitives/accordion'
+} from '@/components/students/detail/StudentDetailSections'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { Badge } from '@/components/ui/primitives/badge'
@@ -49,6 +49,9 @@ function fmt(iso: string) {
 export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studentId }) => {
   const { toast } = useToast()
   const navigate = useNavigate()
+  const inWorkspace = useLocation().pathname.startsWith('/workspace/')
+  const sessionPath = inWorkspace ? '/workspace/meetings/session' : '/notes/session'
+  const notePath = inWorkspace ? '/workspace/meetings/notes' : '/notes'
   const queryClient = useQueryClient()
   const key = ['student-meetings', studentId]
 
@@ -120,7 +123,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
     }),
     onSuccess: (session) => {
       invalidate()
-      navigate(`/notes/session/${session.id}`)
+      navigate(`${sessionPath}/${session.id}`)
     },
     onError: () => toast({ title: 'Не удалось создать конспект', variant: 'destructive' }),
   })
@@ -145,7 +148,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
     onSuccess: (note) => {
       invalidate()
       toast({ title: 'AI-разбор создан', description: 'Откроется черновик конспекта на проверку.' })
-      navigate(`/notes/${note.id}`)
+      navigate(`${notePath}/${note.id}`)
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
@@ -332,7 +335,7 @@ export const StudentMeetingsSection: React.FC<{ studentId: string }> = ({ studen
                   </Button>
                   {m.note_session_id ? (
                     <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                      <Link to={`/notes/session/${m.note_session_id}`}>
+                      <Link to={`${sessionPath}/${m.note_session_id}`}>
                         <Mic className="w-3 h-3 mr-1.5" /> Конспект ✓
                       </Link>
                     </Button>

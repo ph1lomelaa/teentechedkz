@@ -16,7 +16,12 @@ import {
   UserRoundCheck,
   Link2Off,
   ListChecks,
+  MoreHorizontal,
+  Phone,
+  ArrowUpRight,
+  CalendarDays,
 } from 'lucide-react'
+import { meetingsApi } from '@/api/meetings'
 import { documentsApi } from '@/api/documents'
 import { emergencyContactsApi } from '@/api/emergencyContacts'
 import { ShortlistSection } from '@/components/portal/ShortlistSection'
@@ -87,11 +92,10 @@ const SERVICE_ROLE_REQUIREMENTS: Record<string, string[]> = {
   english_general: ['english'],
 }
 import {
-  Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from '@/components/ui/primitives/accordion'
+} from '@/components/students/detail/StudentDetailSections'
 import {
   Dialog,
   DialogContent,
@@ -117,7 +121,8 @@ import {
 } from '@/components/ui/primitives/table'
 import { downloadBlob, formatDate, formatCurrency, formatFileSize } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
+import { StudentDetailSections } from '@/components/students/detail/StudentDetailSections'
+import { StudentPipelineStatusBadge } from '@/components/students/StudentPipelineStatusBadge'
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -297,7 +302,7 @@ function EditStudentModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="student-detail-dialog max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Редактировать студента</DialogTitle>
         </DialogHeader>
@@ -462,7 +467,7 @@ function ServiceEditModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="student-detail-dialog max-w-md">
         <DialogHeader>
           <DialogTitle>
             {SERVICE_TYPE_LABELS[service.service_type]}
@@ -565,10 +570,13 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
 }
 
 export const StudentCardPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+  const params = useParams<{ id: string; studentId: string }>()
+  const id = params.id ?? params.studentId
+  const inWorkspace = !!params.studentId
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
+  const enteredDirectly = React.useRef(location.key === 'default')
 
   /**
    * «Назад» возвращает туда, откуда пришли, — со всеми фильтрами списка, его
@@ -583,7 +591,7 @@ export const StudentCardPage: React.FC = () => {
    * назад увёл бы из приложения, и остаётся общая база.
    */
   const goBack = () => {
-    if (location.key === 'default') navigate('/students')
+    if (enteredDirectly.current) navigate(inWorkspace ? '/workspace/students' : '/students')
     else navigate(-1)
   }
   const { can, hasRole } = useAuth()
@@ -624,15 +632,22 @@ export const StudentCardPage: React.FC = () => {
     enabled: !!id,
   })
 
+  const { data: meetings = [] } = useQuery({
+    queryKey: ['student-meetings', id],
+    queryFn: () => meetingsApi.studentMeetings(id!),
+    enabled: !!id && can('meetings', 'manage'),
+  })
+
   const { data: mentors = [] } = useQuery({
     queryKey: ['users', 'mentor'],
     queryFn: () => usersApi.list({ role: 'mentor' }),
+    enabled: can('users', 'view'),
   })
 
   const { data: eligibleAssignees = [] } = useQuery({
     queryKey: ['services', 'eligible-assignees', id],
     queryFn: () => servicesApi.eligibleAssignees(id!),
-    enabled: !!id,
+    enabled: !!id && can('services', 'manage'),
   })
 
   const { data: mzkManagers = [] } = useQuery({
@@ -971,6 +986,7 @@ export const StudentCardPage: React.FC = () => {
     )
   }
 
+  const nextMeeting = meetings.filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now()).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
   const openTasks = (student.student_tasks || [])
@@ -1042,7 +1058,7 @@ export const StudentCardPage: React.FC = () => {
   const timeline = timelineData?.items?.length ? timelineData.items : fallbackTimeline
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="student-detail-card">
       {/* Header */}
       <div className="mb-6 border-b border-p-line pb-6">
         <button
@@ -1055,23 +1071,44 @@ export const StudentCardPage: React.FC = () => {
         </button>
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
-            <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-brand">Карточка студента</div>
+            <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Карточка студента</div>
             <h1 className="text-balance break-words font-display text-3xl font-black leading-tight tracking-[-0.01em] text-p-text md:text-4xl">{student.full_name}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="student-detail-meta mt-2 flex flex-wrap items-center gap-2">
               {student.is_archived && (
                 <span className="text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide bg-p-panel text-p-muted border border-p-line">
                   Архивирован
                 </span>
               )}
-              <span className={`text-2xs px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
+              <span className={`student-detail-badge ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                 {DEGREE_LEVEL_LABELS[student.degree_level]}
               </span>
               {student.pipeline_status && (
-                <PipelineStatusTag status={student.pipeline_status} />
+                <StudentPipelineStatusBadge className="student-detail-badge" status={student.pipeline_status} />
               )}
+              {student.intake_year && <span className="text-sm text-p-muted">Intake {student.intake_year}</span>}
+              {student.country && <span className="text-sm text-p-muted">{student.country}</span>}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-p-muted">
+              {student.phone && <a className="inline-flex items-center gap-1.5 hover:text-p-text" href={`tel:${student.phone}`}><Phone className="h-3.5 w-3.5" />{student.phone}</a>}
+              <button className="inline-flex items-center gap-1 hover:text-p-text" onClick={() => navigate({ ...location, hash: 'profile' }, { replace: true })}>Профиль и контакты<ArrowUpRight className="h-3.5 w-3.5" /></button>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="h-10 px-4">
+              <Link to={`${inWorkspace ? '/workspace/notes' : '/notes'}?student_id=${student.id}&create=1`}>
+                <BookText className="w-4 h-4 mr-2" />
+                Конспекты
+              </Link>
+            </Button>
+            {can('tasks', 'manage') && (
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => setCreatingTask(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Поставить задачу
+              </Button>
+            )}
+            <details className="relative">
+              <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-ctl border border-p-line bg-p-panel px-4 text-sm font-semibold text-p-text"><MoreHorizontal className="h-4 w-4" />Ещё</summary>
+              <div className="absolute right-0 z-30 mt-2 flex w-64 flex-col gap-2 rounded-panel border border-p-line bg-p-panel p-3 shadow-xl [&>button]:justify-start [&>a]:justify-start">
             <Button
               variant={student.is_mine ? 'outline' : 'default'}
               size="sm"
@@ -1089,29 +1126,19 @@ export const StudentCardPage: React.FC = () => {
               Экспорт
             </Button>
             <Button asChild variant="outline" size="sm" className="h-10 px-4">
-              <Link to={`/notes?student_id=${student.id}&create=1`}>
-                <BookText className="w-4 h-4 mr-2" />
-                Конспекты
+              <Link to={inWorkspace ? `/students/${student.id}${location.search}${location.hash}` : `/workspace/students/${student.id}${location.search}${location.hash}`}>
+                <UserRoundCheck className="w-4 h-4 mr-2" />
+                {inWorkspace ? 'Открыть в общей базе' : 'Открыть в кабинете'}
               </Link>
             </Button>
             {can('confidential_notes', 'manage') && (
-              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => document.getElementById('student-notes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => navigate({ ...location, hash: 'confidential' }, { replace: true })}>
                 <Shield className="w-4 h-4 mr-2" />
                 Заметки
               </Button>
             )}
-            {can('tasks', 'manage') && (
-              <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => setCreatingTask(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Поставить задачу
-              </Button>
-            )}
-            <Button asChild variant="outline" size="sm" className="h-10 px-4">
-              <Link to={`/workspace/students/${student.id}`}>
-                <UserRoundCheck className="w-4 h-4 mr-2" />
-                Кабинет staff
-              </Link>
-            </Button>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -1122,6 +1149,7 @@ export const StudentCardPage: React.FC = () => {
           defaultStudent={{ id: student.id, name: student.full_name }}
           onClose={() => setCreatingTask(false)}
           onCreated={() => {
+            invalidateStudent(queryClient, id)
             taskQueryClient.invalidateQueries({ queryKey: ['workspace', 'delegated-tasks'] })
             taskQueryClient.invalidateQueries({ queryKey: ['tasks'] })
             setCreatingTask(false)
@@ -1129,13 +1157,13 @@ export const StudentCardPage: React.FC = () => {
         />
       )}
 
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 md:grid-cols-4">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {(student.alerts ?? []).map((a, i) => {
           const tone = a.level === 'danger'
-            ? 'border-red-300 text-red-700 dark:border-red-900/60 dark:text-red-300'
+            ? 'text-red-700 dark:text-red-300'
             : a.level === 'warning'
-              ? 'border-amber-300 text-amber-700 dark:border-amber-900/60 dark:text-amber-300'
-              : 'border-sky-300 text-sky-700 dark:border-sky-900/60 dark:text-sky-300'
+              ? 'text-amber-700 dark:text-amber-300'
+              : 'text-sky-700 dark:text-sky-300'
           const label = a.kind === 'mentor_unpaid' ? 'Выплата ментору' : 'Оплата клиента'
           const sub = a.kind === 'payment_overdue'
             ? `просрочка ${Math.abs(a.days ?? 0)} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
@@ -1143,19 +1171,19 @@ export const StudentCardPage: React.FC = () => {
               ? `через ${a.days ?? 0} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
               : 'осталось выплатить'
           return (
-            <div key={`${a.kind}-${i}`} className={`rounded-panel border bg-p-bg px-3 py-2 ${tone}`}>
-              <p className="text-2xs uppercase tracking-[0.18em] opacity-80">{label}</p>
-              <p className="mt-1 text-sm font-bold">
+            <div key={`${a.kind}-${i}`} className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
+              <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">{label}</p>
+              <p className={`mt-1 text-sm font-semibold ${tone}`}>
                 {a.amount != null ? `${new Intl.NumberFormat('ru-RU').format(Math.round(a.amount))} ${a.currency}` : '—'}
               </p>
-              <p className="text-2xs opacity-70">{sub}</p>
+              <p className={`text-2xs ${tone}`}>{sub}</p>
             </div>
           )
         })}
-        <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
+        <div className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
+          <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
           <p className="mt-1 text-sm font-semibold text-p-text">
-            {openTasks[0]?.task_text || (student.is_mine ? 'Незакрытых задач нет' : 'Назначьте ответственного')}
+            {openTasks[0]?.task_text || 'Открытых задач нет'}
           </p>
           {openTasks[0] && (
             <div className="mt-1 flex items-center gap-2">
@@ -1166,15 +1194,20 @@ export const StudentCardPage: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="rounded-panel border border-p-line bg-p-bg px-3 py-2">
-          <p className="text-2xs uppercase tracking-[0.18em] text-p-muted2">Риски данных</p>
+        {nextMeeting && <button type="button" onClick={() => navigate({ ...location, hash: 'meetings' }, { replace: true })} className="rounded-panel border border-p-line bg-p-panel px-4 py-3 text-left">
+          <span className="flex items-center gap-2 text-xs text-p-muted"><CalendarDays className="h-3.5 w-3.5" />Ближайшая встреча</span>
+          <span className="mt-1 block text-sm font-semibold text-p-text">{nextMeeting.title}</span>
+          <span className="mt-1 block text-xs text-p-muted">{new Date(nextMeeting.starts_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+        </button>}
+        {hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0 && <div className="rounded-panel border border-p-line bg-p-panel px-4 py-3">
+          <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">Требует сверки</p>
           {intakeMismatchCount + notionMismatchCount > 0 ? (
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-amber-700">
               <span>{intakeMismatchCount + notionMismatchCount} расхожд.</span>
               {notionMismatchCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => document.getElementById('notion-sync')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() => navigate({ ...location, hash: 'notion' }, { replace: true })}
                   className="inline-flex items-center gap-1 rounded-pill border border-amber-200 bg-amber-50 px-2 py-0.5 text-2xs font-medium text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
                   title="Перейти к сверке с Notion"
                 >
@@ -1185,10 +1218,28 @@ export const StudentCardPage: React.FC = () => {
           ) : (
             <p className="mt-1 text-sm font-semibold text-emerald-700">Расхождений нет</p>
           )}
-        </div>
+        </div>}
       </div>
 
-      <Accordion type="multiple" defaultValue={['credentials', 'profile', 'shortlist', 'applications', 'services', 'tasks']} className="space-y-2">
+      <StudentDetailSections key={id} available={[
+        ...(can('roadmaps', 'view') || can('roadmaps', 'edit') ? ['roadmap'] : []),
+        ...(can('meetings', 'manage') ? ['meetings'] : []),
+        ...(can('applications', 'view') ? ['applications'] : []),
+        ...(can('student_universities', 'manage') ? ['shortlist'] : []),
+        ...(can('credentials', 'view') ? ['credentials'] : []),
+        ...(can('portfolio', 'manage') ? ['portfolio'] : []),
+        ...(can('tasks', 'view') ? ['tasks'] : []),
+        ...(can('notes', 'manage') ? ['notes'] : []),
+        ...(can('documents', 'view') ? ['documents'] : []),
+        'profile', 'team',
+        ...(can('confidential_notes', 'manage') ? ['confidential'] : []),
+        ...(can('chat', 'manage') ? ['chat'] : []),
+        ...(can('telegram_chats', 'view') ? ['telegram'] : []),
+        ...(contract && (can('contracts', 'view') || can('finances', 'view')) ? ['payments'] : []),
+        ...(can('sync', 'manage') || can('notion', 'manage') ? ['checks'] : []),
+        ...(can('student_access', 'manage') ? ['portal-access'] : []),
+        ...(can('students', 'view') ? ['timeline'] : []),
+      ]}>
         {/* Команда: МЗК и менторы по специализациям (IELTS, виза, профориентация).
             Кто чем занимается ПО ПРЕДМЕТУ. Участки работы — в блоке ниже. */}
         {/* Регламент admission: без доступов к порталу оффер не отметить. */}
@@ -1474,10 +1525,15 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
+        {can('sync', 'manage') && !intake?.package && !intake?.cases && !notion?.snapshot && (
+          <AccordionItem value="intake"><AccordionTrigger>Сверки</AccordionTrigger><AccordionContent><p className="text-sm text-p-muted">Связанных анкет и записи Notion пока нет. Данные профиля доступны во вкладке «О студенте».</p></AccordionContent></AccordionItem>
+        )}
+
+
         {/* 0. Portal access (staff cockpit for the student's cabinet) */}
 
         {/* 0b. Roadmap control */}
-        {can('roadmaps', 'edit') && <StudentRoadmapSection studentId={id!} />}
+        {(can('roadmaps', 'view') || can('roadmaps', 'edit')) && <StudentRoadmapSection studentId={id!} />}
 
         {/* 0c. Meetings */}
         {can('meetings', 'manage') && <StudentMeetingsSection studentId={id!} />}
@@ -1689,7 +1745,7 @@ export const StudentCardPage: React.FC = () => {
             Избранные вузы
           </AccordionTrigger>
           <AccordionContent>
-            <ShortlistSection mode="staff" studentId={student.id} basePath="/universities" />
+            <ShortlistSection mode="staff" studentId={student.id} basePath={inWorkspace ? '/workspace/universities' : '/universities'} />
           </AccordionContent>
         </AccordionItem>
 
@@ -1704,7 +1760,7 @@ export const StudentCardPage: React.FC = () => {
           <AccordionContent>
             {/* Раньше здесь была таблица, которая не показывала вуз вообще —
                 только страну, а статус визы выводила сырым значением из БД. */}
-            <ApplicationsSection mode="staff" studentId={student.id} basePath="/universities" />
+            <ApplicationsSection mode="staff" studentId={student.id} basePath={inWorkspace ? '/workspace/universities' : '/universities'} />
           </AccordionContent>
         </AccordionItem>
 
@@ -1738,10 +1794,10 @@ export const StudentCardPage: React.FC = () => {
                             {svc.included ? SERVICE_STATUS_LABELS[svc.status] : 'Не включена'}
                           </span>
                         </TableCell>
-                        <TableCell className="text-p-muted">{assignedMentor?.name || 'Не назначен'}</TableCell>
+                        <TableCell className="text-p-muted">{assignedMentor?.name || (!svc.included || svc.status === 'completed' ? '—' : 'Не назначен')}</TableCell>
                         <TableCell className="whitespace-nowrap text-p-muted">{svc.deadline ? formatDate(svc.deadline) : '—'}</TableCell>
-                        <TableCell className="max-w-[180px] truncate">{svc.result || '—'}</TableCell>
-                        <TableCell className="max-w-[220px] truncate text-p-muted">{svc.notes || '—'}</TableCell>
+                        <TableCell className="max-w-[280px] whitespace-pre-wrap break-words">{svc.result || '—'}</TableCell>
+                        <TableCell className="max-w-[280px] whitespace-pre-wrap break-words text-p-muted">{svc.notes || '—'}</TableCell>
                         {can('services', 'manage') && (
                           <TableCell className="text-right">
                             <Button variant="outline" size="sm" onClick={() => setEditService(svc)}>
@@ -1770,8 +1826,8 @@ export const StudentCardPage: React.FC = () => {
           </AccordionTrigger>
           <AccordionContent>
             <div className="mb-6">
-              <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">Личный план активностей</h3><Link className="text-sm underline" to={`/activities?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
-              <ActivityPlan studentId={student.id} catalogPath={`/activities?student_id=${student.id}&view=catalog`} />
+              <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">Личный план активностей</h3><Link className="text-sm underline" to={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
+              <ActivityPlan studentId={student.id} catalogPath={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`} />
             </div>
             {portfolio ? (
               <div className="space-y-3">
@@ -1902,7 +1958,7 @@ export const StudentCardPage: React.FC = () => {
                 if (!open) setDocumentUploadFile(null)
               }}
             >
-              <DialogContent className="max-w-md">
+              <DialogContent className="student-detail-dialog max-w-md">
                 <DialogHeader>
                   <DialogTitle>Загрузить документ</DialogTitle>
                   <DialogDescription>
@@ -2007,7 +2063,7 @@ export const StudentCardPage: React.FC = () => {
             </span>
           </AccordionTrigger>
           <AccordionContent>
-            <StudentMeetingNotes studentId={student.id} />
+            <StudentMeetingNotes studentId={student.id} workspace={inWorkspace} />
           </AccordionContent>
         </AccordionItem>
 
@@ -2329,9 +2385,9 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
-      </Accordion>
+      </StudentDetailSections>
 
-      {can('students', 'delete') && (
+      {can('students', 'delete') && location.hash === '#profile' && (
         <DeleteStudentSection studentId={student.id} fullName={student.full_name} />
       )}
 
@@ -2356,7 +2412,7 @@ export const StudentCardPage: React.FC = () => {
 
       {/* Reveal IIN confirm dialog */}
       <Dialog open={!!revealConfirm} onOpenChange={() => setRevealConfirm(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="student-detail-dialog max-w-sm">
           <DialogHeader>
             <DialogTitle>Раскрыть ИИН</DialogTitle>
             <DialogDescription>
@@ -2378,7 +2434,7 @@ export const StudentCardPage: React.FC = () => {
       </Dialog>
 
       <Dialog open={!!unlinkNotionConfirm} onOpenChange={() => setUnlinkNotionConfirm(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="student-detail-dialog max-w-sm">
           <DialogHeader>
             <DialogTitle>Отвязать запись Notion?</DialogTitle>
             <DialogDescription>
@@ -2404,7 +2460,7 @@ export const StudentCardPage: React.FC = () => {
       </Dialog>
 
       <Dialog open={!!pushNotionConfirm} onOpenChange={() => setPushNotionConfirm(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="student-detail-dialog max-w-sm">
           <DialogHeader>
             <DialogTitle>Записать в Notion?</DialogTitle>
             <DialogDescription>
@@ -2439,7 +2495,7 @@ export const StudentCardPage: React.FC = () => {
 
       {/* Предложение записать поле договора в Notion после правки в CRM */}
       <Dialog open={!!pendingNotionPush} onOpenChange={() => setPendingNotionPush(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="student-detail-dialog max-w-sm">
           <DialogHeader>
             <DialogTitle>Записать также в Notion?</DialogTitle>
             <DialogDescription>

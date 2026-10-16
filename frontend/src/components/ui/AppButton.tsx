@@ -51,6 +51,7 @@ export const AppButton = React.forwardRef<HTMLButtonElement, AppButtonProps>(
       <button
         ref={ref}
         type={type}
+        data-roadmap-button={variant}
         disabled={disabled}
         className={cn(
           'inline-flex items-center justify-center gap-2 rounded-ctl font-extrabold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50',
