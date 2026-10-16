@@ -102,12 +102,14 @@ function renderPage() {
   )
 }
 
-it('показывает данные Notion в карточке связанного студента', async () => {
+it('показывает важную информацию и ссылку Notion без таблицы сверки', async () => {
   renderPage()
   fireEvent.click(await screen.findByRole('button', { name: 'Первый Студент' }))
-  expect(await screen.findByText('Платформа и Notion')).toBeInTheDocument()
-  expect(await screen.findByText('Активная работа')).toBeInTheDocument()
-  expect(await screen.findByText('Расходится полей: 1')).toBeInTheDocument()
+  expect(await screen.findByRole('link', { name: '+77000000001' })).toHaveAttribute('href', 'tel:+77000000001')
+  expect(await screen.findByRole('link', { name: /Открыть в Notion/ })).toHaveAttribute('href', 'https://notion.so/test')
+  expect(screen.getByRole('heading', { name: 'Команда' })).toBeInTheDocument()
+  expect(screen.queryByText('Платформа и Notion')).not.toBeInTheDocument()
+  expect(screen.queryByText('Расходится полей: 1')).not.toBeInTheDocument()
 })
 
 /** Сначала включаем режим выбора, затем проверяем доступность галочек. */

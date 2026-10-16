@@ -29,7 +29,6 @@ import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
 import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
-import { isTaskLive } from '@/lib/taskUrgency'
 import { QueryError } from '@/components/shared/QueryState'
 import { studentsApi } from '@/api/students'
 import {
@@ -989,14 +988,6 @@ export const StudentCardPage: React.FC = () => {
   const nextMeeting = meetings.filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now()).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
-  const openTasks = (student.student_tasks || [])
-    .filter((task) => isTaskLive(task.status))
-    .sort((a, b) => {
-      if (!a.due_date && !b.due_date) return 0
-      if (!a.due_date) return 1
-      if (!b.due_date) return -1
-      return a.due_date.localeCompare(b.due_date)
-    })
   const intakeMismatchCount = intake?.comparison?.filter((row) => (
     (row.mismatch && row.ai_same_meaning !== true) ||
     (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
@@ -1157,7 +1148,7 @@ export const StudentCardPage: React.FC = () => {
         />
       )}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {((student.alerts?.length ?? 0) > 0 || nextMeeting || (hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {(student.alerts ?? []).map((a, i) => {
           const tone = a.level === 'danger'
             ? 'text-red-700 dark:text-red-300'
@@ -1180,20 +1171,6 @@ export const StudentCardPage: React.FC = () => {
             </div>
           )
         })}
-        <div className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
-          <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
-          <p className="mt-1 text-sm font-semibold text-p-text">
-            {openTasks[0]?.task_text || 'Открытых задач нет'}
-          </p>
-          {openTasks[0] && (
-            <div className="mt-1 flex items-center gap-2">
-              {openTasks[0].due_date && (
-                <span className="text-2xs text-p-muted2">до {formatDate(openTasks[0].due_date)}</span>
-              )}
-              <UrgencyBadge dueDate={openTasks[0].due_date} status={openTasks[0].status} />
-            </div>
-          )}
-        </div>
         {nextMeeting && <button type="button" onClick={() => navigate({ ...location, hash: 'meetings' }, { replace: true })} className="rounded-panel border border-p-line bg-p-panel px-4 py-3 text-left">
           <span className="flex items-center gap-2 text-xs text-p-muted"><CalendarDays className="h-3.5 w-3.5" />Ближайшая встреча</span>
           <span className="mt-1 block text-sm font-semibold text-p-text">{nextMeeting.title}</span>
@@ -1219,7 +1196,7 @@ export const StudentCardPage: React.FC = () => {
             <p className="mt-1 text-sm font-semibold text-emerald-700">Расхождений нет</p>
           )}
         </div>}
-      </div>
+      </div>}
 
       <StudentDetailSections key={id} available={[
         ...(can('roadmaps', 'view') || can('roadmaps', 'edit') ? ['roadmap'] : []),
