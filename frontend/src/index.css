@@ -1542,3 +1542,74 @@ html[data-crm-theme='light'],
 :is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='problem'] { --student-status-bg: #F7D8D7; --student-status-fg: #8C1F1F; }
 :is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='complete'] { --student-status-bg: #D6EAEE; --student-status-fg: #13535E; }
 :is(.crm-shell, .workspace-shell, html)[data-theme='light'] .student-pipeline-status[data-tone='neutral'] { --student-status-bg: #E6E4DD; --student-status-fg: #4A4840; }
+
+/* Student detail: shared CRM/workspace surfaces, both themes use existing tokens. */
+.student-detail-navigation { margin-bottom: 1.5rem; min-width: 0; }
+.student-detail-tabs { display: flex; overflow-x: auto; gap: 1.25rem; border-bottom: 1px solid var(--p-line); scrollbar-width: thin; }
+.student-detail-tab { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: .5rem; padding: .9rem .15rem; border-bottom: 3px solid transparent; color: var(--p-muted); font-size: .875rem; font-weight: 600; white-space: nowrap; }
+.student-detail-tab:hover { color: var(--p-text); }
+.student-detail-tab.is-active { border-bottom-color: var(--p-accent); color: var(--p-text); }
+.student-detail-subnav { display: flex; flex-wrap: wrap; gap: .35rem; padding-top: 1rem; }
+.student-detail-subtab { padding: .5rem .85rem; border-radius: 10px; color: var(--p-muted); font-size: .8125rem; font-weight: 600; }
+.student-detail-subtab:hover { background: var(--p-panel2); color: var(--p-text); }
+.student-detail-subtab.is-active { background: var(--p-chip-bg); color: var(--p-chip-text); }
+.student-detail-section { margin-bottom: 1rem; overflow: clip; border: 1px solid var(--p-line); border-radius: 20px; background: var(--p-panel); color: var(--p-text); }
+.student-detail-section[hidden] { display: none; }
+.student-detail-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--p-line); font-weight: 700; }
+.student-detail-section-body { padding: 1.5rem; }
+.student-detail-tab:focus-visible, .student-detail-subtab:focus-visible { outline: 2px solid var(--p-accent-text); outline-offset: -3px; }
+.student-detail-panels { min-width: 0; }
+.student-detail-card { width: 100%; max-width: 1280px; margin: 0 auto; }
+.student-detail-card [data-student-section='roadmap'] > .student-detail-section-body { padding: 1.25rem; }
+@media (max-width: 640px) {
+  .student-detail-tabs { gap: 1rem; }
+  .student-detail-section-heading, .student-detail-section-body { padding: 1rem; }
+  .student-detail-card [data-student-section='roadmap'] > .student-detail-section-body { padding: .75rem; }
+  .student-detail-subnav { flex-wrap: nowrap; overflow-x: auto; }
+  .student-detail-subtab { white-space: nowrap; flex-shrink: 0; }
+}
+
+/* Embed the existing workspace Roadmap card without an extra card or header. */
+.student-detail-section--unframed { border: 0; border-radius: 0; overflow: visible; background: transparent; }
+.student-detail-card .student-detail-section--unframed > .student-detail-section-body { padding: 0; }
+
+/* Roadmap uses the body typeface for Latin and Cyrillic alike. Keep these
+   presentation rules scoped, including dialogs rendered through a portal. */
+.roadmap-ui { font-family: 'Golos Text', system-ui, -apple-system, sans-serif; }
+.roadmap-ui .font-display { font-family: inherit; }
+.roadmap-ui :is(.font-black, .font-extrabold, .font-bold, b) { font-weight: 600; }
+.roadmap-ui :is(h2, h3) { font-weight: 600; letter-spacing: -.02em; }
+.roadmap-ui [data-roadmap-badge] { font-weight: 500; letter-spacing: 0; }
+/* Keep dark labels on the original bright fills in both shell themes. */
+.roadmap-ui [class].text-black { color: #000 !important; }
+/* One typeface throughout the student card, including its own portalled dialogs. */
+:is(.student-detail-card, .student-detail-dialog),
+:is(.student-detail-card, .student-detail-dialog) * {
+  font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
+}
+:is(.student-detail-card, .student-detail-dialog) :is(.font-black, .font-extrabold, .font-bold, b) { font-weight: 600; }
+.student-detail-meta > :is(span, .student-pipeline-status) {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.student-detail-card :is(.label-caps, .student-detail-summary-label) {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Profile labels share one filled pill shape, with their existing semantic colors. */
+.student-detail-meta .student-detail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  white-space: nowrap;
+}

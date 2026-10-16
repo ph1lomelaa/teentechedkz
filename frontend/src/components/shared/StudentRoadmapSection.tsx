@@ -1,32 +1,41 @@
 import React, { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Route } from 'lucide-react'
+import { Route } from 'lucide-react'
 import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/primitives/accordion'
+  useStudentDetailMode,
+} from '@/components/students/detail/StudentDetailSections'
 import { Button } from '@/components/ui/primitives/button'
 import { Badge } from '@/components/ui/primitives/badge'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { roadmapApi, Roadmap } from '@/api/roadmap'
-import { RoadmapTimeline } from '@/components/shared/RoadmapTimeline'
-import { SegmentedTabs } from '@/components/ui'
+import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
+import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { AppButton, EmptyState, SegmentedTabs } from '@/components/ui'
 import { QueryError } from '@/components/shared/QueryState'
 
 export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ studentId }) => {
   const { toast } = useToast()
+  const inDetail = useStudentDetailMode()
   const { can } = useAuth()
   const queryClient = useQueryClient()
-  const canManageTemplates = can('roadmap_templates', 'manage')
+  const canManageTemplates = can('roadmaps', 'edit')
+  const canEdit = can('roadmaps', 'edit')
+  const location = useLocation()
+  const navigate = useNavigate()
+  const selectedFromUrl = new URLSearchParams(location.search).get('roadmap')
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['student-roadmap', studentId],
     queryFn: () => roadmapApi.studentRoadmaps(studentId),
   })
   const [roadmaps, setRoadmaps] = useState<Roadmap[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(selectedFromUrl)
   const [showAssignForm, setShowAssignForm] = useState(false)
   useEffect(() => {
     if (data !== undefined) {
@@ -34,6 +43,13 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
       setSelectedId((current) => (current && data.some((r) => r.id === current)) ? current : data[0]?.id ?? null)
     }
   }, [data])
+  useEffect(() => { if (selectedFromUrl && roadmaps.some((r) => r.id === selectedFromUrl)) setSelectedId(selectedFromUrl) }, [selectedFromUrl, roadmaps])
+  const selectRoadmap = (value: string) => {
+    setSelectedId(value)
+    const search = new URLSearchParams(location.search)
+    search.set('roadmap', value)
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash }, { replace: true, preventScrollReset: true })
+  }
   const selected = roadmaps.find((r) => r.id === selectedId) ?? null
 
   const { data: templates = [] } = useQuery({
@@ -77,27 +93,24 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
 
   const assignForm = (
     <div className="space-y-3 py-1">
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-p-muted">
         Назначьте студенту дорожную карту по шаблону — этапы и задачи развернутся автоматически.
       </p>
       {templates.length === 0 ? (
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-p-muted2">
           Шаблонов пока нет. Создайте их в разделе «Roadmap-шаблоны».
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={templateId}
-            onChange={(e) => setTemplateId(e.target.value)}
-            className="h-9 px-3 text-sm border border-gray-300 rounded-ctl bg-white min-w-[240px]"
-          >
-            <option value="">Выберите шаблон…</option>
+          <Select value={templateId} onValueChange={setTemplateId}>
+            <SelectTrigger className="h-10 w-full sm:w-80 border-p-line bg-p-panel2 text-p-text"><SelectValue placeholder="Выберите шаблон…" /></SelectTrigger>
+            <SelectContent>
             {templates.map((t) => (
-              <option key={t.id} value={t.id}>
+              <SelectItem key={t.id} value={t.id}>
                 {t.name} · {[t.country_name, t.degree, t.year].filter(Boolean).join(' ')} ({t.stage_count} эт.)
-              </option>
+              </SelectItem>
             ))}
-          </select>
+          </SelectContent></Select>
           <Button
             size="sm"
             className="h-9 px-4 text-xs"
@@ -117,10 +130,10 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
   )
 
   return (
-    <AccordionItem value="roadmap" className="border border-gray-200 rounded-card px-4">
-      <AccordionTrigger className="text-base font-semibold">
+    <AccordionItem unframed value="roadmap" className="border border-p-line rounded-card px-4">
+      {!inDetail && <AccordionTrigger className="text-base font-semibold">
         <span className="flex flex-wrap items-center gap-2">
-          <Route className="w-4 h-4 text-gray-500" />
+          <Route className="w-4 h-4 text-p-muted" />
           Roadmap поступления
           {roadmaps.length > 0 && <Badge variant="outline">{selected?.mentor_name ? `Ведёт: ${selected.mentor_name}` : 'Roadmap назначен'}</Badge>}
           {roadmaps.length > 0 ? (
@@ -128,61 +141,46 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
               {roadmaps.length > 1 ? `${roadmaps.length} активных` : `${roadmaps[0].stages.length} этапов`}
             </Badge>
           ) : (
-            <Badge variant="outline" className="ml-1 text-2xs font-medium text-gray-500">
+            <Badge variant="outline" className="ml-1 text-2xs font-medium text-p-muted">
               не назначен
             </Badge>
           )}
         </span>
-      </AccordionTrigger>
+      </AccordionTrigger>}
       <AccordionContent>
-        {isError ? (
-          <QueryError error={error} onRetry={refetch} />
-        ) : isLoading ? (
-          <p className="text-sm text-gray-500 py-2">Загрузка…</p>
-        ) : roadmaps.length > 0 ? (
-          <div className="py-1 space-y-3">
-            {roadmaps.length > 1 && (
-              <SegmentedTabs
-                colorPrefix="ds"
-                value={selectedId ?? ''}
-                onChange={setSelectedId}
-                tabs={roadmaps.map((r) => ({ value: r.id, label: r.name }))}
-              />
-            )}
-            {canManageTemplates && (
-              <div className="flex items-center justify-end gap-2">
-                {selected && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-3 text-xs text-gray-500"
-                    disabled={archiveMutation.isPending}
-                    onClick={() => selected && archiveMutation.mutate(selected.id)}
-                  >
-                    Архивировать этот roadmap
-                  </Button>
-                )}
-                {!showAssignForm && (
-                  <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => setShowAssignForm(true)}>
-                    <Plus className="w-3.5 h-3.5 mr-1" /> Ещё один roadmap
-                  </Button>
-                )}
-              </div>
-            )}
-            {showAssignForm && assignForm}
-            {selected && <RoadmapTimeline roadmap={selected} canManage onChanged={(rm) => {
-              setRoadmaps((current) => current.map((r) => r.id === rm.id ? rm : r))
-              queryClient.setQueryData<Roadmap[]>(['student-roadmap', studentId], (current) => current?.map((r) => r.id === rm.id ? rm : r))
-              queryClient.invalidateQueries({ queryKey: ['students'] })
-            }} />}
+        <section className="roadmap-ui rounded-card border border-w-line bg-w-panel p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 font-display text-lg font-black text-w-ink"><span className="text-w-accentText"><Route className="h-4 w-4" /></span>Roadmap студента</h2>
           </div>
-        ) : canManageTemplates ? (
-          assignForm
-        ) : (
-          <p className="text-sm text-gray-500 py-2">
-            Roadmap ещё не назначен. Назначить шаблон может администратор или МЗК.
-          </p>
-        )}
+          {isError ? (
+            <QueryError error={error} onRetry={refetch} />
+          ) : isLoading ? (
+            <p className="py-2 text-sm text-w-muted">Загрузка…</p>
+          ) : !roadmaps.length ? (
+            <div className="space-y-4">
+              <EmptyState colorPrefix="w" title="Roadmap не назначен" description="Назначьте шаблон — этапы и задачи развернутся автоматически и сразу станут видны студенту в его кабинете." />
+              {canManageTemplates && assignForm}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {roadmaps.length > 1 && <SegmentedTabs colorPrefix="w" value={selectedId ?? ''} onChange={selectRoadmap} tabs={roadmaps.map((r) => ({ value: r.id, label: r.name }))} />}
+              {canManageTemplates && <div className="flex flex-wrap items-center justify-end gap-2">
+                {selected && <AppButton colorPrefix="w" variant="ghost" size="sm" disabled={archiveMutation.isPending} onClick={() => archiveMutation.mutate(selected.id)}>Архивировать этот roadmap</AppButton>}
+                {!showAssignForm && <AppButton colorPrefix="w" variant="ghost" size="sm" onClick={() => setShowAssignForm(true)}>+ Ещё один roadmap</AppButton>}
+              </div>}
+              {showAssignForm && assignForm}
+              {selected && <>
+                <RoadmapHeaderCard roadmap={selected} className="mb-5" />
+                <WorkspaceRoadmapEditor studentCard key={selected.id} roadmap={selected} canManage={canEdit} onChanged={(rm) => {
+                  setRoadmaps((current) => current.map((r) => r.id === rm.id ? rm : r))
+                  queryClient.setQueryData<Roadmap[]>(['student-roadmap', studentId], (current) => current?.map((r) => r.id === rm.id ? rm : r))
+                  queryClient.invalidateQueries({ queryKey: ['students'] })
+                  queryClient.invalidateQueries({ queryKey: ['workspace'] })
+                }} />
+              </>}
+            </div>
+          )}
+        </section>
       </AccordionContent>
     </AccordionItem>
   )

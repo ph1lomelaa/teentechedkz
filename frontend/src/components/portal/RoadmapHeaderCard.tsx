@@ -76,18 +76,18 @@ export const RoadmapHeaderCard: React.FC<{ roadmap: Roadmap; className?: string 
 
       <div className="relative flex flex-wrap items-center gap-3">
         <h2 className="font-display text-[24px] font-black leading-tight text-p-text">{roadmap.name}</h2>
-        <span className="rounded-full border border-brand bg-brand px-3 py-1 text-[11px] font-bold text-black">
+        <span data-roadmap-badge="accent" className="rounded-full border border-brand bg-brand px-3 py-1 text-[11px] font-bold text-black">
           {roadmap.year}
         </span>
         {roadmap.country_name && (
-          <span className="rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
+          <span data-roadmap-badge="neutral" className="rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
             {roadmap.country_flag_emoji ? `${roadmap.country_flag_emoji} ` : ''}{roadmap.country_name}
           </span>
         )}
-        <span className="rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
+        <span data-roadmap-badge="neutral" className="rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
           {roadmap.degree === 'masters' ? 'Магистратура' : 'Бакалавриат'}
         </span>
-        <span className="ml-auto rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
+        <span data-roadmap-badge="neutral" className="ml-auto rounded-full border border-p-line bg-p-panel2 px-3 py-1 text-[11px] font-bold text-p-muted">
           {roadmap.mentor_name ? `Ментор: ${roadmap.mentor_name}` : 'Ментор не назначен'}
         </span>
       </div>

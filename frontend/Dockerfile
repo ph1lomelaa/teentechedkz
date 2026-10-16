@@ -14,7 +14,7 @@ ENV VITE_API_URL=${VITE_API_URL}
 ARG VITE_SENTRY_DSN=
 ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY . .
 RUN npm run build
 
