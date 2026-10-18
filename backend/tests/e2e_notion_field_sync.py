@@ -212,6 +212,49 @@ async def main():
         c = await runtime.process_outbox_batch(db, dry_run=False)
         assert replacement.id != old_id and c["superseded"] and live[snapshot.notion_page_id]["Client fee"] == 999
         print("PASS replacement contract identity guard", flush=True)
+        # Reusing a session must not reuse pre-lock ORM values. Keep strong
+        # references deliberately, then edit the same rows in another session.
+        s3, c3, n3 = await seed(db)
+        n3.normalized_data = {**n3.normalized_data, "client_fee": 100}
+        n3.synced_baseline = {"client_fee": "100.00", "_initialized_fields": ["client_fee"]}
+        live[n3.notion_page_id]["Client fee"] = 100
+        c3.amount = Decimal("200")
+        await db.flush()
+        await notion_sync.enqueue_crm_field_edits(db, s3, {"client_fee": "100"}, contract_id=c3.id)
+        await db.commit()
+        async with AsyncSessionLocal() as other:
+            changed = await other.get(Contract, c3.id)
+            changed.amount = Decimal("300")
+            await other.commit()
+        c = await runtime.process_outbox_batch(db, dry_run=False)
+        assert c["superseded"] and live[n3.notion_page_id]["Client fee"] == 100, c
+        print("PASS cached contract values are refreshed after locking", flush=True)
+        s3.phone = "+77009999111"
+        await db.flush()
+        await notion_sync.enqueue_crm_field_edits(db, s3, {"phone": "+77001234567"})
+        await db.commit()
+        async with AsyncSessionLocal() as other:
+            changed = await other.get(Student, s3.id)
+            changed.phone = "+77009999222"
+            await other.commit()
+        c = await runtime.process_outbox_batch(db, dry_run=False)
+        assert c["superseded"] and live[n3.notion_page_id]["Номер тел"] == "+77001234567", c
+        print("PASS cached student values are refreshed after locking", flush=True)
+        s3.intake_year = 2027
+        await db.flush()
+        await notion_sync.enqueue_crm_field_edits(db, s3, {"intake_year": 2026})
+        await db.commit()
+        async with AsyncSessionLocal() as other:
+            changed = await other.get(NotionSnapshot, n3.id)
+            changed.student_id = None
+            changed.status = NotionMatchStatus.ignored
+            other.add(NotionSnapshot(notion_page_id=uuid4().hex, student_id=s3.id,
+                status=NotionMatchStatus.linked, raw_properties={}, normalized_data={}, synced_baseline={}))
+            await other.commit()
+        count = len(writes)
+        c = await runtime.process_outbox_batch(db, dry_run=False)
+        assert c["superseded"] and len(writes) == count, c
+        print("PASS cached link cannot target a detached Notion page", flush=True)
     await engine.dispose()
 
 with patch.object(settings, "NOTION_API_KEY", "fake"), patch.object(settings, "NOTION_DATABASE_ID", "fake"), \

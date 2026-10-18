@@ -16,7 +16,7 @@ from app.models.notion_snapshot import NotionMatchStatus
 from app.models.status_history import StatusHistory
 from app.models.notion_field_sync import NotionFieldSync, FieldSyncStatus
 from app.services import notion_write
-from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY, _crm_raw
+from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY, _crm_raw, snapshot_phone_raw, phone_requires_review
 from app.core.config import settings
 from app.services.notion_sync import EDITABLE_FIELDS, editable_canon
 from app.services.notion_field_sync_policy import reconcile_shared_field
@@ -142,7 +142,7 @@ async def build_report(db, *, student_id=None, allowed_ids=None, include_contrac
             if field in CONTRACT_FIELD_ATTR and not include_contract:
                 continue
             notion, crm = values[field]
-            raw_notion = (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
+            raw_notion = snapshot_phone_raw(snapshot) if field == "phone" else (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
             invalid_notion = raw_notion not in (None, "") and canonical_profile_value(field, raw_notion) is None
             field_blocked = blocked or ("Значение Notion не распознано; нужна проверка" if invalid_notion else None)
             description = describe_field(field, crm=crm, notion=notion, baseline=baseline.get(field),
@@ -157,7 +157,8 @@ async def build_report(db, *, student_id=None, allowed_ids=None, include_contrac
                 if read_property and notion is not None and not (field == "pipeline_status" and notion == "no_status"):
                     allowed_sides.append("notion")
                 write_property = _resolve_notion_property(field, schema, require_writable=True)
-                if write_property and _crm_to_notion_payload(field, crm, schema, *write_property) is not None:
+                if (write_property and _crm_to_notion_payload(field, crm, schema, *write_property) is not None
+                        and not (field == "phone" and (phone_requires_review(raw_notion) or phone_requires_review(_crm_raw(field, student, contract))))):
                     allowed_sides.append("crm")
             description["allowed_sides"] = allowed_sides
             intent = context.get("intents", {}).get((snapshot.id, field))
@@ -173,6 +174,8 @@ async def build_report(db, *, student_id=None, allowed_ids=None, include_contrac
                     problem = "Свойство Notion не найдено или недоступно для записи"
                 elif description["winner"] == "crm" and _crm_to_notion_payload(field, crm, schema, *resolved) is None:
                     problem = "Тип свойства или значение Notion не поддерживает безопасную запись"
+            if field == "phone" and description["eligible"] and description["winner"] not in allowed_sides:
+                problem = "Запись затронет приписки или дополнительные номера телефона; нужна проверка"
             if problem and description["decision"] != "resolved":
                 description["eligible"] = False
                 description["reason"] = description["reason"] or problem

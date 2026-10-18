@@ -8,7 +8,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -884,11 +885,25 @@ async def apply_notion_field_report(
         raise HTTPException(status_code=409, detail="Автоматический обмен выключен; отчёт доступен без записи")
     if len(body.choices) > 5000 or (body.student_ids is not None and len(body.student_ids) > 5000):
         raise HTTPException(status_code=422, detail="Слишком большая партия")
+    # Warm the network-backed schema before taking locks on the student base.
+    # A slow Notion request must not hold up employees' edits.
+    if settings.NOTION_API_KEY and settings.NOTION_DATABASE_ID:
+        import asyncio
+        from app.services import notion_write
+        try:
+            await asyncio.to_thread(notion_write.get_schema)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Не удалось проверить схему Notion; данные не изменены")
     # Same lock order as CRM editing and the worker; recompute under the lock.
     lock_query = select(Student.id).order_by(Student.id)
     if body.student_id:
         lock_query = lock_query.where(Student.id == body.student_id)
-    await db.execute(lock_query.with_for_update())
+    await db.execute(text("SET LOCAL lock_timeout = '5s'"))
+    try:
+        await db.execute(lock_query.with_for_update())
+    except DBAPIError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Карточки сейчас обновляются; повторите сверку через несколько секунд")
     report = await notion_field_report(db, current_user, student_id=body.student_id)
     if report["revision"] != body.revision:
         raise HTTPException(status_code=409, detail="Данные изменились после отчёта. Обновите его перед применением")

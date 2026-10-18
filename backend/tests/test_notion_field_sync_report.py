@@ -120,3 +120,20 @@ def test_replaced_contract_does_not_receive_an_old_operation():
 @pytest.mark.parametrize('value', ['NaN', 'Infinity', '10000000000000000', '1.001'])
 def test_unrepresentable_money_does_not_get_rounded_or_overflow(value):
     assert runtime.canonical_profile_value('client_fee', value) is None
+
+
+def test_live_schema_failure_does_not_lock_students(monkeypatch):
+    from app.api.v1.endpoints import sync
+    from fastapi import HTTPException
+    monkeypatch.setattr(sync, 'require_access', lambda *a: None)
+    monkeypatch.setattr(sync.settings, 'ENABLE_NOTION_FIELD_SYNC', True)
+    monkeypatch.setattr(sync.settings, 'NOTION_API_KEY', 'fake')
+    monkeypatch.setattr(sync.settings, 'NOTION_DATABASE_ID', 'fake')
+    def fail():
+        raise RuntimeError('Notion temporarily unavailable')
+    monkeypatch.setattr(runtime.notion_write, 'get_schema', fail)
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(sync.apply_notion_field_report(sync.ApplyNotionFieldReportBody(revision='r'), db, SimpleNamespace(id=uuid4())))
+    assert error.value.status_code == 502
+    db.execute.assert_not_awaited()
