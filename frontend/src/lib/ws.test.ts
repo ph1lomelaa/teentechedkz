@@ -8,10 +8,11 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 
 const refreshAccessToken = vi.fn(async (): Promise<string | null> => null)
+const getAccessToken = vi.fn(() => 'stale-token')
 
 vi.mock('@/api/client', () => ({
   API_BASE: 'http://localhost:8001',
-  getAccessToken: () => 'stale-token',
+  getAccessToken: () => getAccessToken(),
   refreshAccessToken: () => refreshAccessToken(),
 }))
 
@@ -47,6 +48,7 @@ describe('ws reconnect backoff', () => {
     vi.resetModules()
     FakeWebSocket.instances = []
     refreshAccessToken.mockReset()
+    getAccessToken.mockReturnValue('stale-token')
     vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
     ws = (await import('./ws')).ws
   })
@@ -86,6 +88,32 @@ describe('ws reconnect backoff', () => {
     await vi.advanceTimersByTimeAsync(6000)
 
     expect(refreshAccessToken).toHaveBeenCalled()
+  })
+
+  it('keeps a fresh access token when the WebSocket transport is blocked', async () => {
+    const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }))
+    getAccessToken.mockReturnValue(`header.${payload}.signature`)
+    refreshAccessToken.mockResolvedValue(null)
+    ws.start()
+    FakeWebSocket.instances[0].reject()
+    await vi.advanceTimersByTimeAsync(3000)
+    FakeWebSocket.instances[1].reject()
+    await vi.advanceTimersByTimeAsync(6000)
+
+    expect(refreshAccessToken).not.toHaveBeenCalled()
+    expect(FakeWebSocket.instances).toHaveLength(3)
+  })
+
+  it('refreshes a token that will expire shortly', async () => {
+    const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 20 }))
+    getAccessToken.mockReturnValue(`header.${payload}.signature`)
+    refreshAccessToken.mockResolvedValue('fresh-token')
+    ws.start()
+    FakeWebSocket.instances[0].reject()
+    await vi.advanceTimersByTimeAsync(3000)
+    FakeWebSocket.instances[1].reject()
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
   })
 
   it('stops reconnecting when the session is gone', async () => {

@@ -14,11 +14,15 @@ const LEGACY_THEME_KEYS = ['crm-theme', 'workspace-theme', 'portal-theme', 'teen
 function readInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark'
 
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'dark' || stored === 'light') return stored
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    if (stored === 'dark' || stored === 'light') return stored
 
-  // Тёмная тема — всегда дефолт для новых/старых браузеров без v2-ключа.
-  LEGACY_THEME_KEYS.forEach((key) => window.localStorage.removeItem(key))
+    // Тёмная тема — всегда дефолт для новых/старых браузеров без v2-ключа.
+    LEGACY_THEME_KEYS.forEach((key) => window.localStorage.removeItem(key))
+  } catch {
+    // Browser privacy settings may deny storage; the page still needs a theme.
+  }
   return 'dark'
 }
 
@@ -41,7 +45,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [theme, setTheme] = useState<Theme>(readInitialTheme)
 
   useEffect(() => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // Keep the selected theme in memory when storage is blocked or full.
+    }
     applyThemeToDocument(theme)
   }, [theme])
 

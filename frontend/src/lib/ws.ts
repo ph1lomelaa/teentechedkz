@@ -17,6 +17,17 @@ const BASE_DELAY_MS = 3000
 const MAX_DELAY_MS = 60000
 const REFRESH_AFTER_ATTEMPTS = 2
 
+function tokenNeedsRefresh(): boolean {
+  try {
+    const payload = getAccessToken()?.split('.')[1]
+    if (!payload) return true
+    const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof exp !== 'number' || exp * 1000 <= Date.now() + 30_000
+  } catch {
+    return true
+  }
+}
+
 function wsUrl(): string {
   const token = getAccessToken() || ''
   const base = API_BASE.replace(/^http/, 'ws')
@@ -67,11 +78,13 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null
     if (!shouldConnect) return
-    // Repeated failures usually mean the access token expired while the tab
-    // sat idle. Refresh once before retrying; if the session is really gone,
+    // A blocked WebSocket or dropped connection does not invalidate a fresh
+    // access token. Rotating after every transport failure can erase a working
+    // login when refresh cookies are unavailable in the browser.
+    // Refresh an expired/expiring token before retrying; if the session is gone,
     // stop instead of reconnecting forever — the axios layer handles the
     // redirect to /login on the next real request.
-    if (attempts >= REFRESH_AFTER_ATTEMPTS && !refreshing) {
+    if (attempts >= REFRESH_AFTER_ATTEMPTS && !refreshing && tokenNeedsRefresh()) {
       refreshing = true
       try {
         const token = await refreshAccessToken()
