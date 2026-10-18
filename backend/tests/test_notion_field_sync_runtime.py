@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -18,6 +18,7 @@ NOW = datetime(2026, 10, 8, 9, 0, tzinfo=timezone.utc)
 class FakeSession:
     def __init__(self):
         self.flush = AsyncMock()
+        self.add = Mock()
 
 
 def setup_case(field="full_name", direction=FieldSyncDirection.crm_to_notion):

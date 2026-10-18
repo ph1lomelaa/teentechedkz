@@ -5,6 +5,9 @@ import hashlib
 import json
 import uuid
 import asyncio
+from enum import Enum
+from decimal import Decimal
+from datetime import date
 from datetime import datetime, timezone, timedelta
 from collections import Counter
 from sqlalchemy import select, func
@@ -13,7 +16,7 @@ from app.models.notion_snapshot import NotionMatchStatus
 from app.models.status_history import StatusHistory
 from app.models.notion_field_sync import NotionFieldSync, FieldSyncStatus
 from app.services import notion_write
-from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY
+from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY, _crm_raw
 from app.core.config import settings
 from app.services.notion_sync import EDITABLE_FIELDS, editable_canon
 from app.services.notion_field_sync_policy import reconcile_shared_field
@@ -173,6 +176,18 @@ async def build_report(db, *, student_id=None, allowed_ids=None, include_contrac
             if problem and description["decision"] != "resolved":
                 description["eligible"] = False
                 description["reason"] = description["reason"] or problem
+            # Preserve the exact pre-write representations for review/recovery,
+            # while policy comparisons continue to use canonical values.
+            def raw_value(value):
+                if isinstance(value, Enum):
+                    return value.value
+                if isinstance(value, Decimal):
+                    return str(value)
+                if isinstance(value, date):
+                    return value.isoformat()
+                return value
+            description["crm_raw"] = raw_value(_crm_raw(field, student, contract))
+            description["notion_raw"] = raw_value(raw_notion)
             fields.append(description)
         rows.append({
             "student_id": str(student.id), "student_name": student.full_name,

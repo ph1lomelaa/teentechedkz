@@ -112,6 +112,8 @@ export interface NotionFieldReportField {
   label: string
   crm: string | null
   notion: string | null
+  crm_raw?: string | number | null
+  notion_raw?: string | number | null
   decision: string
   winner: 'crm' | 'notion' | null
   eligible: boolean

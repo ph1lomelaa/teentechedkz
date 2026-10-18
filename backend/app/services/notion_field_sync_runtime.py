@@ -350,6 +350,8 @@ async def process_profile_field(
         if canonical_profile_value(field, verified_raw) != target_canonical:
             raise RuntimeError(f"Notion read-after-write verification failed for {field}")
         actual_notion_after = verified_raw
+        await log_change(session, "notion_snapshot", snapshot.id, f"notion_write:{field}",
+                         current_notion_raw, verified_raw, "system:notion_field_sync", "notion_sync")
         old_crm = current_crm
         new_crm = current_crm
     else:
