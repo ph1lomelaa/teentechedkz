@@ -368,6 +368,7 @@ def test_phone_live_read_uses_the_same_primary_number_as_the_mirror(monkeypatch)
     assert student.phone == '77001234567'
     assert state['value'] == raw and calls['writes'] == 0
     assert snapshot.normalized_data['phone'] == '77001234567'
+    assert snapshot.raw_properties['Номер тел'] == raw
 
 
 def test_reverse_phone_write_does_not_erase_notion_annotations(monkeypatch):

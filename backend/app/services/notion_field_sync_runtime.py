@@ -327,6 +327,8 @@ async def process_profile_field(
                 normalized = dict(snapshot.normalized_data or {})
                 normalized[_SNAPSHOT_VALUE_KEY[field]] = canonical_profile_value(field, current_notion_raw) if field == "phone" else current_notion_raw
                 snapshot.normalized_data = normalized
+                if field == "phone":
+                    snapshot.raw_properties = {**(getattr(snapshot, "raw_properties", None) or {}), real_name: current_notion_raw}
                 baseline = dict(snapshot.synced_baseline or {})
                 baseline[field] = current_notion
                 if field == "pipeline_status":
@@ -414,6 +416,8 @@ async def process_profile_field(
     normalized = dict(snapshot.normalized_data or {})
     normalized[_SNAPSHOT_VALUE_KEY[field]] = canonical_profile_value(field, actual_notion_after) if field == "phone" else actual_notion_after
     snapshot.normalized_data = normalized
+    if field == "phone":
+        snapshot.raw_properties = {**(getattr(snapshot, "raw_properties", None) or {}), real_name: actual_notion_after}
     baseline = dict(snapshot.synced_baseline or {})
     baseline[field] = target_canonical
     if field == "pipeline_status":
