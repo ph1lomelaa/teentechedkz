@@ -86,6 +86,11 @@ def _name_canon(v) -> str | None:
     return " ".join(str(v).lower().split()) or None if v else None
 
 
+def _phone_canon(value):
+    from app.services.notion_field_sync_runtime import canonical_profile_value
+    return canonical_profile_value("phone", value)
+
+
 def _money_canon(v) -> str | None:
     from app.services.notion_field_sync_runtime import canonical_profile_value
     return canonical_profile_value("client_fee", v)
@@ -131,7 +136,7 @@ def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, st
 
     return {
         "full_name": (_name_canon(d.get("full_name")), _name_canon(crm("full_name", student))),
-        "phone": (normalize_phone(d.get("phone") or "") or None, normalize_phone(crm("phone", student) or "") or None),
+        "phone": (_phone_canon(d.get("phone")), _phone_canon(crm("phone", student))),
         "degree_level": (n_degree, c_degree),
         "intake_year": (_intake_canon(d.get("intake_raw")), str(student.intake_year) if student and student.intake_year else None),
         "pipeline_status": (n_status, c_status),

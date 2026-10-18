@@ -357,3 +357,24 @@ def test_archived_student_is_never_updated_by_notion(monkeypatch):
     student.is_archived=True
     result=asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
     assert result.disposition is runtime.RuntimeDisposition.superseded
+
+
+def test_phone_live_read_uses_the_same_primary_number_as_the_mirror(monkeypatch):
+    item, student, snapshot, _, _ = setup_case('phone', FieldSyncDirection.notion_to_crm)
+    raw = '+7 (700) 123-45-67 мама; +7 701 765-43-21'
+    state, calls = install_fake_notion(monkeypatch, field='phone', live_value=raw)
+    result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.applied
+    assert student.phone == '77001234567'
+    assert state['value'] == raw and calls['writes'] == 0
+    assert snapshot.normalized_data['phone'] == '77001234567'
+    assert snapshot.raw_properties['Номер тел'] == raw
+
+
+def test_reverse_phone_write_does_not_erase_notion_annotations(monkeypatch):
+    item, student, snapshot, _, _ = setup_case('phone')
+    raw = '+7 (700) 555-44-33 мама'
+    state, calls = install_fake_notion(monkeypatch, field='phone', live_value=raw)
+    result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.conflict
+    assert state['value'] == raw and calls['writes'] == 0
