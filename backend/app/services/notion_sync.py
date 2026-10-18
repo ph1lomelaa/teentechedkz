@@ -11,7 +11,6 @@ import logging
 import sys
 import uuid
 from datetime import datetime, timezone, date as date_cls
-from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,10 +69,8 @@ async def _load_students_index(db: AsyncSession) -> list[dict]:
 
 
 # --- Двусторонняя синхронизация «кто последний правил» ---------------------------
-# Синк НИЧЕГО не пишет в CRM автоматически. Он лишь ведёт «эталон» (synced_baseline)
-# — последнее значение, на котором Notion и CRM сошлись, — чтобы карточка могла
-# показать, какая сторона изменилась последней. Перенос значений всегда вручную:
-# «Принять из Notion» (apply_field) или «→ Записать в Notion» (push_field).
+# При включённом обмене проверенные изменения проходят через очередь.
+# Dry-run проверяет значения без записи в CRM и Notion.
 
 # Поля, которые можно править и синхронизировать в обе стороны. Ключ — внутреннее имя
 # поля (как в сверке и в whitelist apply/push), значения канонизируются одинаково для
@@ -90,12 +87,8 @@ def _name_canon(v) -> str | None:
 
 
 def _money_canon(v) -> str | None:
-    if v in (None, ""):
-        return None
-    try:
-        return f"{Decimal(str(v).replace(' ', '').replace(',', '.')):.2f}"
-    except (InvalidOperation, ValueError):
-        return None
+    from app.services.notion_field_sync_runtime import canonical_profile_value
+    return canonical_profile_value("client_fee", v)
 
 
 def _date_canon(v) -> str | None:
@@ -211,7 +204,7 @@ def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
         snapshot.synced_baseline = baseline
 
 
-AUTO_RECONCILE_FIELDS = frozenset({"full_name", "phone", "degree_level", "intake_year", "pipeline_status"})
+AUTO_RECONCILE_FIELDS = frozenset(EDITABLE_FIELDS)
 
 
 async def _enqueue_field_reconciliation(
@@ -226,37 +219,31 @@ async def _enqueue_field_reconciliation(
 
     The mirror pull never writes directly to business records. Profile and
     work-status writes are classified into the feature-gated verified outbox.
-    Financial fields are outside this registry.
+    Financial fields require an unambiguous contract and verified currency.
     """
     if not settings.ENABLE_NOTION_FIELD_SYNC:
         return
 
-    from app.services.notion_field_sync_outbox import enqueue_reconciliation
-    from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_profile_field
+    from app.services.notion_field_sync_outbox import enqueue_reconciliation, retire_resolved
+    from app.services.notion_field_sync_policy import reconcile_shared_field
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
 
     baseline = snapshot.synced_baseline or {}
-    for field in AUTO_RECONCILE_FIELDS:
+    for field in sorted(AUTO_RECONCILE_FIELDS):
         pair = canon.get(field)
-        if pair is None:
+        if pair is None or (field in CONTRACT_FIELD_ATTR and field != "pipeline_status" and contract is None):
             continue
         notion_value, crm_value = pair
         has_baseline = field in baseline
         baseline_value = baseline.get(field)
-        result = reconcile_profile_field(field_key=field,
-            baseline=baseline_value,
-            has_baseline=has_baseline,
-            notion_value=notion_value,
-            crm_value=crm_value,
+        result = reconcile_shared_field(
+            field_key=field, initialized=field in baseline.get("_initialized_fields", []),
+            manual_edit=field in (manual_fields or set()), baseline=baseline_value,
+            has_baseline=has_baseline, notion_value=notion_value, crm_value=crm_value,
         )
-        # For an initial linked record Notion is the primary source. Once
-        # a common baseline exists, either side may propagate a one-sided edit.
-        if field not in baseline.get("_initialized_fields", []) and notion_value is not None and not (field == "pipeline_status" and notion_value == "no_status") and crm_value != notion_value:
-            if field not in (manual_fields or set()):
-                result = ReconciliationResult(FieldDecision.NOTION_CHANGED, crm_value, notion_value, FieldSide.NOTION)
-            # An audited manual edit keeps the ordinary baseline decision:
-            # safe one-sided edits propagate, unknown/two-sided edits stay
-            # reviewable. Bootstrap must not erase employees' portal edits.
         if result.decision.value == "resolved":
+            if db is not None:
+                await retire_resolved(db, snapshot_id=snapshot.id, field_key=field)
             continue
         # Dedupe by this field's value state; an unrelated page-property edit
         # must not create a second copy of the same unresolved decision.
@@ -275,6 +262,7 @@ async def _enqueue_field_reconciliation(
             baseline_value=baseline_value,
             has_baseline=has_baseline,
             expected_notion_last_edited_at=snapshot.notion_last_edited_at,
+            expected_contract_id=contract.id if contract and field in CONTRACT_FIELD_ATTR else None,
             reason="Notion — основной источник при первом согласовании; последующие правки синхронизируются в обе стороны, конфликт требует выбора.",
         )
 
@@ -282,56 +270,23 @@ async def _enqueue_field_reconciliation(
 async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]) -> None:
     """Массовая фиксация эталона по привязанным снапшотам: грузим студентов и их
     последние договоры одним заходом, затем сверяем каждый снапшот с CRM."""
-    student_ids = {s.student_id for s in snapshots if s.student_id}
-    if not student_ids:
-        return
-
-    students = {
-        s.id: s
-        for s in (await db.execute(select(Student).where(Student.id.in_(student_ids)))).scalars().all()
-    }
-    # Последний договор по каждому студенту (первый по created_at DESC).
-    contracts: dict = {}
-    for c in (await db.execute(
-        select(Contract)
-        .where(Contract.student_id.in_(student_ids))
-        .order_by(Contract.student_id, Contract.created_at.desc(), Contract.id.desc())
-    )).scalars().all():
-        contracts.setdefault(c.student_id, c)
-
-    duplicate_links = set((await db.execute(
-        select(NotionSnapshot.student_id).where(
-            NotionSnapshot.student_id.in_(student_ids), NotionSnapshot.status == NotionMatchStatus.linked
-        ).group_by(NotionSnapshot.student_id).having(func.count() > 1)
-    )).scalars().all())
-    from app.models.status_history import StatusHistory
-    from app.services.notion_field_sync_runtime import canonical_profile_value
-    manual_values = {}
-    entity_ids = student_ids | {contract.id for contract in contracts.values()}
-    audit_rows = (await db.execute(select(StatusHistory).where(
-        StatusHistory.entity_id.in_(entity_ids), StatusHistory.source == "manual",
-        StatusHistory.field_changed.in_(AUTO_RECONCILE_FIELDS)
-    ).order_by(StatusHistory.changed_at.desc(), StatusHistory.id.desc()))).scalars().all()
-    for audit in audit_rows:
-        try:
-            uuid.UUID(audit.changed_by)
-        except (ValueError, TypeError, AttributeError):
-            continue
-        manual_values.setdefault((audit.entity_type, audit.entity_id, audit.field_changed), audit.new_value)
+    from app.services.notion_field_sync_report import load_context, manual_fields_for
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
+    ids = sorted({s.student_id for s in snapshots if s.student_id})
+    if ids:
+        await db.execute(select(Student.id).where(Student.id.in_(ids)).order_by(Student.id).with_for_update())
+    context = await load_context(db, snapshots)
     for snapshot in snapshots:
-        if snapshot.student_id in duplicate_links:
-            continue  # No automatic choice between several Notion pages.
-        student = students.get(snapshot.student_id)
-        if student is None or student.is_archived:
+        student = context["students"].get(snapshot.student_id)
+        if student is None or student.is_archived or snapshot.student_id in context["duplicates"]:
             continue
-        contract = contracts.get(snapshot.student_id)
+        contracts = context["contracts"].get(student.id, [])
+        contract = contracts[0] if contracts else None
         canon = editable_canon(snapshot.normalized_data or {}, student, contract)
-        manual_fields = set()
-        for field, (_, crm_value) in canon.items():
-            entity_type, entity_id = ("contract", contract.id) if field == "pipeline_status" and contract else ("student", student.id)
-            key = (entity_type, entity_id, field)
-            if key in manual_values and canonical_profile_value(field, manual_values[key]) == crm_value:
-                manual_fields.add(field)
+        if len(contracts) != 1:
+            canon = {key: value for key, value in canon.items()
+                     if key not in CONTRACT_FIELD_ATTR or key == "pipeline_status"}
+        manual_fields = manual_fields_for(context, student, contract, canon)
         await _enqueue_field_reconciliation(db, snapshot, student, contract, canon, manual_fields=manual_fields)
         reconcile_baseline(snapshot, student, contract)
 
@@ -391,7 +346,11 @@ async def run_sync(db: AsyncSession) -> dict:
         try:
             rows = await loop.run_in_executor(None, _fetch)
 
-            existing_result = await db.execute(select(NotionSnapshot))
+            linked_ids = (await db.execute(select(NotionSnapshot.student_id).where(
+                NotionSnapshot.student_id.isnot(None)))).scalars().all()
+            if linked_ids:
+                await db.execute(select(Student.id).where(Student.id.in_(linked_ids)).order_by(Student.id).with_for_update())
+            existing_result = await db.execute(select(NotionSnapshot).order_by(NotionSnapshot.id).with_for_update())
             existing = {s.notion_page_id: s for s in existing_result.scalars().all()}
             # Deleted or missing pages need review before the source can be
             # treated as complete; a percentage threshold could miss a few
@@ -579,12 +538,12 @@ async def sync_loop() -> None:
         await asyncio.sleep(interval)
 
 
-async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values: dict) -> dict:
+async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values: dict, *, contract_id=None) -> dict:
     """Record an explicit CRM edit in the same transaction as the edit itself."""
     from app.models.contract import Contract
     from app.services.notion_field_sync_outbox import enqueue_reconciliation
     from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult, reconcile_profile_field
-    from app.services.notion_field_sync_runtime import canonical_profile_value
+    from app.services.notion_field_sync_runtime import canonical_profile_value, CONTRACT_FIELD_ATTR
 
     if not settings.ENABLE_NOTION_FIELD_SYNC:
         return {"state": "disabled", "queued": 0, "conflicts": 0}
@@ -601,6 +560,8 @@ async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values
     snapshot = snapshots[0]
     contract = (await db.execute(select(Contract).where(Contract.student_id == student.id)
         .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1))).scalar_one_or_none()
+    if contract_id is not None and (contract is None or contract.id != contract_id):
+        return {"state": "different_contract", "queued": 0, "conflicts": 0}
     canon = editable_canon(snapshot.normalized_data or {}, student, contract)
     baseline = dict(snapshot.synced_baseline or {})
     queued = conflicts = 0
@@ -628,6 +589,7 @@ async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values
             source_revision=f"crm-edit:{uuid.uuid4()}", result=result,
             baseline_value=baseline.get(field), has_baseline=has_baseline,
             expected_notion_last_edited_at=snapshot.notion_last_edited_at,
+            expected_contract_id=contract.id if contract and field in CONTRACT_FIELD_ATTR else None,
             reason="Изменение сотрудником на платформе; перед записью проверяются актуальные значения Notion.")
         if item.direction.value == "conflict":
             conflicts += 1

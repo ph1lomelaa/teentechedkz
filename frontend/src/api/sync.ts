@@ -107,7 +107,53 @@ export interface NotionFieldSyncQueue {
   items: NotionFieldSyncItem[]
 }
 
+export interface NotionFieldReportField {
+  field_key: string
+  label: string
+  crm: string | null
+  notion: string | null
+  crm_raw?: string | number | null
+  notion_raw?: string | number | null
+  decision: string
+  winner: 'crm' | 'notion' | null
+  eligible: boolean
+  allowed_sides: Array<'crm' | 'notion'>
+  reason: string | null
+}
+
+export interface NotionFieldReport {
+  can_refresh: boolean
+  revision: string
+  students: number
+  ready: number
+  review: number
+  fresh: boolean
+  enabled: boolean
+  dry_run: boolean
+  pilot_students: number
+  duplicate_students: number
+  directions: Record<string, number>
+  queue_counts: Record<string, number>
+  last_read: { at: string | null; ok: boolean | null }
+  excluded: string[]
+  rows: Array<{ snapshot_id: string; student_id: string; student_name: string; fields: NotionFieldReportField[] }>
+}
+
+export interface NotionFieldChoice {
+  snapshot_id: string
+  field_key: string
+  side: 'crm' | 'notion'
+}
+
 export const syncApi = {
+  notionFieldReport: async (studentId?: string) => {
+    const res = await apiClient.get<NotionFieldReport>('/sync/notion-field-report', { params: { student_id: studentId } })
+    return res.data
+  },
+  applyNotionFieldReport: async (revision: string, choices: NotionFieldChoice[] = [], studentIds?: string[]) => {
+    const res = await apiClient.post<{ queued: number; review: number; dry_run: boolean }>('/sync/notion-field-report/apply', { revision, choices, student_ids: studentIds })
+    return res.data
+  },
   run: async () => {
     const res = await apiClient.post('/sync/run')
     return res.data as { ok: boolean; counters: SyncCounters }
