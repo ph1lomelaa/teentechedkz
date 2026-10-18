@@ -148,7 +148,17 @@ def page_last_edited(page_id: str) -> str | None:
 
 def read_value(page_id: str, real_name: str) -> Any:
     """Текущее плоское значение свойства страницы (для preview и проверки конфликта)."""
-    properties = get_page(page_id).get("properties", {})
+    page = get_page(page_id)
+    if page.get("archived") or page.get("in_trash"):
+        raise ValueError("Notion page is archived or in trash")
+    parent = page.get("parent") or {}
+    parent_type = parent.get("type")
+    if settings.NOTION_DATABASE_ID and parent_type in ("data_source_id", "database_id"):
+        source = settings.NOTION_DATABASE_ID.replace("-", "").lower()
+        current_source = (parent.get(parent_type) or "").replace("-", "").lower()
+        if current_source != source:
+            raise ValueError("Notion page moved outside the configured source")
+    properties = page.get("properties", {})
     prop = properties.get(real_name)
     if prop is None:
         prop = next((value for value in properties.values() if value.get("id") == real_name), None)

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
 
@@ -44,13 +45,32 @@ _FIELD_PROPERTY = {
     "degree_level": "Degree",
     "intake_year": "Intake",
     "pipeline_status": "Статус выплат",
+    "signed_date": "Date of Agreement",
+    "client_fee": "Client fee",
+    "english_sum": "Сумм Англ",
+    "english_paid": "PAID Англ",
+    "client_remaining": "Остаток клиента",
+    "client_remaining_date": "Остаток клиента (дата)",
+    "mentor_total": "TOTAL (Mentors)",
 }
+CONTRACT_FIELD_ATTR = {
+    "pipeline_status": "pipeline_status", "signed_date": "signed_date",
+    "client_fee": "amount", "english_sum": "english_sum", "english_paid": "english_paid",
+    "client_remaining": "client_remaining_amount", "client_remaining_date": "client_remaining_date",
+    "mentor_total": "mentor_total_owed",
+}
+MONEY_FIELDS = frozenset({"client_fee", "english_sum", "english_paid", "client_remaining", "mentor_total"})
+DATE_FIELDS = frozenset({"signed_date", "client_remaining_date"})
+
 _SNAPSHOT_VALUE_KEY = {
     "full_name": "full_name",
     "phone": "phone",
     "degree_level": "degree_raw",
     "intake_year": "intake_raw",
-    "pipeline_status": "payment_status_raw",
+    "pipeline_status": "payment_status_raw", "signed_date": "date_of_agreement",
+    "client_fee": "client_fee", "english_sum": "english_sum", "english_paid": "english_paid",
+    "client_remaining": "client_remaining", "client_remaining_date": "client_remaining_date",
+    "mentor_total": "mentor_total",
 }
 
 
@@ -91,12 +111,23 @@ def canonical_profile_value(field: str, value: Any) -> str | None:
             return None
     if field == "intake_year":
         return _parse_intake(value)
+    if field in MONEY_FIELDS:
+        try:
+            amount = Decimal(str(value).replace(" ", "").replace(",", "."))
+            return format(amount.quantize(Decimal("0.01")), ".2f") if amount.is_finite() and abs(amount) < Decimal("10000000000000000") and amount == amount.quantize(Decimal("0.01")) else None
+        except (InvalidOperation, ValueError):
+            return None
+    if field in DATE_FIELDS:
+        try:
+            return date.fromisoformat(str(value)[:10]).isoformat()
+        except ValueError:
+            return None
     return None
 
 
 def _crm_raw(field: str, student: Any, contract: Any = None) -> Any:
-    if field == "pipeline_status":
-        return contract.pipeline_status.value if contract and contract.pipeline_status else None
+    if field in CONTRACT_FIELD_ATTR:
+        return getattr(contract, CONTRACT_FIELD_ATTR[field], None)
     if field == "full_name":
         return student.full_name
     if field == "phone":
@@ -145,6 +176,8 @@ def _crm_to_notion_payload(
         "degree_level": {"select", "status"},
         "intake_year": {"select", "status"},
         "pipeline_status": {"select", "status"},
+        **{key: {"number"} for key in MONEY_FIELDS},
+        **{key: {"date"} for key in DATE_FIELDS},
     }
     if prop_type not in expected_types[field]:
         return None
@@ -160,6 +193,12 @@ def _crm_to_notion_payload(
             notion_value = canonical
         if notion_value is None:
             return None
+    if field in MONEY_FIELDS:
+        notion_value = float(canonical)
+        if canonical_profile_value(field, notion_value) != canonical:
+            return None
+    if field in DATE_FIELDS:
+        notion_value = canonical
     return notion_write.build_property(prop_type, notion_value)
 
 
@@ -182,6 +221,10 @@ def _notion_to_crm_value(field: str, notion_value: Any) -> Any | None:
     if field == "intake_year":
         parsed_year = _parse_intake(notion_value)
         return int(parsed_year) if parsed_year else None
+    if field in MONEY_FIELDS:
+        return Decimal(canonical_profile_value(field, notion_value))
+    if field in DATE_FIELDS:
+        return date.fromisoformat(canonical_profile_value(field, notion_value))
     return None
 
 
@@ -218,6 +261,13 @@ async def process_profile_field(
     if item.student_id != student.id:
         return RuntimeResult(RuntimeDisposition.superseded, field, "Linked CRM student changed or is missing")
 
+    if field in CONTRACT_FIELD_ATTR and field != "pipeline_status" and contract is None:
+        return RuntimeResult(RuntimeDisposition.conflict, field, "A single verified contract is required for this field")
+    if field in MONEY_FIELDS and getattr(contract, "currency", None) != "KZT":
+        return RuntimeResult(RuntimeDisposition.conflict, field, "Financial synchronization requires a KZT contract")
+    expected_contract = getattr(item, "expected_contract_id", None)
+    if expected_contract is not None and (contract is None or contract.id != expected_contract):
+        return RuntimeResult(RuntimeDisposition.superseded, field, "The reviewed contract was replaced or removed")
     current_crm = _crm_raw(field, student, contract)
     if not _matches_expected(field, current_crm, item.crm_value):
         return RuntimeResult(RuntimeDisposition.superseded, field, "CRM field changed after this item was queued")
@@ -240,8 +290,13 @@ async def process_profile_field(
         actual = notion_write.read_value(item.notion_page_id, real_name)
         return schema, real_name, prop_type, actual
 
-    schema, real_name, prop_type, current_notion_raw = await asyncio.to_thread(read_live_notion)
+    try:
+        schema, real_name, prop_type, current_notion_raw = await asyncio.to_thread(read_live_notion)
+    except ValueError:
+        return RuntimeResult(RuntimeDisposition.conflict, field, "Notion property is missing or not writable")
     current_notion = canonical_profile_value(field, current_notion_raw)
+    if current_notion_raw not in (None, "") and current_notion is None:
+        return RuntimeResult(RuntimeDisposition.conflict, field, "Live Notion value is not recognized; preserve it for review")
     if current_notion != expected_notion:
         # A previous attempt can have written Notion successfully and then
         # failed before committing the local baseline/outbox transition. On
@@ -311,14 +366,16 @@ async def process_profile_field(
                 await session.flush()
             else:
                 contract.pipeline_status = new_crm
+        elif field in CONTRACT_FIELD_ATTR:
+            setattr(contract, CONTRACT_FIELD_ATTR[field], new_crm)
         else:
             setattr(student, field, new_crm)
         student.updated_at = datetime.now(timezone.utc)
         await log_change(
             session,
-            "contract" if field == "pipeline_status" else "student",
-            contract.id if field == "pipeline_status" else student.id,
-            "pipeline_status" if field == "pipeline_status" else f"notion_auto_sync:{field}",
+            "contract" if field in CONTRACT_FIELD_ATTR else "student",
+            contract.id if field in CONTRACT_FIELD_ATTR else student.id,
+            CONTRACT_FIELD_ATTR[field] if field in CONTRACT_FIELD_ATTR else f"notion_auto_sync:{field}",
             old_crm.value if isinstance(old_crm, Enum) else old_crm,
             new_crm.value if isinstance(new_crm, Enum) else new_crm,
             "system:notion_field_sync",
@@ -372,6 +429,7 @@ async def process_outbox_batch(
         if item is None:
             break
         item_id = item.id
+        claimed_attempt = getattr(item, "attempts", None)
         await session.commit()  # Commit the lease before making a network call.
         counters["claimed"] += 1
         item = await session.get(NotionFieldSync, item_id)
@@ -380,10 +438,29 @@ async def process_outbox_batch(
         try:
             student = await session.get(Student, item.student_id, with_for_update=True) if item.student_id else None
             snapshot = await session.get(NotionSnapshot, item.notion_snapshot_id, with_for_update=True) if item.notion_snapshot_id else None
+            item = await session.get(NotionFieldSync, item_id, with_for_update=True, populate_existing=True)
+            if item is None or item.status is not FieldSyncStatus.processing or (claimed_attempt is not None and item.attempts != claimed_attempt):
+                await session.commit()
+                continue
             contract = None
-            if getattr(item, "field_key", None) == "pipeline_status" and student is not None:
-                contract = (await session.execute(select(Contract).where(Contract.student_id == student.id)
-                    .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1).with_for_update())).scalar_one_or_none()
+            if getattr(item, "field_key", None) in CONTRACT_FIELD_ATTR and student is not None:
+                contracts = (await session.execute(select(Contract).where(Contract.student_id == student.id)
+                    .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(2).with_for_update())).scalars().all()
+                if item.field_key == "pipeline_status" or len(contracts) == 1:
+                    contract = contracts[0] if contracts else None
+            if student is not None and snapshot is not None:
+                linked_ids = (await session.execute(select(NotionSnapshot.id).where(
+                    NotionSnapshot.student_id == student.id,
+                    NotionSnapshot.status == NotionMatchStatus.linked,
+                ))).scalars().all()
+                if len(linked_ids) != 1:
+                    item.status = FieldSyncStatus.superseded
+                    item.locked_until = None
+                    item.last_error = "Several Notion pages are linked to the student; source must be reviewed"
+                    item.updated_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    counters["superseded"] += 1
+                    continue
             result = await process_profile_field(
                 session, item, student=student, snapshot=snapshot, contract=contract, dry_run=dry_run
             )

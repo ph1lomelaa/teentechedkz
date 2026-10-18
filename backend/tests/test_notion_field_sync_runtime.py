@@ -182,7 +182,7 @@ def test_unrelated_page_edit_does_not_block_unchanged_field(monkeypatch):
 
 def test_fields_outside_allowlist_never_write():
     item, student, snapshot, _crm, _notion = setup_case("full_name")
-    item.field_key = "client_fee"
+    item.field_key = "countries"
 
     result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
 
@@ -241,6 +241,7 @@ def test_batch_retains_dry_run_as_reviewable_and_claimable_later(monkeypatch):
     monkeypatch.setattr(runtime, "process_profile_field", ready)
     session = FakeSession()
     session.commit = AsyncMock()
+    session.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [snapshot.id])))
     entities = {item.id: item, item.student_id: student, item.notion_snapshot_id: snapshot}
     session.get = AsyncMock(side_effect=lambda _model, entity_id, **_kwargs: entities.get(entity_id))
 

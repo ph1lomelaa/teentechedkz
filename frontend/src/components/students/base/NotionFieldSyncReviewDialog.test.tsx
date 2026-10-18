@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { syncApi } from '@/api/sync'
 import { NotionFieldSyncReviewDialog } from './NotionFieldSyncReviewDialog'
 
+vi.mock('./NotionSyncReportPanel', () => ({ NotionSyncReportPanel: () => <p>Общий отчёт</p> }))
+
 const conflict = {
   id: 'sync-1', student_id: 'student-1', student_name: 'Айгерим', notion_page_id: 'page-1',
   field_key: 'phone', direction: 'conflict', status: 'conflict' as const,
@@ -14,7 +16,9 @@ const conflict = {
 
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><NotionFieldSyncReviewDialog open onOpenChange={() => {}} /></QueryClientProvider>)
+  const result = render(<QueryClientProvider client={client}><NotionFieldSyncReviewDialog open onOpenChange={() => {}} /></QueryClientProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Очередь и ошибки' }))
+  return result
 }
 
 describe('сверка полей CRM и Notion', () => {

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +67,7 @@ async def enqueue_reconciliation(
     baseline_value: Any = None,
     has_baseline: bool,
     expected_notion_last_edited_at: datetime | None = None,
+    expected_contract_id: UUID | None = None,
     reason: str | None = None,
     now: datetime | None = None,
 ) -> NotionFieldSync:
@@ -85,6 +86,8 @@ async def enqueue_reconciliation(
     # Unknown baseline and unsafe clears are persisted for human review.
     direction, status = _intent_for_result(result)
 
+    if expected_contract_id is not None:
+        source_revision = hashlib.sha256(f"{source_revision}:contract:{expected_contract_id}".encode()).hexdigest() if not source_revision.startswith(("manual-resolution:", "crm-edit:")) else source_revision
     key = build_dedupe_key(
         notion_page_id=notion_page_id,
         field_key=field_key,
@@ -114,6 +117,7 @@ async def enqueue_reconciliation(
             reason=reason,
             source_revision=source_revision,
             expected_notion_last_edited_at=expected_notion_last_edited_at,
+            expected_contract_id=expected_contract_id,
             available_at=timestamp,
             created_at=timestamp,
             updated_at=timestamp,
@@ -121,15 +125,57 @@ async def enqueue_reconciliation(
         .on_conflict_do_nothing(index_elements=[NotionFieldSync.dedupe_key])
         .returning(NotionFieldSync.id)
     )
+    # The student lock taken by callers serializes competing edit intents.
+    # A repeated mirror poll must not replace an explicit pending human choice.
+    if not source_revision.startswith(("manual-resolution:", "crm-edit:")):
+        intent = await session.scalar(select(NotionFieldSync).where(
+            NotionFieldSync.student_id == student_id,
+            NotionFieldSync.notion_page_id == notion_page_id,
+            NotionFieldSync.field_key == field_key,
+            NotionFieldSync.status.in_([FieldSyncStatus.pending, FieldSyncStatus.processing, FieldSyncStatus.dry_run]),
+            or_(NotionFieldSync.source_revision.like("manual-resolution:%"), NotionFieldSync.source_revision.like("crm-edit:%")),
+        ).order_by(NotionFieldSync.created_at.desc()).limit(1))
+        if intent is not None and intent.crm_value == result.crm_value and intent.notion_value == result.notion_value:
+            return intent
     inserted_id = (await session.execute(stmt)).scalar_one_or_none()
-    if inserted_id is not None:
-        return await session.get(NotionFieldSync, inserted_id)
-    existing = await session.scalar(
-        select(NotionFieldSync).where(NotionFieldSync.dedupe_key == key)
+    existing = await session.get(NotionFieldSync, inserted_id) if inserted_id is not None else await session.scalar(
+        select(NotionFieldSync).where(NotionFieldSync.dedupe_key == key).with_for_update()
     )
-    if existing is None:  # Defensive: concurrent delete between conflict and read.
+    if existing is None:
         raise RuntimeError("outbox row conflicted but could not be reloaded")
+    # A once-superseded state can recur. Revalidate it rather than silently
+    # dropping a legitimate new change because its state hash was seen before.
+    if (existing.status in (FieldSyncStatus.superseded, FieldSyncStatus.failed, FieldSyncStatus.succeeded)
+            or existing.direction != direction or existing.decision != result.decision.value):
+        existing.status = status
+        existing.direction = direction
+        existing.decision = result.decision.value
+        existing.winning_side = result.winner.value if result.winner else None
+        existing.expected_contract_id = expected_contract_id
+        existing.available_at = timestamp
+        existing.locked_until = None
+        existing.completed_at = None
+        existing.last_error = None
+        existing.updated_at = timestamp
+    await session.execute(update(NotionFieldSync).where(
+        NotionFieldSync.student_id == student_id,
+        NotionFieldSync.notion_page_id == notion_page_id,
+        NotionFieldSync.field_key == field_key,
+        NotionFieldSync.id != existing.id,
+        NotionFieldSync.status.in_([FieldSyncStatus.pending, FieldSyncStatus.dry_run, FieldSyncStatus.conflict, FieldSyncStatus.failed]),
+    ).values(status=FieldSyncStatus.superseded, locked_until=None, updated_at=timestamp,
+             last_error="Reclassified against the current field values"))
     return existing
+
+
+async def retire_resolved(session, *, snapshot_id, field_key):
+    """Keep old comparisons out of the open queue once the sources agree."""
+    await session.execute(update(NotionFieldSync).where(
+        NotionFieldSync.notion_snapshot_id == snapshot_id,
+        NotionFieldSync.field_key == field_key,
+        NotionFieldSync.status.in_([FieldSyncStatus.pending, FieldSyncStatus.dry_run, FieldSyncStatus.conflict, FieldSyncStatus.failed]),
+    ).values(status=FieldSyncStatus.superseded, locked_until=None,
+             updated_at=datetime.now(timezone.utc), last_error="Both sources now agree"))
 
 
 async def claim_next(
@@ -143,8 +189,11 @@ async def claim_next(
     if not settings.ENABLE_NOTION_FIELD_SYNC:
         return None
     timestamp = now or datetime.now(timezone.utc)
+    claim_query = select(NotionFieldSync)
+    if settings.NOTION_FIELD_SYNC_STUDENT_IDS:
+        claim_query = claim_query.where(NotionFieldSync.student_id.in_(settings.NOTION_FIELD_SYNC_STUDENT_IDS))
     candidate = await session.scalar(
-        select(NotionFieldSync)
+        claim_query
         .where(
             NotionFieldSync.status.in_(
                 [FieldSyncStatus.pending, FieldSyncStatus.processing]
@@ -194,6 +243,6 @@ async def finish_attempt(
         item.status = FieldSyncStatus.succeeded
         item.completed_at = timestamp
     else:
-        item.status = FieldSyncStatus.pending
+        item.status = FieldSyncStatus.failed if getattr(item, "attempts", 0) >= 8 else FieldSyncStatus.pending
         item.available_at = timestamp + timedelta(seconds=max(1, retry_after_seconds))
     await session.flush()
