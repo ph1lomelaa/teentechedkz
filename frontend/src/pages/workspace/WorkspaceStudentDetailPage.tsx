@@ -1,9 +1,10 @@
+import { invalidateDocuments } from '@/lib/queryKeys'
 import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
 import { QueryError } from '@/components/shared/QueryState'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -23,7 +24,6 @@ import {
   MessageCircle,
   Route,
   Send,
-  Shield,
   Star,
   Upload,
   UserRound,
@@ -39,15 +39,9 @@ import { documentsApi } from '@/api/documents'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { chatApi } from '@/api/chat'
-import { workspaceApi } from '@/api/workspace'
 import { syncApi, StudentIntake } from '@/api/sync'
 import { notionApi, StudentNotion } from '@/api/notion'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/primitives/accordion'
+import { AccordionItem, AccordionContent, AccordionTrigger, StudentDetailSections } from '@/components/students/detail/StudentDetailSections'
 import { RoadmapHeaderCard } from '@/components/portal/RoadmapHeaderCard'
 import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
 import { WorkspaceAccessPanel } from '@/components/workspace/WorkspaceAccessPanel'
@@ -78,40 +72,15 @@ import { AppButton, EmptyState, Pill, SegmentedTabs } from '@/components/ui'
 import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/primitives/select'
 
-type WorkspaceTab = 'card' | 'roadmap' | 'tasks' | 'meetings' | 'documents' | 'telegram' | 'chat' | 'notes' | 'activities' | 'access'
-
-const tabs: Array<{ id: WorkspaceTab; label: string; icon: React.ReactNode }> = [
-  { id: 'card', label: 'Карточка', icon: <UserRound className="h-4 w-4" /> },
-  { id: 'roadmap', label: 'Roadmap', icon: <Route className="h-4 w-4" /> },
-  { id: 'tasks', label: 'Задачи', icon: <BookOpen className="h-4 w-4" /> },
-  { id: 'meetings', label: 'Встречи', icon: <Calendar className="h-4 w-4" /> },
-  { id: 'documents', label: 'Документы', icon: <FileText className="h-4 w-4" /> },
-  { id: 'telegram', label: 'Telegram', icon: <Send className="h-4 w-4" /> },
-  { id: 'chat', label: 'Чат', icon: <MessageCircle className="h-4 w-4" /> },
-  { id: 'activities', label: 'Portfolio UP', icon: <Star className="h-4 w-4" /> },
-  { id: 'notes', label: 'Заметки', icon: <Shield className="h-4 w-4" /> },
-  { id: 'access', label: 'Доступ', icon: <KeyRound className="h-4 w-4" /> },
-]
-
-function tabFromHash(hash: string): WorkspaceTab {
-  const raw = hash.replace('#', '')
-  if (raw === 'overview' || raw === 'crm' || raw === 'programs') return 'card'
-  return tabs.some((tab) => tab.id === raw) ? (raw as WorkspaceTab) : 'card'
-}
-
 export const WorkspaceStudentDetailPage: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>()
+  const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
   const { can } = useAuth()
   // Решение 30.08.2026: сверку с интейком и Notion видит и ментор.
   const canReconcile = can('sync', 'manage')
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => tabFromHash(location.hash))
   const [creatingTask, setCreatingTask] = useState(false)
-
-  useEffect(() => {
-    setActiveTab(tabFromHash(location.hash))
-  }, [location.hash])
 
   const { data: student, isLoading, error, refetch } = useQuery({
     queryKey: ['workspace', 'student', studentId],
@@ -131,11 +100,6 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   const { data: meetings = [] } = useQuery({
     queryKey: ['workspace', 'student', studentId, 'meetings'],
     queryFn: () => meetingsApi.studentMeetings(studentId!),
-    enabled: !!studentId,
-  })
-  const { data: workspaceSummary } = useQuery({
-    queryKey: ['workspace', 'student', studentId, 'summary'],
-    queryFn: () => workspaceApi.studentSummary(studentId!),
     enabled: !!studentId,
   })
   const { data: telegramChat } = useQuery({
@@ -225,6 +189,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     mutationFn: (doc: { id: string; visible_to_student?: boolean }) =>
       documentsApi.setVisibility(doc.id, !doc.visible_to_student),
     onSuccess: () => {
+      invalidateDocuments(queryClient, studentId)
       refreshStudentWorkspace()
       toast({ title: 'Видимость документа обновлена' })
     },
@@ -239,9 +204,6 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     () => roadmaps.flatMap((r) => r.stages.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageName: stage.name })))),
     [roadmaps]
   )
-  const nextMeeting = meetings
-    .filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now())
-    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())[0]
   const startNotes = useStartNotes()
   // Идёт сейчас или вот-вот начнётся: конспект привяжем к этой встрече.
   const liveMeeting = meetings.find((meeting) => {
@@ -250,11 +212,6 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     return Date.now() >= start - 30 * 60000 && Date.now() <= end + 30 * 60000
   })
   const activeResponsibles = student?.responsibles?.filter((r) => r.is_active) ?? []
-  const summaryNextMeeting = workspaceSummary?.next_meeting
-  const nextMeetingValue = summaryNextMeeting?.starts_at || nextMeeting?.starts_at
-  const lastTelegramMessage = telegramMessages[telegramMessages.length - 1]
-  const lastContactText =
-    lastTelegramMessage?.raw_text || lastTelegramMessage?.message_type || 'Нет сообщений'
   const roadmapRecommendations = useMemo(
     () => student ? recommendRoadmaps(student, roadmapTemplates) : [],
     [roadmapTemplates, student],
@@ -267,7 +224,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
   </div>
 
   return (
-    <div className="fade-in">
+    <div className="student-detail-card fade-in">
       <Link to="/workspace/students" className="mb-5 inline-flex items-center gap-2 text-xs font-bold text-w-muted transition hover:text-w-accentText">
         <ArrowLeft className="h-4 w-4" />
         Мои студенты
@@ -276,13 +233,14 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       <header className="mb-6 border-b border-w-line pb-6">
         <div className="mb-2 font-display text-[11px] font-black uppercase tracking-[0.24em] text-w-accentText">Карточка студента</div>
         <h1 className="text-balance break-words font-display text-3xl font-black leading-tight tracking-[-0.01em] text-w-ink md:text-4xl">{student.full_name}</h1>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <div className="student-detail-meta mt-3 flex flex-wrap gap-2 text-xs">
           <Badge>{DEGREE_LEVEL_LABELS[student.degree_level]}</Badge>
           <Badge>{student.pipeline_status ? PIPELINE_STATUS_LABELS[student.pipeline_status] : 'Статус не указан'}</Badge>
-          <Badge>{student.intake_year}</Badge>
+          <Badge>Intake {student.intake_year}</Badge>
           {student.country && <Badge>{student.country}</Badge>}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
+          <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => navigate({ pathname: location.pathname, search: location.search, hash: 'profile' }, { replace: true, preventScrollReset: true })}>Профиль и контакты</AppButton>
           <AppButton
             colorPrefix="w"
             size="sm"
@@ -312,44 +270,20 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
         />
       )}
 
-      <div className="mb-5 overflow-x-auto rounded-card border border-w-line bg-w-panel p-2">
-        <div className="flex min-w-max gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => {
-                setActiveTab(tab.id)
-                window.history.replaceState(null, '', `#${tab.id}`)
-              }}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-ctl px-3.5 py-2.5 text-xs font-black transition',
-                activeTab === tab.id
-                  ? 'bg-w-accent text-black'
-                  : 'text-w-muted hover:bg-w-panel2 hover:text-w-ink'
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {activeTab === 'card' && (
+      <StudentDetailSections key={student.id} hashAliases={{ notes: 'confidential', 'meeting-notes': 'notes' }} available={[
+        'roadmap', 'meetings', 'applications', 'shortlist', 'credentials', 'portfolio',
+        'tasks', 'documents', 'notes', 'confidential', 'chat', 'telegram',
+        'profile', 'team', 'payments', 'portal-access',
+        ...(canReconcile ? ['checks'] : []),
+      ]}>
         <CardListView
           student={student}
           responsibles={activeResponsibles}
-          nextMeetingValue={nextMeetingValue}
-          lastContactText={lastContactText}
           intake={intake}
           notion={notion}
           canReconcile={canReconcile}
           roadmapRecommendations={roadmaps.length === 0 ? roadmapRecommendations : []}
-          onOpenRoadmap={() => {
-            setActiveTab('roadmap')
-            window.history.replaceState(null, '', '#roadmap')
-          }}
+          onOpenRoadmap={() => navigate({ pathname: location.pathname, search: location.search, hash: 'roadmap' }, { replace: true, preventScrollReset: true })}
           onApplyNotionField={(field) => applyNotionFieldMutation.mutate(field)}
           applyingNotionField={
             applyNotionFieldMutation.isPending ? applyNotionFieldMutation.variables : undefined
@@ -361,32 +295,30 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
           onUnlinkNotion={(snapshotId) => unlinkNotionMutation.mutate(snapshotId)}
           unlinkingNotion={unlinkNotionMutation.isPending}
         />
-      )}
 
-      {activeTab === 'roadmap' && (
+      <AccordionItem value="roadmap" unframed><AccordionContent>
         <RoadmapTab roadmaps={roadmaps} studentId={student.id} recommendedTemplateId={roadmapRecommendations[0]?.template.id} />
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'tasks' && (
+      <AccordionItem value="tasks" unframed><AccordionContent>
         <TasksTab
           roadmapTasks={roadmapTasks}
           onToggleRoadmapTask={(task) => toggleRoadmapTaskMutation.mutate(task)}
           pendingRoadmapTaskId={toggleRoadmapTaskMutation.variables?.id}
         />
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'meetings' && (
+      <AccordionItem value="meetings" unframed><AccordionContent>
         <div className="space-y-6">
-        <StudentMeetingNotes studentId={student.id} workspace />
         <MeetingsTab
           studentId={studentId!}
           studentName={student.full_name}
           meetings={meetings}
         />
         </div>
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'documents' && (
+      <AccordionItem value="documents" unframed><AccordionContent>
         <DocumentsTab
           studentId={student.id}
           documents={student.documents ?? []}
@@ -395,40 +327,41 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
           onToggleVisibility={(doc) => toggleDocumentVisibilityMutation.mutate(doc)}
           pendingDocId={toggleDocumentVisibilityMutation.variables?.id}
         />
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'telegram' && (
+      <AccordionItem value="telegram" unframed><AccordionContent>
         <TelegramTab studentId={student.id} studentName={student.full_name} chat={telegramChat} messages={telegramMessages} />
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'chat' && (
+      <AccordionItem value="chat" unframed><AccordionContent>
         <ChatTab studentId={student.id} studentName={student.full_name} hasPortalAccess={!!student.user_id} />
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'activities' && (
+      <AccordionItem value="portfolio" unframed><AccordionContent>
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">Личный план активностей</h2><Link className="text-sm underline" to={`/workspace/activities?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
           <ActivityPlan studentId={student.id} catalogPath={`/workspace/activities?student_id=${student.id}&view=catalog`} />
         </section>
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'notes' && (
+      <AccordionItem value="notes" unframed><AccordionContent><StudentMeetingNotes studentId={student.id} workspace /></AccordionContent></AccordionItem>
+
+      <AccordionItem value="confidential" unframed><AccordionContent>
         <section className="rounded-card border border-w-line bg-w-panel p-5">
           <WorkspaceNotesPanel studentId={student.id} studentName={student.full_name} notes={student.confidential_notes ?? []} />
         </section>
-      )}
+      </AccordionContent></AccordionItem>
 
-      {activeTab === 'access' && (
+      <AccordionItem value="portal-access" unframed><AccordionContent>
         <section className="rounded-card border border-w-line bg-w-panel p-5">
           <WorkspaceAccessPanel studentId={student.id} studentName={student.full_name} />
         </section>
-      )}
+      </AccordionContent></AccordionItem>
+      </StudentDetailSections>
     </div>
   )
 }
 
-// «Быстрые метрики» карточки — как строка плиток в CRM (StudentCardPage): под
-// шапкой сразу видно следующее действие, roadmap, встречу и последний контакт.
 const moneyLabel = (value?: string | null, currency = 'KZT') =>
   value ? `${Number(value).toLocaleString('ru-RU')} ${currency}` : '—'
 
@@ -446,14 +379,10 @@ function countNotionMismatch(notion?: StudentNotion | null): number {
   return notion.comparison.filter((row) => row.matches === false).length
 }
 
-// Карточка студента как вертикальный список раскрывающихся блоков — как в CRM
-// (StudentCardPage): один блок за другим, часть открыта по умолчанию, менеджер
-// сам сворачивает/раскрывает. Плюс блоки «Сверка анкет» и «Notion».
+// Profile panels share the CRM navigation and preserve their drafts when hidden.
 function CardListView({
   student,
   responsibles,
-  nextMeetingValue,
-  lastContactText,
   intake,
   notion,
   canReconcile,
@@ -468,8 +397,6 @@ function CardListView({
 }: {
   student: StudentFull
   responsibles: ResponsibleUser[]
-  nextMeetingValue?: string
-  lastContactText: string
   intake?: StudentIntake
   notion?: StudentNotion | null
   canReconcile: boolean
@@ -486,42 +413,18 @@ function CardListView({
   const guardians = student.guardians ?? []
   const services = student.services ?? []
   const currency = contract?.currency || 'KZT'
-  const nextAction = student.student_tasks?.find((task) => task.status === 'open')?.task_text || 'Открытых задач нет'
   const paidTotal = contract?.payments?.length
     ? moneyLabel(String(contract.payments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount || 0), 0)), currency)
     : '—'
   const intakeMismatch = countIntakeMismatch(intake)
   const notionMismatch = countNotionMismatch(notion)
-  const risks = intakeMismatch + notionMismatch
   const showIntake = canReconcile && !!intake && (!!intake.package || !!intake.cases)
   const showNotion = canReconcile && !!notion?.snapshot
   const mentorName = (mentorId?: string | null) =>
     responsibles.find((r) => r.id === mentorId)?.name || (mentorId ? 'Назначен' : 'Не назначен')
 
-  // «Что уже открыто» — как в CRM: профиль/заявки/услуги + сверки, если они есть.
-  // admission-доступы — первыми и раскрыты: без них не отметить оффер, а внизу
-  // страницы их не находили.
-  const defaultOpen = ['credentials', 'applications', 'services']
-  if (showIntake) defaultOpen.push('intake')
-
   return (
-    <div className="space-y-5">
-      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4">
-        <StatTile label="Следующее действие" value={nextAction} />
-        <StatTile
-          label="Риски данных"
-          value={canReconcile ? (risks > 0 ? `${risks} расхожд.` : 'Расхождений нет') : '—'}
-          tone={canReconcile ? (risks > 0 ? 'warn' : 'good') : undefined}
-        />
-        <StatTile label="Ближайшая встреча" value={nextMeetingValue ? formatDate(nextMeetingValue) : 'Нет'} />
-        <StatTile label="Последний контакт" value={lastContactText} />
-      </div>
-
-      {roadmapRecommendations.length > 0 && (
-        <RoadmapRecommendations items={roadmapRecommendations} onOpen={onOpenRoadmap} />
-      )}
-
-      <Accordion type="multiple" defaultValue={defaultOpen} className="space-y-3">
+    <>
         {/* Регламент admission: без доступов к порталу оффер не отметить. */}
         <WSection value="credentials" title="Доступы к порталам (admission)" icon={<KeyRound className="h-4 w-4" />}>
           <PortalCredentialsSection mode="staff" studentId={student.id} />
@@ -574,6 +477,7 @@ function CardListView({
         )}
 
         <WSection value="profile" title="Профиль студента" icon={<UserRound className="h-4 w-4" />}>
+          {roadmapRecommendations.length > 0 && <RoadmapRecommendations items={roadmapRecommendations} onOpen={onOpenRoadmap} />}
           <StudentProcessEditor student={student} workspace />
           <div className="grid gap-3 xl:grid-cols-2">
             <div>
@@ -702,8 +606,7 @@ function CardListView({
             </div>
           )}
         </WSection>
-      </Accordion>
-    </div>
+    </>
   )
 }
 
@@ -1316,12 +1219,14 @@ function DocumentsTab({
   onToggleVisibility: (doc: { id: string; visible_to_student?: boolean }) => void
   pendingDocId?: string
 }) {
+  const documentQueryClient = useQueryClient()
   const [docType, setDocType] = useState<DocType>('other')
   const [file, setFile] = useState<File | null>(null)
   const uploadMutation = useMutation({
     mutationFn: () => documentsApi.upload(studentId, file!, docType),
     onSuccess: () => {
       setFile(null)
+      invalidateDocuments(documentQueryClient, studentId)
       onUploaded()
       toast({ title: 'Документ загружен' })
     },
@@ -1372,7 +1277,7 @@ function DocumentsTab({
             onClick={() => uploadMutation.mutate()}
             className="min-h-10 rounded-ctl bg-w-accent px-4 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {uploadMutation.isPending ? 'Загружаем…' : 'Загрузить'}
+            {uploadMutation.isPending ? 'Загружаем…' : 'Загрузить файл'}
           </button>
         </div>
       )}
@@ -1405,7 +1310,6 @@ function DocumentsTab({
         onChanged={onUploaded}
         onDelete={doc => documentsApi.delete(doc.id)}
         onVisibility={doc => onToggleVisibility(doc)}
-        onSignature={doc => { void documentsApi.requestSignature(doc.id).then(() => { onUploaded(); toast({ title: 'Документ отправлен на подпись' }) }).catch(error => toast({ title: 'Не удалось отправить на подпись', description: getErrorMessage(error), variant: 'destructive' })) }}
         uploadingName={uploadMutation.isPending ? file?.name : null}
         uploadError={uploadMutation.isError ? getErrorMessage(uploadMutation.error) : null}
         onRetryUpload={file ? () => uploadMutation.mutate() : undefined}
@@ -1502,23 +1406,6 @@ function InfoLine({ label, value }: { label: string; value: string }) {
     <div className="rounded-panel border border-w-line bg-w-panel2 px-3 py-2">
       <div className="text-2xs uppercase tracking-[0.16em] text-w-muted2">{label}</div>
       <div className="mt-1 min-h-5 text-sm font-bold text-w-ink">{value}</div>
-    </div>
-  )
-}
-
-// Плитки быстрой сводки — как в карточке студента в CRM (п.1).
-function StatTile({ label, value, tone }: { label: string; value: string; tone?: 'warn' | 'good' }) {
-  return (
-    <div className="rounded-panel border border-w-line bg-w-panel px-3 py-2.5">
-      <div className="text-2xs uppercase tracking-[0.18em] text-w-muted2">{label}</div>
-      <div
-        className={cn(
-          'mt-1 truncate text-sm font-bold',
-          tone === 'warn' ? 'text-w-accentText' : tone === 'good' ? 'text-w-good' : 'text-w-ink',
-        )}
-      >
-        {value}
-      </div>
     </div>
   )
 }

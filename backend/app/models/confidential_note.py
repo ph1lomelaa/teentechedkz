@@ -28,6 +28,16 @@ def note_visible_to_role(visibility: "NoteVisibility", role) -> bool:
     return False
 
 
+def student_note_visible_to_role(visibility: "NoteVisibility", role) -> bool:
+    """Supervisors may inspect every student note without changing edit rights.
+
+    Kept separate from complaint visibility: staff-only complaints are not
+    student supervision records.
+    """
+    from app.models.user import UserRole
+    return role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head) or note_visible_to_role(visibility, role)
+
+
 def default_note_visibility_for(role) -> "NoteVisibility":
     """Visibility tier a system-generated note should get so its creator can
     still see/manage it afterwards. A mentor can only ever see all_mentors

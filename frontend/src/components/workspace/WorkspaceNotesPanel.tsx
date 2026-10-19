@@ -17,8 +17,8 @@ type Props = {
 }
 
 const VISIBILITY_LABEL: Record<NoteVisibility, string> = {
-  admin_only: 'Только admin',
-  admin_and_mzk: 'Admin и MZK',
+  admin_only: 'Руководство · изменяет admin',
+  admin_and_mzk: 'Руководство',
   all_mentors: 'Все менторы',
 }
 
@@ -29,7 +29,7 @@ const VISIBILITY_LABEL: Record<NoteVisibility, string> = {
  */
 export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
   const queryClient = useQueryClient()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
   // Решение 30.08.2026: уровень видимости выбирает автор заметки, включая
   // ментора. Право на сам раздел и так было у всех троих.
   const canPickVisibility = can('confidential_notes', 'manage')
@@ -130,6 +130,7 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
                     <p className="text-[11px] text-w-muted">
                       Видят: {VISIBILITY_LABEL[note.visible_to_role]} · {formatDate(note.created_at)}
                     </p>
+                    {(note.visible_to_role !== 'admin_only' || user?.role === 'admin') && (
                     <div className="relative">
                       <AppButton
                         colorPrefix="w"
@@ -168,6 +169,7 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                   {note.visible_to_student && (
                     <p className="mt-1.5 text-[11px] font-bold text-w-good">Видно ученику в разделе «Заметки»</p>
@@ -208,8 +210,8 @@ export function WorkspaceNotesPanel({ studentId, studentName, notes }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="border-w-line bg-w-panel text-w-ink">
-                  <SelectItem value="admin_only">Только admin</SelectItem>
-                  <SelectItem value="admin_and_mzk">Admin и MZK</SelectItem>
+                  <SelectItem value="admin_only">Руководство · изменяет admin</SelectItem>
+                  <SelectItem value="admin_and_mzk">Руководство</SelectItem>
                   <SelectItem value="all_mentors">Все менторы</SelectItem>
                 </SelectContent>
               </Select>

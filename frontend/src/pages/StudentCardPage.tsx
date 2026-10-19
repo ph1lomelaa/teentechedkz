@@ -28,7 +28,7 @@ import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
-import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
+import { invalidateFinances, invalidateStudent, invalidateDocuments, studentKeys } from '@/lib/queryKeys'
 import { QueryError } from '@/components/shared/QueryState'
 import { studentsApi } from '@/api/students'
 import {
@@ -593,7 +593,7 @@ export const StudentCardPage: React.FC = () => {
     if (enteredDirectly.current) navigate(inWorkspace ? '/workspace/students' : '/students')
     else navigate(-1)
   }
-  const { can, hasRole } = useAuth()
+  const { can, hasRole, user } = useAuth()
   const taskQueryClient = useQueryClient()
   const [creatingTask, setCreatingTask] = useState(false)
   const canEditContract = can('contracts', 'manage')
@@ -932,7 +932,7 @@ export const StudentCardPage: React.FC = () => {
     setDocumentUploadPending(true)
     try {
       await documentsApi.upload(id, documentUploadFile, documentUploadType)
-      invalidateStudent(queryClient, id)
+      invalidateDocuments(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
       toast({ title: 'Документ загружен', description: documentUploadFile.name })
       setDocumentUploadFile(null)
@@ -946,16 +946,6 @@ export const StudentCardPage: React.FC = () => {
       })
     } finally {
       setDocumentUploadPending(false)
-    }
-  }
-
-  const handleRequestDocumentSignature = async (doc: Document) => {
-    try {
-      await documentsApi.requestSignature(doc.id)
-      invalidateStudent(queryClient, id)
-      toast({ title: 'Документ отправлен', description: 'Ученик увидит его в кабинете и сможет подписать после просмотра.' })
-    } catch (err) {
-      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось отправить документ на подпись'), variant: 'destructive' })
     }
   }
 
@@ -1207,7 +1197,7 @@ export const StudentCardPage: React.FC = () => {
         ...(can('portfolio', 'manage') ? ['portfolio'] : []),
         ...(can('tasks', 'view') ? ['tasks'] : []),
         ...(can('notes', 'manage') ? ['notes'] : []),
-        ...(can('documents', 'view') ? ['documents'] : []),
+        ...(can('documents', 'view') || can('documents', 'manage') ? ['documents'] : []),
         'profile', 'team',
         ...(can('confidential_notes', 'manage') ? ['confidential'] : []),
         ...(can('chat', 'manage') ? ['chat'] : []),
@@ -1922,8 +1912,7 @@ export const StudentCardPage: React.FC = () => {
               onFilesDropped={can('documents', 'manage') ? files => { if (files[0]) { setDocumentUploadFile(files[0]); setDocumentUploadOpen(true) } } : undefined}
               onChanged={() => invalidateStudent(queryClient, id)}
               onDelete={doc => documentsApi.delete(doc.id)}
-              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateStudent(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
-              onSignature={doc => { void handleRequestDocumentSignature(doc) }}
+              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateDocuments(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
               uploadingName={documentUploadPending ? documentUploadFile?.name : null}
             />
 
@@ -2088,8 +2077,9 @@ export const StudentCardPage: React.FC = () => {
                         <p className="text-sm text-p-text">{note.note_text}</p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-p-muted">
-                            Видят: {note.visible_to_role} · {formatDate(note.created_at)}
+                            Видят: {{ admin_only: 'Руководство · изменяет admin', admin_and_mzk: 'Руководство', all_mentors: 'Вся команда' }[note.visible_to_role]} · {formatDate(note.created_at)}
                           </p>
+                          {(note.visible_to_role !== 'admin_only' || user?.role === 'admin') && (
                           <div className="relative">
                             <Button
                               variant="outline"
@@ -2128,6 +2118,7 @@ export const StudentCardPage: React.FC = () => {
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
                         {note.visible_to_student && (
                           <p className="mt-1 text-xs font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
@@ -2156,8 +2147,8 @@ export const StudentCardPage: React.FC = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin_only">Только admin</SelectItem>
-                        <SelectItem value="admin_and_mzk">Admin и MZK</SelectItem>
+                        <SelectItem value="admin_only">Руководство · изменяет admin</SelectItem>
+                        <SelectItem value="admin_and_mzk">Руководство</SelectItem>
                         <SelectItem value="all_mentors">Все менторы</SelectItem>
                       </SelectContent>
                     </Select>

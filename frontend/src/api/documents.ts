@@ -12,8 +12,8 @@ export const documentsApi = {
     })
     return response.data
   },
-  verify: async (docId: string): Promise<Document> => {
-    const response = await apiClient.patch<Document>(`/documents/${docId}/verify`)
+  verify: async (docId: string, verified = true): Promise<Document> => {
+    const response = await apiClient.patch<Document>(`/documents/${docId}/verify`, { is_verified: verified })
     return response.data
   },
   download: async (docId: string): Promise<Blob> => {

@@ -58,7 +58,7 @@ const data = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data)
 
 export const chatApi = {
   contacts: () => data<Contact[]>(apiClient.get('/portal/contacts')),
-  conversations: (params?: { mentor_id?: string | null }) =>
+  conversations: (params?: { mentor_id?: string | null; scope?: 'all' | 'mine' }) =>
     data<ConversationListItem[]>(apiClient.get('/conversations', { params })),
   start: (userId: string) => data<{ id: string }>(apiClient.post('/conversations', { user_id: userId })),
   staffConversation: (studentId: string) => data<{ id: string }>(apiClient.post(`/students/${studentId}/conversation`)),

@@ -1,3 +1,5 @@
+import { DocumentReviewControls, DocumentWorkflowHelp } from '@/components/shared/DocumentReviewControls'
+import { invalidateDocuments } from '@/lib/queryKeys'
 import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -24,6 +26,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
   const [uploadStudentId, setUploadStudentId] = useState('')
   const [studentId, setStudentId] = useLocalState('workspace:documents:studentFilter', '')
   const [source, setSource] = useLocalState('workspace:documents:sourceFilter', '')
+  const [reviewFilter, setReviewFilter] = useLocalState('workspace:documents:reviewFilter', 'all')
   const [search, setSearch] = useLocalState('workspace:documents:search', '')
   const [docType, setDocType] = useState<DocType>('other')
   const [file, setFile] = useState<File | null>(null)
@@ -42,21 +45,21 @@ export const WorkspaceDocumentsPage: React.FC = () => {
   const visibleDocuments = useMemo(() => {
     const q = search.trim().toLowerCase()
     return documents.filter((doc) =>
-      (!studentId || doc.student_id === studentId)
+      (reviewFilter === 'all' || (reviewFilter === 'verified' ? doc.is_verified : !doc.is_verified))
+      && (!studentId || doc.student_id === studentId)
       && (!source
         || (source === 'internal' && doc.source_message?.channel === 'internal')
         || (source === 'manual_upload' && doc.source === 'manual_upload' && !doc.source_message)
         || (!['internal', 'manual_upload'].includes(source) && doc.source === source))
       && (!q || doc.file_name.toLowerCase().includes(q) || doc.student_name.toLowerCase().includes(q)),
     )
-  }, [documents, search, source, studentId])
+  }, [documents, search, source, studentId, reviewFilter])
 
   const toggleVisibilityMutation = useMutation({
     mutationFn: (doc: { id: string; visible_to_student?: boolean }) =>
       documentsApi.setVisibility(doc.id, !doc.visible_to_student),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'student'] })
+      invalidateDocuments(queryClient)
       toast({ title: 'Видимость документа обновлена' })
     },
     onError: () => toast({ title: 'Не удалось изменить видимость', variant: 'destructive' }),
@@ -65,8 +68,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
     mutationFn: ({ id, docType: nextType }: { id: string; docType: DocType }) =>
       documentsApi.setType(id, nextType),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'student'] })
+      invalidateDocuments(queryClient)
       toast({ title: 'Тип документа обновлён' })
     },
     onError: () => toast({ title: 'Не удалось изменить тип', variant: 'destructive' }),
@@ -75,8 +77,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
     mutationFn: () => documentsApi.upload(uploadStudentId, file!, docType),
     onSuccess: () => {
       setFile(null)
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'student'] })
+      invalidateDocuments(queryClient)
       toast({ title: 'Документ загружен' })
     },
     onError: () => toast({ title: 'Не удалось загрузить документ', variant: 'destructive' }),
@@ -142,12 +143,14 @@ export const WorkspaceDocumentsPage: React.FC = () => {
         </div>
       </AppCard>
 
-      <AppCard colorPrefix="w" className="mb-5 grid gap-2 p-3 md:grid-cols-[1fr_240px_220px]">
+      <AppCard colorPrefix="w" className="mb-5 grid gap-2 p-3 md:grid-cols-2">
         <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" /><AppInput colorPrefix="w" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск документа" className="bg-w-panel2 pl-9" /></div>
         <AppSelect colorPrefix="w" value={studentId} onChange={(event) => setStudentId(event.target.value)} className="bg-w-panel2"><option value="">Все студенты</option>{students.map((student) => <option key={student.id} value={student.id}>{student.full_name}</option>)}</AppSelect>
         <AppSelect colorPrefix="w" value={source} onChange={(event) => setSource(event.target.value)} className="bg-w-panel2"><option value="">Все источники</option><option value="telegram">Telegram</option><option value="internal">Внутренний чат</option><option value="manual_upload">Ручная загрузка</option><option value="whatsapp">WhatsApp</option></AppSelect>
       </AppCard>
 
+      <DocumentWorkflowHelp />
+      <AppSelect colorPrefix="w" aria-label="Проверка документов" value={reviewFilter} onChange={e => setReviewFilter(e.target.value)} className="mb-4"><option value="all">Все документы</option><option value="unverified">Нужна проверка</option><option value="verified">Проверены</option></AppSelect>
       <AppCard colorPrefix="w" className="p-5">
         {/* «Документов пока нет» на упавшем запросе отправляло искать файл, который на месте. */}
         <QueryState
@@ -180,7 +183,6 @@ export const WorkspaceDocumentsPage: React.FC = () => {
                           : SOURCE_LABELS[doc.source] || doc.source}
                       </Pill>
                       <Pill colorPrefix="w">{formatDate(doc.uploaded_at)}</Pill>
-                      {!doc.is_verified && <Pill colorPrefix="w" tone="accent">на проверке</Pill>}
                     </div>
                     <div className="mt-3 max-w-[230px]">
                       <AppSelect colorPrefix="w"
@@ -198,9 +200,9 @@ export const WorkspaceDocumentsPage: React.FC = () => {
                         <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => previewDocument(doc.id)}><Eye className="h-3.5 w-3.5" />Просмотр</AppButton>
                       )}
                       <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => downloadDocument(doc.id, doc.file_name)}><Download className="h-3.5 w-3.5" />Скачать</AppButton>
-                      <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={toggleVisibilityMutation.variables?.id === doc.id} onClick={() => toggleVisibilityMutation.mutate(doc)}>
+                      <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={toggleVisibilityMutation.isPending && toggleVisibilityMutation.variables?.id === doc.id} onClick={() => toggleVisibilityMutation.mutate(doc)}>
                         {doc.visible_to_student ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                        {doc.visible_to_student ? 'Виден студенту' : 'Только staff'}
+                        {doc.visible_to_student ? doc.signature_status === 'pending' ? 'Скрыть и отменить запрос' : 'Скрыть от студента' : 'Показать студенту'}
                       </AppButton>
                       {doc.source_message && (
                         <Link
@@ -211,6 +213,7 @@ export const WorkspaceDocumentsPage: React.FC = () => {
                         </Link>
                       )}
                     </div>
+                    <DocumentReviewControls doc={doc} onChanged={() => invalidateDocuments(queryClient, doc.student_id)} allowDelete />
                   </div>
                 </div>
               </article>

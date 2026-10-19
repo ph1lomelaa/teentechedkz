@@ -67,11 +67,8 @@ export const WorkspaceChatPage: React.FC = () => {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const { mentorId, params, isPreview } = useWorkspaceScope()
-  const isManager = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head'
-  const effectiveWorkspaceParams: WorkspaceScopeParams = useMemo(() => {
-    if (mentorId) return { mentor_id: mentorId }
-    return isManager ? { scope: 'all' } : params
-  }, [isManager, mentorId, params])
+  const effectiveWorkspaceParams: WorkspaceScopeParams = params
+  const telegramScope = mentorId || params.scope === 'all' ? 'all' : 'mine'
 
   const searchParams = new URLSearchParams(window.location.search)
   const requestedStudentId = searchParams.get('student_id')
@@ -88,12 +85,12 @@ export const WorkspaceChatPage: React.FC = () => {
   const [createInternalStudentId, setCreateInternalStudentId] = useState<string>(requestedStudentId || '')
 
   const { data: conversations = [], isLoading: internalLoading, isError: internalFailed, error: internalError, refetch: refetchInternal } = useQuery({
-    queryKey: ['workspace', 'chat', 'conversations', mentorId],
-    queryFn: () => chatApi.conversations(mentorId ? { mentor_id: mentorId } : undefined),
+    queryKey: ['workspace', 'chat', 'conversations', params],
+    queryFn: () => chatApi.conversations(params),
   })
   const { data: telegramChats = [], isLoading: telegramLoading, isError: telegramFailed, error: telegramError, refetch: refetchTelegram } = useQuery({
-    queryKey: ['workspace', 'chat', 'telegram', mentorId, isManager ? 'all' : 'mine'],
-    queryFn: () => telegramApi.listAll(undefined, mentorId || isManager ? 'all' : 'mine', mentorId),
+    queryKey: ['workspace', 'chat', 'telegram', mentorId, telegramScope],
+    queryFn: () => telegramApi.listAll(undefined, telegramScope, mentorId),
   })
   const { data: workspaceStudents, isLoading: studentsLoading } = useQuery({
     queryKey: ['workspace', 'chat', 'students', mentorId, effectiveWorkspaceParams.scope || 'preview'],
