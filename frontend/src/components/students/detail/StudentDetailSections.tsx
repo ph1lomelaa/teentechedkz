@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useId, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Route, CalendarDays, GraduationCap, Star, ClipboardList, MessageCircle, UserRound } from 'lucide-react'
+import { Route, CalendarDays, GraduationCap, Star, ClipboardList, MessageCircle, UserRound, FileText } from 'lucide-react'
 import {
   AccordionItem as OriginalItem,
   AccordionTrigger as OriginalTrigger,
@@ -13,7 +13,8 @@ export const DETAIL_GROUPS = [
   { id: 'meetings', label: 'Встречи', icon: CalendarDays, sections: [{ id: 'meetings', label: 'Встречи' }] },
   { id: 'universities', label: 'Вузы и заявки', icon: GraduationCap, sections: [{ id: 'applications', label: 'Заявки' }, { id: 'shortlist', label: 'Рассматриваем' }, { id: 'credentials', label: 'Admission-доступы' }] },
   { id: 'portfolio', label: 'Portfolio UP', icon: Star, sections: [{ id: 'portfolio', label: 'Личный план' }] },
-  { id: 'work', label: 'Задачи и записи', icon: ClipboardList, sections: [{ id: 'tasks', label: 'Задачи' }, { id: 'notes', label: 'Конспекты' }, { id: 'confidential', label: 'Заметки' }, { id: 'documents', label: 'Документы' }] },
+  { id: 'work', label: 'Задачи и записи', icon: ClipboardList, sections: [{ id: 'tasks', label: 'Задачи' }, { id: 'notes', label: 'Конспекты' }, { id: 'confidential', label: 'Заметки' }] },
+  { id: 'documents', label: 'Документы', icon: FileText, sections: [{ id: 'documents', label: 'Документы' }] },
   { id: 'communication', label: 'Общение', icon: MessageCircle, sections: [{ id: 'chat', label: 'Чат' }, { id: 'telegram', label: 'Telegram' }] },
   { id: 'about', label: 'О студенте', icon: UserRound, sections: [{ id: 'profile', label: 'Профиль' }, { id: 'team', label: 'Команда и услуги' }, { id: 'payments', label: 'Договор и оплаты' }, { id: 'checks', label: 'Сверки' }, { id: 'portal-access', label: 'Доступ' }, { id: 'timeline', label: 'История' }] },
 ] as const
@@ -22,13 +23,13 @@ const SECTION_GROUP: Record<string, string> = {
   responsibles: 'team', responsibilities: 'team', services: 'team',
   contract: 'payments', finances: 'payments', intake: 'checks', notion: 'checks',
   'notion-sync': 'checks', 'student-notes': 'confidential',
-  card: 'profile', overview: 'profile', crm: 'profile', programs: 'team',
+  card: 'profile', overview: 'profile', crm: 'profile', programs: 'team', guardians: 'profile',
   activities: 'portfolio', access: 'portal-access',
 }
-export function resolveDetailSection(hash: string): string {
+export function resolveDetailSection(hash: string, aliases: Record<string, string> = {}): string {
   let raw = hash.replace(/^#/, '')
   try { raw = decodeURIComponent(raw) } catch { return 'roadmap' }
-  const id = SECTION_GROUP[raw] || raw
+  const id = aliases[raw] || SECTION_GROUP[raw] || raw
   const group = DETAIL_GROUPS.find((g) => g.id === id)
   if (group) return group.sections[0].id
   return DETAIL_GROUPS.some((g) => g.sections.some((s) => s.id === id)) ? id : 'roadmap'
@@ -39,17 +40,17 @@ const ItemContext = createContext(false)
 export function useStudentDetailMode() { return useContext(DetailContext) !== null }
 
 /** Shared navigation for CRM and workspace; visited panels stay mounted to preserve drafts. */
-export function StudentDetailSections({ children, available }: { children: React.ReactNode; available: string[] }) {
+export function StudentDetailSections({ children, available, hashAliases = {} }: { children: React.ReactNode; available: string[]; hashAliases?: Record<string, string> }) {
   const location = useLocation()
   const navigate = useNavigate()
   const uid = useId()
   const allowedGroups = DETAIL_GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => available.includes(s.id)) })).filter((g) => g.sections.length)
-  const requested = resolveDetailSection(location.hash)
+  const requested = resolveDetailSection(location.hash, hashAliases)
   const active = available.includes(requested) ? requested : allowedGroups[0]?.sections[0]?.id || 'profile'
   const group = allowedGroups.find((g) => g.sections.some((s) => s.id === active))
   const [visited, setVisited] = useState(() => new Set([active]))
   useEffect(() => { setVisited((old) => old.has(active) ? old : new Set([...old, active])) }, [active])
-  const go = (section: string) => navigate({ pathname: location.pathname, search: location.search, hash: section }, { replace: true, preventScrollReset: true })
+  const go = (section: string) => navigate({ pathname: location.pathname, search: location.search, hash: Object.entries(hashAliases).find(([, target]) => target === section)?.[0] || section }, { replace: true, preventScrollReset: true })
   return (
     <DetailContext.Provider value={{ active, visited: new Set([...visited, active]) }}>
       <div className="student-detail-navigation">

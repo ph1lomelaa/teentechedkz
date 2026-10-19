@@ -121,7 +121,7 @@ function LinkDialog({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>(submission.suggested_student_id ?? '')
 
-  const { data: allStudents = [] } = useQuery({
+  const { data: allStudents = [], isLoading: studentsLoading, error: studentsError, refetch: retryStudents } = useQuery({
     queryKey: ['students', 'all'],
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
@@ -141,6 +141,9 @@ function LinkDialog({
     mutationFn: () => syncApi.link(submission.id, selectedId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['intake'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student', selectedId] })
+      qc.invalidateQueries({ queryKey: ['workspace', 'student', selectedId] })
       toast({ title: 'Анкета привязана' })
       onClose()
     },
@@ -166,7 +169,7 @@ function LinkDialog({
           )}
           {submission.identity_review_required && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              Требуется проверить личность заявки
+              Требуется проверить личность заявки. Выберите существующую карточку студента ниже — новая карточка создана не будет.
               {submission.match_candidate_names?.length ? (
                 <span>: {submission.match_candidate_names.join(' · ')}</span>
               ) : null}
@@ -194,11 +197,14 @@ function LinkDialog({
                 </span>
               </button>
             ))}
-            {filtered.length === 0 && (
+            {studentsError && <p role="alert" className="p-3 text-sm text-red-700">Не удалось загрузить студентов. <button type="button" className="underline" onClick={() => retryStudents()}>Повторить</button></p>}
+            {studentsLoading && <p className="p-3 text-sm text-p-muted">Загрузка студентов…</p>}
+            {!studentsLoading && !studentsError && filtered.length === 0 && (
               <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
+        {linkMutation.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(linkMutation.error)}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
           <Button
@@ -214,7 +220,7 @@ function LinkDialog({
 }
 
 /** Панель входящих анкет (status=new) */
-function IntakeInbox() {
+function IntakeInbox({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const [linkTarget, setLinkTarget] = useState<IntakeSubmission | null>(null)
   const [ignoreTarget, setIgnoreTarget] = useState<IntakeSubmission | null>(null)
@@ -222,8 +228,9 @@ function IntakeInbox() {
   const [confirmLinkAll, setConfirmLinkAll] = useState(false)
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['intake', 'inbox', intakeView],
+    refetchInterval: 60_000,
     queryFn: () =>
       syncApi.submissions({
         status: intakeView === 'hidden' ? 'ignored' : intakeView === 'all' ? 'all' : 'new',
@@ -277,7 +284,7 @@ function IntakeInbox() {
         title: 'Студенты созданы',
         description: [
           `Создано: ${res.created}`,
-          res.skipped ? `пропущено (нашёлся похожий студент): ${res.skipped}` : null,
+          res.skipped ? `требуют ручной проверки: ${res.skipped}` : null,
           // Проход ограничен потолком: без этой строки кнопка выглядела бы
           // как «всё разобрано», хотя очередь не пуста.
           res.has_more ? 'очередь разобрана не до конца — нажмите ещё раз' : null,
@@ -297,6 +304,7 @@ function IntakeInbox() {
     <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Входящие анкеты · {data?.total ?? 0}</p>
+        <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={onClose} aria-label="Закрыть: Входящие анкеты"><X className="mr-1 h-4 w-4" />Закрыть</Button>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
@@ -339,7 +347,8 @@ function IntakeInbox() {
           </Button>
         </div>
       </div>
-      {isLoading ? (
+      {(createMutation.error || createMissingMutation.error || bulkLinkMutation.error) && <p role="alert" className="px-4 py-3 text-sm text-red-700">{getErrorMessage(createMutation.error || createMissingMutation.error || bulkLinkMutation.error)}</p>}
+      {error ? <div role="alert" className="p-4 text-sm text-red-700">Не удалось загрузить анкеты: {getErrorMessage(error)} <Button variant="outline" size="sm" onClick={() => refetch()}>Повторить</Button></div> : isLoading ? (
         <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
         <p className="text-center py-8 text-p-muted text-sm">
@@ -501,7 +510,7 @@ function NotionLinkDialog({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>(snapshot.suggested_student_id ?? '')
 
-  const { data: allStudents = [] } = useQuery({
+  const { data: allStudents = [], isLoading: studentsLoading, error: studentsError, refetch: retryStudents } = useQuery({
     queryKey: ['students', 'all'],
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
@@ -521,6 +530,9 @@ function NotionLinkDialog({
     mutationFn: () => notionApi.link(snapshot.id, selectedId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notion'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student', selectedId] })
+      qc.invalidateQueries({ queryKey: ['workspace', 'student', selectedId] })
       toast({ title: 'Запись Notion привязана' })
       onClose()
     },
@@ -544,6 +556,7 @@ function NotionLinkDialog({
                 ` (${Math.round(snapshot.suggested_confidence * 100)}%)`}
             </p>
           )}
+          {snapshot.link_block_reason && <p className="text-xs text-amber-700">{snapshot.link_block_reason}</p>}
           <Input
             placeholder="Поиск студента..."
             value={query}
@@ -566,11 +579,14 @@ function NotionLinkDialog({
                 </span>
               </button>
             ))}
-            {filtered.length === 0 && (
+            {studentsError && <p role="alert" className="p-3 text-sm text-red-700">Не удалось загрузить студентов. <button type="button" className="underline" onClick={() => retryStudents()}>Повторить</button></p>}
+            {studentsLoading && <p className="p-3 text-sm text-p-muted">Загрузка студентов…</p>}
+            {!studentsLoading && !studentsError && filtered.length === 0 && (
               <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
+        {linkMutation.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(linkMutation.error)}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
           <Button
@@ -586,7 +602,7 @@ function NotionLinkDialog({
 }
 
 /** Панель непривязанных записей Notion (status=new) */
-function NotionInbox() {
+function NotionInbox({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const [linkTarget, setLinkTarget] = useState<NotionSnapshotItem | null>(null)
   const [view, setView] = useState<'new' | 'ignored' | 'all'>('new')
@@ -594,8 +610,9 @@ function NotionInbox() {
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
   const [ignoreTarget, setIgnoreTarget] = useState<NotionSnapshotItem | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['notion', 'inbox', view],
+    refetchInterval: 60_000,
     queryFn: () => notionApi.snapshots(view),
   })
 
@@ -620,7 +637,7 @@ function NotionInbox() {
       setConfirmCreateAll(false)
       toast({
         title: 'Студенты созданы',
-        description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
+        description: `Создано: ${res.created}${res.skipped ? ` · требуют ручной проверки: ${res.skipped}` : ''}`,
       })
     },
     onError: (err) => toast({ title: 'Не удалось создать студентов', description: getErrorMessage(err), variant: 'destructive' }),
@@ -631,7 +648,7 @@ function NotionInbox() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['notion'] })
       setConfirmLinkAll(false)
-      toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}` })
+      toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}${res.skipped ? ` · требуют проверки: ${res.skipped}` : ''}` })
     },
     onError: (err) => toast({ title: 'Не удалось привязать совпадения', description: getErrorMessage(err), variant: 'destructive' }),
   })
@@ -647,13 +664,14 @@ function NotionInbox() {
   })
 
   const items = data?.items ?? []
-  const linkableCount = items.filter((item) => item.status === 'new' && item.suggested_student_id).length
+  const linkableCount = items.filter((item) => item.bulk_link_eligible === true).length
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
     <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
+        <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={onClose} aria-label="Закрыть: Notion без привязки"><X className="mr-1 h-4 w-4" />Закрыть</Button>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
@@ -696,7 +714,8 @@ function NotionInbox() {
           </Button>
         </div>
       </div>
-      {isLoading ? (
+      {(createMutation.error || createMissingMutation.error || bulkLinkMutation.error) && <p role="alert" className="px-4 py-3 text-sm text-red-700">{getErrorMessage(createMutation.error || createMissingMutation.error || bulkLinkMutation.error)}</p>}
+      {error ? <div role="alert" className="p-4 text-sm text-red-700">Не удалось загрузить анкеты: {getErrorMessage(error)} <Button variant="outline" size="sm" onClick={() => refetch()}>Повторить</Button></div> : isLoading ? (
         <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
         <p className="text-center py-8 text-p-muted text-sm">
@@ -724,6 +743,9 @@ function NotionInbox() {
                   ) : (
                     snap.full_name
                   )}
+                  {snap.status === 'new' && snap.link_block_reason && <p className="mt-1 max-w-xs text-xs text-amber-700">{snap.link_block_reason}
+                    {snap.suggested_student_id && <Link className="ml-1 underline" to={`/students/${snap.suggested_student_id}#notion`}>Проверить карточку</Link>}
+                  </p>}
                 </TableCell>
                 <TableCell className="text-sm text-p-muted">{snap.payment_status ?? '—'}</TableCell>
                 <TableCell className="text-sm text-p-muted">{snap.intake ?? '—'}</TableCell>
@@ -1659,10 +1681,10 @@ const CrmStudentsListView: React.FC = () => {
       {baseView === 'needs_assignment' && (isNotionLoading || isNotionError) && <p className="rounded-xl border border-ds-line bg-ds-panel2 px-3 py-2 text-xs text-ds-muted">{isNotionLoading ? 'Загружаем статусы Notion для этого вида…' : 'Не удалось загрузить статусы Notion. Повторите запрос выше.'}</p>}
 
       {/* Inbox */}
-      {isManager && showInbox && <IntakeInbox />}
+      {isManager && showInbox && <IntakeInbox onClose={() => setShowInbox(false)} />}
 
       {/* Notion без привязки */}
-      {canSeeNotion && showNotion && <NotionInbox />}
+      {canSeeNotion && showNotion && <NotionInbox onClose={() => setShowNotion(false)} />}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">

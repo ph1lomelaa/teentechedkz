@@ -1207,7 +1207,7 @@ export const StudentCardPage: React.FC = () => {
         ...(can('portfolio', 'manage') ? ['portfolio'] : []),
         ...(can('tasks', 'view') ? ['tasks'] : []),
         ...(can('notes', 'manage') ? ['notes'] : []),
-        ...(can('documents', 'view') ? ['documents'] : []),
+        ...(can('documents', 'view') || can('documents', 'manage') ? ['documents'] : []),
         'profile', 'team',
         ...(can('confidential_notes', 'manage') ? ['confidential'] : []),
         ...(can('chat', 'manage') ? ['chat'] : []),
