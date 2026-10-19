@@ -71,3 +71,12 @@ export function invalidateFinances(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: financeKeys.breakdown() })
   queryClient.invalidateQueries({ queryKey: financeKeys.notionSummary() })
 }
+
+/** Document decisions feed card, workspace and overview counters together. */
+export function invalidateDocuments(queryClient: QueryClient, studentId?: string): void {
+  if (studentId) invalidateStudent(queryClient, studentId)
+  else queryClient.invalidateQueries({ queryKey: ['student'] })
+  queryClient.invalidateQueries({ queryKey: ['workspace'] })
+  queryClient.invalidateQueries({ queryKey: ['students'] })
+  queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] })
+}

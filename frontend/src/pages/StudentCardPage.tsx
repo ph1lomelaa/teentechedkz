@@ -28,7 +28,7 @@ import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
-import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
+import { invalidateFinances, invalidateStudent, invalidateDocuments, studentKeys } from '@/lib/queryKeys'
 import { QueryError } from '@/components/shared/QueryState'
 import { studentsApi } from '@/api/students'
 import {
@@ -932,7 +932,7 @@ export const StudentCardPage: React.FC = () => {
     setDocumentUploadPending(true)
     try {
       await documentsApi.upload(id, documentUploadFile, documentUploadType)
-      invalidateStudent(queryClient, id)
+      invalidateDocuments(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
       toast({ title: 'Документ загружен', description: documentUploadFile.name })
       setDocumentUploadFile(null)
@@ -946,16 +946,6 @@ export const StudentCardPage: React.FC = () => {
       })
     } finally {
       setDocumentUploadPending(false)
-    }
-  }
-
-  const handleRequestDocumentSignature = async (doc: Document) => {
-    try {
-      await documentsApi.requestSignature(doc.id)
-      invalidateStudent(queryClient, id)
-      toast({ title: 'Документ отправлен', description: 'Ученик увидит его в кабинете и сможет подписать после просмотра.' })
-    } catch (err) {
-      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось отправить документ на подпись'), variant: 'destructive' })
     }
   }
 
@@ -1922,8 +1912,7 @@ export const StudentCardPage: React.FC = () => {
               onFilesDropped={can('documents', 'manage') ? files => { if (files[0]) { setDocumentUploadFile(files[0]); setDocumentUploadOpen(true) } } : undefined}
               onChanged={() => invalidateStudent(queryClient, id)}
               onDelete={doc => documentsApi.delete(doc.id)}
-              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateStudent(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
-              onSignature={doc => { void handleRequestDocumentSignature(doc) }}
+              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateDocuments(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
               uploadingName={documentUploadPending ? documentUploadFile?.name : null}
             />
 

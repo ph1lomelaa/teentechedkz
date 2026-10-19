@@ -5,7 +5,7 @@ import uuid
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import Body, APIRouter, Depends, HTTPException, UploadFile, File, Form
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -202,6 +202,7 @@ async def verify_document(
     doc_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
+    body: dict | None = Body(default=None),
 ):
     require_access(current_user, "documents", Action.manage)
 
@@ -210,7 +211,13 @@ async def verify_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
 
-    doc.is_verified = True
+    await require_student_access(db, doc.student_id, current_user)
+    verified = (body or {}).get("is_verified", True)
+    if not isinstance(verified, bool):
+        raise HTTPException(status_code=422, detail="is_verified должен быть true или false")
+    if doc.is_verified != verified:
+        await log_change(db, "document", doc.id, "is_verified", str(doc.is_verified), str(verified), str(current_user.id), source="workspace_documents")
+    doc.is_verified = verified
     await db.commit()
     await db.refresh(doc)
     return _doc_to_dict(doc)
@@ -305,6 +312,12 @@ async def set_visibility(
     await require_student_access(db, doc.student_id, current_user)  # mentor scope
     old_value = doc.visible_to_student
     doc.visible_to_student = bool(body.get("visible_to_student", False))
+    if not doc.visible_to_student and doc.signature_status == "pending":
+        doc.signature_status = "none"
+        doc.signature_requested_by = None
+        doc.signature_requested_at = None
+        doc.signature_viewed_at = None
+        await log_change(db, "document", doc.id, "signature_status", "pending", "none", str(current_user.id), source="workspace_documents")
     await log_change(
         db, "document", doc.id, "visible_to_student", old_value, doc.visible_to_student,
         str(current_user.id), source="workspace_documents",
@@ -326,6 +339,13 @@ async def request_document_signature(
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
     await require_student_access(db, doc.student_id, current_user)
+    if doc.signature_status == "signed":
+        raise HTTPException(status_code=409, detail="Студент уже подтвердил ознакомление с этим документом")
+    if doc.signature_status == "pending":
+        doc.visible_to_student = True
+        await db.commit()
+        await db.refresh(doc)
+        return _doc_to_dict(doc)
     doc.visible_to_student = True
     doc.signature_status = "pending"
     doc.signature_requested_by = current_user.id
@@ -334,6 +354,7 @@ async def request_document_signature(
     doc.signature_signed_at = None
     doc.signature_signed_by = None
     doc.signature_full_name = None
+    await log_change(db, "document", doc.id, "signature_status", "none", "pending", str(current_user.id), source="workspace_documents")
     await db.commit()
     await db.refresh(doc)
     return _doc_to_dict(doc)

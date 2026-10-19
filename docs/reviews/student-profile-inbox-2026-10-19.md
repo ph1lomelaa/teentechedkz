@@ -24,3 +24,11 @@ Compose override and preview fixture/check scripts are local-only under `/tmp/tt
 - Local HTTP/API: mentor document upload, download, note and note-session creation passed. All three supervisor roles could read the mentor's documents and notes with no assignment to the student, both globally and via mentor filter.
 - Local chat API: all three supervisor roles could inspect student conversations; nonmember sending was rejected. Mentor and student all-scope listing was rejected.
 - Browser automation was unavailable (browser app-server could not start); visual approval remains with the user on the running Docker preview.
+
+## Проверка документов и подтверждение ознакомления
+
+Добавлены явная проверка / возврат на проверку в обе карточки и общий список документов, фильтр по проверке, объяснение видимости, удаления и подтверждения студентом. Общий список поддерживает удаление с подтверждением. Сбрасываются кэши карточек, списка документов, обзоров и счётчиков. В карточку и workspace передаются ФИО и время подтверждения.
+
+Запрос подтверждения объясняется до отправки; повторный запрос не сбрасывает ознакомление и отклоняется для подтверждённого документа. Скрытие отменяет незавершённый запрос, но сохраняет завершённое подтверждение. В кабинете студента обработаны ошибки открытия и сохранения ознакомления; подтверждение недоступно до загрузки файла.
+
+Проверено: frontend 548 tests / 83 files; backend 1083 passed, 1 skipped; lint, TypeScript и production build успешны. Локальный Docker API: счётчики после проверки/возврата/удаления; независимость видимости; идемпотентность запроса; скрытие; подтверждение с ФИО/датой; review доступен admin/mzk_manager/academic_head и запрещён студенту. Созданы пять валидных демонстрационных PDF в тестовой карточке. Браузерная визуальная проверка остаётся пользователю: инструмент браузера недоступен. Прод не изменён, миграций нет.

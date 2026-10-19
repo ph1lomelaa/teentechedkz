@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Download, Eye, EyeOff, FileSignature, MoreHorizontal, Pencil, Search, Upload, X } from 'lucide-react'
+import { Check, ChevronDown, Download, Eye, EyeOff, MoreHorizontal, Pencil, Search, Upload, X } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
 import { DOC_TYPE_LABELS, type Document, type DocType } from '@/types'
 import { toast } from '@/hooks/use-toast'
 import { ToastAction } from '@/components/ui/primitives/toast'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { useQueryClient } from '@tanstack/react-query'
+import { invalidateDocuments } from '@/lib/queryKeys'
+import { DocumentReviewControls, DocumentWorkflowHelp } from './DocumentReviewControls'
 import { cn } from '@/lib/utils'
 
 type Doc = Document & { uploaded_by?: string }
@@ -21,7 +24,6 @@ type Props = {
   onFilesDropped?: (files: File[]) => void
   onChanged: () => void
   onDelete: (doc: Doc) => Promise<unknown>
-  onSignature?: (doc: Doc) => void
   onVisibility?: (doc: Doc) => void
   uploadingName?: string | null
   uploadError?: string | null
@@ -60,9 +62,12 @@ function fileColor(ext: string) {
 
 export const DocumentList: React.FC<Props> = ({
   documents, tone, showTitle = true, canManage = false, canDelete, canRename, onOpen, onDownload,
-  onUploadClick, onFilesDropped, onChanged, onDelete, onSignature, onVisibility,
+  onUploadClick, onFilesDropped, onChanged, onDelete, onVisibility,
   uploadingName, uploadError, onRetryUpload,
 }) => {
+  const qc = useQueryClient()
+  const notifyChanged = () => { invalidateDocuments(qc); onChanged() }
+  const [reviewFilter, setReviewFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(true)
   const [menu, setMenu] = useState<string | null>(null)
@@ -80,7 +85,7 @@ export const DocumentList: React.FC<Props> = ({
   const hover = tone === 'w' ? 'hover:bg-w-panel2' : 'hover:bg-p-panel2'
   const accent = tone === 'w' ? 'text-w-accentText' : 'text-p-accent-text'
   const visible = documents.filter(d => !pending.includes(d.id))
-  const filtered = visible.filter(d => `${documentName(d)} ${DOC_TYPE_LABELS[d.doc_type as DocType] || d.doc_type}`.toLowerCase().includes(query.toLowerCase()))
+  const filtered = visible.filter(d => (!canManage || reviewFilter === 'all' || (reviewFilter === 'verified' ? d.is_verified : !d.is_verified)) && `${documentName(d)} ${DOC_TYPE_LABELS[d.doc_type as DocType] || d.doc_type}`.toLowerCase().includes(query.toLowerCase()))
   const groups = useMemo(() => order.map(type => ({ type, items: filtered.filter(d => d.doc_type === type) })).filter(group => group.items.length), [filtered])
 
   useEffect(() => {
@@ -100,7 +105,7 @@ export const DocumentList: React.FC<Props> = ({
     try {
       await documentsApi.rename(doc.id, value)
       setRenaming(null)
-      onChanged()
+      notifyChanged()
       toast({ title: 'Название сохранено' })
     } catch (error) { toast({ title: 'Не удалось переименовать', description: getErrorMessage(error), variant: 'destructive' }) }
   }
@@ -114,7 +119,7 @@ export const DocumentList: React.FC<Props> = ({
     }
     const timer = setTimeout(async () => {
       timers.current.delete(doc.id)
-      try { await onDelete(doc); onChanged() }
+      try { await onDelete(doc); notifyChanged() }
       catch (error) {
         setPending(ids => ids.filter(id => id !== doc.id))
         toast({ title: 'Не удалось удалить документ', description: getErrorMessage(error), variant: 'destructive' })
@@ -139,6 +144,7 @@ export const DocumentList: React.FC<Props> = ({
       {onUploadClick && <button type="button" onClick={onUploadClick} className={cn('inline-flex h-9 items-center gap-1.5 rounded-ctl border px-3 text-xs font-bold', line, ink, hover)}><Upload className="h-4 w-4" />Загрузить</button>}
       <button type="button" onClick={() => setOpen(v => !v)} className={cn(iconButton, muted)} aria-label={open ? 'Свернуть документы' : 'Развернуть документы'} title={open ? 'Свернуть' : 'Развернуть'}><ChevronDown className={cn('h-4 w-4 transition', !open && '-rotate-90')} /></button>
     </div>
+    {canManage && <><DocumentWorkflowHelp /><label className={cn('mb-3 flex items-center gap-2 text-xs', muted)}>Проверка документов<select aria-label="Проверка документов" value={reviewFilter} onChange={e => setReviewFilter(e.target.value)} className={cn('rounded-ctl border bg-transparent px-2 py-1', line)}><option value="all">Все</option><option value="unverified">Нужна проверка</option><option value="verified">Проверены</option></select></label></>}
     {open && <>
       {visible.length === 0 && <p className={cn('py-5 text-center text-sm', muted)}>Документов пока нет</p>}
       {visible.length > 0 && filtered.length === 0 && <p className={cn('py-5 text-center text-sm', muted)}>Ничего не найдено</p>}
@@ -156,21 +162,23 @@ export const DocumentList: React.FC<Props> = ({
                 {renaming === doc.id ? <div className="flex min-w-0 items-center gap-1"><input ref={renameRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveRename(doc); if (e.key === 'Escape') setRenaming(null) }} className={cn('min-w-0 flex-1 rounded-ctl border bg-transparent px-2 py-1 text-sm', line, ink)} aria-label="Новое название" /><span className={cn('text-xs', muted)}>{ext}</span><button onClick={() => saveRename(doc)} aria-label="Сохранить название" className={accent}><Check className="h-4 w-4" /></button><button onClick={() => setRenaming(null)} aria-label="Отменить переименование" className={muted}><X className="h-4 w-4" /></button></div> : <button onClick={() => onOpen(doc)} title={documentName(doc)} className={cn('block max-w-full truncate text-left text-sm font-bold hover:underline', ink)}>{stem}<span className={cn('font-normal', muted)}>{ext}</span></button>}
                 <div className={cn('truncate text-[11px]', muted)}>{DOC_TYPE_LABELS[doc.doc_type as DocType] || doc.doc_type} · {size(doc.file_size)} · {sourceNames[doc.source] || doc.source} · {new Date(doc.uploaded_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</div>
               </div>
-              {canManage && <div className="flex flex-wrap gap-1 text-[10px]"><span className={cn('rounded-full px-2 py-1', doc.visible_to_student ? 'bg-emerald-500/10 text-emerald-600' : 'bg-black/5', muted)}>{doc.visible_to_student ? 'Видит студент' : 'Скрыт от студента'}</span>{doc.signature_status === 'pending' && <span className="rounded-full bg-orange-500/10 px-2 py-1 text-orange-600">На подписи</span>}{doc.signature_status === 'signed' && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600">Подписан</span>}</div>}
+
               <div className={cn('ml-auto flex shrink-0 items-center gap-0.5', muted)}>
                 <button onClick={() => onOpen(doc)} className={cn('rounded-ctl border px-2.5 py-1.5 text-xs font-bold', line, hover)} aria-label={`Открыть ${documentName(doc)}`}>Открыть</button>
-                {canManage && onVisibility && <button onClick={() => onVisibility(doc)} className={cn(iconButton, 'grid sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100')} aria-label={doc.visible_to_student ? 'Скрыть от студента' : 'Показать студенту'} title={doc.visible_to_student ? 'Скрыть от студента' : 'Показать студенту'}>{doc.visible_to_student ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}
+                {canManage && onVisibility && <button onClick={() => onVisibility(doc)} className={cn(iconButton, 'grid sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100')} aria-label={doc.visible_to_student ? (doc.signature_status === 'pending' ? 'Скрыть и отменить запрос' : 'Скрыть от студента') : 'Показать студенту'} title={doc.visible_to_student ? (doc.signature_status === 'pending' ? 'Скрыть и отменить запрос' : 'Скрыть от студента') : 'Показать студенту'}>{doc.visible_to_student ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}
                 {editable && <button onClick={() => startRename(doc)} className={cn(iconButton, 'grid sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100')} aria-label="Переименовать" title="Переименовать"><Pencil className="h-4 w-4" /></button>}
                 <div ref={menu === doc.id ? menuRef : undefined} className="relative"><button onClick={() => setMenu(menu === doc.id ? null : doc.id)} className={iconButton} aria-label={`Действия с ${documentName(doc)}`} aria-expanded={menu === doc.id} title="Действия"><MoreHorizontal className="h-4 w-4" /></button>{menu === doc.id && <div className={cn('absolute right-0 top-9 z-30 min-w-48 rounded-ctl border p-1 shadow-xl', line, tone === 'w' ? 'bg-w-panel' : 'bg-p-panel', ink)}>
                   <button onClick={() => { onDownload(doc); setMenu(null) }} className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs', hover)}><Download className="h-3.5 w-3.5" /> Скачать</button>
                   {editable && <button onClick={() => startRename(doc)} className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs', hover)}><Pencil className="h-3.5 w-3.5" /> Переименовать</button>}
-                  {canManage && <details className={cn('my-1 border-t pt-1', line)}><summary className={cn('cursor-pointer px-2 py-1 text-xs', muted)}>Тип: {DOC_TYPE_LABELS[doc.doc_type as DocType] || doc.doc_type}</summary>{order.map(type => <button key={type} onClick={async () => { setMenu(null); try { await documentsApi.setType(doc.id, type); onChanged() } catch (error) { toast({ title: 'Не удалось изменить тип', description: getErrorMessage(error), variant: 'destructive' }) } }} className={cn('flex w-full justify-between rounded px-2 py-1 text-left text-xs', hover)}>{DOC_TYPE_LABELS[type]}{doc.doc_type === type && <Check className="h-3 w-3" />}</button>)}</details>}
-                  {canManage && onVisibility && <button onClick={() => { onVisibility(doc); setMenu(null) }} className={cn('block w-full rounded px-2 py-1.5 text-left text-xs', hover)}>{doc.visible_to_student ? 'Скрыть от студента' : 'Показать студенту'}</button>}
-                  {canManage && onSignature && doc.signature_status !== 'signed' && <button onClick={async () => { setMenu(null); if (doc.signature_status === 'pending') { try { await documentsApi.revokeSignature(doc.id); onChanged(); toast({ title: 'Запрос подписи отозван' }) } catch (error) { toast({ title: 'Не удалось отозвать подпись', description: getErrorMessage(error), variant: 'destructive' }) } } else onSignature(doc) }} className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs', hover)}><FileSignature className="h-3.5 w-3.5" />{doc.signature_status === 'pending' ? 'Отозвать подпись' : 'Отправить на подпись'}</button>}
+                  {canManage && <details className={cn('my-1 border-t pt-1', line)}><summary className={cn('cursor-pointer px-2 py-1 text-xs', muted)}>Тип: {DOC_TYPE_LABELS[doc.doc_type as DocType] || doc.doc_type}</summary>{order.map(type => <button key={type} onClick={async () => { setMenu(null); try { await documentsApi.setType(doc.id, type); notifyChanged() } catch (error) { toast({ title: 'Не удалось изменить тип', description: getErrorMessage(error), variant: 'destructive' }) } }} className={cn('flex w-full justify-between rounded px-2 py-1 text-left text-xs', hover)}>{DOC_TYPE_LABELS[type]}{doc.doc_type === type && <Check className="h-3 w-3" />}</button>)}</details>}
+                  {canManage && onVisibility && <button onClick={() => { onVisibility(doc); setMenu(null) }} className={cn('block w-full rounded px-2 py-1.5 text-left text-xs', hover)}>{doc.visible_to_student ? (doc.signature_status === 'pending' ? 'Скрыть и отменить запрос' : 'Скрыть от студента') : 'Показать студенту'}</button>}
+
                   {deletable && <button onClick={() => { setConfirmDelete(doc.id); setMenu(null) }} className="mt-1 block w-full border-t border-current/10 px-2 py-2 text-left text-xs text-red-600">Удалить</button>}
                 </div>}</div>
               </div>
             </div>}
+            {!canManage && doc.signature_status === 'signed' && <p className={cn('mt-2 text-xs', muted)}>Ознакомление подтверждено{doc.signature_signed_at ? ` · ${new Date(doc.signature_signed_at).toLocaleDateString('ru-RU')}` : ''}</p>}
+            {canManage && !confirmDelete && <DocumentReviewControls doc={doc} onChanged={notifyChanged} />}
           </div>
         })}
       </div>)}

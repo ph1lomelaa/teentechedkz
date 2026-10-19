@@ -1,3 +1,4 @@
+import { invalidateDocuments } from '@/lib/queryKeys'
 import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
 import { QueryError } from '@/components/shared/QueryState'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
@@ -188,6 +189,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
     mutationFn: (doc: { id: string; visible_to_student?: boolean }) =>
       documentsApi.setVisibility(doc.id, !doc.visible_to_student),
     onSuccess: () => {
+      invalidateDocuments(queryClient, studentId)
       refreshStudentWorkspace()
       toast({ title: 'Видимость документа обновлена' })
     },
@@ -1217,12 +1219,14 @@ function DocumentsTab({
   onToggleVisibility: (doc: { id: string; visible_to_student?: boolean }) => void
   pendingDocId?: string
 }) {
+  const documentQueryClient = useQueryClient()
   const [docType, setDocType] = useState<DocType>('other')
   const [file, setFile] = useState<File | null>(null)
   const uploadMutation = useMutation({
     mutationFn: () => documentsApi.upload(studentId, file!, docType),
     onSuccess: () => {
       setFile(null)
+      invalidateDocuments(documentQueryClient, studentId)
       onUploaded()
       toast({ title: 'Документ загружен' })
     },
@@ -1306,7 +1310,6 @@ function DocumentsTab({
         onChanged={onUploaded}
         onDelete={doc => documentsApi.delete(doc.id)}
         onVisibility={doc => onToggleVisibility(doc)}
-        onSignature={doc => { void documentsApi.requestSignature(doc.id).then(() => { onUploaded(); toast({ title: 'Документ отправлен на подпись' }) }).catch(error => toast({ title: 'Не удалось отправить на подпись', description: getErrorMessage(error), variant: 'destructive' })) }}
         uploadingName={uploadMutation.isPending ? file?.name : null}
         uploadError={uploadMutation.isError ? getErrorMessage(uploadMutation.error) : null}
         onRetryUpload={file ? () => uploadMutation.mutate() : undefined}

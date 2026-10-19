@@ -22,6 +22,9 @@ export const PortalDocumentsPage: React.FC = () => {
   const [signatureDoc, setSignatureDoc] = useState<(typeof docs)[number] | null>(null)
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null)
   const [signatureViewed, setSignatureViewed] = useState(false)
+  const previewRequest = useRef(0)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [markingViewed, setMarkingViewed] = useState(false)
   const [fullName, setFullName] = useState('')
   const { user } = useAuth()
 
@@ -52,11 +55,10 @@ export const PortalDocumentsPage: React.FC = () => {
       setSignatureUrl(null)
       setSignatureViewed(false)
     },
-    // Подпись — юридически значимое действие: ученик обязан понять, что она
-    // не прошла, а не решить, что документ подписан.
+    // Ошибка должна оставаться заметной: подтверждение ещё не сохранено.
     onError: (err) => toast({
-      title: 'Документ не подписан',
-      description: getErrorMessage(err, 'Подпись не сохранилась. Повторите.'),
+      title: 'Подтверждение не сохранено',
+      description: getErrorMessage(err, 'Подтверждение не сохранилось. Повторите.'),
       variant: 'destructive',
     }),
   })
@@ -92,11 +94,23 @@ export const PortalDocumentsPage: React.FC = () => {
     setSignatureDoc(doc)
     setSignatureViewed(false)
     setFullName(user?.name || '')
-    const blob = await documentsApi.portalDownload(doc.id)
-    setSignatureUrl(URL.createObjectURL(blob))
+    const request = ++previewRequest.current
+    setPreviewLoading(true)
+    try {
+      const blob = await documentsApi.portalDownload(doc.id)
+      if (request === previewRequest.current) setSignatureUrl(URL.createObjectURL(blob))
+    } catch (error) {
+      if (request === previewRequest.current) {
+        setSignatureDoc(null)
+        toast({ title: 'Не удалось открыть документ', description: getErrorMessage(error), variant: 'destructive' })
+      }
+    } finally { if (request === previewRequest.current) setPreviewLoading(false) }
   }
 
   const closeSignaturePreview = () => {
+    if (signMutation.isPending) return
+    ++previewRequest.current
+    setPreviewLoading(false)
     setSignatureDoc(null)
     if (signatureUrl) URL.revokeObjectURL(signatureUrl)
     setSignatureUrl(null)
@@ -105,8 +119,13 @@ export const PortalDocumentsPage: React.FC = () => {
 
   const confirmSignatureViewed = async () => {
     if (!signatureDoc) return
-    await documentsApi.markSignatureViewed(signatureDoc.id)
-    setSignatureViewed(true)
+    setMarkingViewed(true)
+    const request = previewRequest.current
+    try {
+      await documentsApi.markSignatureViewed(signatureDoc.id)
+      if (request === previewRequest.current) setSignatureViewed(true)
+    } catch (error) { toast({ title: 'Не удалось сохранить ознакомление', description: getErrorMessage(error), variant: 'destructive' }) }
+    finally { setMarkingViewed(false) }
   }
 
   return (
@@ -148,7 +167,7 @@ export const PortalDocumentsPage: React.FC = () => {
             onRetryUpload={uploadFile ? () => uploadMutation.mutate(uploadFile) : undefined}
           />
           {docs.some(doc => doc.signature_status === 'pending') && <div className="mt-3 space-y-2">
-            {docs.filter(doc => doc.signature_status === 'pending').map(doc => <button key={doc.id} onClick={() => openSignaturePreview(doc)} className="inline-flex items-center gap-2 rounded-ctl bg-p-accent px-3 py-2 text-xs font-bold text-black"><FileSignature className="h-4 w-4" />Ознакомиться и подписать: {documentName(doc)}</button>)}
+            {docs.filter(doc => doc.signature_status === 'pending').map(doc => <button key={doc.id} onClick={() => openSignaturePreview(doc)} className="inline-flex items-center gap-2 rounded-ctl bg-p-accent px-3 py-2 text-xs font-bold text-black"><FileSignature className="h-4 w-4" />Просмотреть и подтвердить: {documentName(doc)}</button>)}
           </div>}
           <p className="mt-2 text-center text-[11px] text-p-muted2">{UPLOAD_LIMITS_HINT}</p>
         </QueryState>
@@ -158,29 +177,29 @@ export const PortalDocumentsPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
           <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-card border border-p-line bg-p-panel shadow-2xl">
             <div className="flex items-center justify-between border-b border-p-line px-4 py-3">
-              <div><h2 className="font-display text-lg font-black text-p-text">Ознакомление с документом</h2><p className="text-xs text-p-muted">{signatureDoc.file_name}</p></div>
-              <button type="button" onClick={closeSignaturePreview} className="grid h-8 w-8 place-items-center rounded-lg text-p-muted hover:bg-p-panel2 hover:text-p-text" aria-label="Закрыть"><X className="h-4 w-4" /></button>
+              <div><h2 className="font-display text-lg font-black text-p-text">Подтверждение ознакомления</h2><p className="mt-1 text-sm text-p-muted">Просмотрите файл. Подтверждая ознакомление, вы сообщаете команде, что ознакомились с ним. Сохраним ваши ФИО и дату подтверждения.</p><p className="text-xs text-p-muted">{signatureDoc.file_name}</p></div>
+              <button type="button" onClick={closeSignaturePreview} disabled={signMutation.isPending} className="grid h-8 w-8 place-items-center rounded-lg text-p-muted hover:bg-p-panel2 hover:text-p-text" aria-label="Закрыть"><X className="h-4 w-4" /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto bg-p-bg p-3 sm:p-5">
-              {signatureUrl && signatureDoc.mime_type === 'application/pdf' ? (
+              {previewLoading ? <p className="text-sm text-p-muted">Загружаем документ…</p> : signatureUrl && signatureDoc.mime_type === 'application/pdf' ? (
                 <iframe title={`Превью ${signatureDoc.file_name}`} src={signatureUrl} className="h-[55vh] min-h-[360px] w-full rounded-panel bg-white" />
               ) : (
                 <div className="grid min-h-[360px] place-items-center rounded-panel border border-p-line bg-p-panel2 p-6 text-center text-sm text-p-muted">
-                  Просмотрите файл в отдельной вкладке или скачайте его, затем подтвердите ознакомление.
+                  <div>Просмотрите файл в отдельной вкладке или скачайте его, затем подтвердите ознакомление.{signatureUrl && <a href={signatureUrl} target="_blank" rel="noopener noreferrer" download={signatureDoc.file_name} className="mt-3 block font-semibold underline">Скачать документ</a>}</div>
                 </div>
               )}
             </div>
             <div className="space-y-3 border-t border-p-line px-4 py-4 sm:px-5">
-              <button type="button" onClick={confirmSignatureViewed} disabled={signatureViewed} className="inline-flex items-center gap-2 text-sm font-bold text-p-text disabled:text-emerald-700">
+              <button type="button" onClick={confirmSignatureViewed} disabled={signatureViewed || previewLoading || !signatureUrl || markingViewed} className="inline-flex items-center gap-2 text-sm font-bold text-p-text disabled:text-emerald-700">
                 <span className={cn('grid h-5 w-5 place-items-center rounded border', signatureViewed ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-p-line')}>
                   {signatureViewed && <CheckCircle2 className="h-4 w-4" />}
                 </span>
                 {signatureViewed ? 'Документ просмотрен' : 'Я ознакомился с документом'}
               </button>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ФИО для подписи" className="h-11 flex-1 rounded-ctl border border-p-line bg-p-panel2 px-3 text-sm text-p-text outline-none focus:border-p-accent" />
+                <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Ваши ФИО" className="h-11 flex-1 rounded-ctl border border-p-line bg-p-panel2 px-3 text-sm text-p-text outline-none focus:border-p-accent" />
                 <button type="button" disabled={!signatureViewed || !fullName.trim() || signMutation.isPending} onClick={() => signMutation.mutate()} className="inline-flex h-11 items-center justify-center gap-2 rounded-ctl bg-p-accent px-4 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-40">
-                  <FileSignature className="h-4 w-4" /> {signMutation.isPending ? 'Подписываем…' : 'Подписать документ'}
+                  <FileSignature className="h-4 w-4" /> {signMutation.isPending ? 'Сохраняем…' : 'Подтвердить ознакомление'}
                 </button>
               </div>
             </div>

@@ -448,6 +448,7 @@ export type DocType =
 
 export interface Document {
   id: string
+  student_id?: string
   uploaded_by?: string
   doc_type: string
   file_name: string
