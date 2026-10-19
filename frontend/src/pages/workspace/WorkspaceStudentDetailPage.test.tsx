@@ -72,7 +72,7 @@ it('keeps the selected upload file when switching tabs and uploads for the curre
 it('preserves the old workspace notes link while keeping meeting notes separate', async () => {
   mountStudent('#notes')
   expect(await screen.findByText('Закрытые заметки')).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: 'Конспекты' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Конспекты' }))
   expect(await screen.findByText('Конспекты встреч')).toBeVisible()
   expect(screen.getByText('Закрытые заметки')).not.toBeVisible()
 })

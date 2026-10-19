@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useId, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Route, CalendarDays, GraduationCap, Star, ClipboardList, MessageCircle, UserRound, FileText } from 'lucide-react'
+import { Route, CalendarDays, GraduationCap, Star, ClipboardList, MessageCircle, UserRound, FileText, BookText } from 'lucide-react'
 import {
   AccordionItem as OriginalItem,
   AccordionTrigger as OriginalTrigger,
@@ -13,8 +13,9 @@ export const DETAIL_GROUPS = [
   { id: 'meetings', label: 'Встречи', icon: CalendarDays, sections: [{ id: 'meetings', label: 'Встречи' }] },
   { id: 'universities', label: 'Вузы и заявки', icon: GraduationCap, sections: [{ id: 'applications', label: 'Заявки' }, { id: 'shortlist', label: 'Рассматриваем' }, { id: 'credentials', label: 'Admission-доступы' }] },
   { id: 'portfolio', label: 'Portfolio UP', icon: Star, sections: [{ id: 'portfolio', label: 'Личный план' }] },
-  { id: 'work', label: 'Задачи и записи', icon: ClipboardList, sections: [{ id: 'tasks', label: 'Задачи' }, { id: 'notes', label: 'Конспекты' }, { id: 'confidential', label: 'Заметки' }] },
+  { id: 'work', label: 'Задачи и записи', icon: ClipboardList, sections: [{ id: 'tasks', label: 'Задачи' }, { id: 'confidential', label: 'Заметки' }] },
   { id: 'documents', label: 'Документы', icon: FileText, sections: [{ id: 'documents', label: 'Документы' }] },
+  { id: 'notes', label: 'Конспекты', icon: BookText, sections: [{ id: 'notes', label: 'Конспекты' }] },
   { id: 'communication', label: 'Общение', icon: MessageCircle, sections: [{ id: 'chat', label: 'Чат' }, { id: 'telegram', label: 'Telegram' }] },
   { id: 'about', label: 'О студенте', icon: UserRound, sections: [{ id: 'profile', label: 'Профиль' }, { id: 'team', label: 'Команда и услуги' }, { id: 'payments', label: 'Договор и оплаты' }, { id: 'checks', label: 'Сверки' }, { id: 'portal-access', label: 'Доступ' }, { id: 'timeline', label: 'История' }] },
 ] as const

@@ -30,7 +30,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { mentorId, params } = useWorkspaceScope()
+  const { params } = useWorkspaceScope()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<WorkspaceMeeting | null>(null)
   const [duration, setDuration] = useState('60')
@@ -68,17 +68,17 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   }, [typeFilter])
 
   const { data: studentsData, isLoading: studentsLoading, isError: studentsFailed, error: studentsError, refetch: refetchStudents } = useQuery({
-    queryKey: ['workspace', 'meetings', 'students', mentorId],
+    queryKey: ['workspace', 'meetings', 'students', params],
     queryFn: () => workspaceApi.students(params),
   })
 
   const students = (studentsData?.items ?? []).map((item) => item.student)
   const { data: meetingsData, isLoading: meetingsLoading, isError: meetingsFailed, error: meetingsError, refetch: refetchMeetings } = useQuery({
-    queryKey: ['workspace', 'meetings', mentorId],
+    queryKey: ['workspace', 'meetings', params],
     queryFn: () => workspaceApi.meetings(params),
   })
 
-  const { data: notesData, isLoading: notesLoading, isError: notesFailed, error: notesError, refetch: refetchNotes } = useQuery({ queryKey: ['workspace', 'notes', mentorId], queryFn: () => workspaceApi.notes(params) })
+  const { data: notesData, isLoading: notesLoading, isError: notesFailed, error: notesError, refetch: refetchNotes } = useQuery({ queryKey: ['workspace', 'notes', params], queryFn: () => workspaceApi.notes(params) })
   const sessions = notesData?.sessions ?? []
   const sessionFor = (meeting: WorkspaceMeeting) => sessions.find((s) => s.id === meeting.note_session_id || s.meeting_id === meeting.id)
   const hasNote = (meeting: WorkspaceMeeting) => Boolean(sessionFor(meeting)?.note_id)

@@ -187,12 +187,52 @@ async def portal_contacts(current_user: CurrentUser, db: Annotated[AsyncSession,
 # --------------------------------------------------------------------------
 # Conversations
 # --------------------------------------------------------------------------
+async def _supervised_student_conversations(db: AsyncSession, user: User) -> list[dict]:
+    """One query for a whole-base review; do not load each chat separately."""
+    last_id = (select(Message.id).where(Message.conversation_id == Conversation.id)
+               .order_by(Message.created_at.desc(), Message.id.desc()).limit(1)
+               .correlate(Conversation).scalar_subquery())
+    can_write = (select(ConversationMember.user_id).where(
+        ConversationMember.conversation_id == Conversation.id,
+        ConversationMember.user_id == user.id,
+    ).correlate(Conversation).exists())
+    result = await db.execute(
+        select(Conversation, Student, User.name, User.role, Message.body,
+               Message.created_at, Message.sender_id, can_write)
+        .join(ConversationMember, ConversationMember.conversation_id == Conversation.id)
+        .join(Student, Student.user_id == ConversationMember.user_id)
+        .join(User, User.id == Student.user_id)
+        .outerjoin(Message, Message.id == last_id)
+        .where(Student.is_archived == False)  # noqa: E712
+    )
+    rows = []
+    for conv, student, name, role, body, at, sender_id, writable in result.all():
+        rows.append({
+            "id": str(conv.id), "type": conv.type.value, "title": conv.title,
+            "other": {"id": str(student.user_id), "name": name, "role": role.value},
+            # Oversight does not impersonate a member's read receipts.
+            "unread": 0,
+            "last_message": {"body": body, "created_at": at.isoformat(), "sender_id": str(sender_id)} if at else None,
+            "updated_at": (at or conv.created_at).isoformat(),
+            "student": {"id": str(student.id), "full_name": student.full_name, "user_id": str(student.user_id)},
+            "can_write": bool(writable),
+        })
+    rows.sort(key=lambda row: row["updated_at"], reverse=True)
+    return rows
+
+
 @router.get("/conversations")
 async def list_conversations(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     mentor_id: uuid.UUID | None = Query(default=None),
+    scope: str = Query(default="mine", pattern="^(all|mine)$"),
 ):
+    supervise_all = scope == "all" and mentor_id is None
+    if supervise_all:
+        if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
+            raise _FORBIDDEN
+        return await _supervised_student_conversations(db, current_user)
     target_user_id = current_user.id
     preview_mode = False
     if mentor_id:
