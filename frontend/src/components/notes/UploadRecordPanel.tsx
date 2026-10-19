@@ -18,10 +18,13 @@ export const UploadRecordPanel: React.FC<{
   session: NoteSessionDetail
   inWorkspace: boolean
   onUploaded: (session: NoteSession) => void
-}> = ({ session, inWorkspace, onUploaded }) => {
+  source?: 'file' | 'drive'
+}> = ({ session, inWorkspace, onUploaded, source = 'file' }) => {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [language, setLanguage] = useState<NoteSessionLanguage>(session.language ?? 'ru')
+  const draftKey = `drive-recording:${session.id}`
+  const [driveUrl, setDriveUrl] = useState(() => { try { return sessionStorage.getItem(draftKey) || '' } catch { return '' } })
   const [progress, setProgress] = useState(0)
   const [dragOver, setDragOver] = useState(false)
   const fileError = file && !isAcceptedRecordingFile(file)
@@ -31,7 +34,7 @@ export const UploadRecordPanel: React.FC<{
     : null
 
   const uploadMutation = useMutation({
-    mutationFn: () => notesApi.uploadAudio(session.id, file!, language, setProgress),
+    mutationFn: () => source === 'drive' ? notesApi.importDrive(session.id, driveUrl.trim(), language) : notesApi.uploadAudio(session.id, file!, language, setProgress),
     onSuccess: onUploaded,
     onError: () => setProgress(0),
   })
@@ -47,7 +50,17 @@ export const UploadRecordPanel: React.FC<{
 
   return (
     <div className="space-y-5">
-      <button
+      {source === 'drive' ? <div className="space-y-3">
+        <label className={cn('block text-sm font-semibold', ink)}>Ссылка на запись Google Drive
+          <input aria-label="Ссылка на запись Google Drive" type="url" value={driveUrl} disabled={uploadMutation.isPending} onChange={event => {
+            setDriveUrl(event.target.value)
+            uploadMutation.reset()
+            try { sessionStorage.setItem(draftKey, event.target.value) } catch { /* optional draft */ }
+          }} placeholder="https://drive.google.com/file/d/…/view" className={cn('mt-2 w-full rounded-ctl border bg-transparent px-3 py-3 text-sm', inWorkspace ? 'border-w-line' : 'border-p-line')} />
+        </label>
+        <p className={cn('text-sm', muted)}>Вставьте ссылку на конкретный аудио- или видеофайл до 300 МБ. В Google Drive нужен доступ «Все, у кого есть ссылка» и разрешение на скачивание.</p>
+        <p className={cn('text-xs', muted)}>Для закрытой записи выберите «Загрузить запись» и загрузите скачанный файл. Ссылки на папки, Google Docs и таблицы не подходят.</p>
+      </div> : <><button
         type="button"
         onClick={() => inputRef.current?.click()}
         onDragOver={(event) => {
@@ -94,7 +107,8 @@ export const UploadRecordPanel: React.FC<{
         }}
       />
 
-      {fileError && (
+      </>}
+      {source === 'file' && fileError && (
         <div className={cn('rounded-panel border p-3 text-sm', inWorkspace ? 'border-w-danger/50 bg-w-danger/10 text-w-danger' : 'border-red-300 bg-red-50 text-red-800')}>
           {fileError}
         </div>
@@ -108,7 +122,7 @@ export const UploadRecordPanel: React.FC<{
         </div>
       )}
 
-      {uploadMutation.isPending && (
+      {uploadMutation.isPending && source === 'file' && (
         <div>
           <div className={cn('h-2 overflow-hidden rounded-full', inWorkspace ? 'bg-w-line' : 'bg-p-line')}>
             <div className="h-full rounded-full bg-[#FFD400] transition-all" style={{ width: `${Math.max(3, progress)}%` }} />
@@ -120,14 +134,14 @@ export const UploadRecordPanel: React.FC<{
       <Button
         size="lg"
         className={cn('h-14 w-full text-base', inWorkspace && 'rounded-ctl bg-w-accent font-black text-black hover:bg-w-accent/90')}
-        disabled={!file || Boolean(fileError) || uploadMutation.isPending}
+        disabled={(source === 'drive' ? !driveUrl.trim() : !file || Boolean(fileError)) || uploadMutation.isPending}
         onClick={() => uploadMutation.mutate()}
       >
         {uploadMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Upload className="mr-2 h-5 w-5" />}
-        Загрузить и собрать конспект
+        {source === 'drive' ? 'Импортировать и собрать конспект' : 'Загрузить и собрать конспект'}
       </Button>
       <p className={cn('text-center text-xs', muted)}>
-        Распознаём запись на сервере — обычно пара минут на час разговора. Страницу можно закрыть, пришлём уведомление «Конспект готов».
+        После принятия записи обработка продолжится на сервере. Готовый конспект появится у этого студента, также придёт уведомление. Время зависит от длины и качества записи.
       </p>
     </div>
   )

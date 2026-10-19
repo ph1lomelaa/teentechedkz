@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
+from pydantic import BaseModel, Field
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -448,6 +451,66 @@ async def stop_bot(
     return _session_response(session, student_name)
 
 
+async def _claim_recording_import(db: AsyncSession, session: NoteSession, *, language: str, stage: str) -> datetime:
+    now = datetime.now(timezone.utc)
+    # Atomic claim prevents two tabs/requests from queuing duplicate imports.
+    claimed = await db.execute(
+        update(NoteSession).where(
+            NoteSession.id == session.id,
+            NoteSession.note_id.is_(None),
+            NoteSession.status.notin_((NoteSessionStatus.completed, NoteSessionStatus.cancelled)),
+            (NoteSession.bot_status.is_(None) | NoteSession.bot_status.notin_(ACTIVE_BOT_STATUSES)),
+        ).values(capture_mode="upload", status=NoteSessionStatus.active, language=language,
+                 bot_status=stage, bot_status_reason=None, bot_last_event_at=now,
+                 last_heartbeat_at=now).returning(NoteSession.id),
+        execution_options={"synchronize_session": False},
+    )
+    if claimed.scalar_one_or_none() is None:
+        raise HTTPException(status_code=409, detail="Запись уже обрабатывается или сессия завершена")
+    await db.commit()
+    await db.refresh(session)
+    return now
+
+
+class DriveImportRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=4096)
+    language: str = "ru"
+
+
+@router.post("/{session_id}/import-drive", response_model=NoteSessionResponse)
+async def import_drive(
+    session_id: uuid.UUID,
+    body: DriveImportRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    from app.services.drive_recording import parse_drive_link, DriveRecordingError
+    session, student_name = await _session_context(db, session_id, current_user)
+    try:
+        file = parse_drive_link(body.url)
+    except DriveRecordingError as error:
+        raise HTTPException(status_code=422, detail=reason_message(error.code)) from None
+    if body.language not in NOTE_SESSION_LANGUAGES:
+        raise HTTPException(status_code=422, detail="Неизвестный язык")
+    await _claim_recording_import(db, session, language=body.language, stage="downloading")
+    now = session.bot_last_event_at
+    try:
+        redis = await get_arq_pool()
+        source_key = f"drive-import-source:{session_id}:{now.isoformat()}"
+        # Keep link credentials out of arq's argument logs; expire after one hour.
+        await redis.setex(source_key, 3600, json.dumps({"file_id": file.file_id, "resource_key": file.resource_key}))
+        job = await redis.enqueue_job("import_drive_recording_task", str(session_id), now.isoformat(), _job_id=f"drive:{session_id}:{now.isoformat()}")
+        if job is None:
+            raise RuntimeError("Import job was not queued")
+    except Exception:
+        session.bot_status = "failed"
+        session.bot_status_reason = "recording_queue_unavailable"
+        session.status = NoteSessionStatus.failed
+        await db.commit()
+        raise HTTPException(status_code=503, detail=reason_message("recording_queue_unavailable")) from None
+    return _session_response(session, student_name)
+
+
 @router.post("/{session_id}/upload-audio", response_model=NoteSessionResponse)
 async def upload_audio(
     session_id: uuid.UUID,
@@ -476,35 +539,29 @@ async def upload_audio(
     if not content:
         raise HTTPException(status_code=422, detail="Файл пустой")
     mime = guess_mime(file.filename, file.content_type)
+    await _claim_recording_import(db, session, language=language or session.language or "ru", stage="transcribing")
     previous_path = session.audio_storage_path
-    session.audio_storage_path = await minio_upload_note_audio(
-        content=content,
-        session_id=session.id,
-        filename=file.filename or "upload",
-        mime_type=mime,
-    )
-    now = datetime.now(timezone.utc)
-    if language:
-        session.language = language
-    if session.status == NoteSessionStatus.draft:
-        session.started_at = now
-    session.capture_mode = "upload"
-    session.status = NoteSessionStatus.active
-    session.bot_status = "processing"
-    session.bot_status_reason = None
-    session.bot_last_event_at = now
-    session.last_heartbeat_at = now
-    await db.commit()
-    await db.refresh(session)
-
-    if previous_path and previous_path != session.audio_storage_path:
+    stored_path = None
+    try:
+        stored_path = await minio_upload_note_audio(content=content, session_id=session.id, filename=file.filename or "upload", mime_type=mime)
+        session.audio_storage_path = stored_path
+        await db.commit()
+        redis = await get_arq_pool()
+        job = await redis.enqueue_job("transcribe_uploaded_audio_task", str(session.id), mime, _job_id=f"upload:{session.id}:{session.bot_last_event_at.isoformat()}")
+        if job is None:
+            raise RuntimeError("Recording job was not queued")
+    except Exception:
+        session.bot_status = "failed"
+        session.bot_status_reason = "recording_queue_unavailable"
+        session.status = NoteSessionStatus.failed
+        await db.commit()
+        raise HTTPException(status_code=503, detail=reason_message("recording_queue_unavailable")) from None
+    if previous_path and previous_path != stored_path:
         try:
             await minio_delete(previous_path)
         except Exception:
-            logging.getLogger(__name__).exception("Failed to delete replaced audio %s", previous_path)
-
-    redis = await get_arq_pool()
-    await redis.enqueue_job("transcribe_uploaded_audio_task", str(session.id), mime)
+            logging.getLogger(__name__).warning("Could not clean previous recording for %s", session.id)
+    await db.refresh(session)
     return _session_response(session, student_name)
 
 

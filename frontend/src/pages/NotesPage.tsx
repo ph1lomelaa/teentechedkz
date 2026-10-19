@@ -37,6 +37,8 @@ const SESSION_PILL: Partial<Record<NoteSessionStatus, { label: string; cls: stri
 
 // Запись ботом точнее статуса сессии: «впустите бота», «готовим конспект».
 const BOT_PILL: Partial<Record<MeetingBotStatus, { label: string; cls: string }>> = {
+  downloading: { label: 'Скачиваем запись', cls: 'bg-sky-100 text-sky-800' },
+  transcribing: { label: 'Распознаём речь', cls: 'bg-sky-100 text-sky-800' },
   joining: { label: 'Бот заходит', cls: 'bg-sky-100 text-sky-800' },
   waiting_room: { label: 'Впустите бота', cls: 'bg-amber-100 text-amber-800' },
   waiting_permission: { label: 'Разрешите запись', cls: 'bg-amber-100 text-amber-800' },

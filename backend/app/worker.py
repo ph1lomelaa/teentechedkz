@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import uuid
 
 from sqlalchemy import select
@@ -28,6 +29,8 @@ from arq.connections import RedisSettings
 # logger's default WARNING level, even though the loops are running fine.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+# Drive download URLs can contain resource keys. Do not log HTTP request URLs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def reconcile_audio_task(ctx, session_id: str) -> None:
@@ -97,6 +100,29 @@ async def simulate_mock_bot_task(ctx, session_id: str, bot_id: str) -> None:
             if not session or session.bot_external_id != bot_id or session.bot_status in ("failed", "done"):
                 return
             await handle_provider_event(db, "mock", payload)
+
+
+async def import_drive_recording_task(ctx, session_id: str, attempt: str) -> None:
+    from app.services.drive_recording import import_drive_recording
+    redis = ctx.get("redis") or await get_arq_pool()
+    source_key = f"drive-import-source:{session_id}:{attempt}"
+    raw = await redis.get(source_key)
+    if raw:
+        source = json.loads(raw)
+        result = await import_drive_recording(session_id, source["file_id"], source.get("resource_key"), attempt)
+        await redis.delete(source_key)
+    else:
+        # An expired job must become retryable rather than hang on "downloading".
+        from app.models.note_session import NoteSessionStatus
+        async with AsyncSessionLocal() as db:
+            session = await db.get(NoteSession, uuid.UUID(session_id))
+            if session and not session.note_id and session.bot_status == "downloading" and session.bot_last_event_at and session.bot_last_event_at.isoformat() == attempt:
+                session.status = NoteSessionStatus.failed
+                session.bot_status = "failed"
+                session.bot_status_reason = "drive_download_failed"
+                await db.commit()
+        result = "source_expired"
+    logger.info("import_drive_recording_task %s -> %s", session_id, result)
 
 
 async def transcribe_uploaded_audio_task(ctx, session_id: str, mime_type: str) -> None:
@@ -434,6 +460,7 @@ class WorkerSettings:
         retranscribe_session_task,
         # Час записи Deepgram распознаёт минуты — общий job_timeout (300 с) мал.
         func(transcribe_uploaded_audio_task, timeout=1800),
+        func(import_drive_recording_task, timeout=2400),
         process_telegram_attachment_task,
         extract_telegram_insight_task,
     ]

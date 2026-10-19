@@ -55,7 +55,7 @@ async def process_uploaded_audio(session_id: uuid.UUID, mime_type: str) -> str:
 
     async with AsyncSessionLocal() as db:
         session = await db.get(NoteSession, session_id)
-        if not session or session.note_id or not session.audio_storage_path:
+        if not session or session.note_id or session.status in (NoteSessionStatus.cancelled, NoteSessionStatus.completed) or not session.audio_storage_path:
             return "skipped"
         try:
             content = await minio_download(session.audio_storage_path)
@@ -70,6 +70,12 @@ async def process_uploaded_audio(session_id: uuid.UUID, mime_type: str) -> str:
             await _push_status(session)
             return "failed"
 
+        await db.refresh(session)
+        if session.status in (NoteSessionStatus.cancelled, NoteSessionStatus.completed) or session.note_id:
+            return "skipped"
+        session.bot_status = "processing"
+        await db.commit()
+        await _push_status(session)
         utterances = [Utterance(**row) for row in rows]
         await db.execute(delete(NoteTranscript).where(NoteTranscript.session_id == session.id))
         base = session.started_at
@@ -91,12 +97,20 @@ async def process_uploaded_audio(session_id: uuid.UUID, mime_type: str) -> str:
         if utterances:
             last = max(utterances, key=lambda u: u.start_ms + u.duration_ms)
             duration = (last.start_ms + last.duration_ms) / 1000
-        return await complete_session_from_text(
-            db,
-            session,
-            utterances=utterances,
-            rows=transcripts,
-            duration_seconds=duration,
-            cut_short=False,
-            empty_reason="no_text_file",
-        )
+        try:
+            return await complete_session_from_text(
+                db, session, utterances=utterances, rows=transcripts,
+                duration_seconds=duration, cut_short=False, empty_reason="no_text_file",
+            )
+        except Exception:
+            logger.warning("Could not build note for uploaded session %s", session_id)
+            await db.rollback()
+            session = await db.get(NoteSession, session_id, populate_existing=True)
+            if session and not session.note_id and session.status != NoteSessionStatus.cancelled:
+                session.bot_status = "failed"
+                session.bot_status_reason = "note_generation_failed"
+                session.status = NoteSessionStatus.failed
+                await db.commit()
+                await _notify_failed(db, session)
+                await _push_status(session)
+            return "failed"
