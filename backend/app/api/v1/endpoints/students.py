@@ -23,7 +23,7 @@ from app.models.contract import Contract, PipelineStatus
 from app.models.payment import PaymentType, PaymentStatus
 from app.models.mentor_assignment import REQUIRED_ROLES, MentorAssignment, MentorRole
 from app.models.guardian import Guardian
-from app.models.confidential_note import ConfidentialNote, note_visible_to_role
+from app.models.confidential_note import ConfidentialNote, note_visible_to_role, student_note_visible_to_role
 from app.models.complaint import Complaint, ComplaintStatus
 from app.models.application import Application
 from app.models.country_reference import CountryReference
@@ -1683,7 +1683,7 @@ async def get_student(
                 "created_at": c.created_at.isoformat(),
             }
             for c in conf_notes
-            if note_visible_to_role(c.visible_to_role, current_user.role)
+            if student_note_visible_to_role(c.visible_to_role, current_user.role)
         ]
 
         contract_data = []

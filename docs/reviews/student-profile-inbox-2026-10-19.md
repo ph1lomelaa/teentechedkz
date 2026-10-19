@@ -4,7 +4,7 @@ The workspace student profile uses the same horizontal section navigation as the
 
 Existing CRM sections remain available according to permissions: roadmaps, deadlines and subtasks, meetings, applications, shortlist, admission credentials, activities, team, services, contacts, contracts and payments, reconciliation, portal access and history. Profile editing, export and header actions remain available.
 
-Admin, MZK manager and academic head now default to all students in the workspace instead of an empty personal-assignment scope. A visible supervisor selector offers all students, own students, or a specific mentor. Meeting/note cache keys include the selected scope. Mentor requests retain their existing personal scope.
+Admin, MZK manager and academic head now default to all students in the workspace instead of an empty personal-assignment scope. A visible supervisor selector offers all students, own students, or a specific mentor. Meeting/note cache keys include the selected scope. Mentor requests retain their existing personal scope. All student working notes, including legacy admin-only notes, are readable by these three supervisor roles. Admin-only edit/delete/publish restrictions remain intact; complaint visibility uses its separate existing policy.
 
 `GET /conversations` accepts optional `scope=all|mine` (default mine, backwards compatible). The all scope without a mentor filter is restricted to the three supervisor roles and lists active-student conversations in one database query. Staff-only private conversations are excluded. Nonmember observers can read student conversations but do not gain membership or sending rights. Workspace chat requests respect the selected scope.
 

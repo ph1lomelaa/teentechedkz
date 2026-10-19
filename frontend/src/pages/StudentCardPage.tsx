@@ -593,7 +593,7 @@ export const StudentCardPage: React.FC = () => {
     if (enteredDirectly.current) navigate(inWorkspace ? '/workspace/students' : '/students')
     else navigate(-1)
   }
-  const { can, hasRole } = useAuth()
+  const { can, hasRole, user } = useAuth()
   const taskQueryClient = useQueryClient()
   const [creatingTask, setCreatingTask] = useState(false)
   const canEditContract = can('contracts', 'manage')
@@ -2088,8 +2088,9 @@ export const StudentCardPage: React.FC = () => {
                         <p className="text-sm text-p-text">{note.note_text}</p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-p-muted">
-                            Видят: {note.visible_to_role} · {formatDate(note.created_at)}
+                            Видят: {{ admin_only: 'Руководство · изменяет admin', admin_and_mzk: 'Руководство', all_mentors: 'Вся команда' }[note.visible_to_role]} · {formatDate(note.created_at)}
                           </p>
+                          {(note.visible_to_role !== 'admin_only' || user?.role === 'admin') && (
                           <div className="relative">
                             <Button
                               variant="outline"
@@ -2128,6 +2129,7 @@ export const StudentCardPage: React.FC = () => {
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
                         {note.visible_to_student && (
                           <p className="mt-1 text-xs font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
@@ -2156,8 +2158,8 @@ export const StudentCardPage: React.FC = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin_only">Только admin</SelectItem>
-                        <SelectItem value="admin_and_mzk">Admin и MZK</SelectItem>
+                        <SelectItem value="admin_only">Руководство · изменяет admin</SelectItem>
+                        <SelectItem value="admin_and_mzk">Руководство</SelectItem>
                         <SelectItem value="all_mentors">Все менторы</SelectItem>
                       </SelectContent>
                     </Select>
