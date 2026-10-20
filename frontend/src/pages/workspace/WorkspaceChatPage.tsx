@@ -178,12 +178,12 @@ export const WorkspaceChatPage: React.FC = () => {
   })
   const selected = items.find((item) => item.key === selectedKey)
     || (requestedChatId
-      ? items.find((item) => item.telegram?.id === requestedChatId)
+      ? items.find((item) => (item.telegram?.id === requestedChatId || item.internal?.id === requestedChatId))
       : items.find((item) => requestedStudentId && item.studentId === requestedStudentId) || items[0])
 
   useEffect(() => {
     if (requestedChatId) {
-      setSelectedKey(items.find((item) => item.telegram?.id === requestedChatId)?.key || null)
+      setSelectedKey(items.find((item) => (item.telegram?.id === requestedChatId || item.internal?.id === requestedChatId))?.key || null)
       return
     }
     if (requestedStudentId) {
@@ -505,6 +505,9 @@ export const WorkspaceChatPage: React.FC = () => {
             <>
               <ChatHeader variant="internal" title={selected.title} source="Внутренний чат" />
               <ChatThread
+                key={selected.internal.id}
+                targetMessageId={selected.internal.id === requestedChatId || !requestedChatId ? requestedMessageId : null}
+                onClearMessageFocus={clearMessageFocus}
                 conversationId={selected.internal.id}
                 peerName={selected.title}
                 currentUserId={user.id}

@@ -16,6 +16,8 @@ export const ChatThread: React.FC<{
   showSearch?: boolean
   readOnly?: boolean
   shellClassName?: string
+  targetMessageId?: string | null
+  onClearMessageFocus?: () => void
   peerName?: string
 }> = ({
   conversationId,
@@ -26,6 +28,8 @@ export const ChatThread: React.FC<{
   readOnly = false,
   shellClassName,
   peerName,
+  targetMessageId,
+  onClearMessageFocus,
 }) => {
   const { data } = useQuery({
     queryKey: ['messages', conversationId],
@@ -37,6 +41,7 @@ export const ChatThread: React.FC<{
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
   const [reactionHover, setReactionHover] = useState<string | null>(null)
+  const targetRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -66,8 +71,9 @@ export const ChatThread: React.FC<{
   })
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (targetMessageId) targetRef.current?.scrollIntoView({ block: 'center' })
+    else bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, targetMessageId])
 
   const send = async () => {
     const body = text.trim()
@@ -118,6 +124,7 @@ export const ChatThread: React.FC<{
       heightClass,
       shellClassName,
     )}>
+      {targetMessageId && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-w-line bg-w-panel2 px-4 py-2 text-xs text-w-ink"><span>Исходное сообщение</span><button type="button" onClick={onClearMessageFocus} className="font-bold text-w-accentText underline underline-offset-2">К последним сообщениям</button></div>}
       {/* Search bar */}
       {variant === 'portal' && showSearch && (
         <div className="border-b border-w-line bg-w-panel2 p-3">
@@ -158,7 +165,7 @@ export const ChatThread: React.FC<{
             const isHovering = reactionHover === m.id
             const { groupStart, groupEnd, startsDay } = groupFlags(filtered, index, (x) => x.sender_id, (x) => x.created_at)
             if (portal) return (
-              <React.Fragment key={m.id}>
+              <div key={m.id} ref={m.id === targetMessageId ? targetRef : undefined} aria-label={m.id === targetMessageId ? "Исходное сообщение" : undefined} className={cn(m.id === targetMessageId && "rounded-ctl bg-w-accent/10 ring-2 ring-w-accent")}>
                 {startsDay && <DaySeparator date={m.created_at} variant="internal" />}
                 <MessageBubble
                   variant="internal"
@@ -185,7 +192,7 @@ export const ChatThread: React.FC<{
                     </button>
                   ))}
                 </MessageBubble>
-              </React.Fragment>
+              </div>
             )
             return (
               <div key={m.id} className={cn('flex group', mine ? 'justify-end' : 'justify-start')}>

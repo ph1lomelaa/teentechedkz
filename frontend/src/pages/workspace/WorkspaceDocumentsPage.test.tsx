@@ -33,7 +33,7 @@ it('роль без documents:manage видит список без действ
 })
 it('ссылка на исходное сообщение сохраняется в списке', async () => {
  mocks.documents.mockResolvedValue({items:[{...doc('telegram','s1'), source:'telegram', source_message:{channel:'telegram', message_id:'message1', chat_id:'chat1'}}]})
- open(); expect(await screen.findByRole('link', {name:'Исходное сообщение'})).toHaveAttribute('href','/workspace/chat?channel=all&student_id=s1&message_id=message1')
+ open(); expect(await screen.findByRole('link', {name:'Исходное сообщение'})).toHaveAttribute('href','/workspace/chat?channel=telegram&student_id=s1&message_id=message1&chat_id=chat1')
 })
 it('форма скрыта; загрузка требует студента и файл и вызывает API', async () => {
  open(); expect(screen.queryByLabelText('Выберите документ для загрузки')).toBeNull(); fireEvent.click(screen.getByRole('button', { name: 'Загрузить документ' })); await screen.findAllByRole('option', { name: 'Анна' })

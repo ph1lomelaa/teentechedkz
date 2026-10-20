@@ -47,6 +47,7 @@ from app.services.mentor_scope import mentor_assigned_student_ids, require_stude
 from app.services.minio_service import close_minio_object, get_minio
 from app.services.note_sessions import reformulate_for_student
 from app.services.student_context_ai import generate_context_review_draft
+from app.services.pending_insights import needs_review_condition, visible_insight_condition
 from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
 from app.services.telegram_bot import get_bot
 from app.services.telegram_ingest import dump_telegram_object
@@ -1454,7 +1455,7 @@ async def list_chat_insights(
     result = await db.execute(
         select(PendingInsight)
         .join(TelegramMessage, PendingInsight.source_telegram_message_id == TelegramMessage.id)
-        .where(TelegramMessage.chat_id == chat_id)
+        .where(TelegramMessage.chat_id == chat_id, visible_insight_condition())
         .order_by(PendingInsight.created_at.desc())
     )
     insights = result.scalars().all()
@@ -1963,7 +1964,7 @@ async def _chat_to_dict(
             select(func.count(PendingInsight.id))
             .select_from(PendingInsight)
             .join(TelegramMessage, PendingInsight.source_telegram_message_id == TelegramMessage.id)
-            .where(TelegramMessage.chat_id == chat.id, PendingInsight.status == InsightStatus.pending)
+            .where(TelegramMessage.chat_id == chat.id, PendingInsight.status == InsightStatus.pending, needs_review_condition())
         )
     ).scalar_one()
 

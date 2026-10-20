@@ -28,5 +28,5 @@ it('встроенный список не дублирует фильтры и 
  open({ embedded: true, canManage: true }); expect(screen.queryByLabelText('Проверка документов')).toBeNull(); expect(screen.queryByText('Проверка, видимость и подтверждение — что это?')).toBeNull(); expect(screen.getByRole('button', { name: 'Отметить проверенным' })).toBeTruthy()
 })
 it('показывает внутренний источник и ссылку в нужный чат', () => {
- open({ tone: 'w', sourceChatPath: '/workspace/chat', documents: [{ ...document, source_message: { channel: 'internal', message_id: 'm1', chat_id: 'c1' } }] }); expect(screen.getByText(/Внутренний чат/)).toBeTruthy(); expect(screen.getByRole('link', { name: 'Исходное сообщение' })).toHaveAttribute('href', '/workspace/chat?channel=all&student_id=s1&message_id=m1')
+ open({ tone: 'w', sourceChatPath: '/workspace/chat', documents: [{ ...document, source_message: { channel: 'internal', message_id: 'm1', chat_id: 'c1' } }] }); expect(screen.getByText(/Внутренний чат/)).toBeTruthy(); expect(screen.getByRole('link', { name: 'Исходное сообщение' })).toHaveAttribute('href', '/workspace/chat?channel=internal&student_id=s1&message_id=m1&chat_id=c1')
 })
