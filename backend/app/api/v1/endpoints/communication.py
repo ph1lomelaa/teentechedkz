@@ -19,6 +19,7 @@ from app.models.telegram_message import TelegramMessage
 from app.models.user import User, UserRole
 from app.models.mentor_assignment import MentorAssignment
 from app.core.audit import log_change
+from app.services.pending_insights import needs_review_condition, visible_insight_condition
 from app.services.mentor_scope import mentor_assigned_student_ids
 from app.services.student_notes import (
     apply_student_updates,
@@ -91,7 +92,7 @@ async def list_all_pending_insights(
     каждую карточку уходило по несколько запросов.
     """
     require_access(current_user, "communication", Action.manage)
-    query = select(PendingInsight).order_by(PendingInsight.created_at.desc())
+    query = select(PendingInsight).where(visible_insight_condition()).order_by(PendingInsight.created_at.desc())
     if status == "resolved":
         query = query.where(PendingInsight.status != InsightStatus.pending)
     elif status:
@@ -156,6 +157,8 @@ async def list_all_pending_insights(
         insight_dict["source_excerpt"] = (source.raw_text or "")[:300] if source else None
         insight_dict["source_sender"] = source.sender_name if source else None
         insight_dict["source_created_at"] = source.created_at.isoformat() if source else None
+        insight_dict["source_message_id"] = str(source.id) if source else None
+        insight_dict["source_chat_id"] = str(source.chat_id) if source else None
         if insight.status == InsightStatus.pending and student:
             insight_dict["diff"] = build_profile_diff(snapshot_student(student), insight.proposed_changes or {})
         else:
@@ -179,6 +182,7 @@ async def get_pending_insights(
         .where(
             PendingInsight.student_id == student_id,
             PendingInsight.status == InsightStatus.pending,
+            needs_review_condition(),
         )
         .order_by(PendingInsight.created_at.desc())
     )

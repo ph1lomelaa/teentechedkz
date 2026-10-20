@@ -14,6 +14,8 @@ import {
 
 /** Колонки: задача · студент · срок · статус · действие. На узком экране строка складывается в две линии. */
 const GRID = 'xl:grid xl:grid-cols-[minmax(0,2.4fr)_minmax(0,1.2fr)_9.5rem_6.5rem_18.5rem] xl:items-center xl:gap-4'
+/** Без колонки «Студент»: в группировке по студентам имя уже в заголовке группы. */
+const GRID_NO_STUDENT = 'xl:grid xl:grid-cols-[minmax(0,3.6fr)_9.5rem_6.5rem_18.5rem] xl:items-center xl:gap-4'
 
 export interface RowActions {
   /** Ключ строки, по которой сейчас идёт запрос: кнопки блокируются, чтобы не слать дубль. */
@@ -146,14 +148,14 @@ export const ActionCell: React.FC<{ item: WorkItem; actions: RowActions }> = ({ 
   )
 }
 
-const Row: React.FC<{ item: WorkItem; actions: RowActions }> = ({ item, actions }) => {
+const Row: React.FC<{ item: WorkItem; actions: RowActions; hideStudent?: boolean }> = ({ item, actions, hideStudent }) => {
   const closed = isClosed(item.status)
   const roadmap = item.roadmap
   return (
     <li
       className={cn(
         'border-b border-w-line px-4 py-3 last:border-b-0 xl:py-3.5',
-        GRID,
+        hideStudent ? GRID_NO_STUDENT : GRID,
         item.overdueDays > 0 && 'bg-w-danger/[0.04]',
       )}
     >
@@ -193,7 +195,7 @@ const Row: React.FC<{ item: WorkItem; actions: RowActions }> = ({ item, actions 
         </p>
       </div>
 
-      <div className="mt-2 min-w-0 text-sm xl:mt-0">
+      {!hideStudent && <div className="mt-2 min-w-0 text-sm xl:mt-0">
         {item.studentId ? (
           <Link
             to={`/workspace/students/${item.studentId}${item.kind === 'roadmap' ? '#roadmap' : ''}`}
@@ -205,7 +207,7 @@ const Row: React.FC<{ item: WorkItem; actions: RowActions }> = ({ item, actions 
         ) : (
           <span className="text-w-muted2">Общая задача</span>
         )}
-      </div>
+      </div>}
 
       <div className="mt-2 flex items-start justify-between gap-3 xl:mt-0 xl:block">
         <DueCell item={item} />
@@ -221,30 +223,55 @@ const Row: React.FC<{ item: WorkItem; actions: RowActions }> = ({ item, actions 
   )
 }
 
+/** Строка заголовков с сортировкой — одна над всеми группами. */
+export const TaskQueueHead: React.FC<{
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (key: SortKey) => void
+  hideStudent?: boolean
+}> = ({ sortKey, sortDir, onSort, hideStudent }) => (
+  <div
+    className={cn(
+      'hidden rounded-card border border-w-line bg-w-panel2 px-4 py-2.5 text-2xs font-bold uppercase tracking-wider',
+      hideStudent ? GRID_NO_STUDENT : GRID,
+    )}
+    role="row"
+  >
+    <SortHead label="Задача" sortKey="title" active={sortKey} dir={sortDir} onSort={onSort} />
+    {!hideStudent && <SortHead label="Студент" sortKey="student" active={sortKey} dir={sortDir} onSort={onSort} />}
+    <SortHead label="Срок" sortKey="due" active={sortKey} dir={sortDir} onSort={onSort} />
+    <span className="text-w-muted2">Статус</span>
+    <span className="text-right text-w-muted2">Действие</span>
+  </div>
+)
+
 export const TaskQueue: React.FC<{
   items: WorkItem[]
   actions: RowActions
   sortKey: SortKey
   sortDir: SortDir
   onSort: (key: SortKey) => void
-}> = ({ items, actions, sortKey, sortDir, onSort }) => (
-  <div className="overflow-hidden rounded-card border border-w-line bg-w-panel">
-    <div
+  hideStudent?: boolean
+  /** Таблица внутри группы: без своей рамки и без строки заголовков. */
+  bare?: boolean
+}> = ({ items, actions, sortKey, sortDir, onSort, hideStudent, bare }) => (
+  <div className={cn(!bare && 'overflow-hidden rounded-card border border-w-line bg-w-panel')}>
+    {!bare && <div
       className={cn(
         'hidden border-b border-w-line bg-w-panel2 px-4 py-2.5 text-2xs font-bold uppercase tracking-wider',
-        GRID,
+        hideStudent ? GRID_NO_STUDENT : GRID,
       )}
       role="row"
     >
       <SortHead label="Задача" sortKey="title" active={sortKey} dir={sortDir} onSort={onSort} />
-      <SortHead label="Студент" sortKey="student" active={sortKey} dir={sortDir} onSort={onSort} />
+      {!hideStudent && <SortHead label="Студент" sortKey="student" active={sortKey} dir={sortDir} onSort={onSort} />}
       <SortHead label="Срок" sortKey="due" active={sortKey} dir={sortDir} onSort={onSort} />
       <span className="text-w-muted2">Статус</span>
       <span className="text-right text-w-muted2">Действие</span>
-    </div>
+    </div>}
     <ul>
       {items.map((item) => (
-        <Row key={item.key} item={item} actions={actions} />
+        <Row key={item.key} item={item} actions={actions} hideStudent={hideStudent} />
       ))}
     </ul>
   </div>

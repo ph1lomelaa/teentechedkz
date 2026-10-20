@@ -676,6 +676,9 @@ export interface InsightWithDiff extends PendingInsight {
   source_excerpt?: string | null
   source_sender?: string | null
   source_created_at?: string | null
+  /** Исходное сообщение Telegram — для ссылки «Открыть в чате». */
+  source_message_id?: string | null
+  source_chat_id?: string | null
 }
 
 export type TelegramChatStatus = 'unbound' | 'active' | 'paused' | 'closed'

@@ -5,6 +5,7 @@ import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { pluralRu } from '@/lib/contextDraft'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -330,7 +331,7 @@ export const WorkspaceStudentDetailPage: React.FC = () => {
       </AccordionContent></AccordionItem>
 
       <AccordionItem value="telegram" unframed><AccordionContent>
-        <TelegramTab studentId={student.id} studentName={student.full_name} chat={telegramChat} messages={telegramMessages} />
+        <TelegramTab studentId={student.id} studentName={student.full_name} chat={telegramChat} messages={telegramMessages} pendingChanges={student.pending_insights?.filter((item) => item.status === 'pending').length ?? 0} />
       </AccordionContent></AccordionItem>
 
       <AccordionItem value="chat" unframed><AccordionContent>
@@ -1323,14 +1324,28 @@ function TelegramTab({
   studentName,
   chat,
   messages,
+  pendingChanges,
 }: {
   studentId: string
   studentName: string
   chat: TelegramChat | null | undefined
   messages: Array<{ id: string; sender_name: string | null; raw_text: string | null; message_type: string; created_at: string }>
+  pendingChanges: number
 }) {
   return (
     <div className="space-y-5">
+      {/* AI вытаскивает из переписки изменения профиля, но разбираются они в
+          «На подтверждение». Без этой строки ментор видел счётчик сигналов и
+          не находил сами изменения во вкладке Telegram. */}
+      {pendingChanges > 0 && (
+        <Link
+          to={`/workspace/status?student=${studentId}`}
+          className="flex items-center justify-between gap-3 rounded-card border border-w-accentDim/50 bg-w-accent/10 px-4 py-3 text-sm font-bold text-w-ink transition hover:bg-w-accent/20"
+        >
+          <span>{pendingChanges} {pluralRu(pendingChanges, 'изменение из переписки ждёт', 'изменения из переписки ждут', 'изменений из переписки ждут')} подтверждения</span>
+          <span className="shrink-0 text-w-accentText">Разобрать →</span>
+        </Link>
+      )}
       <Panel title="Telegram-группа" icon={<Send className="h-4 w-4" />} action={chat ? <Link to={`/workspace/chat?student_id=${studentId}&channel=telegram`} className="text-xs font-bold text-w-accentText hover:underline">Открыть чат →</Link> : undefined}>
         <TelegramGroupManager studentId={studentId} studentName={studentName} chat={chat} variant="workspace" />
       </Panel>

@@ -58,7 +58,9 @@ export function studentSignals(item: WorkspaceStudentSummary): StudentSignal[] {
   const telegram = item.telegram?.pending_signals ?? 0
   const drafts = item.notes?.ai_drafts ?? 0
   if (docs > 0) signals.push({ key: 'documents', tone: 'danger', label: `${docs} ${plural(docs, 'документ ждёт', 'документа ждут', 'документов ждут')} проверки`, href: `${base}#documents` })
-  if (telegram > 0) signals.push({ key: 'telegram', tone: 'danger', label: `${telegram} ${plural(telegram, 'сигнал', 'сигнала', 'сигналов')} из Telegram`, href: `${base}#telegram` })
+  // Это изменения профиля, которые AI нашёл в переписке: разбираются они
+  // в «На подтверждение», а не во вкладке Telegram карточки.
+  if (telegram > 0) signals.push({ key: 'telegram', tone: 'danger', label: `${telegram} ${plural(telegram, 'изменение из Telegram ждёт', 'изменения из Telegram ждут', 'изменений из Telegram ждут')} подтверждения`, href: `/workspace/status?student=${item.student.id}` })
   if (drafts > 0) signals.push({ key: 'drafts', tone: 'danger', label: `${drafts} ${plural(drafts, 'черновик конспекта', 'черновика конспекта', 'черновиков конспекта')}`, href: `${base}#notes` })
   for (const code of item.warnings ?? []) {
     const known = WARNING_LABELS[code]

@@ -17,6 +17,8 @@ import { QueryState } from '@/components/shared/QueryState'
 import { CreateTaskDialog } from '@/components/shared/CreateTaskDialog'
 import { WorkspaceQuestionnaireDialog } from '@/components/workspace/WorkspaceQuestionnaireDialog'
 import { TaskQueue, type RowActions } from '@/components/workspace/tasks/TaskQueue'
+import { TaskGroups } from '@/components/workspace/tasks/TaskGroups'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { StudentsOverview } from '@/components/workspace/tasks/StudentsOverview'
 import { EvidenceDialog, ReviewDialog } from '@/components/workspace/tasks/TaskDialogs'
 import { TaskDetailPanel } from '@/components/workspace/tasks/TaskDetailPanel'
@@ -67,6 +69,7 @@ export const WorkspaceTasksPage: React.FC = () => {
   const [tab, setTab] = useLocalState<Tab>('workspace:tasks:v2:tab', 'queue')
   const [kind, setKind] = useLocalState<WorkKind | 'all'>('workspace:tasks:v2:kind', 'all')
   const [bucket, setBucket] = useLocalState<DueBucket | 'all'>('workspace:tasks:v2:bucket', 'all')
+  const [groupBy, setGroupBy] = useLocalState<'student' | 'none'>('workspace:tasks:v2:groupBy', 'student')
   const [query, setQuery] = useState('')
   const [urlParams] = useSearchParams()
   const [studentId, setStudentId] = useState(urlParams.get('student_id') ?? '')
@@ -198,6 +201,8 @@ export const WorkspaceTasksPage: React.FC = () => {
     setStudentId('')
   }
   const hasFilters = Boolean(query || kind !== 'all' || bucket !== 'all' || studentId)
+  // Один студент уже выбран — группы из одной строки только мешают.
+  const grouped = groupBy === 'student' && !studentId
 
   const loading = openRoadmap.isLoading || delegated.isLoading
   const failed = openRoadmap.isError || delegated.isError
@@ -284,6 +289,15 @@ export const WorkspaceTasksPage: React.FC = () => {
           </AppSelect>
         )}
 
+        {tab !== 'students' && (
+          <SegmentedTabs
+            colorPrefix="w"
+            value={groupBy}
+            onChange={(value) => setGroupBy(value as 'student' | 'none')}
+            tabs={[{ value: 'student', label: 'Группами' }, { value: 'none', label: 'Одним списком' }]}
+          />
+        )}
+
         {focusedStudentName && (
           <button
             type="button"
@@ -362,6 +376,20 @@ export const WorkspaceTasksPage: React.FC = () => {
               action={hasFilters ? <AppButton colorPrefix="w" variant="subtle" onClick={resetFilters}>Сбросить фильтры</AppButton> : undefined}
             />
           </div>
+        ) : grouped ? (
+          <TaskGroups
+            items={listed}
+            actions={actions}
+            sortKey={sort.key}
+            sortDir={sort.dir}
+            onSort={onSort}
+            canCreate={canCreate}
+            onCreate={(student) => setCreating({ student })}
+            onFocusStudent={(id) => {
+              setStudentId(id)
+              setVisible(PAGE_SIZE)
+            }}
+          />
         ) : (
           <>
             <TaskQueue items={listed.slice(0, visible)} actions={actions} sortKey={sort.key} sortDir={sort.dir} onSort={onSort} />

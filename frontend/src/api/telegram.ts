@@ -129,7 +129,7 @@ export const telegramApi = {
   },
   listMessages: async (
     chatId: string,
-    params?: { q?: string; limit?: number; before_id?: string },
+    params?: { q?: string; limit?: number; before_id?: string; around_id?: string },
   ): Promise<TelegramMessage[]> => {
     const response = await apiClient.get<TelegramMessage[]>(`/telegram-chats/${chatId}/messages`, { params })
     return response.data
