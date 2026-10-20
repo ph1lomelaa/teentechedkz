@@ -45,10 +45,10 @@ export function DocumentReviewControls({ doc, onChanged, allowDelete = false }: 
   const signed = doc.signature_status === 'signed'
   return <div className="mt-2 space-y-2 text-xs text-p-text">
     <div className="flex flex-wrap items-center gap-2" aria-label={`Статусы: ${doc.file_name}`}>
-      <span className={`rounded-full px-2 py-1 font-medium ${doc.is_verified ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-700'}`}>{doc.is_verified ? 'Проверен' : 'Нужна проверка'}</span>
+      <span className={`rounded-full px-2 py-1 font-medium ${doc.is_verified ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>{doc.is_verified ? 'Проверен' : 'Нужна проверка'}</span>
       <span className="rounded-full bg-p-panel2 px-2 py-1 text-p-muted">{doc.visible_to_student ? 'Видит студент' : 'Скрыт от студента'}</span>
       {pending && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-700">{doc.signature_viewed_at ? 'Ознакомление отмечено · ждём подтверждение' : 'Ожидаем подтверждение студента'}</span>}
-      {signed && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600">Подтверждено студентом{doc.signature_full_name ? ` · ${doc.signature_full_name}` : ''}{doc.signature_signed_at ? ` · ${formatDate(doc.signature_signed_at)}` : ''}</span>}
+      {signed && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-700">Подтверждено студентом{doc.signature_full_name ? ` · ${doc.signature_full_name}` : ''}{doc.signature_signed_at ? ` · ${formatDate(doc.signature_signed_at)}` : ''}</span>}
     </div>
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => documentsApi.verify(doc.id, !doc.is_verified), doc.is_verified ? 'Документ возвращён на проверку' : 'Документ проверен')}>

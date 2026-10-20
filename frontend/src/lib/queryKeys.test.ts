@@ -34,7 +34,9 @@ describe('invalidateStudent', () => {
 
     expect(spy).toHaveBeenCalledWith({ queryKey: studentKeys.detail('s1') })
     expect(spy).toHaveBeenCalledWith({ queryKey: studentKeys.timeline('s1') })
-    expect(spy).toHaveBeenCalledTimes(2)
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['pending-insights'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['workspace'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['students'] })
   })
 
   it('не путает студентов между собой', () => {

@@ -24,6 +24,7 @@ from app.models.document import Document
 from app.models.meeting import Meeting, MeetingStatus
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.note_session import NoteSession, NoteSessionStatus
+from app.services.pending_insights import needs_review_condition
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.questionnaire import Questionnaire, QuestionnaireStatus
 from app.core.country_flags_data import flag_for
@@ -381,6 +382,7 @@ async def _student_summary(db: AsyncSession, student: Student) -> dict:
             PendingInsight.student_id == student.id,
             PendingInsight.status == InsightStatus.pending,
             PendingInsight.source_telegram_message_id.is_not(None),
+            needs_review_condition(),
         ),
     )
     note_sessions = await _count(
@@ -557,6 +559,7 @@ async def _student_summaries(
             PendingInsight.student_id.in_(student_ids),
             PendingInsight.status == InsightStatus.pending,
             PendingInsight.source_telegram_message_id.is_not(None),
+            needs_review_condition(),
         )
         .group_by(PendingInsight.student_id)
     )

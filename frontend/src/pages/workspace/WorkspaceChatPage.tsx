@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Paperclip, Plus, Search, X } from 'lucide-react'
@@ -70,9 +71,12 @@ export const WorkspaceChatPage: React.FC = () => {
   const effectiveWorkspaceParams: WorkspaceScopeParams = params
   const telegramScope = mentorId || params.scope === 'all' ? 'all' : 'mine'
 
-  const searchParams = new URLSearchParams(window.location.search)
+  const [searchParams, setSearchParams] = useSearchParams()
   const requestedStudentId = searchParams.get('student_id')
   const requestedChannel = searchParams.get('channel')
+  const requestedMessageId = searchParams.get('message_id')
+  const requestedChatId = searchParams.get('chat_id')
+  const clearMessageFocus = () => setSearchParams((current) => { const next = new URLSearchParams(current); next.delete('message_id'); return next }, { replace: true })
   const [channel, setChannel] = useState<Channel>(
     requestedChannel === 'internal' ? 'internal' : 'telegram',
   )
@@ -173,27 +177,33 @@ export const WorkspaceChatPage: React.FC = () => {
     return item.title.toLowerCase().includes(listQuery) || (item.preview ?? '').toLowerCase().includes(listQuery)
   })
   const selected = items.find((item) => item.key === selectedKey)
-    || items.find((item) => requestedStudentId && item.studentId === requestedStudentId)
-    || items[0]
+    || (requestedChatId
+      ? items.find((item) => item.telegram?.id === requestedChatId)
+      : items.find((item) => requestedStudentId && item.studentId === requestedStudentId) || items[0])
 
   useEffect(() => {
+    if (requestedChatId) {
+      setSelectedKey(items.find((item) => item.telegram?.id === requestedChatId)?.key || null)
+      return
+    }
     if (requestedStudentId) {
       const byStudent = items.find((item) => item.studentId === requestedStudentId)
       setSelectedKey(byStudent?.key || null)
       return
     }
     setSelectedKey(items[0]?.key || null)
-  }, [mentorId, requestedStudentId, items])
+  }, [mentorId, requestedChatId, requestedStudentId, items])
 
   useEffect(() => {
     if (!items.length) {
       setSelectedKey(null)
       return
     }
+    if (requestedChatId) return
     if (!selectedKey || !items.some((item) => item.key === selectedKey)) {
       setSelectedKey(items[0].key)
     }
-  }, [items, selectedKey])
+  }, [items, selectedKey, requestedChatId])
 
   // Only students already taken on by a mentor — a fresh, unassigned lead
   // has no one to run a Telegram group or internal chat with yet.
@@ -505,7 +515,7 @@ export const WorkspaceChatPage: React.FC = () => {
               />
             </>
           ) : selected.telegram ? (
-            <TelegramThread chat={selected.telegram} readOnly={isPreview} />
+            <TelegramThread key={selected.telegram.id} chat={selected.telegram} readOnly={isPreview} targetMessageId={(!requestedChatId || selected.telegram.id === requestedChatId) && (!requestedStudentId || selected.studentId === requestedStudentId || Boolean(requestedChatId)) ? requestedMessageId : null} onClearMessageFocus={clearMessageFocus} />
           ) : null}
         </AppCard>
       </div>
@@ -514,14 +524,15 @@ export const WorkspaceChatPage: React.FC = () => {
   )
 }
 
-function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOnly?: boolean }) {
+export function TelegramThread({ chat, readOnly = false, targetMessageId, onClearMessageFocus }: { chat: TelegramChat; readOnly?: boolean; targetMessageId?: string | null; onClearMessageFocus?: () => void }) {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<TelegramContextDraft | null>(null)
   const [outgoingText, setOutgoingText] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: ['workspace', 'chat', 'telegram-messages', chat.id],
-    queryFn: () => telegramApi.listMessages(chat.id, { limit: 200 }),
+  const targetRef = useRef<HTMLDivElement>(null)
+  const { data: messages = [], isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['workspace', 'chat', 'telegram-messages', chat.id, targetMessageId || 'latest'],
+    queryFn: () => telegramApi.listMessages(chat.id, { limit: 200, ...(targetMessageId ? { around_id: targetMessageId } : {}) }),
     refetchInterval: 15_000,
   })
   const { data: participants = [] } = useQuery({
@@ -536,8 +547,9 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
     }).catch(() => {})
   }, [chat.student_id, latestTelegramMessageId, queryClient, readOnly])
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [latestTelegramMessageId, chat.id])
+    if (targetMessageId) targetRef.current?.scrollIntoView({ block: 'center' })
+    else bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [latestTelegramMessageId, chat.id, targetMessageId])
 
   const draftMutation = useMutation({
     mutationFn: () => telegramApi.createContextDraft(chat.id, { limit: 200 }),
@@ -653,8 +665,9 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
         isApplying={applyMutation.isPending}
       />
 
+      {targetMessageId && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-w-line bg-w-panel2 px-4 py-2 text-xs text-w-ink"><span>Исходное сообщение и предыдущая переписка</span><button type="button" onClick={onClearMessageFocus} className="font-bold text-w-accentText underline underline-offset-2">К последним сообщениям</button></div>}
       <div className="chat-scrollbar min-h-0 flex-1 overflow-y-auto [background:var(--chat-canvas)] p-3 sm:p-4">
-        {isLoading ? (
+        {isError ? <QueryError colorPrefix="w" error={error} onRetry={refetch} /> : isLoading ? (
           <div className="space-y-2" aria-busy="true">
             {[0, 1, 2].map((i) => (
               <div key={i} className={cn('h-10 animate-pulse rounded-2xl bg-w-line/60', i % 2 ? 'ml-auto w-1/3' : 'w-1/2')} />
@@ -674,6 +687,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
             return (
               <React.Fragment key={message.id}>
                 {startsDay && <DaySeparator date={message.created_at} variant="telegram" />}
+                <div ref={message.id === targetMessageId ? targetRef : undefined} tabIndex={message.id === targetMessageId ? -1 : undefined} aria-label={message.id === targetMessageId ? 'Исходное сообщение' : undefined} className={cn(message.id === targetMessageId && 'rounded-ctl bg-w-accent/10 ring-2 ring-w-accent')}>
                 <MessageBubble
                   variant="telegram"
                   outgoing={outgoing}
@@ -699,6 +713,7 @@ function TelegramThread({ chat, readOnly = false }: { chat: TelegramChat; readOn
                     </button>
                   ))}
                 </MessageBubble>
+                </div>
               </React.Fragment>
             )
           })

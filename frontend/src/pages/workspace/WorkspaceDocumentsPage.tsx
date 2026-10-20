@@ -1,33 +1,71 @@
-import { DocumentReviewControls, DocumentWorkflowHelp } from '@/components/shared/DocumentReviewControls'
+import { DocumentWorkflowHelp } from '@/components/shared/DocumentReviewControls'
+import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { invalidateDocuments } from '@/lib/queryKeys'
 import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, ExternalLink, Eye, EyeOff, FileText, Search, Upload } from 'lucide-react'
+import { ChevronDown, Plus, Search, Upload, X } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
-import { workspaceApi } from '@/api/workspace'
+import { workspaceApi, type WorkspaceDocument } from '@/api/workspace'
+import { useAuth } from '@/contexts/AuthContext'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { DOC_TYPE_LABELS, DocType } from '@/types'
-import { formatDate } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
-import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader, Pill } from '@/components/ui'
+import { AppButton, AppCard, AppInput, AppSelect, EmptyState, PageHeader } from '@/components/ui'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { QueryState } from '@/components/shared/QueryState'
 
-const SOURCE_LABELS: Record<string, string> = {
-  telegram: 'Telegram',
-  manual_upload: 'Ручная загрузка',
-  whatsapp: 'WhatsApp',
+type ReviewFilter = 'all' | 'unverified' | 'verified'
+
+/** Сколько групп студентов раскрыто сразу — остальные свёрнуты в строку со счётчиками. */
+const OPEN_BY_DEFAULT = 5
+
+interface StudentDocs {
+  studentId: string
+  studentName: string
+  items: WorkspaceDocument[]
+  unverified: number
+  latest: string
+}
+
+function plural(n: number, one: string, few: string, many: string) {
+  const mod10 = n % 10, mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
+  return many
+}
+
+/** Студенты с непроверенными файлами — выше, внутри группы — от свежих к старым. */
+function groupByStudent(documents: WorkspaceDocument[]): StudentDocs[] {
+  const map = new Map<string, StudentDocs>()
+  for (const doc of documents) {
+    const group = map.get(doc.student_id) ?? { studentId: doc.student_id, studentName: doc.student_name, items: [], unverified: 0, latest: '' }
+    group.items.push(doc)
+    if (!doc.is_verified) group.unverified += 1
+    if (doc.uploaded_at > group.latest) group.latest = doc.uploaded_at
+    map.set(doc.student_id, group)
+  }
+  for (const group of map.values()) group.items.sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))
+  return [...map.values()].sort((a, b) =>
+    Number(b.unverified > 0) - Number(a.unverified > 0)
+    || b.latest.localeCompare(a.latest)
+    || a.studentName.localeCompare(b.studentName, 'ru'))
 }
 
 export const WorkspaceDocumentsPage: React.FC = () => {
   const queryClient = useQueryClient()
+  const { can } = useAuth()
+  const canManage = can('documents', 'manage')
   const { params } = useWorkspaceScope()
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadStudentId, setUploadStudentId] = useState('')
   const [studentId, setStudentId] = useLocalState('workspace:documents:studentFilter', '')
   const [source, setSource] = useLocalState('workspace:documents:sourceFilter', '')
-  const [reviewFilter, setReviewFilter] = useLocalState('workspace:documents:reviewFilter', 'all')
+  const [reviewFilter, setReviewFilter] = useLocalState<ReviewFilter>('workspace:documents:reviewFilter', 'unverified')
   const [search, setSearch] = useLocalState('workspace:documents:search', '')
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
   const [docType, setDocType] = useState<DocType>('other')
   const [file, setFile] = useState<File | null>(null)
 
@@ -42,18 +80,32 @@ export const WorkspaceDocumentsPage: React.FC = () => {
     queryFn: () => workspaceApi.students(params),
   })
   const students = (studentsData?.items ?? []).map((item) => item.student)
-  const visibleDocuments = useMemo(() => {
+
+  // Все фильтры, кроме проверки: от этого набора считаются счётчики вкладок.
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return documents.filter((doc) =>
-      (reviewFilter === 'all' || (reviewFilter === 'verified' ? doc.is_verified : !doc.is_verified))
-      && (!studentId || doc.student_id === studentId)
+      (!studentId || doc.student_id === studentId)
       && (!source
         || (source === 'internal' && doc.source_message?.channel === 'internal')
         || (source === 'manual_upload' && doc.source === 'manual_upload' && !doc.source_message)
         || (!['internal', 'manual_upload'].includes(source) && doc.source === source))
-      && (!q || doc.file_name.toLowerCase().includes(q) || doc.student_name.toLowerCase().includes(q)),
+      && (!q || documentName(doc).toLowerCase().includes(q) || doc.file_name.toLowerCase().includes(q) || doc.student_name.toLowerCase().includes(q)),
     )
-  }, [documents, search, source, studentId, reviewFilter])
+  }, [documents, search, source, studentId])
+  const reviewCounts = useMemo(() => ({
+    unverified: filtered.filter((doc) => !doc.is_verified).length,
+    verified: filtered.filter((doc) => doc.is_verified).length,
+    all: filtered.length,
+  }), [filtered])
+  const visibleDocuments = useMemo(
+    () => filtered.filter((doc) => reviewFilter === 'all' || (reviewFilter === 'verified' ? doc.is_verified : !doc.is_verified)),
+    [filtered, reviewFilter],
+  )
+  const groups = useMemo(() => groupByStudent(visibleDocuments), [visibleDocuments])
+  const isOpen = (group: StudentDocs, index: number) => toggled[group.studentId] ?? (groups.length === 1 || index < OPEN_BY_DEFAULT)
+  const allOpen = groups.every((group, index) => isOpen(group, index))
+  const hasFilters = Boolean(search || studentId || source)
 
   const toggleVisibilityMutation = useMutation({
     mutationFn: (doc: { id: string; visible_to_student?: boolean }) =>
@@ -63,15 +115,6 @@ export const WorkspaceDocumentsPage: React.FC = () => {
       toast({ title: 'Видимость документа обновлена' })
     },
     onError: () => toast({ title: 'Не удалось изменить видимость', variant: 'destructive' }),
-  })
-  const updateTypeMutation = useMutation({
-    mutationFn: ({ id, docType: nextType }: { id: string; docType: DocType }) =>
-      documentsApi.setType(id, nextType),
-    onSuccess: () => {
-      invalidateDocuments(queryClient)
-      toast({ title: 'Тип документа обновлён' })
-    },
-    onError: () => toast({ title: 'Не удалось изменить тип', variant: 'destructive' }),
   })
   const uploadMutation = useMutation({
     mutationFn: () => documentsApi.upload(uploadStudentId, file!, docType),
@@ -116,111 +159,139 @@ export const WorkspaceDocumentsPage: React.FC = () => {
       <PageHeader colorPrefix="w"
         eyebrow="Кабинет ментора"
         title="Документы"
-        description="Все документы студентов из кабинета, Telegram, сообщений и ручных загрузок."
+        description="Все документы студентов из кабинета, Telegram, сообщений и ручных загрузок — по студентам."
+        action={canManage ? (
+          <AppButton colorPrefix="w" variant={uploadOpen ? 'subtle' : 'primary'} onClick={() => setUploadOpen((open) => !open)}>
+            {uploadOpen ? <X className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+            {uploadOpen ? 'Закрыть' : 'Загрузить документ'}
+          </AppButton>
+        ) : undefined}
       />
 
-      <AppCard colorPrefix="w" className="mb-5 p-5">
-        <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink"><Upload className="h-4 w-4 text-w-accentText" />Загрузить документ</div>
-        <div className="grid gap-2 lg:grid-cols-[240px_210px_1fr_auto]">
-          <AppSelect colorPrefix="w" value={uploadStudentId} onChange={(event) => setUploadStudentId(event.target.value)} className="bg-w-panel2">
-            <option value="">Выберите студента</option>
-            {students.map((student) => <option key={student.id} value={student.id}>{student.full_name}</option>)}
-          </AppSelect>
-          <AppSelect colorPrefix="w" value={docType} onChange={(event) => setDocType(event.target.value as DocType)} className="bg-w-panel2">
-            {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </AppSelect>
-          <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-xs text-w-muted transition hover:border-w-accentDim">
-            <span className="rounded-ctl bg-w-accent px-3 py-1 font-bold text-black">Выбрать файл</span>
-            <span className="truncate">{file?.name || 'Файл не выбран'}</span>
-            <input
-              type="file"
-              aria-label="Выберите документ для загрузки"
-              onChange={(event) => setFile(event.target.files?.[0] || null)}
-              className="hidden"
-            />
-          </label>
-          <AppButton colorPrefix="w" disabled={!uploadStudentId || !file || uploadMutation.isPending} onClick={() => uploadMutation.mutate()}>{uploadMutation.isPending ? 'Загружаем...' : 'Загрузить'}</AppButton>
+      {canManage && uploadOpen && (
+        <AppCard colorPrefix="w" className="mb-5 p-5">
+          <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink"><Upload className="h-4 w-4 text-w-accentText" />Загрузить документ</div>
+          <div className="grid gap-2 lg:grid-cols-[240px_210px_1fr_auto]">
+            <AppSelect colorPrefix="w" aria-label="Студент для загрузки" value={uploadStudentId} onChange={(event) => setUploadStudentId(event.target.value)} className="bg-w-panel2">
+              <option value="">Выберите студента</option>
+              {students.map((student) => <option key={student.id} value={student.id}>{student.full_name}</option>)}
+            </AppSelect>
+            <AppSelect colorPrefix="w" aria-label="Тип загружаемого документа" value={docType} onChange={(event) => setDocType(event.target.value as DocType)} className="bg-w-panel2">
+              {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </AppSelect>
+            <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-xs text-w-muted transition hover:border-w-accentDim">
+              <span className="rounded-ctl bg-w-accent px-3 py-1 font-bold text-black">Выбрать файл</span>
+              <span className="truncate">{file?.name || 'Файл не выбран'}</span>
+              <input
+                type="file"
+                aria-label="Выберите документ для загрузки"
+                onChange={(event) => setFile(event.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+            <AppButton colorPrefix="w" disabled={!uploadStudentId || !file || uploadMutation.isPending} onClick={() => uploadMutation.mutate()}>{uploadMutation.isPending ? 'Загружаем...' : 'Загрузить'}</AppButton>
+          </div>
+        </AppCard>
+      )}
+
+      <AppCard colorPrefix="w" className="mb-3 space-y-3 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SegmentedTabs
+            colorPrefix="w"
+            value={reviewFilter}
+            onChange={(value) => setReviewFilter(value as ReviewFilter)}
+            tabs={[
+              { value: 'unverified', label: `Нужна проверка · ${reviewCounts.unverified}` },
+              { value: 'verified', label: `Проверены · ${reviewCounts.verified}` },
+              { value: 'all', label: `Все · ${reviewCounts.all}` },
+            ]}
+          />
+
+        </div>
+        <div className="grid gap-2 md:grid-cols-[1fr_240px_220px]">
+          <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" /><AppInput colorPrefix="w" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Документ или студент" className="bg-w-panel2 pl-9" /></div>
+          <AppSelect colorPrefix="w" aria-label="Студент" value={studentId} onChange={(event) => setStudentId(event.target.value)} className="bg-w-panel2"><option value="">Все студенты</option>{students.map((student) => <option key={student.id} value={student.id}>{student.full_name}</option>)}</AppSelect>
+          <AppSelect colorPrefix="w" aria-label="Источник" value={source} onChange={(event) => setSource(event.target.value)} className="bg-w-panel2"><option value="">Все источники</option><option value="telegram">Telegram</option><option value="internal">Внутренний чат</option><option value="manual_upload">Ручная загрузка</option><option value="whatsapp">WhatsApp</option></AppSelect>
         </div>
       </AppCard>
+      {canManage && <DocumentWorkflowHelp />}
 
-      <AppCard colorPrefix="w" className="mb-5 grid gap-2 p-3 md:grid-cols-2">
-        <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-w-muted2" /><AppInput colorPrefix="w" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск документа" className="bg-w-panel2 pl-9" /></div>
-        <AppSelect colorPrefix="w" value={studentId} onChange={(event) => setStudentId(event.target.value)} className="bg-w-panel2"><option value="">Все студенты</option>{students.map((student) => <option key={student.id} value={student.id}>{student.full_name}</option>)}</AppSelect>
-        <AppSelect colorPrefix="w" value={source} onChange={(event) => setSource(event.target.value)} className="bg-w-panel2"><option value="">Все источники</option><option value="telegram">Telegram</option><option value="internal">Внутренний чат</option><option value="manual_upload">Ручная загрузка</option><option value="whatsapp">WhatsApp</option></AppSelect>
-      </AppCard>
-
-      <DocumentWorkflowHelp />
-      <AppSelect colorPrefix="w" aria-label="Проверка документов" value={reviewFilter} onChange={e => setReviewFilter(e.target.value)} className="mb-4"><option value="all">Все документы</option><option value="unverified">Нужна проверка</option><option value="verified">Проверены</option></AppSelect>
-      <AppCard colorPrefix="w" className="p-5">
-        {/* «Документов пока нет» на упавшем запросе отправляло искать файл, который на месте. */}
-        <QueryState
-          colorPrefix="w"
-          isLoading={isLoading}
-          isError={isError}
-          error={error}
-          onRetry={refetch}
-          isEmpty={visibleDocuments.length === 0}
-          empty={(
-            <EmptyState colorPrefix="w" title="Документов пока нет" description="Загрузите файл или измените выбранные фильтры." />
+      {/* «Документов пока нет» на упавшем запросе отправляло искать файл, который на месте. */}
+      <QueryState
+        colorPrefix="w"
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        onRetry={refetch}
+        isEmpty={groups.length === 0}
+        empty={(
+          <AppCard colorPrefix="w" className="p-5">
+            <EmptyState
+              colorPrefix="w"
+              title={reviewFilter === 'unverified' && !hasFilters && documents.length > 0 ? 'Все документы проверены' : 'Документов нет'}
+              description={hasFilters || reviewFilter !== 'all' ? 'Измените фильтры или откройте вкладку «Все».' : 'Загрузите файл кнопкой «Загрузить документ».'}
+            />
+          </AppCard>
+        )}
+      >
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-w-muted">
+          <span className="tabular-nums">{groups.length} {plural(groups.length, 'студент', 'студента', 'студентов')} · {visibleDocuments.length} {plural(visibleDocuments.length, 'файл', 'файла', 'файлов')}</span>
+          {groups.length > 1 && (
+            <button type="button" onClick={() => setToggled(Object.fromEntries(groups.map((group) => [group.studentId, !allOpen])))} className="font-bold text-w-ink hover:text-w-accentText">
+              {allOpen ? 'Свернуть все' : 'Развернуть все'}
+            </button>
           )}
-        >
-          <div className="grid gap-3 md:grid-cols-2">
-            {visibleDocuments.map((doc) => (
-              <article key={doc.id} className="rounded-card border border-w-line bg-w-panel2 p-4">
-                <div className="flex items-start gap-3">
-                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-w-accentText" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-bold text-w-ink">{doc.file_name}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Pill colorPrefix="w">
-                        <Link to={`/workspace/students/${doc.student_id}#documents`} className="hover:underline">
-                          {doc.student_name}
-                        </Link>
-                      </Pill>
-                      <Pill colorPrefix="w">
-                        {doc.source_message?.channel === 'internal'
-                          ? 'Внутренний чат'
-                          : SOURCE_LABELS[doc.source] || doc.source}
-                      </Pill>
-                      <Pill colorPrefix="w">{formatDate(doc.uploaded_at)}</Pill>
-                    </div>
-                    <div className="mt-3 max-w-[230px]">
-                      <AppSelect colorPrefix="w"
-                        value={doc.doc_type}
-                        disabled={updateTypeMutation.isPending && updateTypeMutation.variables?.id === doc.id}
-                        onChange={(event) => updateTypeMutation.mutate({ id: doc.id, docType: event.target.value as DocType })}
-                        className="h-9 bg-w-panel"
-                        aria-label={`Тип документа ${doc.file_name}`}
-                      >
-                        {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </AppSelect>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {(doc.mime_type === 'application/pdf' || doc.mime_type.startsWith('image/')) && (
-                        <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => previewDocument(doc.id)}><Eye className="h-3.5 w-3.5" />Просмотр</AppButton>
-                      )}
-                      <AppButton colorPrefix="w" size="sm" variant="ghost" onClick={() => downloadDocument(doc.id, doc.file_name)}><Download className="h-3.5 w-3.5" />Скачать</AppButton>
-                      <AppButton colorPrefix="w" size="sm" variant="ghost" disabled={toggleVisibilityMutation.isPending && toggleVisibilityMutation.variables?.id === doc.id} onClick={() => toggleVisibilityMutation.mutate(doc)}>
-                        {doc.visible_to_student ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                        {doc.visible_to_student ? doc.signature_status === 'pending' ? 'Скрыть и отменить запрос' : 'Скрыть от студента' : 'Показать студенту'}
-                      </AppButton>
-                      {doc.source_message && (
-                        <Link
-                          to={`/workspace/chat?channel=all&student_id=${doc.student_id}&message_id=${doc.source_message.message_id}`}
-                          className="inline-flex min-h-8 items-center justify-center gap-2 rounded-ctl border border-w-line px-3 py-1.5 text-[11.5px] font-black text-w-muted transition hover:border-w-accentDim hover:text-w-accentText"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />Исходное сообщение
-                        </Link>
-                      )}
-                    </div>
-                    <DocumentReviewControls doc={doc} onChanged={() => invalidateDocuments(queryClient, doc.student_id)} allowDelete />
-                  </div>
+        </div>
+        <div className="space-y-3">
+          {groups.map((group, index) => {
+            const open = isOpen(group, index)
+            return (
+              <AppCard colorPrefix="w" key={group.studentId} className="p-0">
+                <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5', open && 'border-b border-w-line')}>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={`${open ? 'Свернуть' : 'Развернуть'}: ${group.studentName}`}
+                    onClick={() => setToggled((current) => ({ ...current, [group.studentId]: !open }))}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  >
+                    <ChevronDown className={cn('h-4 w-4 shrink-0 text-w-muted transition-transform', !open && '-rotate-90')} aria-hidden />
+                    <span className="truncate text-sm font-black text-w-ink">{group.studentName}</span>
+                    <span className="shrink-0 rounded-pill bg-w-panel2 px-2 py-0.5 text-xs tabular-nums text-w-muted">
+                      {group.items.length} {plural(group.items.length, 'файл', 'файла', 'файлов')}
+                    </span>
+                    {group.unverified > 0 && reviewFilter !== 'unverified' && (
+                      <span className="shrink-0 rounded-pill bg-amber-500/15 px-2 py-0.5 text-xs font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                        {group.unverified} {plural(group.unverified, 'ждёт', 'ждут', 'ждут')} проверки
+                      </span>
+                    )}
+                  </button>
+                  <Link to={`/workspace/students/${group.studentId}#documents`} className="shrink-0 text-xs font-bold text-w-muted hover:text-w-accentText">
+                    Карточка →
+                  </Link>
                 </div>
-              </article>
-            ))}
-          </div>
-        </QueryState>
-      </AppCard>
+                {open && (
+                  <div className="px-4 pt-3 sm:px-5">
+                    <DocumentList
+                      embedded
+                      tone="w"
+                      showTitle={false}
+                      documents={group.items}
+                      canManage={canManage}
+                      sourceChatPath="/workspace/chat"
+                      onOpen={(doc) => previewDocument(doc.id)}
+                      onDownload={(doc) => downloadDocument(doc.id, documentName(doc))}
+                      onChanged={() => invalidateDocuments(queryClient, group.studentId)}
+                      onDelete={(doc) => documentsApi.delete(doc.id)}
+                      onVisibility={(doc) => toggleVisibilityMutation.mutate(doc)}
+                    />
+                  </div>
+                )}
+              </AppCard>
+            )
+          })}
+        </div>
+      </QueryState>
     </div>
   )
 }

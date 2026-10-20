@@ -39,6 +39,7 @@ from app.services.task_sla import SLA_TRACKED_STATUSES
 from app.services.task_urgency import task_urgency
 from app.models.document import Document
 from app.models.communication_log import CommunicationLog
+from app.services.pending_insights import needs_review_condition, needs_review
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.student_task import StudentTask, TaskStatus
 from app.models.notification import Notification
@@ -986,6 +987,7 @@ async def list_students(
                 PendingInsight.student_id.in_(student_ids),
                 PendingInsight.status == InsightStatus.pending,
                 PendingInsight.source_telegram_message_id.is_not(None),
+                needs_review_condition(),
             )
             .group_by(PendingInsight.student_id)
         )
@@ -2040,6 +2042,7 @@ def _student_to_dict(s: Student) -> dict:
                 "created_at": pi.created_at.isoformat(),
             }
             for pi in (s.pending_insights if s.pending_insights else [])
+            if pi.status != InsightStatus.pending or needs_review(s, pi)
         ],
         "notes": [
             {

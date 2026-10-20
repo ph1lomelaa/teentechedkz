@@ -54,7 +54,7 @@ describe('сортировка и фильтры', () => {
   it('сигналы ведут на нужные вкладки карточки', () => {
     const s = student('z', { telegram: { linked: true, pending_signals: 1 }, notes: { sessions: 1, ai_drafts: 3 } })
     expect(studentSignals(s).map((x) => [x.label, x.href])).toEqual([
-      ['1 сигнал из Telegram', '/workspace/students/z#telegram'],
+      ['1 изменение из Telegram ждёт подтверждения', '/workspace/status?student=z'],
       ['3 черновика конспекта', '/workspace/students/z#notes'],
     ])
   })

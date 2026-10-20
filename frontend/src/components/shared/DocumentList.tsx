@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Download, Eye, EyeOff, MoreHorizontal, Pencil, Search, Upload, X } from 'lucide-react'
 import { documentsApi } from '@/api/documents'
@@ -10,10 +11,11 @@ import { invalidateDocuments } from '@/lib/queryKeys'
 import { DocumentReviewControls, DocumentWorkflowHelp } from './DocumentReviewControls'
 import { cn } from '@/lib/utils'
 
-type Doc = Document & { uploaded_by?: string }
+type Doc = Document & { source_message?: { channel: 'telegram' | 'internal'; message_id: string; chat_id: string } | null }
 type Props = {
   documents: Doc[]
   tone: 'p' | 'w'
+  sourceChatPath?: string
   showTitle?: boolean
   canManage?: boolean
   canDelete?: (doc: Doc) => boolean
@@ -28,6 +30,9 @@ type Props = {
   uploadingName?: string | null
   uploadError?: string | null
   onRetryUpload?: () => void
+  /** Внутри общей страницы документов: поиск, фильтр проверки и справка уже
+   *  есть в общей панели, свой заголовок и сворачивание не нужны. */
+  embedded?: boolean
 }
 
 const sourceNames: Record<string, string> = { telegram: 'Telegram', whatsapp: 'WhatsApp', manual_upload: 'Загрузка' }
@@ -52,18 +57,18 @@ function size(bytes: number) {
 }
 
 function fileColor(ext: string) {
-  if (ext === '.pdf') return 'text-red-500 border-red-500'
-  if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return 'text-sky-500 border-sky-500'
+  if (ext === '.pdf') return 'text-red-700 border-red-500'
+  if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return 'text-sky-700 border-sky-500'
   if (['.doc', '.docx'].includes(ext)) return 'text-blue-600 border-blue-600'
-  if (['.ppt', '.pptx'].includes(ext)) return 'text-orange-500 border-orange-500'
-  if (['.xls', '.xlsx'].includes(ext)) return 'text-emerald-500 border-emerald-500'
+  if (['.ppt', '.pptx'].includes(ext)) return 'text-orange-800 border-orange-500'
+  if (['.xls', '.xlsx'].includes(ext)) return 'text-emerald-700 border-emerald-500'
   return 'text-slate-500 border-slate-500'
 }
 
 export const DocumentList: React.FC<Props> = ({
   documents, tone, showTitle = true, canManage = false, canDelete, canRename, onOpen, onDownload,
   onUploadClick, onFilesDropped, onChanged, onDelete, onVisibility,
-  uploadingName, uploadError, onRetryUpload,
+  uploadingName, uploadError, onRetryUpload, embedded = false, sourceChatPath,
 }) => {
   const qc = useQueryClient()
   const notifyChanged = () => { invalidateDocuments(qc); onChanged() }
@@ -136,15 +141,15 @@ export const DocumentList: React.FC<Props> = ({
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }}
     onDrop={event => { if (!onFilesDropped) return; event.preventDefault(); setDragging(false); onFilesDropped(Array.from(event.dataTransfer.files)) }}
   >
-    <div className="flex flex-wrap items-center gap-2 pb-3">
+    {!embedded && <div className="flex flex-wrap items-center gap-2 pb-3">
       {showTitle && <h3 className={cn('font-display text-base font-black', ink)}>Документы</h3>}
       <span className={cn('rounded-full border px-2 py-0.5 text-xs font-bold', line, muted)}>{visible.length}</span>
       <div className="min-w-0 flex-1" />
       {visible.length > 5 && <label className={cn('flex h-9 items-center gap-2 rounded-ctl border px-2', line, muted)}><Search className="h-4 w-4" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти документ" aria-label="Найти документ" className={cn('w-36 min-w-0 bg-transparent text-sm outline-none', ink)} /></label>}
       {onUploadClick && <button type="button" onClick={onUploadClick} className={cn('inline-flex h-9 items-center gap-1.5 rounded-ctl border px-3 text-xs font-bold', line, ink, hover)}><Upload className="h-4 w-4" />Загрузить</button>}
       <button type="button" onClick={() => setOpen(v => !v)} className={cn(iconButton, muted)} aria-label={open ? 'Свернуть документы' : 'Развернуть документы'} title={open ? 'Свернуть' : 'Развернуть'}><ChevronDown className={cn('h-4 w-4 transition', !open && '-rotate-90')} /></button>
-    </div>
-    {canManage && <><DocumentWorkflowHelp /><label className={cn('mb-3 flex items-center gap-2 text-xs', muted)}>Проверка документов<select aria-label="Проверка документов" value={reviewFilter} onChange={e => setReviewFilter(e.target.value)} className={cn('rounded-ctl border bg-transparent px-2 py-1', line)}><option value="all">Все</option><option value="unverified">Нужна проверка</option><option value="verified">Проверены</option></select></label></>}
+    </div>}
+    {canManage && !embedded && <><DocumentWorkflowHelp /><label className={cn('mb-3 flex items-center gap-2 text-xs', muted)}>Проверка документов<select aria-label="Проверка документов" value={reviewFilter} onChange={e => setReviewFilter(e.target.value)} className={cn('rounded-ctl border bg-transparent px-2 py-1', line)}><option value="all">Все</option><option value="unverified">Нужна проверка</option><option value="verified">Проверены</option></select></label></>}
     {open && <>
       {visible.length === 0 && <p className={cn('py-5 text-center text-sm', muted)}>Документов пока нет</p>}
       {visible.length > 0 && filtered.length === 0 && <p className={cn('py-5 text-center text-sm', muted)}>Ничего не найдено</p>}
@@ -160,7 +165,8 @@ export const DocumentList: React.FC<Props> = ({
               <div className={cn('grid h-11 w-10 shrink-0 place-items-center rounded-ctl border-t-2 bg-black/5 text-[10px] font-black uppercase', fileColor(ext.toLowerCase()))}>{ext.slice(1, 5) || 'FILE'}</div>
               <div className="min-w-0 flex-1 basis-[140px]">
                 {renaming === doc.id ? <div className="flex min-w-0 items-center gap-1"><input ref={renameRef} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveRename(doc); if (e.key === 'Escape') setRenaming(null) }} className={cn('min-w-0 flex-1 rounded-ctl border bg-transparent px-2 py-1 text-sm', line, ink)} aria-label="Новое название" /><span className={cn('text-xs', muted)}>{ext}</span><button onClick={() => saveRename(doc)} aria-label="Сохранить название" className={accent}><Check className="h-4 w-4" /></button><button onClick={() => setRenaming(null)} aria-label="Отменить переименование" className={muted}><X className="h-4 w-4" /></button></div> : <button onClick={() => onOpen(doc)} title={documentName(doc)} className={cn('block max-w-full truncate text-left text-sm font-bold hover:underline', ink)}>{stem}<span className={cn('font-normal', muted)}>{ext}</span></button>}
-                <div className={cn('truncate text-[11px]', muted)}>{DOC_TYPE_LABELS[doc.doc_type as DocType] || doc.doc_type} · {size(doc.file_size)} · {sourceNames[doc.source] || doc.source} · {new Date(doc.uploaded_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</div>
+                <div className={cn('truncate text-[11px]', muted)}>{DOC_TYPE_LABELS[doc.doc_type as DocType] || doc.doc_type} · {size(doc.file_size)} · {doc.source_message?.channel === 'internal' ? 'Внутренний чат' : sourceNames[doc.source] || doc.source} · {new Date(doc.uploaded_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</div>
+                {sourceChatPath && doc.source_message && doc.student_id && <Link to={`${sourceChatPath}?${new URLSearchParams({ channel: 'all', student_id: doc.student_id, message_id: doc.source_message.message_id })}`} className={cn('mt-1 inline-block text-xs font-semibold underline underline-offset-2', accent)}>Исходное сообщение</Link>}
               </div>
 
               <div className={cn('ml-auto flex shrink-0 items-center gap-0.5', muted)}>
