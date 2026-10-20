@@ -7,8 +7,8 @@ from typing import Any
 
 from app.models.confidential_note import is_near_duplicate_note
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.student_notes import build_profile_diff, detect_quality_warnings
-from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes
+from app.services.student_notes import build_profile_diff, detect_quality_warnings, merge_achievements
+from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes, same_field_value
 
 logger = logging.getLogger(__name__)
 
@@ -71,28 +71,37 @@ def _profile_updates(raw: Any, source_text: str, snapshot: dict[str, Any], rejec
         return []
     proposed: dict[str, Any] = {}
     reasons: dict[str, str] = {}
-    evidence: dict[str, Any] = {}
     conflicting: set[str] = set()
+    rejected: dict[str, str] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
         field = _compact(item.get("field"), 80)
         if not field:
             continue
-        if field in proposed and proposed[field] != item.get("value"):
-            conflicting.add(field)
-        proposed[field] = item.get("value")
-        evidence[field] = item.get("evidence")
+        recognized, failures = recognize_profile_changes(
+            {field: item.get("value")}, {field: item.get("evidence")},
+            source_text=source_text, snapshot=snapshot,
+        )
+        rejected.update(failures)
+        if field not in recognized:
+            continue
+        value = recognized[field]
+        if field == "achievements_text":
+            proposed[field] = merge_achievements(proposed.get(field), value)
+        else:
+            if field in proposed and not same_field_value(field, proposed[field], value):
+                conflicting.add(field)
+            proposed[field] = value
         reason = _compact(item.get("reason"), 300)
         if reason:
             reasons[field] = reason
-
     for field in conflicting:
         proposed.pop(field, None)
-    cleaned, rejected = recognize_profile_changes(proposed, evidence, source_text=source_text, snapshot=snapshot)
     if rejections is not None:
         rejections.update(rejected)
         rejections.update({field: "conflicting_values" for field in conflicting})
+    cleaned = proposed
     diff = build_profile_diff(snapshot, cleaned)
     return [
         {

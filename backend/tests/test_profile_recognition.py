@@ -93,3 +93,15 @@ def test_question_mark_inside_a_shared_document_url_is_not_a_question():
     quote='Вот мой транскрипт: '+url
     proof=dict(quote=quote,kind='confirmed_fact',subject='student',operation='set',confidence=.99)
     assert recognize_profile_changes({'transcript_resume_url':url},{'transcript_resume_url':proof},source_text=quote,snapshot={})[0] == {'transcript_resume_url':url}
+
+
+def test_equivalent_spellings_are_one_update_and_separate_achievements_are_additive():
+    def item(field,value,quote,operation='set'):
+        return {'field':field,'value':value,'evidence':dict(quote=quote,kind='confirmed_fact',subject='student',confidence=.99,operation=operation)}
+    source='Моя специальность Political Science. Моя специальность POLITICAL SCIENCE. Я получила сертификат. Я получила диплом.'
+    updates=[item('specialty','Political Science','Моя специальность Political Science.'),item('specialty','POLITICAL SCIENCE','Моя специальность POLITICAL SCIENCE.'),item('achievements_text','сертификат','Я получила сертификат.','append'),item('achievements_text','диплом','Я получила диплом.','append')]
+    reasons={}
+    result={i['field']:i['value'] for i in student_context_ai._profile_updates(updates,source,{'achievements_text':'Олимпиада'},reasons)}
+    assert result['specialty'].casefold()=='political science'
+    assert result['achievements_text']=='Олимпиада\nсертификат\nдиплом'
+    assert not reasons
