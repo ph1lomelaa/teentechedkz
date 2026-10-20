@@ -120,7 +120,7 @@ def _supported_value(field: str, value: Any, quote: str, *, require_label: bool 
     if field == "phone":
         return re.sub(r"\D", "", text) in re.sub(r"\D", "", quote)
     if field == "transcript_resume_url":
-        return text in quote and bool(re.search(r"транскрипт|резюме|transcript|resume|\bcv\b", quote, re.I))
+        return text in quote and (not require_label or bool(re.search(r"транскрипт|резюме|transcript|resume|\bcv\b", quote, re.I)))
     if field in {"gpa", "age", "intake_year"}:
         return bool(re.search(r"(?<![\w.])" + re.escape(text.replace(',', '.')) + r"(?!\w|[.,]\d)", quote.replace(',', '.')))
     return bool(normalized(text)) and normalized(text) in normalized(quote)
@@ -157,9 +157,10 @@ def _adjacent_question(proof: dict, context_text: str | None, message_id: str | 
             return ""
         if previous.get("sender_role") not in {"staff", "unknown", "parent", "guardian"}:
             return ""
-        if "?" not in question or not re.search(r"\b(?:вы|вас|ваш\w*|ты|тебя|твой|your|you|сіз|сен)\b", question, re.I):
+        question_text = re.sub(r"https?://\S+", "", question)
+        if "?" not in question_text or not re.search(r"\b(?:вы|вас|ваш\w*|ты|тебя|твой|your|you|сіз|сен)\b", question, re.I):
             return ""
-        if _UNCERTAIN.search(question.replace("?", "")) or _THIRD_PARTY.search(question):
+        if _UNCERTAIN.search(question_text.replace("?", "")) or _THIRD_PARTY.search(question):
             return ""
         return question
     except (ValueError, TypeError, KeyError, StopIteration, AttributeError):
@@ -201,7 +202,7 @@ def recognize_profile_changes(
             quote = compact(proof.get("quote"))
             if not quote or not _quote_in_source(quote, source_text):
                 reason = "quote_not_in_source"
-            elif _UNCERTAIN.search(quote) or _THIRD_PARTY.search(quote):
+            elif _UNCERTAIN.search(re.sub(r"https?://\S+", "", quote)) or _THIRD_PARTY.search(quote):
                 reason = "question_plan_or_third_party"
             elif proof.get("operation") != ("append" if field == "achievements_text" else "set"):
                 reason = "invalid_operation"

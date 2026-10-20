@@ -86,3 +86,10 @@ def test_a_thank_you_does_not_confirm_a_value_suggested_in_a_question():
     proof=dict(quote='Спасибо',context_quote='Ваш город проживания Алматы?',kind='confirmed_fact',subject='student',confidence=.99,operation='set')
     rows=[{'message_id':'q','created_at':'2026-10-20T10:00:00+00:00','sender_role':'staff','text':proof['context_quote']},{'message_id':'a','created_at':'2026-10-20T10:01:00+00:00','sender_role':'student','text':'Спасибо'}]
     assert recognize_profile_changes({'city':'Алматы'},{'city':proof},source_text='Спасибо',snapshot={},context_text=json.dumps(rows,ensure_ascii=False),message_id='a')[0] == {}
+
+
+def test_question_mark_inside_a_shared_document_url_is_not_a_question():
+    url='https://docs.google.com/document/d/example/edit?usp=sharing'
+    quote='Вот мой транскрипт: '+url
+    proof=dict(quote=quote,kind='confirmed_fact',subject='student',operation='set',confidence=.99)
+    assert recognize_profile_changes({'transcript_resume_url':url},{'transcript_resume_url':proof},source_text=quote,snapshot={})[0] == {'transcript_resume_url':url}
