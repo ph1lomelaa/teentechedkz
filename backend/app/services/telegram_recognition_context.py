@@ -47,11 +47,11 @@ async def message_roles(db, messages: list[TelegramMessage], *, student_id=None)
         user = by_id.get(m.sent_by_user_id) or by_tg.get(str(m.sender_tg_id)) or (by_id.get(identity.user_id) if identity else None)
         if isinstance(sender, dict) and sender.get('is_bot'):
             role = 'bot'
-        elif user:
-            role = 'student' if user.role == UserRole.student else 'staff'
-        elif m.sent_by_user_id:
+        elif (user and user.role != UserRole.student) or (identity and identity.role in STAFF_ROLES):
             role = 'staff'
-        elif identity and identity.role in STAFF_ROLES:
+        elif user:
+            role = 'student'
+        elif m.sent_by_user_id:
             role = 'staff'
         else:
             role = identity.role if identity and identity.role in {'student', 'parent', 'guardian'} else 'unknown'

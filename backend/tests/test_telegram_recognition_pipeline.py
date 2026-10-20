@@ -72,3 +72,10 @@ class TelegramRecognitionPipelineTests(IsolatedAsyncioTestCase):
         other_student=SimpleNamespace(id=uuid.uuid4(),user_id=user.id)
         db=SimpleNamespace(execute=AsyncMock(side_effect=[Rows([]),Rows([user]),Rows([other_student])]))
         assert (await message_roles(db,[m],student_id=uuid.uuid4()))[m.id]=='other_student'
+
+    async def test_confirmed_staff_identity_also_prevents_profile_extraction(self):
+        m=message(sender_tg_id=123)
+        user=SimpleNamespace(id=uuid.uuid4(),telegram_id='123',role=UserRole.student)
+        identity=SimpleNamespace(chat_id=m.chat_id,telegram_user_id=123,user_id=user.id,student_id=None,role='mentor')
+        db=SimpleNamespace(execute=AsyncMock(side_effect=[Rows([identity]),Rows([user])]))
+        assert (await message_roles(db,[m]))[m.id]=='staff'
