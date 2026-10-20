@@ -33,43 +33,38 @@ from app.models.student import Student
 from app.models.telegram_message import TelegramMessage
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import (
-    NOTEABLE_FIELDS,
     build_profile_diff,
-    sanitize_suggested_changes,
     snapshot_student,
-    validate_proposed_changes,
 )
+
+from app.services.profile_recognition import (
+    PROFILE_RECOGNITION_RULES, PROMPT_VERSION, confidence, recognize_profile_changes, same_field_value,
+)
+from app.services.telegram_recognition_context import preceding_context, message_roles
+from app.models.ai_analysis_run import AiAnalysisRun
 
 logger = logging.getLogger(__name__)
 
 #: Ниже этого предложение не показываем: ревьюер всё равно отклонит, а
 #: очередь из таких карточек перестают читать целиком.
-MIN_CONFIDENCE = 0.6
+MIN_CONFIDENCE = 0.85
 
 #: Короче этого текст не считаем рассылкой — «Спасибо!» пишут все.
 _BROADCAST_MIN_LENGTH = 40
 
+
 PROMPT_SYSTEM = """Ты ассистент образовательного консультанта.
-На входе сообщение из Telegram-чата с родителем/студентом и текущий профиль студента.
-Твоя задача: вернуть ТОЛЬКО JSON без пояснений, без markdown-кода и без комментариев.
-
-Формат ответа:
-{
-  "insight_type": "call_summary|status_update|contact_change|payment_event|service_result|document_flag",
-  "proposed_changes": {"field_name": "new_value"},
-  "confidence": 0.0
-}
-
-Правила:
-- Не выдумывай факты, бери только то, что прямо сказано в сообщении.
-- proposed_changes должен содержать только поля карточки студента, которые реально надо обновить.
-- Намерения, планы и предположения ("думаю", "хочу", "планирую", "осенью ближе к 20 числам") не являются изменением поля профиля.
-- Ссылки-приглашения, ссылки на личный кабинет, шаблонные объявления и рассылки — не источник изменений.
-- phone — только номер телефона цифрами; коды, токены и ссылки телефоном не являются.
-- transcript_resume_url — только ссылка на документ студента, не ссылка на кабинет или чат.
-- Если сообщение не содержит ничего значимого для профиля, верни proposed_changes пустым объектом и confidence 0.
-- confidence — твоя уверенность в правильности предложенных изменений, от 0 до 1.
-"""
+Разбери НОВОЕ сообщение с учётом предыдущей переписки и текущей карточки.
+История нужна только для понимания: не создавай изменения из старых реплик.
+При неоднозначном коротком ответе без ясного контекста не предлагай изменение.
+Верни только JSON:
+{"insight_type":"status_update|contact_change|document_flag|service_result",
+ "proposed_changes":{"field_name":"value"},
+ "change_evidence":{"field_name":{"quote":"дословная фраза НОВОГО сообщения",
+ "kind":"confirmed_fact","subject":"student","confidence":0.95,"operation":"set"}},
+ "confidence":0.95}
+Если подтверждённых изменений нет, proposed_changes и change_evidence пустые.
+""" + PROFILE_RECOGNITION_RULES
 
 
 async def extract_insight_from_message(db: AsyncSession, message: TelegramMessage) -> PendingInsight | None:
@@ -86,7 +81,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     if not text:
         return None
 
-    if await _sent_by_staff(db, message):
+    if await _sent_by_staff(db, message, student_id=session.student_id):
         return None
     if await _is_broadcast(db, message, text):
         logger.info("Telegram message %s looks like a broadcast, skipping extraction", message.id)
@@ -102,13 +97,13 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         return None
 
     snapshot = snapshot_student(student)
-    user_message = f"""Текущий профиль студента:
-{json.dumps(snapshot, ensure_ascii=False, indent=2)}
-
-Сообщение из Telegram:
-{text}
-
-Верни JSON с insight_type, proposed_changes и confidence."""
+    context = await preceding_context(db, message, student_id=student.id)
+    user_message = json.dumps({
+        "student_profile": snapshot,
+        "preceding_dialog": json.loads(context),
+        "new_message": {"id": str(message.id), "text": text},
+        "instruction": "Изменения только из new_message; change_evidence.quote дословно из его text.",
+    }, ensure_ascii=False, indent=2)
 
     try:
         raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
@@ -117,27 +112,30 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         return None
 
     parsed = json_block(raw)
-    proposed_changes = parsed.get("proposed_changes")
-    if not isinstance(proposed_changes, dict) or not proposed_changes:
-        return None
-    # Неуверенные планы («думаю подаваться осенью») из полей убираем и больше
-    # не превращаем в отдельную карточку: текст и так виден в чате.
-    proposed_changes, _speculative = sanitize_suggested_changes(text, proposed_changes)
-    proposed_changes = {
-        key: value
-        for key, value in proposed_changes.items()
-        if key in NOTEABLE_FIELDS
-    }
-    proposed_changes = validate_proposed_changes(proposed_changes, snapshot)
+    proposed_changes, filter_reasons = recognize_profile_changes(
+        parsed.get("proposed_changes"), parsed.get("change_evidence"),
+        source_text=text, snapshot=snapshot, context_text=context, message_id=str(message.id),
+    )
+    audit = AiAnalysisRun(
+        source_type="telegram_profile_extraction", source_id=message.id,
+        student_id=student.id, source_last_message_id=message.id,
+        status="draft_created" if proposed_changes else "filtered",
+        prompt_version=PROMPT_VERSION, model="provider_chain",
+        input_snapshot={"profile_snapshot": snapshot, "context_message_ids": [row["message_id"] for row in json.loads(context) if "message_id" in row]},
+        raw_output=raw, parsed_output=parsed,
+        filter_reasons=filter_reasons,
+    )
+    db.add(audit)
 
     try:
         insight_type = InsightType(parsed.get("insight_type", "status_update"))
     except ValueError:
         insight_type = InsightType.status_update
 
-    confidence = parsed.get("confidence")
-    confidence = float(confidence) if isinstance(confidence, (int, float)) else 0.0
-    if confidence < MIN_CONFIDENCE:
+    score = confidence(parsed.get("confidence"))
+    if score < MIN_CONFIDENCE:
+        audit.status = "filtered"
+        audit.filter_reasons = {**filter_reasons, "overall_confidence": "uncertain"}
         return None
 
     diff = build_profile_diff(snapshot, proposed_changes)
@@ -147,6 +145,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     proposed_changes = {d["field"]: proposed_changes[d["field"]] for d in diff}
 
     if await _same_change_pending(db, student.id, proposed_changes):
+        audit.status = "duplicate"
         return None
 
     touches_phone = any(d["field"] == "phone" for d in diff)
@@ -162,7 +161,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         insight_type=insight_type,
         proposed_changes=proposed_changes,
         unmatched_fields={},
-        confidence=confidence,
+        confidence=score,
         risk_level=risk_level,
         status=InsightStatus.pending,
     )
@@ -171,44 +170,14 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     return insight
 
 
-async def _sent_by_staff(db: AsyncSession, message: TelegramMessage) -> bool:
+async def _sent_by_staff(db: AsyncSession, message: TelegramMessage, *, student_id=None) -> bool:
     """Написал ли это сотрудник или бот — их сообщения не про изменения студента.
 
     Признаков несколько, потому что ни один не надёжен сам по себе: из CRM
     сообщение помечено `sent_by_user_id`; в группе сотрудника узнаём по
     Telegram-аккаунту в users или по роли участника, отмеченной в чате.
     """
-    from app.models.telegram_participant_identity import TelegramParticipantIdentity
-    from app.models.user import User, UserRole
-
-    if message.sent_by_user_id:
-        return True
-
-    payload = message.raw_payload or {}
-    sender = payload.get("from_user") or payload.get("from") or {}
-    if isinstance(sender, dict) and sender.get("is_bot"):
-        return True
-
-    if message.sender_tg_id is None:
-        return False
-
-    participant_role = (
-        await db.execute(
-            select(TelegramParticipantIdentity.role).where(
-                TelegramParticipantIdentity.chat_id == message.chat_id,
-                TelegramParticipantIdentity.telegram_user_id == message.sender_tg_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if participant_role == "mentor":
-        return True
-
-    user_role = (
-        await db.execute(
-            select(User.role).where(User.telegram_id == str(message.sender_tg_id)).limit(1)
-        )
-    ).scalar_one_or_none()
-    return user_role is not None and user_role != UserRole.student
+    return (await message_roles(db, [message], student_id=student_id)).get(message.id) in {"staff", "bot", "other_student"}
 
 
 async def _is_broadcast(db: AsyncSession, message: TelegramMessage, text: str) -> bool:
@@ -238,7 +207,11 @@ async def _same_change_pending(db: AsyncSession, student_id, proposed_changes: d
             PendingInsight.status == InsightStatus.pending,
         )
     )
-    return any((existing or {}) == proposed_changes for existing in pending.scalars().all())
+    return any(
+        all(field in (existing or {}) and same_field_value(field, value, existing[field])
+            for field, value in proposed_changes.items())
+        for existing in pending.scalars().all()
+    )
 
 
 async def _notify_admins_ai_provider_missing(db: AsyncSession) -> None:

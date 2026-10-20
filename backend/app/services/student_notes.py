@@ -175,11 +175,19 @@ def validate_proposed_changes(
     """
     clean: dict[str, Any] = {}
     for field, value in (proposed_changes or {}).items():
-        if field not in NOTEABLE_FIELDS or value is None or isinstance(value, (dict, list)):
+        if field not in NOTEABLE_FIELDS or value is None or isinstance(value, (dict, list, bool)):
             continue
         text = str(value).strip()
         if not text:
             continue
+
+        if field == "degree_level" and text not in {level.value for level in DegreeLevel}:
+            continue
+        if field == "intake_season" and text not in {season.value for season in IntakeSeason}:
+            continue
+        if field in {"age", "intake_year"}:
+            if not text.isdigit() or not (1 <= int(text) <= 120 if field == "age" else 2000 <= int(text) <= 2100):
+                continue
 
         if field == "phone":
             digits = re.sub(r"\D", "", text)
@@ -422,6 +430,17 @@ def build_profile_diff(snapshot: dict[str, Any], suggested_changes: dict[str, An
     return diff
 
 
+def merge_achievements(current: Any, additions: Any) -> str:
+    """Merge at review time too: a pending draft cannot erase later additions."""
+    lines = [line.strip() for line in str(current or "").splitlines() if line.strip() not in {"", "-", "—"}]
+    for line in str(additions or "").splitlines():
+        text = line.strip()
+        key = " ".join(text.lstrip("-• ").split()).casefold()
+        if key and not any(key in " ".join(old.lstrip("-• ").split()).casefold() for old in lines):
+            lines.append(text)
+    return "\n".join(lines)
+
+
 def apply_student_updates(student: Student, suggested_changes: dict[str, Any]) -> list[dict[str, Any]]:
     applied: list[dict[str, Any]] = []
     for field, raw_new in suggested_changes.items():
@@ -432,6 +451,8 @@ def apply_student_updates(student: Student, suggested_changes: dict[str, Any]) -
         except (TypeError, ValueError):
             continue
         old_value = getattr(student, field)
+        if field == "achievements_text":
+            new_value = merge_achievements(old_value, new_value)
         if old_value != new_value:
             setattr(student, field, new_value)
             applied.append({"field": field, "old_value": old_value, "new_value": new_value})

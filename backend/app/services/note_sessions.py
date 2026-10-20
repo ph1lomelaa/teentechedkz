@@ -5,16 +5,15 @@ import logging
 import os
 from typing import Any
 
+from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import (
     append_quality_warnings,
     build_student_summary_fallback,
     build_summary_markdown,
     detect_quality_warnings,
-    parse_suggested_changes,
     remove_quality_risky_notes,
     remove_quality_risky_summary_lines,
-    sanitize_suggested_changes,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +33,7 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
   "suggested_changes": {
     "field_name": "new_value"
   },
+  "change_evidence": {"field_name":{"quote":"дословная фраза", "kind":"confirmed_fact", "subject":"student", "confidence":0.95, "operation":"set"}},
   "profile_notes": ["важная заметка для профиля студента", "..."]
 }
 
@@ -72,7 +72,8 @@ profile_notes — важное, что НЕ ложится в поля карт�
 - Если реальных договорённостей не было — напиши это по-дружески, а не «конкретных договорённостей не прозвучало» канцелярским тоном.
 - Без заголовка первого уровня «#» — начинай сразу с текста или «##».
 """
-PROMPT_VERSION = "note_sessions.v2.structured"
+PROMPT_SYSTEM += PROFILE_RECOGNITION_RULES
+PROMPT_VERSION = "note_sessions.v3.evidence"
 
 
 import re
@@ -201,11 +202,10 @@ async def generate_note_draft(
             source_title, transcript, snapshot, reason="AI provider error"
         )
     parsed = json_block(raw)
-    suggested_changes = parsed.get("suggested_changes")
-    if not isinstance(suggested_changes, dict):
-        suggested_changes = parse_suggested_changes(None, transcript)
-    else:
-        suggested_changes, _ = sanitize_suggested_changes(transcript, suggested_changes)
+    suggested_changes, recognition_rejections = recognize_profile_changes(
+        parsed.get("suggested_changes"), parsed.get("change_evidence"),
+        source_text=transcript, snapshot=snapshot,
+    )
 
     # Важное, что не ложится в поля карточки, — сохранится в заметки студента
     # при подтверждении конспекта. Возим внутри suggested_changes (JSON-поле),
@@ -260,6 +260,7 @@ async def generate_note_draft(
             "parsed_output": parsed,
             "filter_reasons": {
                 "quality_warnings": deduped_quality_warnings,
+                "profile_recognition": recognition_rejections,
             },
         },
     }
