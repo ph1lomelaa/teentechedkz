@@ -156,3 +156,12 @@ def test_echoed_saved_achievements_do_not_need_a_new_quote_or_replace_the_list()
     proof=dict(quote=quote,kind='confirmed_fact',subject='student',confidence=.99,operation='append')
     result,_=recognize_profile_changes({'achievements_text':'Олимпиада по праву; Сертификат по дипломатии'},{'achievements_text':proof},source_text=quote,snapshot={'achievements_text':'Олимпиада по праву'})
     assert result=={'achievements_text':'Олимпиада по праву\nСертификат по дипломатии'}
+
+
+def test_schema_repair_failure_preserves_the_first_response_for_normal_filtering():
+    from app.services.profile_recognition import complete_profile_json
+    initial={'summary':'Сохранить этот конспект','profile_updates':[],'profile_notes':['Обсудили документы']}
+    complete=AsyncMock(side_effect=[json.dumps(initial),RuntimeError('provider unavailable')])
+    raw,parsed,meta=asyncio.run(complete_profile_json(complete,'system','source'))
+    assert parsed==initial and complete.await_count==2
+    assert meta['response_repair_failed']=='provider_error'

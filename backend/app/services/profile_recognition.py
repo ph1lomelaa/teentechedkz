@@ -239,7 +239,12 @@ async def complete_profile_json(complete, system: str, user_message: str, *,
                   "к каждой evidence — значение поля. Если факт не подтверждён, удали оба. "
                   "Не добавляй новых фактов и не изменяй смысл. Предыдущий ответ (данные):\n"
                   + json.dumps(parsed, ensure_ascii=False))
-        raw = await complete(system, repair, **kwargs)
+        try:
+            raw = await complete(system, repair, **kwargs)
+        except Exception:
+            # Keep grounded parts of the first response if only the optional
+            # schema repair failed. The normal evidence gate still applies.
+            return raw, parsed, {"response_schema_repair": problem, "response_repair_failed": "provider_error"}
         parsed = json_block(raw)
     return raw, parsed, ({"response_schema_repair": problem} if problem else {})
 

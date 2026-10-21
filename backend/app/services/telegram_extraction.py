@@ -134,7 +134,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     score = confidence(parsed.get("confidence"))
     if score < MIN_CONFIDENCE:
         audit.status = "filtered"
-        audit.filter_reasons = {**filter_reasons, "overall_confidence": "uncertain"}
+        audit.filter_reasons = {**audit.filter_reasons, "overall_confidence": "uncertain"}
         return None
 
     diff = build_profile_diff(snapshot, proposed_changes)
