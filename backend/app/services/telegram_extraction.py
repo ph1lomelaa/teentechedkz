@@ -31,14 +31,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pending_insight import InsightStatus, InsightType, PendingInsight, RiskLevel
 from app.models.student import Student
 from app.models.telegram_message import TelegramMessage
-from app.services.ai_client import complete_with_fallback, json_block, provider_chain
+from app.services.ai_client import complete_with_fallback, provider_chain
 from app.services.student_notes import (
     build_profile_diff,
     snapshot_student,
 )
 
 from app.services.profile_recognition import (
-    PROFILE_RECOGNITION_RULES, PROMPT_VERSION, confidence, recognize_profile_changes, same_field_value,
+    PROFILE_RECOGNITION_RULES, PROMPT_VERSION, confidence, recognize_profile_changes, same_field_value, complete_profile_json,
 )
 from app.services.telegram_recognition_context import preceding_context, message_roles
 from app.models.ai_analysis_run import AiAnalysisRun
@@ -106,12 +106,11 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
     }, ensure_ascii=False, indent=2)
 
     try:
-        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+        raw, parsed, schema_repair = await complete_profile_json(complete_with_fallback, PROMPT_SYSTEM, user_message)
     except Exception:
         logger.exception("AI extraction failed for Telegram message %s", message.id)
         return None
 
-    parsed = json_block(raw)
     proposed_changes, filter_reasons = recognize_profile_changes(
         parsed.get("proposed_changes"), parsed.get("change_evidence"),
         source_text=text, snapshot=snapshot, context_text=context, message_id=str(message.id),
@@ -123,7 +122,7 @@ async def extract_insight_from_message(db: AsyncSession, message: TelegramMessag
         prompt_version=PROMPT_VERSION, model="provider_chain",
         input_snapshot={"profile_snapshot": snapshot, "context_message_ids": [row["message_id"] for row in json.loads(context) if "message_id" in row]},
         raw_output=raw, parsed_output=parsed,
-        filter_reasons=filter_reasons,
+        filter_reasons={**filter_reasons, **schema_repair},
     )
     db.add(audit)
 

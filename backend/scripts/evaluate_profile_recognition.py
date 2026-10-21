@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings
-from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.profile_recognition import normalized, recognize_profile_changes
+from app.services.ai_client import complete_with_fallback, provider_chain
+from app.services.profile_recognition import normalized, recognize_profile_changes, complete_profile_json, confidence, MIN_CONFIDENCE
 from app.services.telegram_extraction import PROMPT_SYSTEM
 
 
@@ -36,10 +36,12 @@ async def evaluate(output: str, limit: int | None = None) -> bool:
         payload = {'student_profile': case['snapshot'], 'preceding_dialog': dialog,
                    'new_message': {'id': case['id'], 'text': dialog[-1]['text']}}
         async with semaphore:
-            raw = await complete_with_fallback(PROMPT_SYSTEM, json.dumps(payload, ensure_ascii=False), max_tokens=1800)
-        parsed = json_block(raw)
+            raw, parsed, schema_repair = await complete_profile_json(complete_with_fallback, PROMPT_SYSTEM, json.dumps(payload, ensure_ascii=False), max_tokens=1800)
         accepted, reasons = recognize_profile_changes(parsed.get('proposed_changes'), parsed.get('change_evidence'),
                                                      source_text=case['source_text'], snapshot=case['snapshot'])
+        if confidence(parsed.get('confidence')) < MIN_CONFIDENCE:
+            accepted = {}
+        reasons.update(schema_repair)
         expected = case['expected']
         correct = set(accepted) == set(expected)
         for field, value in expected.items():

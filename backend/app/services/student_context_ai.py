@@ -6,9 +6,9 @@ import re
 from typing import Any
 
 from app.models.confidential_note import is_near_duplicate_note
-from app.services.ai_client import complete_with_fallback, json_block, provider_chain
+from app.services.ai_client import complete_with_fallback, provider_chain
 from app.services.student_notes import build_profile_diff, detect_quality_warnings, merge_achievements
-from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes, same_field_value
+from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes, same_field_value, complete_profile_json
 
 logger = logging.getLogger(__name__)
 
@@ -226,14 +226,13 @@ async def generate_context_review_draft(
 Верни JSON с summary, profile_updates, profile_notes, follow_ups, document_flags, contradictions, quality_warnings, ignored_as_noise."""
 
     try:
-        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+        raw, parsed, schema_repair = await complete_profile_json(complete_with_fallback, PROMPT_SYSTEM, user_message, changes_key=None)
     except Exception:
         # Degrade gracefully on a provider hiccup instead of 500-ing the caller.
         logger.exception("Context review AI provider failed; using heuristic fallback")
         return _drop_known_notes(
             _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
         )
-    parsed = json_block(raw)
     if not parsed:
         return _drop_known_notes(
             _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
@@ -260,6 +259,6 @@ async def generate_context_review_draft(
         "model": "provider_chain",
         "raw_output": raw,
         "parsed_output": parsed,
-        "filter_reasons": recognition_rejections,
+        "filter_reasons": {**recognition_rejections, **schema_repair},
     }
     return draft

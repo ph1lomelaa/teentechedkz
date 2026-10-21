@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Any
 
-from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes
+from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes, complete_profile_json
 from app.services.ai_client import complete_with_fallback, json_block, provider_chain
 from app.services.student_notes import (
     append_quality_warnings,
@@ -193,7 +193,7 @@ async def generate_note_draft(
         )
 
     try:
-        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message, max_tokens=8000)
+        raw, parsed, schema_repair = await complete_profile_json(complete_with_fallback, PROMPT_SYSTEM, user_message, changes_key="suggested_changes", max_tokens=8000)
     except Exception:
         # Never 500 the конспект on a provider hiccup (timeout, quota, network) —
         # degrade to the rule-based draft, clearly marked, so the UI keeps working.
@@ -201,7 +201,6 @@ async def generate_note_draft(
         return _heuristic_note_draft(
             source_title, transcript, snapshot, reason="AI provider error"
         )
-    parsed = json_block(raw)
     suggested_changes, recognition_rejections = recognize_profile_changes(
         parsed.get("suggested_changes"), parsed.get("change_evidence"),
         source_text=transcript, snapshot=snapshot,
@@ -261,6 +260,7 @@ async def generate_note_draft(
             "filter_reasons": {
                 "quality_warnings": deduped_quality_warnings,
                 "profile_recognition": recognition_rejections,
+                **schema_repair,
             },
         },
     }
