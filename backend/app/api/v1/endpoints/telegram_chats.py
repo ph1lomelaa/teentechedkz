@@ -46,6 +46,7 @@ from app.models.user import User, UserRole
 from app.services.mentor_scope import mentor_assigned_student_ids, require_student_access
 from app.services.minio_service import close_minio_object, get_minio
 from app.services.note_sessions import reformulate_for_student
+from app.services.telegram_recognition_context import format_context
 from app.services.student_context_ai import generate_context_review_draft
 from app.services.pending_insights import needs_review_condition, visible_insight_condition
 from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
@@ -1191,7 +1192,9 @@ async def create_context_draft(
     limit = int(body.get("limit") or 30)
     limit = max(5, min(limit, 120))
     q = " ".join(str(body.get("q") or "").split())[:200]
-    query = select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
+    query = select(TelegramMessage).join(TelegramChatSession, TelegramChatSession.id == TelegramMessage.session_id).where(
+        TelegramMessage.chat_id == chat_id, TelegramChatSession.student_id == student_id,
+    )
     if q:
         pattern = f"%{q}%"
         query = query.where(
@@ -1211,12 +1214,15 @@ async def create_context_draft(
     if not messages:
         raise HTTPException(status_code=422, detail="В чате нет сообщений для анализа")
 
+    import json
+    source_messages = json.loads(await format_context(db, messages, student_id=student.id))
     source_text = _messages_context_text(messages)
     attachments = _messages_attachment_context(messages)
     snapshot = snapshot_student(student)
     existing_notes = await _existing_confidential_note_texts(db, student.id)
     draft = await generate_context_review_draft(
         source_text=source_text,
+        source_messages=source_messages,
         snapshot=snapshot,
         attachments=attachments,
         existing_notes=existing_notes,
@@ -1235,6 +1241,7 @@ async def create_context_draft(
             input_snapshot={
                 "message_count": len(messages),
                 "source_text": source_text,
+                "source_messages": source_messages,
                 "attachments": attachments,
                 "profile_snapshot": snapshot,
             },

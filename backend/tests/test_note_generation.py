@@ -13,7 +13,7 @@ def test_notes_request_detailed_output_and_preserve_sections(monkeypatch):
     assert 'student_summary_markdown, suggested_changes, profile_notes' in seen['message']
     assert '## Что обсудили' in result['summary_markdown']
     assert '## Следующие шаги' in result['summary_markdown']
-    assert result['__ai_meta']['prompt_version'] == 'note_sessions.v2.structured'
+    assert result['__ai_meta']['prompt_version'] == 'note_sessions.v3.evidence'
 
 def test_token_budget_passed_to_fallback_provider(monkeypatch):
     calls = []
