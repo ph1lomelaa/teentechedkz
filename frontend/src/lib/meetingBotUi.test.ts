@@ -16,7 +16,7 @@ describe('meeting bot UI', () => {
   })
 
   it('rejects links the bot cannot open', () => {
-    for (const url of ['https://t.me/+abc', 'https://telemost.yandex.ru/j/1', 'https://zoom.us/pricing', 'https://meet.google.com/', 'javascript:alert(1)', '']) {
+    for (const url of ['https://t.me/+abc', 'https://telemost.yandex.ru/j/1', 'https://zoom.us/pricing', 'https://meet.google.com/', 'https://meet.google.com/new', 'https://meet.google.com/landing', 'javascript:alert(1)', '']) {
       expect(detectMeetingPlatform(url)).toBeNull()
     }
   })

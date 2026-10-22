@@ -35,7 +35,7 @@ def detect_platform(url: str | None) -> str | None:
         return None
     if host == "meet.google.com":
         code = path.strip("/")
-        return GOOGLE_MEET if code and "/" not in code else None
+        return GOOGLE_MEET if code and "/" not in code and code.lower() not in {"new", "landing", "about"} else None
     if host in ("teams.microsoft.com", "teams.live.com"):
         return TEAMS
     return None
