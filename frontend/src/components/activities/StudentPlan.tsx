@@ -48,17 +48,17 @@ function AchievementCard({ item }: { item: Participation }) {
       <div className="min-w-0">
         <p className="text-2xs font-bold uppercase tracking-caps text-ds-muted">{EXPERIENCE_LABEL[item.activity.experience_type ?? 'other']}</p>
         <h3 className="mt-0.5 break-words text-sm font-bold">{item.activity.title}</h3>
-        <p className="mt-0.5 text-xs text-ds-muted">Подтверждено ментором{item.result_reviewed_at ? ` · ${formatDeadline(item.result_reviewed_at.slice(0, 10))}` : ''}</p>
+        <p className="mt-0.5 text-xs text-ds-muted">Итог подтверждён{item.result_reviewed_at ? ` ${formatDeadline(item.result_reviewed_at.slice(0, 10))}` : ''}</p>
       </div>
     </div>
     {item.result_text && <p className="line-clamp-3 break-words text-sm">{item.result_text}</p>}
-    {item.result_documents_count ? <PortfolioFiles target={{ participation_id: item.id }} result editable={false} /> : <p className="text-xs text-ds-muted">Сертификат не прикреплён</p>}
+    {item.result_documents_count ? <PortfolioFiles target={{ participation_id: item.id }} result editable={false} /> : <p className="text-xs text-ds-muted">Файла нет</p>}
   </article>
 }
 
 function Experience({ id, summary, pick, wide = false }: { id: string; summary: PortfolioSummary; pick: (key: string) => string; wide?: boolean }) {
   return <section aria-labelledby={id} className="space-y-3 rounded-card border border-ds-line bg-ds-panel p-4">
-    <PanelTitle id={id} hint="что уже есть, чего не хватает">Типы опыта</PanelTitle>
+    <PanelTitle id={id} hint="что уже есть, чего не хватает">Полка</PanelTitle>
     <ExperienceStrip tiles={summary.experience} pickPath={pick} wide={wide} />
   </section>
 }
@@ -89,15 +89,15 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
 
         <section aria-labelledby="portfolio-active" className="space-y-3">
           <PanelTitle id="portfolio-active" hint={<Link to={catalogPath} className="inline-flex items-center gap-1 font-semibold underline underline-offset-4 hover:text-ds-ink">Каталог <ArrowUpRight className="h-3.5 w-3.5" aria-hidden /></Link>}>
-            Мои активности{active.length > 0 && <span className="font-semibold text-ds-muted"> · {active.length}</span>}
+            Участия{active.length > 0 && <span className="font-semibold text-ds-muted"> · {active.length}</span>}
           </PanelTitle>
           {active.length
             ? <ul className="divide-y divide-ds-line overflow-hidden rounded-card border border-ds-line bg-ds-panel">{active.map((item) => <ActivityRow key={item.id} item={item} base="/portal" />)}</ul>
-            : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Сейчас активностей в работе нет.</p>}
+            : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Сейчас участий в работе нет.</p>}
         </section>
 
         <section aria-labelledby="portfolio-results" className="space-y-3">
-          <PanelTitle id="portfolio-results">Мои достижения{results.length > 0 && <span className="font-semibold text-ds-muted"> · {results.length}</span>}</PanelTitle>
+          <PanelTitle id="portfolio-results">Достижения{results.length > 0 && <span className="font-semibold text-ds-muted"> · {results.length}</span>}</PanelTitle>
           {results.length
             ? <div className="grid gap-3 md:grid-cols-2">{results.map((item) => <AchievementCard key={item.id} item={item} />)}</div>
             : <div className="rounded-card border border-dashed border-ds-line px-5 py-6 text-center">

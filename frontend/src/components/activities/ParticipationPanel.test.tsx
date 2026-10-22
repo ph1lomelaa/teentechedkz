@@ -40,6 +40,6 @@ it('рекомендация решается кнопками, а сохран�
   open({...item,decision:'suggested'})
   fireEvent.click(screen.getByRole('button',{name:'Сохранить цель'}))
   await waitFor(()=>expect(mocks.editPlan).toHaveBeenCalledWith('p1',{goal:null},true))
-  fireEvent.click(screen.getByRole('button',{name:'Участвую'}))
+  fireEvent.click(screen.getByRole('button',{name:'Добавить в план'}))
   await waitFor(()=>expect(mocks.editPlan).toHaveBeenCalledWith('p1',{goal:null,decision:'selected'},true))
 })

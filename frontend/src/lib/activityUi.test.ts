@@ -21,7 +21,7 @@ describe('подписи', () => {
   })
   it('не выдумывает сроки и стоимость', () => {
     expect(intakeWhen(null)).toBe('Сроки уточняются')
-    expect(intakeWhen({ deadline: null, mode: 'rolling', dates_text: null })).toBe('Набор открыт постоянно')
+    expect(intakeWhen({ deadline: null, mode: 'rolling', dates_text: null })).toBe('Принимают постоянно')
     expect(intakeCost({ cost_state: 'unknown', cost_text: null })).toBe('Стоимость уточняется')
     expect(intakeCost({ cost_state: 'paid', cost_text: null })).toBe('Платно')
   })
@@ -93,8 +93,8 @@ describe('сроки', () => {
   it('честные состояния без выдуманных дат', () => {
     expect(dateSummary({ next_intake: null, intake_count: 0 }).short).toBe('Дата неизвестна')
     expect(dateSummary({ next_intake: null, intake_count: 2 }).short).toBe('Набор закрыт')
-    expect(dateSummary({ next_intake: intake({ mode: 'rolling' }) as never, intake_count: 1 }).short).toBe('Rolling')
-    expect(dateSummary({ next_intake: intake({ mode: 'self_paced' }) as never, intake_count: 1 }).short).toBe('Круглый год')
+    expect(dateSummary({ next_intake: intake({ mode: 'rolling' }) as never, intake_count: 1 }).short).toBe('Принимают постоянно')
+    expect(dateSummary({ next_intake: intake({ mode: 'self_paced' }) as never, intake_count: 1 }).short).toBe('В своём темпе')
     expect(dateSummary({ next_intake: intake({ mode: 'fixed', deadline: '2030-10-15' }) as never, intake_count: 1 }).short).toMatch(/^до 15 окт/)
   })
   it('фильтр «Проверить» — только черновики, которым не хватает данных', () => {
@@ -110,10 +110,10 @@ describe('доска', () => {
   const item = (over: Record<string, unknown>) => ({ ...base, created_at: '2026-10-02T10:00:00Z', due: null, steps: steps(null, 0), ...over }) as unknown as BoardItem
   const today = new Date(2026, 9, 3)
   it('строка контекста по колонке', () => {
-    expect(boardContext(item({ column: 'suggested' }), today)).toBe('отправлено вчера')
+    expect(boardContext(item({ column: 'suggested' }), today)).toBe('рекомендовано вчера')
     expect(boardContext(item({ column: 'planning' }), today)).toBe('шагов ещё нет')
     expect(boardContext(item({ column: 'in_work', due: '2026-10-15', steps: { ...steps({ state: 'todo' }), done: 2, total: 3 } }), today)).toMatch(/^2 из 3 · срок 15 окт/)
-    expect(boardContext(item({ column: 'review', steps: { ...steps({ state: 'pending', submitted_at: '2026-10-02T09:00:00Z' }), pending: 1 } }), today)).toBe('работа отправлена · вчера')
+    expect(boardContext(item({ column: 'review', steps: { ...steps({ state: 'pending', submitted_at: '2026-10-02T09:00:00Z' }), pending: 1 } }), today)).toBe('шаг на проверке · вчера')
   })
   it('сегменты прогресса только по обязательным шагам', () => {
     expect(progressSegments({ total: 3, done: 1, pending: 1, returned: 0, overdue: 0, next: null })).toEqual(['done', 'pending', 'todo'])
@@ -156,7 +156,7 @@ describe('портфолио: тексты «Сейчас»', () => {
   const today = new Date(2030, 9, 10)
   it('одно и то же действие ученик и ментор читают со своей стороны', () => {
     const waiting = { ...base, kind: 'step_waiting' as const, owner: 'mentor' as const }
-    expect(actionCopy(waiting, 'student', today)).toMatchObject({ title: 'Работа у ментора на проверке', cta: null, tone: 'calm' })
+    expect(actionCopy(waiting, 'student', today)).toMatchObject({ title: 'Шаг на проверке', cta: null, tone: 'calm' })
     expect(actionCopy(waiting, 'staff', today)).toMatchObject({ title: 'Проверить шаг «Эссе»', cta: 'Проверить' })
   })
   it('правки и просрочка — срочные, срок пишется словами', () => {

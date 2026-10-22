@@ -9,6 +9,7 @@ import { AppButton } from '@/components/ui'
 import { Textarea } from '@/components/ui/primitives/textarea'
 import { PortfolioFiles } from './PortfolioFiles'
 import { StatusTag } from './StatusTag'
+import { STEP_STATUS, stepStatus } from '@/lib/portfolio/dictionary'
 import { studentDueText } from '@/lib/studentDeadline'
 import { getErrorMessage } from '@/lib/errorMessage'
 
@@ -30,7 +31,7 @@ export function LearnerStep({ task, number, closed = false, defaultOpen = false 
   const done = task.status === 'done'
   const pending = task.review_status === 'pending' && !done
   const returned = task.review_status === 'returned' && !done
-  const state = done ? task.review_status === 'approved' ? 'Принято ментором' : 'Выполнено' : pending ? 'На проверке' : returned ? 'Нужны правки' : task.status === 'in_progress' ? 'В работе' : 'Предстоит'
+  const state = STEP_STATUS[stepStatus(task)].label
   const refresh = () => { ['activities', 'portal', 'workspace', 'student-tasks', 'student-roadmaps', 'learner-task'].forEach(key => client.invalidateQueries({ queryKey: [key] })); setEditing(false) }
   const action = useMutation({ mutationFn: (fn: () => Promise<unknown>) => fn(), onSuccess: refresh })
   const locked = closed || done || pending
@@ -43,10 +44,10 @@ export function LearnerStep({ task, number, closed = false, defaultOpen = false 
     {open && <div className="space-y-4 border-t border-ds-line p-4 sm:p-5">
       {editing ? <div className="space-y-3"><label className="block text-sm font-semibold">Название<input className="mt-1 w-full rounded-ctl border border-ds-line bg-ds-panel p-3" value={title} maxLength={500} onChange={e => setTitle(e.target.value)} /></label><label className="block text-sm font-semibold">Описание<Textarea value={description} onChange={e => setDescription(e.target.value)} /></label><label className="block text-sm font-semibold">Ожидаемый результат<Textarea value={expected} onChange={e => setExpected(e.target.value)} /></label><label className="block text-sm">Срок<input type="date" className="ml-3 rounded-ctl border border-ds-line bg-ds-panel p-2" value={due} onChange={e => setDue(e.target.value)} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={review} onChange={e => setReview(e.target.checked)} />Проверка ментора</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={evidence} onChange={e => setEvidence(e.target.checked)} />Обязательный файл</label><AppButton size="sm" disabled={!title.trim() || action.isPending} onClick={() => action.mutate(() => learnerTasksApi.update(task.id, { title, description, expected_result: expected, due_date: due || null, requires_review: review, requires_evidence: evidence }))}>Сохранить шаг</AppButton><AppButton size="sm" variant="subtle" onClick={() => setEditing(false)}>Отмена</AppButton></div> : <>
         {task.description && <p className="whitespace-pre-wrap break-words text-sm">{task.description}</p>}
-        {task.expected_result && <div className="rounded-ctl bg-ds-panel2 p-3 text-sm"><p className="mb-1 text-xs font-semibold text-ds-muted">Ожидаемый результат</p><p className="whitespace-pre-wrap">{task.expected_result}</p></div>}
+        {task.expected_result && <div className="rounded-ctl bg-ds-panel2 p-3 text-sm"><p className="mb-1 text-xs font-semibold text-ds-muted">Что сдать</p><p className="whitespace-pre-wrap">{task.expected_result}</p></div>}
         {!!task.subtasks.length && <ul className="space-y-2">{task.subtasks.map(sub => <li key={sub.id}><label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={sub.is_done} disabled={locked || action.isPending} onChange={e => action.mutate(() => learnerTasksApi.checklist(task.id, sub.id, e.target.checked))} /><span className="break-words">{sub.title}</span></label></li>)}</ul>}
         {task.review_comment && <div className={`rounded-ctl border p-3 text-sm ${returned ? 'border-ds-danger/40' : 'border-ds-line'}`}><p className="mb-1 font-semibold">Комментарий ментора</p><p className="whitespace-pre-wrap">{task.review_comment}</p></div>}
-        <section className="space-y-2"><h4 className="text-sm font-semibold">Подтверждения {task.requires_evidence && <span className="text-ds-muted">· файл обязателен</span>}</h4><PortfolioFiles target={{ task_id: task.id }} editable={!locked && (own || canEdit)} /></section>
+        <section className="space-y-2"><h4 className="text-sm font-semibold">Файлы {task.requires_evidence && <span className="text-ds-muted">· нужен файл</span>}</h4><PortfolioFiles target={{ task_id: task.id }} editable={!locked && (own || canEdit)} /></section>
         {own && !locked && <label className="block text-sm font-semibold">Результат или пояснение<Textarea className="mt-2" value={text} maxLength={20000} onChange={e => setText(e.target.value)} placeholder="Что получилось, ссылка на работу или пояснение" /></label>}
         {(!own || locked) && task.result_text && <p className="whitespace-pre-wrap break-words text-sm">{task.result_text}</p>}
         <div className="flex flex-wrap gap-2">

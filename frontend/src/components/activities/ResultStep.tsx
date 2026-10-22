@@ -32,14 +32,14 @@ export function ResultStep({ item, number, own, canManage, ready }: {
   const locked = own && !ready && !pending && !done
   const value = text ?? item.result_text ?? ''
   const tag = done ? <StatusTag tone="good">Подтверждено</StatusTag> : pending ? <StatusTag tone="info">На проверке</StatusTag>
-    : returned ? <StatusTag tone="danger">Нужны правки</StatusTag> : locked ? <StatusTag>После шагов</StatusTag> : <StatusTag tone="accent">Можно отправлять</StatusTag>
+    : returned ? <StatusTag tone="danger">Нужны правки</StatusTag> : locked ? <StatusTag>После шагов</StatusTag> : null
   return <article id="result" className={cn('scroll-mt-6 overflow-hidden rounded-card border bg-ds-panel', done ? 'border-ds-good/40' : returned ? 'border-ds-danger/40' : 'border-ds-line')}>
     <header className="flex flex-wrap items-start gap-3 p-4 sm:p-5">
       <span aria-hidden className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-black', done ? 'bg-ds-good/15 text-ds-good' : locked ? 'bg-ds-panel2 text-ds-muted' : 'bg-ds-accent text-black')}>
         {done ? <CheckCircle2 className="h-4 w-4" /> : locked ? <Lock className="h-3.5 w-3.5" /> : number}
       </span>
       <div className="min-w-0 flex-1">
-        <h3 className="font-semibold">Итог участия и сертификат</h3>
+        <h3 className="font-semibold">Итог</h3>
         <p className="mt-0.5 text-xs text-ds-muted">{locked ? 'Откроется, когда обязательные шаги будут выполнены.' : 'Опишите, что получилось, и приложите сертификат или диплом. Ментор подтвердит итог — и он появится в ваших достижениях.'}</p>
       </div>
       {tag}

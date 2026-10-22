@@ -12,7 +12,7 @@ import { DirectionBadge, FilterChip, ProgressSegments } from './ActivityParts'
 
 // «Ждут меня» = план не составлен + шаги и итоги на проверке. Отдельные чипы
 // для каждой причины только дробили одно и то же действие.
-const views: Array<{ key: BoardView; label: string }> = [{ key: 'waiting', label: 'Ждут меня' }, { key: 'in_work', label: 'В работе' }, { key: 'done', label: 'Завершены' }, { key: 'all', label: 'Все' }, { key: 'closed', label: 'Архив' }]
+const views: Array<{ key: BoardView; label: string }> = [{ key: 'waiting', label: 'Нужно от меня' }, { key: 'in_work', label: 'В работе' }, { key: 'done', label: 'Достижения' }, { key: 'all', label: 'Все' }, { key: 'closed', label: 'Не участвуют' }]
 function StudentAvatar({ name }: { name: string }) { return <span aria-hidden className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-ds-panel2 text-xs font-bold text-ds-muted">{name.split(/\s+/).slice(0, 2).map(p => p[0]).join('')}</span> }
 function BoardCard({ item, onOpen, chatPath }: { item: BoardItem; onOpen: (p: Participation) => void; chatPath: string }) {
   return <article className="rounded-panel border border-ds-line bg-ds-panel p-4 shadow-sm">

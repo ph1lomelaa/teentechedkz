@@ -84,3 +84,17 @@ def test_mentor_sees_pending_step_even_when_student_has_other_work():
 def test_returned_result_asks_student_to_fix():
     data = summarize([item(result='returned', summary=steps(1, 1))], None, TODAY)
     assert data.actions[0].kind == 'fix_result'
+
+
+def test_experience_labels_match_frontend_dictionary():
+    """Подписи типов опыта одинаковые на сервере и в словаре фронта."""
+    import re
+    from pathlib import Path
+    from app.services.experience import EXPERIENCE_TYPES
+
+    dictionary = Path(__file__).resolve().parents[2] / 'frontend/src/lib/portfolio/dictionary.ts'
+    if not dictionary.exists():
+        import pytest
+        pytest.skip('frontend is not mounted')
+    pairs = dict(re.findall(r"key: '(\w+)', label: '([^']+)'", dictionary.read_text(encoding='utf-8')))
+    assert pairs == dict(EXPERIENCE_TYPES)

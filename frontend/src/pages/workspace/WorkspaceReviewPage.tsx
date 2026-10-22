@@ -208,7 +208,7 @@ export const WorkspaceReviewPage: React.FC = () => {
                       {(task.subtasks_total > 0 || stale) && (
                         <div className="flex flex-wrap items-center gap-2 text-xs text-w-muted2">
                           {task.subtasks_total > 0 && (
-                            <span>Подзадачи: {task.subtasks_done}/{task.subtasks_total}</span>
+                            <span>{task.activity_participation_id ? 'Чеклист' : 'Подзадачи'}: {task.subtasks_done}/{task.subtasks_total}</span>
                           )}
                           {stale && <span className="text-2xs font-bold text-w-accentText">в очереди больше суток</span>}
                         </div>

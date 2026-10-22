@@ -70,7 +70,7 @@ it('повторная выдача сообщает о существующем
 it('доска раскладывает карточки по колонкам API и по умолчанию ждёт действия ментора', async () => {
   mocks.user.role = 'mentor'; mocks.overview.mockResolvedValue({ ...board, items: [{ ...participation, column: 'planning' }], total: 1, counts: { ...board.counts, waiting: 1, all: 1 } }); open('/workspace/activities?view=overview')
   fireEvent.click(await screen.findByRole('button', { name: 'Доской' }))
-  const column = await screen.findByRole('region', { name: 'Выбрано' })
+  const column = await screen.findByRole('region', { name: 'Нужен план' })
   expect(within(column).getByText('Конкурс проектов')).toBeTruthy()
   expect(within(column).getByRole('button', { name: 'Составить план' })).toBeTruthy()
   await waitFor(() => expect(mocks.overview).toHaveBeenCalledWith(expect.objectContaining({ view: 'waiting' })))
@@ -84,11 +84,11 @@ it('«Сейчас» начинается с самого срочного де�
   fireEvent.click(within(now).getByRole('link', { name: 'Исправить' }))
   expect(await screen.findByText('Открытое участие')).toBeTruthy()
 })
-it('если ход за ментором, «Сейчас» не предлагает повторную отправку', async () => {
+it('если действие за ментором, «Сейчас» не предлагает повторную отправку', async () => {
   mocks.plan.mockResolvedValue([participation])
   mocks.summary.mockResolvedValue({ ...emptySummary, actions: [action('step_waiting', { owner: 'mentor' })] }); open()
   const now = await screen.findByRole('region', { name: 'Сейчас' })
-  expect(within(now).getByText('Работа у ментора на проверке')).toBeTruthy()
+  expect(within(now).getByText('Шаг на проверке')).toBeTruthy()
   expect(within(now).queryByRole('button')).toBeNull()
   expect(within(now).queryByRole('link', { name: /Отправ|Исправ/ })).toBeNull()
 })

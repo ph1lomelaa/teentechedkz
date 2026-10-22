@@ -15,7 +15,8 @@ const THEME_KEY = 'teenteched-theme-v2'
 const WIDTHS = [1440, 390]
 const THEMES = ['light', 'dark']
 
-// `follow` открывает первую ссылку, подходящую под селектор, на странице `path`.
+// `follow` открывает первую ссылку под селектором на странице `path`, `click` нажимает
+// первую кнопку с таким текстом. План у ментора открывается по участию, найденному у ученика.
 const ROLES = {
   student: {
     email: 'portfolio.preview.student@example.test',
@@ -23,7 +24,7 @@ const ROLES = {
       { name: 'portfolio', path: '/portal/activities' },
       { name: 'catalog', path: '/portal/activities?view=catalog' },
       { name: 'participation', path: '/portal/activities', follow: 'a[href*="/portal/activities/participations/"]' },
-      { name: 'activity', path: '/portal/activities?view=catalog', follow: 'a[href^="/portal/activities/"]:not([href*="participations"])' },
+      { name: 'activity', path: '/portal/activities?view=catalog', click: 'Подробнее' },
       { name: 'home', path: '/portal' },
       { name: 'tasks', path: '/portal/tasks' },
     ],
@@ -35,7 +36,7 @@ const ROLES = {
       { name: 'catalog', path: '/workspace/activities?view=catalog' },
       { name: 'review', path: '/workspace/review' },
       { name: 'tasks', path: '/workspace/tasks' },
-      { name: 'participation', path: '/workspace/review', follow: 'a[href*="/workspace/activities/participations/"]' },
+      { name: 'participation', path: '/workspace/activities/participations/{participation}' },
       { name: 'student-card', path: '/workspace/students', follow: 'a[href^="/workspace/students/"]', hash: '#portfolio' },
     ],
   },
@@ -56,13 +57,26 @@ async function login(context, email) {
   await page.close()
 }
 
+const found = {}
+
 async function open(page, screen) {
-  await page.goto(`${BASE_URL}${screen.path}`)
+  if (screen.path.includes('{participation}') && !found.participation) return false
+  await page.goto(`${BASE_URL}${screen.path.replace('{participation}', found.participation)}`)
   await page.waitForLoadState('networkidle')
+  if (screen.click) {
+    const button = page.getByRole('button', { name: screen.click, exact: true }).first()
+    if (!(await button.count())) return false
+    const before = page.url()
+    await button.click()
+    await page.waitForURL((url) => url.href !== before, { timeout: 5000 }).catch(() => {})
+    await page.waitForLoadState('networkidle')
+    return page.url() !== before
+  }
   if (!screen.follow) return true
   const link = page.locator(screen.follow).first()
   if (!(await link.count())) return false
   const href = await link.getAttribute('href')
+  found.participation ??= href.match(/participations\/([\w-]+)/)?.[1]
   await page.goto(`${BASE_URL}${href}${screen.hash ?? ''}`)
   await page.waitForLoadState('networkidle')
   return true

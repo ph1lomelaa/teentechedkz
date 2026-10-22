@@ -30,7 +30,7 @@ export function ActivityDrawer({ activity: initial, catalog, editable, initialSt
         onDuplicated={(copy) => { setActivity(copy); setTab('data') }} />}
       {tab === 'recommend' && activity && <QueryState isLoading={intakes.isLoading} isError={intakes.isError} error={intakes.error} onRetry={() => intakes.refetch()}>
         {intakes.data?.length
-          ? <div className="space-y-3"><p className="text-sm text-ds-muted">Выберите учеников — типовые шаги подставятся с датами от дедлайна набора.</p><AppButton onClick={() => setAssigning(true)}>Выдать активность</AppButton></div>
+          ? <div className="space-y-3"><p className="text-sm text-ds-muted">Выберите учеников — типовые шаги подставятся с датами от дедлайна набора.</p><AppButton onClick={() => setAssigning(true)}>Рекомендовать ученикам</AppButton></div>
           : <div className="space-y-3 rounded-panel border border-ds-accent-dim p-4 text-sm"><p className="font-semibold">Сначала добавьте набор</p><p className="text-ds-muted">Ученик выбирает конкретный сезон со сроками. Добавьте его на вкладке «Активность».</p><AppButton size="sm" variant="subtle" onClick={() => setTab('data')}>К срокам</AppButton></div>}
       </QueryState>}
       {tab === 'preview' && enriched && <QueryState isLoading={intakes.isLoading} isError={intakes.isError} error={intakes.error} onRetry={() => intakes.refetch()}><ActivityDetailView activity={enriched} intakes={intakes.data ?? []} aside={<div className="rounded-card border border-ds-line bg-ds-panel p-5 text-sm text-ds-muted">Так карточку увидит ученик. Добавление в план ещё не означает регистрацию у организатора.</div>} /></QueryState>}

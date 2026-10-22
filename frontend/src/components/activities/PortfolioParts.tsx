@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { formatDeadline } from '@/lib/roadmapDeadline'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { EXPERIENCE_TYPES, actionCopy, participationPath } from '@/lib/activityUi'
+import { pluralRu } from '@/lib/contextDraft'
 import { useAddToPlan, useDecline } from './useStudentActivities'
 
 type Viewer = 'student' | 'staff'
@@ -26,12 +27,12 @@ export function PanelTitle({ id, children, hint }: { id: string; children: React
   </div>
 }
 
-/** «2 подтверждено · 1 в работе · 1 ждёт решения» — одна строка вместо четырёх плашек. */
+/** «2 достижения · 1 в работе · 1 рекомендация» — одна строка вместо четырёх плашек. */
 export function PortfolioNumbers({ counts, className }: { counts: PortfolioCounts; className?: string }) {
   const parts: Array<[number, string, string]> = [
-    [counts.confirmed, 'подтверждено', 'text-ds-good'],
+    [counts.confirmed, pluralRu(counts.confirmed, 'достижение', 'достижения', 'достижений'), 'text-ds-good'],
     [counts.active, 'в работе', 'text-ds-ink'],
-    [counts.suggested, 'ждёт решения', 'text-ds-ink'],
+    [counts.suggested, pluralRu(counts.suggested, 'рекомендация', 'рекомендации', 'рекомендаций'), 'text-ds-ink'],
   ]
   return <p className={cn('flex flex-wrap gap-x-4 gap-y-1 text-sm text-ds-muted', className)}>
     {parts.map(([n, label, tone]) => <span key={label}><b className={cn('text-base font-extrabold', n ? tone : 'text-ds-muted')}>{n}</b> {label}</span>)}
@@ -60,7 +61,7 @@ function ActionItem({ action, viewer, plan, primary }: { action: PortfolioAction
       <p className="mt-0.5 break-words text-xs text-ds-muted">{viewer === 'staff' && action.student_name ? `${action.student_name} · ` : ''}{copy.detail}</p>
     </div>
     {suggestion ? <div className="flex w-full flex-wrap gap-2 pl-11 sm:w-auto sm:pl-0">
-      <AppButton size="sm" disabled={busy} onClick={() => add.mutate({ intakeId: suggestion.intake_id, existing: suggestion })}>Участвую</AppButton>
+      <AppButton size="sm" disabled={busy} onClick={() => add.mutate({ intakeId: suggestion.intake_id, existing: suggestion })}>Добавить в план</AppButton>
       <AppButton size="sm" variant="subtle" disabled={busy} onClick={() => decline.mutate(suggestion)}>Не интересно</AppButton>
       <Link to={participationPath(base, action)} className="self-center px-1 text-sm font-semibold underline underline-offset-4">Подробнее</Link>
     </div> : copy.cta
@@ -112,7 +113,7 @@ export function ExperienceStrip({ tiles, pickPath, wide = false }: { tiles: Expe
 
 // ------------------------------------------------------------------ фокус ментора
 
-/** Что ментор советует усилить. У сотрудника редактируется на месте. */
+/** Фокус от ментора: что усилить. У сотрудника редактируется на месте. */
 export function FocusNote({ focus, studentId, editable = false }: { focus: PortfolioFocus | null; studentId?: string; editable?: boolean }) {
   const client = useQueryClient()
   const [editing, setEditing] = useState(false)
@@ -132,11 +133,11 @@ export function FocusNote({ focus, studentId, editable = false }: { focus: Portf
     </div>
     {save.isError && <p role="alert" className="text-sm text-ds-danger">{getErrorMessage(save.error)}</p>}
   </div>
-  return <section aria-label="Ментор советует усилить" className="rounded-card border border-ds-accent-dim bg-ds-accent/[0.07] p-4 sm:p-5">
+  return <section aria-label="Фокус от ментора" className="rounded-card border border-ds-accent-dim bg-ds-accent/[0.07] p-4 sm:p-5">
     <div className="flex items-start gap-3">
       <MessageSquareQuote className="mt-0.5 h-5 w-5 shrink-0 text-ds-accentText" aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="text-2xs font-bold uppercase tracking-caps text-ds-accentText">Ментор советует усилить</p>
+        <p className="text-2xs font-bold uppercase tracking-caps text-ds-accentText">Фокус от ментора</p>
         {focus
           ? <><p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed">{focus.text}</p>
               <p className="mt-2 text-xs text-ds-muted">{[focus.updated_by_name, formatDeadline(focus.updated_at.slice(0, 10))].filter(Boolean).join(' · ')}</p></>

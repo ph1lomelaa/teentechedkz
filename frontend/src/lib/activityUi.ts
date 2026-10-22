@@ -5,6 +5,9 @@
 import type { Activity, ActivityInput, BoardColumn, BoardItem, ExperienceKey, Intake, IntakeInput, Participation, PortfolioAction, StepsSummary, TemplateStep } from '@/api/activities'
 import type { StepInput } from '@/api/learnerTasks'
 import { formatDeadline, parseDateOnly } from './roadmapDeadline'
+import { INTAKE_MODE_LABEL, PARTICIPATION_STAGE, formatPast, participationStage } from './portfolio/dictionary'
+
+export { EXPERIENCE_TYPES, EXPERIENCE_LABEL, isExperienceKey } from './portfolio/dictionary'
 
 /** Набор, который создаёт импорт Excel. Ученику это название ничего не говорит. */
 export const IMPORT_INTAKE_LABEL = 'Из исходной базы'
@@ -22,8 +25,8 @@ export function intakeLabel(intake: Pick<Intake, 'label'> | null | undefined): s
 export function intakeWhen(intake: Pick<Intake, 'deadline' | 'mode' | 'dates_text'> | null | undefined): string {
   if (!intake) return 'Сроки уточняются'
   if (intake.deadline) return `Дедлайн организатора: ${formatDeadline(intake.deadline)}`
-  if (intake.mode === 'rolling') return 'Набор открыт постоянно'
-  if (intake.mode === 'self_paced') return 'В своём темпе'
+  if (intake.mode === 'rolling') return INTAKE_MODE_LABEL.rolling
+  if (intake.mode === 'self_paced') return INTAKE_MODE_LABEL.self_paced
   return intake.dates_text?.trim() || 'Сроки уточняются'
 }
 
@@ -43,16 +46,14 @@ export function planGroup(item: Pick<Participation, 'decision' | 'status'>): Pla
 }
 
 export const PLAN_GROUPS: Array<{ key: PlanGroup; title: string; hint: string }> = [
-  { key: 'decide', title: 'Рекомендации ментора', hint: 'Решите, участвуете ли вы' },
-  { key: 'active', title: 'В работе', hint: 'Активности, которые вы проходите сейчас' },
-  { key: 'results', title: 'Результаты', hint: 'Завершённые активности' },
+  { key: 'decide', title: 'Рекомендации', hint: 'Решите, участвуете ли вы' },
+  { key: 'active', title: 'Участия', hint: 'То, что вы проходите сейчас' },
+  { key: 'results', title: 'Достижения', hint: 'Итог подтверждён ментором' },
   { key: 'closed', title: 'Не участвую', hint: '' },
 ]
 
-export function participationStatus(item: Pick<Participation, 'decision' | 'status'>): string {
-  if (item.decision === 'suggested') return 'Рекомендовано'
-  if (item.decision === 'not_interested') return 'Не интересно'
-  return { not_started: 'Выбрано', in_progress: 'В работе', submitted: 'Заявка подана', completed: 'Завершено', cancelled: 'Отменено' }[item.status]
+export function participationStatus(item: Pick<Participation, 'decision' | 'status' | 'result_review_status'>): string {
+  return PARTICIPATION_STAGE[participationStage(item)].label
 }
 
 export type NextAction =
@@ -151,8 +152,8 @@ export function dateState(activity: Pick<Activity, 'next_intake' | 'intake_count
 }
 
 const DATE_LABEL: Record<Exclude<DateState, 'deadline'>, { short: string; hint: string }> = {
-  rolling: { short: 'Rolling', hint: 'Заявки принимают постоянно' },
-  year_round: { short: 'Круглый год', hint: 'Можно начать в любой момент' },
+  rolling: { short: INTAKE_MODE_LABEL.rolling, hint: 'Заявки принимают в любой момент' },
+  year_round: { short: INTAKE_MODE_LABEL.self_paced, hint: 'Можно начать в любой момент' },
   unknown: { short: 'Дата неизвестна', hint: 'Срок уточняется у организатора' },
   closed: { short: 'Набор закрыт', hint: 'Ждём следующий набор' },
 }
@@ -187,42 +188,35 @@ export function matchesCatalogFilter(activity: Activity, filter: CatalogFilter):
 // ---------------------------------------------------------------- доска
 
 export const BOARD_COLUMNS: Array<{ key: Exclude<BoardColumn, 'closed'>; title: string; hint: string }> = [
-  { key: 'suggested', title: 'Предложено', hint: 'ждём решения ученика' },
-  { key: 'planning', title: 'Выбрано', hint: 'нужно составить план шагов' },
+  { key: 'suggested', title: 'Рекомендация', hint: 'ученик ещё не решил' },
+  { key: 'planning', title: 'Нужен план', hint: 'шагов ещё нет' },
   { key: 'in_work', title: 'В работе', hint: 'ученик выполняет шаги' },
-  { key: 'review', title: 'На проверке', hint: 'ждут ответа ментора' },
-  { key: 'done', title: 'Завершено', hint: 'результат подтверждён' },
+  { key: 'review', title: 'На проверке', hint: 'нужно от ментора' },
+  { key: 'done', title: 'Достижение', hint: 'итог подтверждён' },
 ]
 
 export const BOARD_LABEL: Record<BoardColumn, string> = {
-  suggested: 'Предложено', planning: 'Выбрано', in_work: 'В работе', review: 'На проверке', done: 'Завершено', closed: 'Закрыто',
+  suggested: 'Рекомендация', planning: 'Нужен план', in_work: 'В работе', review: 'На проверке', done: 'Достижение', closed: 'Не участвует',
 }
 
-/** «вчера», «3 дн. назад» — для строки контекста. */
+/** «вчера», «3 дня назад» — для строки контекста. */
 export function relativeDay(value: string | null | undefined, today: Date = new Date()): string {
-  if (!value) return ''
-  const day = parseDateOnly(value.slice(0, 10))
-  const ref = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const diff = Math.round((ref.getTime() - day.getTime()) / 86_400_000)
-  if (diff <= 0) return 'сегодня'
-  if (diff === 1) return 'вчера'
-  if (diff < 7) return `${diff} дн. назад`
-  return formatDeadline(value.slice(0, 10), today)
+  return value ? formatPast(value, today) : ''
 }
 
 /** Одна строка контекста карточки доски. */
 export function boardContext(item: BoardItem, today: Date = new Date()): string {
   const steps = item.steps
   if (item.column === 'closed') return item.decision === 'not_interested' ? 'Ученику не интересно' : 'Участие отменено'
-  if (item.column === 'suggested') return `отправлено ${relativeDay(item.created_at, today)}`
+  if (item.column === 'suggested') return `рекомендовано ${relativeDay(item.created_at, today)}`
   if (item.column === 'planning') return 'шагов ещё нет'
   if (item.column === 'review') {
-    if (item.result_review_status === 'pending') return 'Итог участия ждёт подтверждения'
+    if (item.result_review_status === 'pending') return 'Итог на проверке'
     const when = relativeDay(steps?.next?.state === 'pending' ? steps.next.submitted_at : null, today)
-    return [steps?.pending && steps.pending > 1 ? `на проверке: ${steps.pending}` : 'работа отправлена', when].filter(Boolean).join(' · ')
+    return [steps?.pending && steps.pending > 1 ? `на проверке: ${steps.pending}` : 'шаг на проверке', when].filter(Boolean).join(' · ')
   }
   const progress = steps?.total ? `${steps.done} из ${steps.total}` : ''
-  if (item.column === 'done') return progress || 'завершено'
+  if (item.column === 'done') return 'итог подтверждён'
   const due = item.due ? `срок ${formatDeadline(item.due, today)}` : ''
   const overdue = steps?.overdue ? `просрочено: ${steps.overdue}` : ''
   return [progress, overdue || due].filter(Boolean).join(' · ')
@@ -240,26 +234,11 @@ export function progressSegments(steps: StepsSummary | undefined): Array<'done' 
 // ---------------------------------------------------------------- портфолио
 
 
-/** Тот же список, что на backend (app/services/experience.py): каталогу подписи нужны и без сводки. */
-export const EXPERIENCE_TYPES: Array<{ key: ExperienceKey; label: string; short: string }> = [
-  { key: 'competitions', label: 'Олимпиады и конкурсы', short: 'Олимпиады' },
-  { key: 'research', label: 'Исследования и проекты', short: 'Исследования' },
-  { key: 'programs', label: 'Программы и летние школы', short: 'Программы' },
-  { key: 'courses', label: 'Курсы', short: 'Курсы' },
-  { key: 'internships', label: 'Стажировки', short: 'Стажировки' },
-  { key: 'social', label: 'Волонтёрство и социальные проекты', short: 'Волонтёрство' },
-  { key: 'other', label: 'Другое', short: 'Другое' },
-]
-export const EXPERIENCE_LABEL = Object.fromEntries(EXPERIENCE_TYPES.map((t) => [t.key, t.label])) as Record<ExperienceKey, string>
-
-export function isExperienceKey(value: string | null | undefined): value is ExperienceKey {
-  return EXPERIENCE_TYPES.some((t) => t.key === value)
-}
 
 export interface ActionCopy { title: string; detail: string; cta: string | null; tone: 'urgent' | 'normal' | 'calm' }
 
 /**
- * Текст пункта «Сейчас». viewer — кто смотрит: у ученика и ментора ход разный,
+ * Текст пункта «Сейчас». viewer — кто смотрит: ученику и ментору нужно разное,
  * а сам пункт один и тот же (сервер считает его одной функцией).
  */
 export function actionCopy(action: PortfolioAction, viewer: 'student' | 'staff', today: Date = new Date()): ActionCopy {
@@ -275,9 +254,9 @@ export function actionCopy(action: PortfolioAction, viewer: 'student' | 'staff',
     case 'fix_step': return { title: `Исправьте шаг ${step}`, detail: `${where} · ментор оставил комментарий`, cta: 'Исправить', tone: 'urgent' }
     case 'fix_result': return { title: 'Исправьте итог участия', detail: `${action.activity_title} · ментор оставил комментарий`, cta: 'Исправить итог', tone: 'urgent' }
     case 'do_step': return { title: `Сделайте шаг ${step}`, detail: where, cta: 'Открыть шаг', tone: action.overdue ? 'urgent' : 'normal' }
-    case 'submit_result': return { title: 'Отправьте итог участия', detail: `${action.activity_title} · шаги выполнены, осталось описать результат и приложить сертификат`, cta: 'Отправить итог', tone: 'normal' }
-    case 'decide': return { title: `Ментор предлагает: ${action.activity_title}`, detail: due ? `Решите до ${formatDeadline(action.due_date!, today)}` : 'Решите, будете ли участвовать', cta: null, tone: 'normal' }
-    case 'step_waiting': return { title: 'Работа у ментора на проверке', detail: [step, action.activity_title].filter(Boolean).join(' · '), cta: null, tone: 'calm' }
+    case 'submit_result': return { title: 'Отправьте итог участия', detail: `${action.activity_title} · шаги готовы, осталось описать итог и приложить файл`, cta: 'Отправить итог', tone: 'normal' }
+    case 'decide': return { title: `Рекомендация: ${action.activity_title}`, detail: due ? `решите до ${formatDeadline(action.due_date!, today)}` : 'Решите, будете ли участвовать', cta: null, tone: 'normal' }
+    case 'step_waiting': return { title: 'Шаг на проверке', detail: [step, action.activity_title].filter(Boolean).join(' · '), cta: null, tone: 'calm' }
     case 'result_waiting': return { title: 'Итог участия на проверке', detail: `${action.activity_title} · ментор подтвердит или вернёт с комментарием`, cta: null, tone: 'calm' }
     case 'plan_waiting': return { title: 'Ментор готовит шаги', detail: action.activity_title, cta: null, tone: 'calm' }
   }

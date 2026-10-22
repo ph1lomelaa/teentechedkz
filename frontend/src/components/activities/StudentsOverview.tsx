@@ -54,18 +54,18 @@ export function StudentsOverview() {
     </div>
     <div className="flex flex-wrap gap-2">
       <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={count('all')}>Все</FilterChip>
-      <FilterChip active={filter === 'waiting'} onClick={() => setFilter('waiting')} count={count('waiting')}>Ждут меня</FilterChip>
-      <FilterChip active={filter === 'gaps'} onClick={() => setFilter('gaps')} count={count('gaps')}>Нет подтверждённых</FilterChip>
+      <FilterChip active={filter === 'waiting'} onClick={() => setFilter('waiting')} count={count('waiting')}>Нужно от меня</FilterChip>
+      <FilterChip active={filter === 'gaps'} onClick={() => setFilter('gaps')} count={count('gaps')}>Нет достижений</FilterChip>
       <FilterChip active={filter === 'no_focus'} onClick={() => setFilter('no_focus')} count={count('no_focus')}>Без фокуса</FilterChip>
     </div>
     <QueryState isLoading={query.isLoading} isError={query.isError} error={query.error} onRetry={() => query.refetch()}>
       <div className="hidden overflow-x-auto rounded-card border border-ds-line bg-ds-panel md:block">
         <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="bg-ds-panel2 text-xs text-ds-muted"><tr>{['Ученик', 'Ждёт меня', 'В работе', 'Подтверждено', 'Типы опыта', 'Ближайший срок', ''].map((t) => <th key={t} className="px-4 py-3 font-semibold">{t}</th>)}</tr></thead>
+          <thead className="bg-ds-panel2 text-xs text-ds-muted"><tr>{['Ученик', 'Нужно от меня', 'В работе', 'Достижения', 'Полка', 'Ближайший срок', ''].map((t) => <th key={t} className="px-4 py-3 font-semibold">{t}</th>)}</tr></thead>
           <tbody>{shown.map((row) => <tr key={row.student_id} className="border-t border-ds-line">
             <td className="px-4 py-3.5"><Link to={planPath(row)} className="font-bold hover:underline">{row.name}</Link>{!row.focus_set && <p className="mt-0.5 text-xs text-ds-muted">фокус не задан</p>}</td>
             <td className="px-4 py-3.5">{row.counts.waiting_mentor ? <span className="rounded-pill bg-ds-info/15 px-2.5 py-1 text-xs font-bold text-ds-info">{row.counts.waiting_mentor}</span> : <span className="text-ds-muted">—</span>}</td>
-            <td className="px-4 py-3.5">{row.counts.active || '—'}{row.counts.overdue > 0 && <span className="ml-2 text-xs font-semibold text-ds-danger">просрочено {row.counts.overdue}</span>}{row.counts.suggested > 0 && <p className="text-xs text-ds-muted">предложено: {row.counts.suggested}</p>}</td>
+            <td className="px-4 py-3.5">{row.counts.active || '—'}{row.counts.overdue > 0 && <span className="ml-2 text-xs font-semibold text-ds-danger">просрочено {row.counts.overdue}</span>}{row.counts.suggested > 0 && <p className="text-xs text-ds-muted">рекомендаций: {row.counts.suggested}</p>}</td>
             <td className="px-4 py-3.5">{row.counts.confirmed ? <span className="inline-flex items-center gap-1 font-bold text-ds-good"><Check className="h-3.5 w-3.5" aria-hidden />{row.counts.confirmed}</span> : <span className="text-ds-muted">—</span>}</td>
             <td className="px-4 py-3.5"><ExperienceDots row={row} /></td>
             <td className="px-4 py-3.5 text-ds-muted">{row.next_deadline ? formatDeadline(row.next_deadline.date) : '—'}</td>

@@ -81,8 +81,7 @@ export const PortalTasksPage: React.FC = () => {
 
   return (
     <PageShell maxWidth="lg" className="animate-fade-in">
-      <p className="font-display text-[11px] font-black uppercase tracking-[0.24em] text-p-accent-text">Доска пути</p>
-      <div className="mt-2 mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <h1 className="font-display text-[1.75rem] font-black leading-none tracking-tight text-p-text sm:text-3xl md:text-4xl">Задачи</h1>
         <label className="relative sm:ml-auto w-full sm:w-[280px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" />

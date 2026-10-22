@@ -140,7 +140,7 @@ export const PortalHomePage: React.FC = () => {
         />
         <StatCard colorPrefix="p" label="Дедлайны" value={String(overdue)} sub={overdue > 0 ? 'требуют внимания' : 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={overdue > 0} />
         <StatCard colorPrefix="p" label="Портфолио" value={portfolio.data ? String(portfolio.data.counts.confirmed) : '—'}
-          sub={portfolio.data ? `подтверждено · в работе ${portfolio.data.counts.active}${portfolio.data.counts.suggested ? ` · ждёт решения ${portfolio.data.counts.suggested}` : ''}` : 'Portfolio UP'}
+          sub={portfolio.data ? `достижений · в работе ${portfolio.data.counts.active}${portfolio.data.counts.suggested ? ` · рекомендаций ${portfolio.data.counts.suggested}` : ''}` : 'Portfolio UP'}
           icon={<Trophy className="h-4 w-4" />} onClick={() => navigate('/portal/activities')} />
       </div>
 

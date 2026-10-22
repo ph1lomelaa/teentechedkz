@@ -29,7 +29,7 @@ const SEGMENT: Record<'done' | 'pending' | 'todo', string> = {
 export function ProgressSegments({ steps, className }: { steps: StepsSummary | undefined; className?: string }) {
   const segments = progressSegments(steps)
   if (!segments.length) return null
-  return <div role="img" aria-label={`Выполнено ${steps!.done} из ${steps!.total}${steps!.pending ? `, на проверке ${steps!.pending}` : ''}`}
+  return <div role="img" aria-label={`Готово ${steps!.done} из ${steps!.total}${steps!.pending ? `, на проверке ${steps!.pending}` : ''}`}
     className={cn('flex gap-1', className)}>
     {segments.map((state, index) => <span key={index} className={cn('h-1.5 flex-1 rounded-full', SEGMENT[state])} />)}
   </div>

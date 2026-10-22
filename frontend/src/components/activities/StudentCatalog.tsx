@@ -24,7 +24,7 @@ function RecommendationBlock({ items, onOpen }: { items: Participation[]; onOpen
       <div className="flex min-w-0 items-center gap-3">
         <Avatar name={mentor || 'Ментор'} size={36} />
         <div className="min-w-0">
-          <p id="recommended-title" className="text-2xs font-bold uppercase tracking-caps text-ds-accentText">Ментор рекомендует тебе</p>
+          <p id="recommended-title" className="text-2xs font-bold uppercase tracking-caps text-ds-accentText">Рекомендация</p>
           <p className="truncate text-sm text-ds-muted">{mentor || 'Команда Portfolio UP'}</p>
         </div>
       </div>

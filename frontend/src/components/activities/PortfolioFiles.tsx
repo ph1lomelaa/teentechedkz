@@ -33,7 +33,7 @@ export function PortfolioFiles({ target, editable = true, result = false }: { ta
         <FileText className="h-4 w-4 shrink-0 text-ds-muted" /><span className="min-w-0 flex-1 break-words">{file.display_name || file.file_name}</span>
         <AppButton variant="subtle" size="sm" disabled={download.isPending} aria-label={`Скачать ${file.file_name}`} onClick={() => download.mutate(file.id)}><Download className="h-4 w-4" /></AppButton>
       </li>)}</ul>
-      {!files.data?.length && <p className="text-sm text-ds-muted">{result ? 'Сертификаты и другие результаты пока не прикреплены.' : 'Подтверждения пока не прикреплены.'}</p>}
+      {!files.data?.length && <p className="text-sm text-ds-muted">{result ? 'Файла итога пока нет.' : 'Файлов пока нет.'}</p>}
     </QueryState>
     {editable && <div className="space-y-3">
       {result && <label className="block text-xs text-ds-muted">Тип документа<select className="ml-2 rounded-ctl border border-ds-line bg-ds-panel p-2 text-sm text-ds-ink" value={docType} onChange={e => setDocType(e.target.value)}><option value="certificate">Сертификат</option><option value="achievement">Диплом / достижение</option><option value="other">Другой документ</option></select></label>}
