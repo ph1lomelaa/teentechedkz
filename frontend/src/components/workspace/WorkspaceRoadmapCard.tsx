@@ -5,19 +5,21 @@ import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapE
 import { formatDeadline } from '@/lib/roadmapDeadline'
 import { roadmapDeadlineSummary } from '@/lib/roadmapSummary'
 import { AppCard, EmptyState, Pill } from '@/components/ui'
+import { cn } from '@/lib/utils'
 
 /** The original card from /workspace/roadmap, shared verbatim with student details. */
-export function WorkspaceRoadmapCard({ studentName, roadmap, onChanged, canManage = true, actions, emptyAction }: {
+export function WorkspaceRoadmapCard({ studentName, roadmap, onChanged, canManage = true, actions, emptyAction, className }: {
   studentName: string
   roadmap: Roadmap | null
   onChanged: (updated: Roadmap) => void
   canManage?: boolean
   actions?: ReactNode
   emptyAction?: ReactNode
+  className?: string
 }) {
   const deadlines = roadmapDeadlineSummary(roadmap)
   return (
-    <AppCard colorPrefix="w" className="roadmap-ui min-w-0 p-4">
+    <AppCard colorPrefix="w" className={cn('roadmap-ui min-w-0 p-4', className)}>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

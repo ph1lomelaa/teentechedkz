@@ -10,7 +10,7 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -46,7 +46,9 @@ from app.models.user import User, UserRole
 from app.services.mentor_scope import mentor_assigned_student_ids, require_student_access
 from app.services.minio_service import close_minio_object, get_minio
 from app.services.note_sessions import reformulate_for_student
+from app.services.telegram_recognition_context import format_context
 from app.services.student_context_ai import generate_context_review_draft
+from app.services.pending_insights import needs_review_condition, visible_insight_condition
 from app.services.student_notes import apply_student_updates, build_profile_diff, humanize_field, humanize_value, snapshot_student
 from app.services.telegram_bot import get_bot
 from app.services.telegram_ingest import dump_telegram_object
@@ -542,6 +544,7 @@ async def list_chat_messages(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=200, ge=1, le=500),
     before_id: uuid.UUID | None = Query(default=None),
+    around_id: uuid.UUID | None = Query(default=None),
 ):
     await _require_chat_access(db, chat_id, current_user)
     chat = await db.get(TelegramChat, chat_id)
@@ -557,6 +560,16 @@ async def list_chat_messages(
                 TelegramMessage.sender_name.ilike(pattern),
             )
         )
+    if around_id:
+        if before_id:
+            raise HTTPException(status_code=422, detail="Нельзя задать around_id и before_id одновременно")
+        anchor = await db.get(TelegramMessage, around_id)
+        if not anchor or anchor.chat_id != chat_id:
+            raise HTTPException(status_code=404, detail="Исходное сообщение не найдено в этом чате")
+        query = query.where(or_(
+            TelegramMessage.created_at < anchor.created_at,
+            and_(TelegramMessage.created_at == anchor.created_at, TelegramMessage.id <= anchor.id),
+        ))
     if before_id:
         before_message = await db.get(TelegramMessage, before_id)
         if before_message and before_message.chat_id == chat_id:
@@ -1179,7 +1192,9 @@ async def create_context_draft(
     limit = int(body.get("limit") or 30)
     limit = max(5, min(limit, 120))
     q = " ".join(str(body.get("q") or "").split())[:200]
-    query = select(TelegramMessage).where(TelegramMessage.chat_id == chat_id)
+    query = select(TelegramMessage).join(TelegramChatSession, TelegramChatSession.id == TelegramMessage.session_id).where(
+        TelegramMessage.chat_id == chat_id, TelegramChatSession.student_id == student_id,
+    )
     if q:
         pattern = f"%{q}%"
         query = query.where(
@@ -1199,12 +1214,15 @@ async def create_context_draft(
     if not messages:
         raise HTTPException(status_code=422, detail="В чате нет сообщений для анализа")
 
+    import json
+    source_messages = json.loads(await format_context(db, messages, student_id=student.id))
     source_text = _messages_context_text(messages)
     attachments = _messages_attachment_context(messages)
     snapshot = snapshot_student(student)
     existing_notes = await _existing_confidential_note_texts(db, student.id)
     draft = await generate_context_review_draft(
         source_text=source_text,
+        source_messages=source_messages,
         snapshot=snapshot,
         attachments=attachments,
         existing_notes=existing_notes,
@@ -1223,6 +1241,7 @@ async def create_context_draft(
             input_snapshot={
                 "message_count": len(messages),
                 "source_text": source_text,
+                "source_messages": source_messages,
                 "attachments": attachments,
                 "profile_snapshot": snapshot,
             },
@@ -1443,7 +1462,7 @@ async def list_chat_insights(
     result = await db.execute(
         select(PendingInsight)
         .join(TelegramMessage, PendingInsight.source_telegram_message_id == TelegramMessage.id)
-        .where(TelegramMessage.chat_id == chat_id)
+        .where(TelegramMessage.chat_id == chat_id, visible_insight_condition())
         .order_by(PendingInsight.created_at.desc())
     )
     insights = result.scalars().all()
@@ -1952,7 +1971,7 @@ async def _chat_to_dict(
             select(func.count(PendingInsight.id))
             .select_from(PendingInsight)
             .join(TelegramMessage, PendingInsight.source_telegram_message_id == TelegramMessage.id)
-            .where(TelegramMessage.chat_id == chat.id, PendingInsight.status == InsightStatus.pending)
+            .where(TelegramMessage.chat_id == chat.id, PendingInsight.status == InsightStatus.pending, needs_review_condition())
         )
     ).scalar_one()
 

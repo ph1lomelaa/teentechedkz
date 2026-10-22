@@ -348,6 +348,7 @@ async def on_startup(ctx: dict) -> None:
     from app.services import notion_sync
     if notion_sync.is_configured():
         tasks.append(asyncio.create_task(notion_sync.sync_loop()))
+        tasks.append(asyncio.create_task(notion_sync.field_sync_loop()))
     else:
         logger.info("Notion sync disabled: NOTION_API_KEY / NOTION_DATABASE_ID not configured")
 

@@ -1,3 +1,4 @@
+import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useState } from 'react'
@@ -27,9 +28,9 @@ import { ShortlistSection } from '@/components/portal/ShortlistSection'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
-import { invalidateFinances, invalidateStudent, studentKeys } from '@/lib/queryKeys'
-import { isTaskLive } from '@/lib/taskUrgency'
+import { invalidateFinances, invalidateStudent, invalidateDocuments, studentKeys } from '@/lib/queryKeys'
 import { QueryError } from '@/components/shared/QueryState'
+import { pluralRu } from '@/lib/contextDraft'
 import { studentsApi } from '@/api/students'
 import {
   guardiansApi,
@@ -290,9 +291,9 @@ function EditStudentModal({
   const mutation = useMutation({
     mutationFn: (data: Partial<StudentFull>) =>
       studentsApi.update(student.id, data),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       invalidateStudent(queryClient, student.id)
-      toast({ title: 'Сохранено', description: 'Данные студента обновлены' })
+      toast({ title: 'Сохранено', description: saved.notion_sync?.state === 'not_linked' ? 'Данные обновлены. Для синхронизации нужна привязка к Notion.' : saved.notion_sync?.state === 'conflict' ? 'Данные обновлены; расхождение с Notion требует выбора в сверке.' : saved.notion_sync?.queued ? 'Данные обновлены и поставлены в очередь синхронизации с Notion.' : 'Данные студента обновлены' })
       onClose()
     },
     onError: () => {
@@ -569,6 +570,8 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
   client_remaining_date: { field: 'client_remaining_date', label: 'Остаток (дата)' },
 }
 
+const WORKSPACE_HASH_ALIASES = { notes: 'confidential', 'meeting-notes': 'notes' }
+
 export const StudentCardPage: React.FC = () => {
   const params = useParams<{ id: string; studentId: string }>()
   const id = params.id ?? params.studentId
@@ -594,7 +597,7 @@ export const StudentCardPage: React.FC = () => {
     if (enteredDirectly.current) navigate(inWorkspace ? '/workspace/students' : '/students')
     else navigate(-1)
   }
-  const { can, hasRole } = useAuth()
+  const { can, hasRole, user } = useAuth()
   const taskQueryClient = useQueryClient()
   const [creatingTask, setCreatingTask] = useState(false)
   const canEditContract = can('contracts', 'manage')
@@ -603,6 +606,7 @@ export const StudentCardPage: React.FC = () => {
   const [editService, setEditService] = useState<Service | null>(null)
   const [revealedIins, setRevealedIins] = useState<Record<string, string>>({})
   const [revealConfirm, setRevealConfirm] = useState<string | null>(null)
+  const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [newTaskText, setNewTaskText] = useState('')
   const [newTaskAssigneeId, setNewTaskAssigneeId] = useState('')
   const [newTaskExpectedResult, setNewTaskExpectedResult] = useState('')
@@ -821,6 +825,7 @@ export const StudentCardPage: React.FC = () => {
     mutationFn: (task: { id: string; due_date: string | null }) =>
       tasksApi.update(task.id, { due_date: task.due_date }),
     onSuccess: () => invalidateStudent(queryClient, id),
+    onError: error => toast({ title: 'Срок не сохранён', description: getErrorMessage(error), variant: 'destructive' }),
   })
 
   const addTaskMutation = useMutation({
@@ -832,10 +837,12 @@ export const StudentCardPage: React.FC = () => {
         acceptance_criteria: newTaskAcceptanceCriteria.trim() || undefined,
         required_documents: newTaskRequiredDocuments.split('\n').map((item) => item.trim()).filter(Boolean),
         priority: newTaskPriority,
+        ...(newTaskDueDate ? { due_date: newTaskDueDate } : {}),
         ...(newTaskAssigneeId ? { assignee_id: newTaskAssigneeId } : {}),
       }),
     onSuccess: () => {
       invalidateStudent(queryClient, id)
+      setNewTaskDueDate('')
       setNewTaskText('')
       setNewTaskAssigneeId('')
       setNewTaskExpectedResult('')
@@ -844,6 +851,7 @@ export const StudentCardPage: React.FC = () => {
       setNewTaskPriority('normal')
       setAddingTask(false)
     },
+    onError: error => toast({ title: 'Задача не создана', description: getErrorMessage(error), variant: 'destructive' }),
   })
 
   const addNoteMutation = useMutation({
@@ -928,7 +936,7 @@ export const StudentCardPage: React.FC = () => {
     setDocumentUploadPending(true)
     try {
       await documentsApi.upload(id, documentUploadFile, documentUploadType)
-      invalidateStudent(queryClient, id)
+      invalidateDocuments(queryClient, id)
       queryClient.invalidateQueries({ queryKey: ['workspace', 'documents'] })
       toast({ title: 'Документ загружен', description: documentUploadFile.name })
       setDocumentUploadFile(null)
@@ -945,16 +953,7 @@ export const StudentCardPage: React.FC = () => {
     }
   }
 
-  const handleRequestDocumentSignature = async (doc: Document) => {
-    try {
-      await documentsApi.requestSignature(doc.id)
-      invalidateStudent(queryClient, id)
-      toast({ title: 'Документ отправлен', description: 'Ученик увидит его в кабинете и сможет подписать после просмотра.' })
-    } catch (err) {
-      toast({ title: 'Ошибка', description: getErrorMessage(err, 'Не удалось отправить документ на подпись'), variant: 'destructive' })
-    }
-  }
-
+  const pendingTelegramChanges = student?.pending_insights?.filter((item) => item.status === 'pending').length ?? 0
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -984,14 +983,6 @@ export const StudentCardPage: React.FC = () => {
   const nextMeeting = meetings.filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now()).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
-  const openTasks = (student.student_tasks || [])
-    .filter((task) => isTaskLive(task.status))
-    .sort((a, b) => {
-      if (!a.due_date && !b.due_date) return 0
-      if (!a.due_date) return 1
-      if (!b.due_date) return -1
-      return a.due_date.localeCompare(b.due_date)
-    })
   const intakeMismatchCount = intake?.comparison?.filter((row) => (
     (row.mismatch && row.ai_same_meaning !== true) ||
     (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
@@ -1077,8 +1068,8 @@ export const StudentCardPage: React.FC = () => {
               <span className={`student-detail-badge ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
                 {DEGREE_LEVEL_LABELS[student.degree_level]}
               </span>
-              {(student.pipeline_status || notion?.snapshot?.payment_status) && (
-                <StudentPipelineStatusBadge className="student-detail-badge" status={notion?.snapshot?.payment_status || student.pipeline_status} />
+              {student.pipeline_status && (
+                <StudentPipelineStatusBadge className="student-detail-badge" status={student.pipeline_status} />
               )}
               {student.intake_year && <span className="text-sm text-p-muted">Intake {student.intake_year}</span>}
               {student.country && <span className="text-sm text-p-muted">{student.country}</span>}
@@ -1152,7 +1143,7 @@ export const StudentCardPage: React.FC = () => {
         />
       )}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {((student.alerts?.length ?? 0) > 0 || nextMeeting || (hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {(student.alerts ?? []).map((a, i) => {
           const tone = a.level === 'danger'
             ? 'text-red-700 dark:text-red-300'
@@ -1175,20 +1166,6 @@ export const StudentCardPage: React.FC = () => {
             </div>
           )
         })}
-        <div className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
-          <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">Следующее действие</p>
-          <p className="mt-1 text-sm font-semibold text-p-text">
-            {openTasks[0]?.task_text || 'Открытых задач нет'}
-          </p>
-          {openTasks[0] && (
-            <div className="mt-1 flex items-center gap-2">
-              {openTasks[0].due_date && (
-                <span className="text-2xs text-p-muted2">до {formatDate(openTasks[0].due_date)}</span>
-              )}
-              <UrgencyBadge dueDate={openTasks[0].due_date} status={openTasks[0].status} />
-            </div>
-          )}
-        </div>
         {nextMeeting && <button type="button" onClick={() => navigate({ ...location, hash: 'meetings' }, { replace: true })} className="rounded-panel border border-p-line bg-p-panel px-4 py-3 text-left">
           <span className="flex items-center gap-2 text-xs text-p-muted"><CalendarDays className="h-3.5 w-3.5" />Ближайшая встреча</span>
           <span className="mt-1 block text-sm font-semibold text-p-text">{nextMeeting.title}</span>
@@ -1214,9 +1191,10 @@ export const StudentCardPage: React.FC = () => {
             <p className="mt-1 text-sm font-semibold text-emerald-700">Расхождений нет</p>
           )}
         </div>}
-      </div>
+      </div>}
 
-      <StudentDetailSections key={id} available={[
+      {/* Старые ссылки кабинета вели #notes в закрытые заметки; конспекты там живут под #meeting-notes. */}
+      <StudentDetailSections key={id} hashAliases={inWorkspace ? WORKSPACE_HASH_ALIASES : undefined} available={[
         ...(can('roadmaps', 'view') || can('roadmaps', 'edit') ? ['roadmap'] : []),
         ...(can('meetings', 'manage') ? ['meetings'] : []),
         ...(can('applications', 'view') ? ['applications'] : []),
@@ -1225,7 +1203,7 @@ export const StudentCardPage: React.FC = () => {
         ...(can('portfolio', 'manage') ? ['portfolio'] : []),
         ...(can('tasks', 'view') ? ['tasks'] : []),
         ...(can('notes', 'manage') ? ['notes'] : []),
-        ...(can('documents', 'view') ? ['documents'] : []),
+        ...(can('documents', 'view') || can('documents', 'manage') ? ['documents'] : []),
         'profile', 'team',
         ...(can('confidential_notes', 'manage') ? ['confidential'] : []),
         ...(can('chat', 'manage') ? ['chat'] : []),
@@ -1552,6 +1530,7 @@ export const StudentCardPage: React.FC = () => {
                 </Button>
               )}
             </div>
+            <StudentProcessEditor student={student} />
             <InfoRow label="ФИО" value={student.full_name} />
             <InfoRow label="Телефон" value={student.phone} />
             <InfoRow label="Город" value={student.city} />
@@ -1947,8 +1926,7 @@ export const StudentCardPage: React.FC = () => {
               onFilesDropped={can('documents', 'manage') ? files => { if (files[0]) { setDocumentUploadFile(files[0]); setDocumentUploadOpen(true) } } : undefined}
               onChanged={() => invalidateStudent(queryClient, id)}
               onDelete={doc => documentsApi.delete(doc.id)}
-              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateStudent(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
-              onSignature={doc => { void handleRequestDocumentSignature(doc) }}
+              onVisibility={doc => { void documentsApi.setVisibility(doc.id, !doc.visible_to_student).then(() => invalidateDocuments(queryClient, id)).catch(error => toast({ title: 'Не удалось изменить видимость', description: getErrorMessage(error), variant: 'destructive' })) }}
               uploadingName={documentUploadPending ? documentUploadFile?.name : null}
             />
 
@@ -2029,6 +2007,18 @@ export const StudentCardPage: React.FC = () => {
             </AccordionTrigger>
             <AccordionContent>
               <div className="space-y-5">
+                {/* AI вытаскивает из переписки изменения профиля, но разбираются они в
+                    «На подтверждение». Без этой строки ментор видел счётчик сигналов и
+                    не находил сами изменения во вкладке Telegram. */}
+                {pendingTelegramChanges > 0 && (
+                  <Link
+                    to={`${inWorkspace ? '/workspace/status' : '/status-inbox'}?student=${student.id}`}
+                    className="flex items-center justify-between gap-3 rounded-card border border-p-line bg-p-panel2 px-4 py-3 text-sm font-bold text-p-text transition hover:bg-p-bg"
+                  >
+                    <span>{pendingTelegramChanges} {pluralRu(pendingTelegramChanges, 'изменение из переписки ждёт', 'изменения из переписки ждут', 'изменений из переписки ждут')} подтверждения</span>
+                    <span className="shrink-0 underline">Разобрать →</span>
+                  </Link>
+                )}
                 <TelegramGroupManager
                   studentId={student.id}
                   studentName={student.full_name}
@@ -2113,8 +2103,9 @@ export const StudentCardPage: React.FC = () => {
                         <p className="text-sm text-p-text">{note.note_text}</p>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-p-muted">
-                            Видят: {note.visible_to_role} · {formatDate(note.created_at)}
+                            Видят: {{ admin_only: 'Руководство · изменяет admin', admin_and_mzk: 'Руководство', all_mentors: 'Вся команда' }[note.visible_to_role]} · {formatDate(note.created_at)}
                           </p>
+                          {(note.visible_to_role !== 'admin_only' || user?.role === 'admin') && (
                           <div className="relative">
                             <Button
                               variant="outline"
@@ -2153,6 +2144,7 @@ export const StudentCardPage: React.FC = () => {
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
                         {note.visible_to_student && (
                           <p className="mt-1 text-xs font-medium text-emerald-700">Видно ученику в разделе «Заметки»</p>
@@ -2181,8 +2173,8 @@ export const StudentCardPage: React.FC = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin_only">Только admin</SelectItem>
-                        <SelectItem value="admin_and_mzk">Admin и MZK</SelectItem>
+                        <SelectItem value="admin_only">Руководство · изменяет admin</SelectItem>
+                        <SelectItem value="admin_and_mzk">Руководство</SelectItem>
                         <SelectItem value="all_mentors">Все менторы</SelectItem>
                       </SelectContent>
                     </Select>
@@ -2233,9 +2225,10 @@ export const StudentCardPage: React.FC = () => {
                         </p>
                         <UrgencyBadge dueDate={task.due_date} status={task.status} />
                       </div>
-                      {can('tasks_deadlines', 'manage') && task.status === 'open' && (
+                      {can('tasks_deadlines', 'manage') && ['open', 'in_progress', 'overdue'].includes(task.status) && (
                         <Input
                           type="date"
+                          aria-label={`Срок задачи: ${task.task_text}`}
                           value={task.due_date || ''}
                           onChange={(e) => setTaskDueDateMutation.mutate({ id: task.id, due_date: e.target.value || null })}
                           className="mt-1.5 h-7 w-40 text-xs"
@@ -2286,6 +2279,7 @@ export const StudentCardPage: React.FC = () => {
                       <option value="urgent">Срочная задача</option>
                     </select>
                   </div>
+                  {can('tasks_deadlines', 'manage') && <label className="grid gap-1 text-xs text-p-muted">Дедлайн задачи<Input aria-label="Дедлайн задачи" type="date" value={newTaskDueDate} onChange={event => setNewTaskDueDate(event.target.value)} className="w-44" /><span>Календарная дата. SLA поручения исполнителю учитывается отдельно.</span></label>}
                   <Textarea
                     placeholder="Критерии приемки результата..."
                     value={newTaskAcceptanceCriteria}

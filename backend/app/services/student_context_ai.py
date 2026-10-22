@@ -6,8 +6,9 @@ import re
 from typing import Any
 
 from app.models.confidential_note import is_near_duplicate_note
-from app.services.ai_client import complete_with_fallback, json_block, provider_chain
-from app.services.student_notes import build_profile_diff, detect_quality_warnings, sanitize_suggested_changes
+from app.services.ai_client import complete_with_fallback, provider_chain
+from app.services.student_notes import build_profile_diff, detect_quality_warnings, merge_achievements
+from app.services.profile_recognition import PROFILE_RECOGNITION_RULES, recognize_profile_changes, same_field_value, complete_profile_json
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
 Верни ТОЛЬКО JSON:
 {
   "summary": "короткая выжимка по диалогу",
-  "profile_updates": [{"field": "field_name", "value": "new value", "reason": "почему это подтверждено"}],
+  "profile_updates": [{"field": "field_name", "value": "new value", "reason": "почему это подтверждено", "evidence": {"quote":"дословная фраза", "kind":"confirmed_fact", "subject":"student", "confidence":0.95, "operation":"set"}}],
   "profile_notes": ["важная заметка для профиля"],
   "follow_ups": ["что проверить позже"],
   "document_flags": ["что проверить по вложениям/документам"],
@@ -43,8 +44,10 @@ PROMPT_SYSTEM = """Ты ассистент образовательного ко
   (например, известно было "планирует IELTS", а теперь появилась дата или результат).
 """
 
+PROMPT_SYSTEM += PROFILE_RECOGNITION_RULES
+
 NOTE_LIMIT = 8
-PROMPT_VERSION = "student_context_ai.v1"
+PROMPT_VERSION = "student_context_ai.v2.evidence"
 
 
 def _compact(value: Any, limit: int = 500) -> str:
@@ -63,23 +66,42 @@ def _list_of_strings(raw: Any, *, limit: int = NOTE_LIMIT, item_limit: int = 500
     return out[:limit]
 
 
-def _profile_updates(raw: Any, source_text: str, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+def _profile_updates(raw: Any, source_text: str, snapshot: dict[str, Any], rejections: dict[str, str] | None = None) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
     proposed: dict[str, Any] = {}
     reasons: dict[str, str] = {}
+    conflicting: set[str] = set()
+    rejected: dict[str, str] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
         field = _compact(item.get("field"), 80)
         if not field:
             continue
-        proposed[field] = item.get("value")
+        recognized, failures = recognize_profile_changes(
+            {field: item.get("value")}, {field: item.get("evidence")},
+            source_text=source_text, snapshot=snapshot,
+        )
+        rejected.update(failures)
+        if field not in recognized:
+            continue
+        value = recognized[field]
+        if field == "achievements_text":
+            proposed[field] = merge_achievements(proposed.get(field), value)
+        else:
+            if field in proposed and not same_field_value(field, proposed[field], value):
+                conflicting.add(field)
+            proposed[field] = value
         reason = _compact(item.get("reason"), 300)
         if reason:
             reasons[field] = reason
-
-    cleaned, _ = sanitize_suggested_changes(source_text, proposed)
+    for field in conflicting:
+        proposed.pop(field, None)
+    if rejections is not None:
+        rejections.update(rejected)
+        rejections.update({field: "conflicting_values" for field in conflicting})
+    cleaned = proposed
     diff = build_profile_diff(snapshot, cleaned)
     return [
         {
@@ -175,6 +197,7 @@ async def generate_context_review_draft(
     *,
     source_text: str,
     snapshot: dict[str, Any],
+    source_messages: list[dict[str, Any]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
     existing_notes: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -184,6 +207,7 @@ async def generate_context_review_draft(
         draft = _heuristic_context_draft(source_text, attachments, snapshot, reason="not_configured")
         return _drop_known_notes(draft, existing_notes)
 
+    recognition_source = json.dumps(source_messages, ensure_ascii=False) if source_messages is not None else source_text
     existing_notes_block = (
         "\n".join(f"- {n}" for n in existing_notes) if existing_notes else "(пока ничего не сохранено)"
     )
@@ -196,28 +220,28 @@ async def generate_context_review_draft(
 Вложения в диалоге:
 {json.dumps(attachments, ensure_ascii=False, indent=2)}
 
-История диалога:
-{source_text}
+История диалога (автор и роль сохранены, unknown не означает student):
+{recognition_source}
 
 Верни JSON с summary, profile_updates, profile_notes, follow_ups, document_flags, contradictions, quality_warnings, ignored_as_noise."""
 
     try:
-        raw = await complete_with_fallback(PROMPT_SYSTEM, user_message)
+        raw, parsed, schema_repair = await complete_profile_json(complete_with_fallback, PROMPT_SYSTEM, user_message, changes_key=None)
     except Exception:
         # Degrade gracefully on a provider hiccup instead of 500-ing the caller.
         logger.exception("Context review AI provider failed; using heuristic fallback")
         return _drop_known_notes(
             _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
         )
-    parsed = json_block(raw)
     if not parsed:
         return _drop_known_notes(
             _heuristic_context_draft(source_text, attachments, snapshot, reason="provider_error"), existing_notes
         )
 
+    recognition_rejections: dict[str, str] = {}
     draft = {
         "summary": _compact(parsed.get("summary"), 1000),
-        "profile_updates": _profile_updates(parsed.get("profile_updates"), source_text, snapshot),
+        "profile_updates": _profile_updates(parsed.get("profile_updates"), recognition_source, snapshot, recognition_rejections),
         "profile_notes": _list_of_strings(parsed.get("profile_notes")),
         "follow_ups": _list_of_strings(parsed.get("follow_ups")),
         "document_flags": _list_of_strings(parsed.get("document_flags")),
@@ -225,6 +249,8 @@ async def generate_context_review_draft(
         "quality_warnings": _list_of_strings(parsed.get("quality_warnings")),
         "ignored_as_noise": _list_of_strings(parsed.get("ignored_as_noise")),
     }
+    if recognition_rejections:
+        draft["quality_warnings"].append("Часть предложенных изменений не подтверждена источником и исключена.")
     draft = _drop_known_notes(draft, existing_notes)
     if not any(draft[key] for key in ("profile_updates", "profile_notes", "follow_ups", "document_flags", "contradictions", "quality_warnings")):
         return _heuristic_context_draft(source_text, attachments, snapshot, reason="no_signal")
@@ -233,6 +259,6 @@ async def generate_context_review_draft(
         "model": "provider_chain",
         "raw_output": raw,
         "parsed_output": parsed,
-        "filter_reasons": {},
+        "filter_reasons": {**recognition_rejections, **schema_repair},
     }
     return draft

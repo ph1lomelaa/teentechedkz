@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.encryption import encrypt, decrypt
-from app.models.confidential_note import ConfidentialNote, NoteVisibility, note_visible_to_role
+from app.models.confidential_note import ConfidentialNote, NoteVisibility, note_visible_to_role, student_note_visible_to_role
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/confidential-notes", tags=["confidential_notes"])
@@ -31,7 +31,7 @@ async def get_notes(
     notes = result.scalars().all()
     return [
         _note_to_dict(n) for n in notes
-        if note_visible_to_role(n.visible_to_role, current_user.role)
+        if student_note_visible_to_role(n.visible_to_role, current_user.role)
     ]
 
 

@@ -1,3 +1,8 @@
+import { catalogCounts, type CatalogFilters, type CatalogDimension } from '@/lib/studentCatalogFilters'
+import { BulkStudentStatus } from '@/components/students/BulkStudentStatus'
+import { NotionPeopleDialog } from '@/components/students/NotionPeopleDialog'
+import { MultiFilter, csvValues } from '@/components/shared/MultiFilter'
+import { PIPELINE_COLUMNS } from '@/types'
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -25,7 +30,6 @@ import {
   PIPELINE_STATUS_LABELS,
   DEGREE_LEVEL_LABELS,
   SERVICE_TYPE_LABELS,
-  ROLE_LABELS,
   MENTOR_ROLE_LABELS,
   ASSIGNABLE_MENTOR_ROLES,
   splitAssignCandidates,
@@ -73,18 +77,21 @@ const SOURCE_LABELS: Record<string, string> = {
   cases: 'Кейс (студент)',
 }
 
-type ResponsibleRoleFilter = 'any' | 'mzk_manager' | 'lead_mentor' | 'mentor'
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
 type StatusFilterOperator = PipelineStatusOperator
-type BaseView = 'all' | 'needs_assignment' | 'diff' | 'mine'
+type BaseView = 'all' | 'needs_assignment' | 'diff' | 'mine' | 'active' | 'completed' | 'no_status'
 type BaseGrouping = 'intake' | 'responsible' | 'status'
 
-const REQUIRED_ROLES = ['career', 'ielts', 'lead', 'country'] as const
-
-function needsAssignment(student: StudentListItem, notionRow?: NotionPipelineRow): boolean {
-  if (!notionValues(notionRow, 'Статус выплат').some((value) => value.trim().toLocaleLowerCase('ru') === 'активная работа')) return false
-  const roles = new Set(activeResponsibles(student).map((item) => item.role))
-  return REQUIRED_ROLES.some((role) => !roles.has(role))
+function needsAssignment(student: StudentListItem): boolean {
+  if (student.pipeline_status !== 'active_work') return false
+  const active = activeResponsibles(student).filter(person => person.assignment_status !== 'required')
+  if (!active.length) return true
+  const needed = new Set((student.responsibles ?? []).filter(person => person.assignment_status === 'required').map(person => person.role))
+  const serviceRoles: Record<string, string> = { proforientation: 'career', ielts_mock: 'ielts', ielts_prep: 'ielts', sat_prep: 'sat', portfolio_improvement: 'portfolio', english_general: 'english' }
+  for (const service of student.services_summary?.items ?? []) {
+    if (service.status !== 'completed' && serviceRoles[service.service_type]) needed.add(serviceRoles[service.service_type])
+  }
+  return [...needed].some(role => !active.some(person => person.role === role))
 }
 
 
@@ -114,7 +121,7 @@ function LinkDialog({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>(submission.suggested_student_id ?? '')
 
-  const { data: allStudents = [] } = useQuery({
+  const { data: allStudents = [], isLoading: studentsLoading, error: studentsError, refetch: retryStudents } = useQuery({
     queryKey: ['students', 'all'],
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
@@ -134,6 +141,9 @@ function LinkDialog({
     mutationFn: () => syncApi.link(submission.id, selectedId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['intake'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student', selectedId] })
+      qc.invalidateQueries({ queryKey: ['workspace', 'student', selectedId] })
       toast({ title: 'Анкета привязана' })
       onClose()
     },
@@ -159,7 +169,7 @@ function LinkDialog({
           )}
           {submission.identity_review_required && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              Требуется проверить личность заявки
+              Требуется проверить личность заявки. Выберите существующую карточку студента ниже — новая карточка создана не будет.
               {submission.match_candidate_names?.length ? (
                 <span>: {submission.match_candidate_names.join(' · ')}</span>
               ) : null}
@@ -187,11 +197,14 @@ function LinkDialog({
                 </span>
               </button>
             ))}
-            {filtered.length === 0 && (
+            {studentsError && <p role="alert" className="p-3 text-sm text-red-700">Не удалось загрузить студентов. <button type="button" className="underline" onClick={() => retryStudents()}>Повторить</button></p>}
+            {studentsLoading && <p className="p-3 text-sm text-p-muted">Загрузка студентов…</p>}
+            {!studentsLoading && !studentsError && filtered.length === 0 && (
               <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
+        {linkMutation.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(linkMutation.error)}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
           <Button
@@ -207,7 +220,7 @@ function LinkDialog({
 }
 
 /** Панель входящих анкет (status=new) */
-function IntakeInbox() {
+function IntakeInbox({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const [linkTarget, setLinkTarget] = useState<IntakeSubmission | null>(null)
   const [ignoreTarget, setIgnoreTarget] = useState<IntakeSubmission | null>(null)
@@ -215,8 +228,9 @@ function IntakeInbox() {
   const [confirmLinkAll, setConfirmLinkAll] = useState(false)
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['intake', 'inbox', intakeView],
+    refetchInterval: 60_000,
     queryFn: () =>
       syncApi.submissions({
         status: intakeView === 'hidden' ? 'ignored' : intakeView === 'all' ? 'all' : 'new',
@@ -270,7 +284,7 @@ function IntakeInbox() {
         title: 'Студенты созданы',
         description: [
           `Создано: ${res.created}`,
-          res.skipped ? `пропущено (нашёлся похожий студент): ${res.skipped}` : null,
+          res.skipped ? `требуют ручной проверки: ${res.skipped}` : null,
           // Проход ограничен потолком: без этой строки кнопка выглядела бы
           // как «всё разобрано», хотя очередь не пуста.
           res.has_more ? 'очередь разобрана не до конца — нажмите ещё раз' : null,
@@ -290,6 +304,7 @@ function IntakeInbox() {
     <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Входящие анкеты · {data?.total ?? 0}</p>
+        <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={onClose} aria-label="Закрыть: Входящие анкеты"><X className="mr-1 h-4 w-4" />Закрыть</Button>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
@@ -332,7 +347,8 @@ function IntakeInbox() {
           </Button>
         </div>
       </div>
-      {isLoading ? (
+      {(createMutation.error || createMissingMutation.error || bulkLinkMutation.error) && <p role="alert" className="px-4 py-3 text-sm text-red-700">{getErrorMessage(createMutation.error || createMissingMutation.error || bulkLinkMutation.error)}</p>}
+      {error ? <div role="alert" className="p-4 text-sm text-red-700">Не удалось загрузить анкеты: {getErrorMessage(error)} <Button variant="outline" size="sm" onClick={() => refetch()}>Повторить</Button></div> : isLoading ? (
         <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
         <p className="text-center py-8 text-p-muted text-sm">
@@ -494,7 +510,7 @@ function NotionLinkDialog({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>(snapshot.suggested_student_id ?? '')
 
-  const { data: allStudents = [] } = useQuery({
+  const { data: allStudents = [], isLoading: studentsLoading, error: studentsError, refetch: retryStudents } = useQuery({
     queryKey: ['students', 'all'],
     queryFn: () => studentsApi.getAll({ size: 500 }),
   })
@@ -514,6 +530,9 @@ function NotionLinkDialog({
     mutationFn: () => notionApi.link(snapshot.id, selectedId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['notion'] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student', selectedId] })
+      qc.invalidateQueries({ queryKey: ['workspace', 'student', selectedId] })
       toast({ title: 'Запись Notion привязана' })
       onClose()
     },
@@ -537,6 +556,7 @@ function NotionLinkDialog({
                 ` (${Math.round(snapshot.suggested_confidence * 100)}%)`}
             </p>
           )}
+          {snapshot.link_block_reason && <p className="text-xs text-amber-700">{snapshot.link_block_reason}</p>}
           <Input
             placeholder="Поиск студента..."
             value={query}
@@ -559,11 +579,14 @@ function NotionLinkDialog({
                 </span>
               </button>
             ))}
-            {filtered.length === 0 && (
+            {studentsError && <p role="alert" className="p-3 text-sm text-red-700">Не удалось загрузить студентов. <button type="button" className="underline" onClick={() => retryStudents()}>Повторить</button></p>}
+            {studentsLoading && <p className="p-3 text-sm text-p-muted">Загрузка студентов…</p>}
+            {!studentsLoading && !studentsError && filtered.length === 0 && (
               <p className="px-3 py-4 text-sm text-p-muted">Не найдено</p>
             )}
           </div>
         </div>
+        {linkMutation.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(linkMutation.error)}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
           <Button
@@ -579,7 +602,7 @@ function NotionLinkDialog({
 }
 
 /** Панель непривязанных записей Notion (status=new) */
-function NotionInbox() {
+function NotionInbox({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const [linkTarget, setLinkTarget] = useState<NotionSnapshotItem | null>(null)
   const [view, setView] = useState<'new' | 'ignored' | 'all'>('new')
@@ -587,8 +610,9 @@ function NotionInbox() {
   const [confirmCreateAll, setConfirmCreateAll] = useState(false)
   const [ignoreTarget, setIgnoreTarget] = useState<NotionSnapshotItem | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['notion', 'inbox', view],
+    refetchInterval: 60_000,
     queryFn: () => notionApi.snapshots(view),
   })
 
@@ -613,7 +637,7 @@ function NotionInbox() {
       setConfirmCreateAll(false)
       toast({
         title: 'Студенты созданы',
-        description: `Создано: ${res.created}${res.skipped ? ` · пропущено (нашёлся похожий студент): ${res.skipped}` : ''}`,
+        description: `Создано: ${res.created}${res.skipped ? ` · требуют ручной проверки: ${res.skipped}` : ''}`,
       })
     },
     onError: (err) => toast({ title: 'Не удалось создать студентов', description: getErrorMessage(err), variant: 'destructive' }),
@@ -624,7 +648,7 @@ function NotionInbox() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['notion'] })
       setConfirmLinkAll(false)
-      toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}` })
+      toast({ title: 'Совпадения привязаны', description: `Привязано: ${res.linked}${res.skipped ? ` · требуют проверки: ${res.skipped}` : ''}` })
     },
     onError: (err) => toast({ title: 'Не удалось привязать совпадения', description: getErrorMessage(err), variant: 'destructive' }),
   })
@@ -640,13 +664,14 @@ function NotionInbox() {
   })
 
   const items = data?.items ?? []
-  const linkableCount = items.filter((item) => item.status === 'new' && item.suggested_student_id).length
+  const linkableCount = items.filter((item) => item.bulk_link_eligible === true).length
   const creatableCount = items.filter((item) => item.status === 'new' && !item.suggested_student_id).length
 
   return (
     <div className="border border-p-line rounded-card">
       <div className="px-4 py-3 border-b border-p-line flex items-center justify-between gap-3 flex-wrap">
         <p className="label-caps">Notion без привязки · {data?.total ?? 0}</p>
+        <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={onClose} aria-label="Закрыть: Notion без привязки"><X className="mr-1 h-4 w-4" />Закрыть</Button>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-panel border border-p-line bg-p-bg p-1">
             {[
@@ -689,7 +714,8 @@ function NotionInbox() {
           </Button>
         </div>
       </div>
-      {isLoading ? (
+      {(createMutation.error || createMissingMutation.error || bulkLinkMutation.error) && <p role="alert" className="px-4 py-3 text-sm text-red-700">{getErrorMessage(createMutation.error || createMissingMutation.error || bulkLinkMutation.error)}</p>}
+      {error ? <div role="alert" className="p-4 text-sm text-red-700">Не удалось загрузить анкеты: {getErrorMessage(error)} <Button variant="outline" size="sm" onClick={() => refetch()}>Повторить</Button></div> : isLoading ? (
         <p className="text-center py-8 text-p-muted text-sm">Загрузка...</p>
       ) : items.length === 0 ? (
         <p className="text-center py-8 text-p-muted text-sm">
@@ -717,6 +743,9 @@ function NotionInbox() {
                   ) : (
                     snap.full_name
                   )}
+                  {snap.status === 'new' && snap.link_block_reason && <p className="mt-1 max-w-xs text-xs text-amber-700">{snap.link_block_reason}
+                    {snap.suggested_student_id && <Link className="ml-1 underline" to={`/students/${snap.suggested_student_id}#notion`}>Проверить карточку</Link>}
+                  </p>}
                 </TableCell>
                 <TableCell className="text-sm text-p-muted">{snap.payment_status ?? '—'}</TableCell>
                 <TableCell className="text-sm text-p-muted">{snap.intake ?? '—'}</TableCell>
@@ -864,7 +893,8 @@ function AssigneeOptions({ groups }: { groups: Array<{ title: string; users: Arr
 const CrmStudentsListView: React.FC = () => {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
+  const viewKey = (suffix: string) => `students:view-v2:${user?.id ?? 'anonymous'}:${suffix}`
   // Панели сверки с интейком и Notion: sync:manage и notion:manage — те же
   // три роли, что стояли здесь по hasRole.
   const isManager = can('sync', 'manage')
@@ -873,19 +903,20 @@ const CrmStudentsListView: React.FC = () => {
   const canRunSync = can('sync', 'create')
   const [searchParams, setSearchParams] = useSearchParams()
   const [exportOpen, setExportOpen] = useState(false)
+  const [peopleLinksOpen, setPeopleLinksOpen] = useState(false)
   const [fieldSyncReviewOpen, setFieldSyncReviewOpen] = useState(false)
   const [dataMenuOpen, setDataMenuOpen] = useState(false)
   const dataMenuRef = useRef<HTMLDivElement>(null)
   const filtersRef = useRef<HTMLDivElement>(null)
   const columnsRef = useRef<HTMLDivElement>(null)
-  const [baseView, setBaseView] = useLocalState<BaseView>('students:list:baseView', 'all')
-  const [baseGrouping, setBaseGrouping] = useLocalState<BaseGrouping>('students:list:baseGrouping', 'intake')
-  const [groupRole, setGroupRole] = useLocalState<string>('students:list:groupRole', 'mzk')
+  const [baseView, setBaseView] = useLocalState<BaseView>(viewKey('baseView'), 'all')
+  const [baseGrouping, setBaseGrouping] = useLocalState<BaseGrouping>(viewKey('baseGrouping'), 'intake')
+  const [groupRole, setGroupRole] = useLocalState<string>(viewKey('groupRole'), 'mzk')
   const [openStudent, setOpenStudent] = useState<StudentListItem | null>(null)
   const [roleStudent, setRoleStudent] = useState<StudentListItem | null>(null)
-  const [sortAscending, setSortAscending] = useLocalState('students:list:sortAscending', true)
-  const [showCountries, setShowCountries] = useLocalState('students:list:columnCountries', true)
-  const [showForms, setShowForms] = useLocalState('students:list:columnForms', true)
+  const [sortAscending, setSortAscending] = useLocalState(viewKey('sortAscending'), true)
+  const [showCountries, setShowCountries] = useLocalState(viewKey('columnCountries'), true)
+  const [showForms, setShowForms] = useLocalState(viewKey('columnForms'), true)
   const [columnsOpen, setColumnsOpen] = useState(false)
   useEffect(() => {
     if (!canSeeNotion && (baseView === 'needs_assignment' || baseView === 'diff')) setBaseView('all')
@@ -899,34 +930,34 @@ const CrmStudentsListView: React.FC = () => {
   // useLocalState здесь не новый механизм: кабинет держит так свои фильтры
   // (WorkspaceTasksPage и ещё четыре страницы) с самого начала — из CRM его
   // просто ни разу не позвали.
-  const [search, setSearch] = useLocalState('students:list:search', '')
+  const [search, setSearch] = useLocalState(viewKey('search'), '')
   // Стартует от сохранённого значения, иначе после возврата в поле стояла бы
   // строка поиска, а список был бы отфильтрован пустой строкой.
   const [debouncedSearch, setDebouncedSearch] = useState(search)
   // The same storage key used to hold one string. Accept it for one render and
   // migrate in place so users do not lose their saved filter after deployment.
-  const [storedStatusFilters, setStoredStatusFilters] = useLocalState<PipelineStatus[] | string>('students:list:status', [])
+  const [storedStatusFilters, setStoredStatusFilters] = useLocalState<PipelineStatus[] | string>(viewKey('status'), [])
   const statusFilters = Array.isArray(storedStatusFilters)
     ? storedStatusFilters
     : storedStatusFilters ? [storedStatusFilters as PipelineStatus] : []
   const setStatusFilters = (values: PipelineStatus[]) => setStoredStatusFilters(values)
-  const [statusFilterOperator, setStatusFilterOperator] = useLocalState<StatusFilterOperator>('students:list:statusOperator', 'is')
-  const [mentorFilter, setMentorFilter] = useLocalState('students:list:mentor', '')
-  const [leadMentorFilter, setLeadMentorFilter] = useLocalState('students:list:leadMentor', '')
-  const [mzkManagerFilter, setMzkManagerFilter] = useLocalState('students:list:mzkManager', '')
-  const [responsibleRole, setResponsibleRole] = useLocalState<ResponsibleRoleFilter>('students:list:responsibleRole', 'any')
-  const [intakeYearFilter, setIntakeYearFilter] = useLocalState('students:list:intakeYear', '')
-  const [countryFilter, setCountryFilter] = useLocalState('students:list:country', '')
-  const [countryPrimaryOnly, setCountryPrimaryOnly] = useLocalState('students:list:countryPrimaryOnly', false)
-  const [degreeFilter, setDegreeFilter] = useLocalState('students:list:degree', '')
-  const [serviceTypeFilter, setServiceTypeFilter] = useLocalState('students:list:serviceType', '')
-  const [operationalFilter, setOperationalFilter] = useLocalState<OperationalFilter>('students:list:operational', 'all')
-  const [notionField, setNotionField] = useLocalState('students:list:notionField', 'Статус выплат')
-  const [notionValue, setNotionValue] = useLocalState('students:list:notionValue', '')
-  const [filtersOpen, setFiltersOpen] = useLocalState('students:list:filtersOpen', false)
+  const [statusFilterOperator, setStatusFilterOperator] = useLocalState<StatusFilterOperator>(viewKey('statusOperator'), 'is')
+  const [assignmentRoleFilter, setAssignmentRoleFilter] = useLocalState(viewKey('assignmentRoles'), '')
+  const [notionPeopleFilter, setNotionPeopleFilter] = useLocalState(viewKey('notionPeople'), '')
+  const [mentorFilter, setMentorFilter] = useLocalState(viewKey('mentor'), '')
+  const [leadMentorFilter, setLeadMentorFilter] = useLocalState(viewKey('leadMentor'), '')
+  const [mzkManagerFilter, setMzkManagerFilter] = useLocalState(viewKey('mzkManager'), '')
+  const [intakeYearFilter, setIntakeYearFilter] = useLocalState(viewKey('intakeYear'), '')
+  const [countryFilter, setCountryFilter] = useLocalState(viewKey('country'), '')
+  const [countryPrimaryOnly, setCountryPrimaryOnly] = useLocalState(viewKey('countryPrimaryOnly'), false)
+  const [degreeFilter, setDegreeFilter] = useLocalState(viewKey('degree'), '')
+  const [serviceTypeFilter, setServiceTypeFilter] = useLocalState(viewKey('serviceType'), '')
+  const [operationalFilter, setOperationalFilter] = useLocalState<OperationalFilter>(viewKey('operational'), 'all')
+  const [notionField, setNotionField] = useLocalState(viewKey('notionField'), 'Статус выплат')
+  const [notionValue, setNotionValue] = useLocalState(viewKey('notionValue'), '')
+  const [filtersOpen, setFiltersOpen] = useLocalState(viewKey('filtersOpen'), false)
   // Не сохраняется: это поиск по людям внутри уже открытой панели, а не отбор
   // студентов — на составе списка он никак не сказывается.
-  const [responsibleSearch, setResponsibleSearch] = useState('')
 
   useEffect(() => {
     if (typeof storedStatusFilters === 'string') {
@@ -988,11 +1019,36 @@ const CrmStudentsListView: React.FC = () => {
     queryFn: () => usersApi.list({ role: 'mzk_manager' }),
   })
 
+  const { data: staffUsers = [] } = useQuery({
+    queryKey: ['users', 'student-responsibles'], queryFn: () => usersApi.list(),
+  })
+  const { data: peopleFacets } = useQuery({
+    queryKey: ['students', 'people-facets'],
+    queryFn: async () => studentsApi.peopleFacets?.() ?? { mentors: [], managers: [] },
+  })
+  const staffOptions = staffUsers.filter(user => user.role !== 'student').map(user => ({ value: user.id, label: user.name }))
+  const notionPeopleOptions = [...new Map([...(peopleFacets?.mentors ?? []), ...(peopleFacets?.managers ?? [])].map(item => [item.key, { value: item.key, label: `${item.label}${item.user_id ? ' · сопоставлен' : ' · из Notion'}`, count: item.count }])).values()]
+
   // Реальные значения из базы со счётчиками — опции фильтров строятся из данных
   const { data: facets } = useQuery({
     queryKey: ['students', 'facets'],
     queryFn: studentsApi.facets,
   })
+
+  const { data: catalog = [] } = useQuery({ queryKey: ['students', 'filter-catalog'], queryFn: () => studentsApi.getAll(), staleTime: 60_000 })
+  const catalogFilters: CatalogFilters = {
+    years: csvValues(intakeYearFilter), statuses: statusFilters, statusOperator: statusFilterOperator,
+    degrees: csvValues(degreeFilter), countries: csvValues(countryFilter),
+    people: csvValues([boardMentorId || mentorFilter, leadMentorFilter, mzkManagerFilter].filter(Boolean).join(',')),
+    names: csvValues(notionPeopleFilter), roles: csvValues(assignmentRoleFilter || boardAssignmentRole),
+    services: csvValues(serviceTypeFilter), search: debouncedSearch, primaryOnly: countryPrimaryOnly,
+    nameAccounts: Object.fromEntries([...(peopleFacets?.mentors ?? []), ...(peopleFacets?.managers ?? [])].filter(item => item.user_id).map(item => [item.key, item.user_id!])),
+  }
+  const countOptions = (dimension: CatalogDimension, options: { value: string; label: string; count?: number }[]) => {
+    if (!catalog.length) return options
+    const counts = catalogCounts(countCatalog, catalogFilters, dimension, options.map(option => option.value))
+    return options.map(option => ({ ...option, count: counts[option.value] }))
+  }
 
   const debouncedSetSearch = useMemo(
     () => debounce((value: string) => setDebouncedSearch(value), 300),
@@ -1023,7 +1079,7 @@ const CrmStudentsListView: React.FC = () => {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: [
       'students',
-      statusFilters,
+      statusFilters, notionPeopleFilter, assignmentRoleFilter,
       statusFilterOperator,
       scope,
       leadMentorFilter,
@@ -1042,16 +1098,18 @@ const CrmStudentsListView: React.FC = () => {
         pipeline_statuses: statusFilters.length ? statusFilters.join(',') : undefined,
         pipeline_status_operator: statusFilters.length ? statusFilterOperator : undefined,
         scope,
-        mentor_id: effectiveMentorId || undefined,
+        responsible_ids: [effectiveMentorId, leadMentorFilter, mzkManagerFilter].filter(Boolean).join(',') || undefined,
+        responsible_names: notionPeopleFilter || undefined,
+        assignment_roles: assignmentRoleFilter || boardAssignmentRole || undefined,
         assignment_role: boardAssignmentRole || undefined,
         missing_role: boardMissingRole || undefined,
-        lead_mentor_id: leadMentorFilter || undefined,
-        mzk_manager_id: mzkManagerFilter || undefined,
-        intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
-        country: countryFilter.trim() || undefined,
+
+
+        intake_years: intakeYearFilter || undefined,
+        countries: countryFilter.trim() || undefined,
         country_primary_only: countryFilter.trim() ? countryPrimaryOnly : undefined,
-        degree_level: degreeFilter || undefined,
-        service_type: serviceTypeFilter || undefined,
+        degrees: degreeFilter || undefined,
+        service_types: serviceTypeFilter || undefined,
         page: 1,
         size: 2000,
       }),
@@ -1315,37 +1373,53 @@ const CrmStudentsListView: React.FC = () => {
     const searched = debouncedSearch.trim()
       ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
       : allStudents
-    return searched.filter((s) => matchesOperationalFilter(s, operationalFilter))
-      .filter((s) => !notionValue || notionValues(notionByStudent.get(s.id), notionField).includes(notionValue))
+    return searched.filter((s) => operationalFilter === 'all' || csvValues(operationalFilter).some(value => matchesOperationalFilter(s, value as OperationalFilter)))
+      .filter((s) => !notionValue || csvValues(notionValue).some(value => notionValues(notionByStudent.get(s.id), notionField).includes(value)))
   }, [allStudents, debouncedSearch, operationalFilter, notionByStudent, notionField, notionValue])
   const total = students.length
   const incompleteResult = (data?.total ?? 0) > allStudents.length
   const viewCounts = {
     all: students.length,
-    needs_assignment: students.filter((student) => needsAssignment(student, notionByStudent.get(student.id))).length,
+    needs_assignment: students.filter((student) => needsAssignment(student)).length,
     diff: students.filter((student) => reportDiffIds.has(student.id)).length,
     mine: students.filter((s) => s.is_mine).length,
+    active: students.filter(s => s.pipeline_status === 'active_work').length,
+    completed: students.filter(s => ['completed_admitted', 'changed_mind'].includes(s.pipeline_status ?? '')).length,
+    no_status: students.filter(s => !s.pipeline_status || s.pipeline_status === 'no_status').length,
   }
   const viewedStudents = useMemo(() => {
     const filtered = students.filter((student) =>
-      baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student, notionByStudent.get(student.id)) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
+      baseView === 'active' ? student.pipeline_status === 'active_work' : baseView === 'completed' ? ['completed_admitted', 'changed_mind'].includes(student.pipeline_status ?? '') : baseView === 'no_status' ? !student.pipeline_status || student.pipeline_status === 'no_status' : baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
     )
     return [...filtered].sort((a, b) => sortAscending
       ? a.full_name.localeCompare(b.full_name, 'ru')
       : b.full_name.localeCompare(a.full_name, 'ru'))
-  }, [students, baseView, sortAscending, notionByStudent, reportDiffIds])
+  }, [students, baseView, sortAscending, reportDiffIds])
+  const viewLabel: Record<BaseView, string> = { all: 'Все', mine: 'Мои', diff: 'Расхождения с Notion', needs_assignment: 'Требуют назначения', active: 'В работе', completed: 'Завершённые', no_status: 'Без статуса' }
+  const countCatalog = catalog.filter(student => {
+    const active = (student.responsibles ?? []).filter(person => person.is_active)
+    if (scope === 'mine' && !student.is_mine || scope === 'assigned' && !active.length || scope === 'unassigned' && active.length) return false
+    if (boardMissingRole && active.some(person => person.role === boardMissingRole && person.assignment_status !== 'required')) return false
+    if (operationalFilter !== 'all' && !csvValues(operationalFilter).some(value => matchesOperationalFilter(student, value as OperationalFilter))) return false
+    if (notionValue && !csvValues(notionValue).some(value => notionValues(notionByStudent.get(student.id), notionField).includes(value))) return false
+    return baseView === 'active' ? student.pipeline_status === 'active_work'
+      : baseView === 'completed' ? ['completed_admitted', 'changed_mind'].includes(student.pipeline_status ?? '')
+      : baseView === 'no_status' ? !student.pipeline_status || student.pipeline_status === 'no_status'
+      : baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student)
+      : baseView === 'diff' ? reportDiffIds.has(student.id) : true
+  })
   const groupedStudents = useMemo(() => {
     const groups = new Map<string, StudentListItem[]>()
     for (const student of viewedStudents) {
       const key = baseGrouping === 'intake'
         ? `Набор ${student.intake_year || 'не указан'}`
         : baseGrouping === 'status'
-          ? PIPELINE_STATUS_LABELS[normalizeStudentPipelineStatus(notionStatuses.get(student.id) ?? student.pipeline_status)]
+          ? PIPELINE_STATUS_LABELS[normalizeStudentPipelineStatus(student.pipeline_status)]
           : activeResponsibles(student).filter((r) => r.role === groupRole).map((r) => r.name).join(', ') || `Без «${MENTOR_ROLE_LABELS[groupRole]}»`
       groups.set(key, [...(groups.get(key) ?? []), student])
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'ru', { numeric: true }))
-  }, [viewedStudents, baseGrouping, groupRole, notionStatuses])
+  }, [viewedStudents, baseGrouping, groupRole])
   useEffect(() => {
     setSelectedIds(new Set())
   }, [baseView, baseGrouping, groupRole, debouncedSearch, operationalFilter, notionValue, scope, intakeYearFilter, leadMentorFilter, degreeFilter, countryFilter, mentorFilter, mzkManagerFilter, serviceTypeFilter, statusFilterOperator, storedStatusFilters, boardMentorId, boardMissingRole])
@@ -1391,7 +1465,7 @@ const CrmStudentsListView: React.FC = () => {
     (degreeFilter ? 1 : 0) +
     (serviceTypeFilter ? 1 : 0) +
     (operationalFilter !== 'all' ? 1 : 0) +
-    (notionValue ? 1 : 0)
+    (notionValue ? 1 : 0) + (assignmentRoleFilter ? 1 : 0) + (notionPeopleFilter ? 1 : 0)
 
   const resetFilters = () => {
     // Поиск и «основная страна» раньше не сбрасывались: после «Сбросить всё»
@@ -1400,11 +1474,10 @@ const CrmStudentsListView: React.FC = () => {
     setSearch('')
     setDebouncedSearch('')
     setCountryPrimaryOnly(false)
-    setScope('all')
+    setBaseView('all')
     setMentorFilter('')
     setLeadMentorFilter('')
     setMzkManagerFilter('')
-    setResponsibleRole('any')
     setIntakeYearFilter('')
     setCountryFilter('')
     setDegreeFilter('')
@@ -1413,12 +1486,15 @@ const CrmStudentsListView: React.FC = () => {
     setNotionValue('')
     setStatusFilters([])
     setStatusFilterOperator('is')
-    setResponsibleSearch('')
-    clearBoardFilter()
+    setAssignmentRoleFilter('')
+    setNotionPeopleFilter('')
+    const params = new URLSearchParams(searchParams)
+    for (const key of ['scope', 'mentor_id', 'assignment_role', 'missing_role']) params.delete(key)
+    setSearchParams(params, { replace: true })
   }
 
-  const allUsers = [...mzkUsers, ...leadMentorUsers, ...mentorUsers]
-  const responsibleName = (id: string) => allUsers.find((u) => u.id === id)?.name ?? id
+  const allUsers = [...staffUsers, ...mzkUsers, ...leadMentorUsers, ...mentorUsers]
+  const responsibleName = (id: string) => csvValues(id).map(value => allUsers.find(u => u.id === value)?.name ?? value).join(', ')
 
   // Чипы активных фильтров — видны без открытия панели, снимаются крестиком
   const activeFilterChips: { key: string; label: string; onRemove: () => void }[] = []
@@ -1436,6 +1512,8 @@ const CrmStudentsListView: React.FC = () => {
       label: `Без роли «${MENTOR_ROLE_LABELS[boardMissingRole] ?? boardMissingRole}»`,
       onRemove: clearBoardFilter,
     })
+  if (assignmentRoleFilter) activeFilterChips.push({ key: 'assignment-roles', label: `Роли: ${csvValues(assignmentRoleFilter).map(role => MENTOR_ROLE_LABELS[role] ?? role).join(', ')}`, onRemove: () => setAssignmentRoleFilter('') })
+  if (notionPeopleFilter) activeFilterChips.push({ key: 'notion-people', label: `Имена Notion: ${csvValues(notionPeopleFilter).map(key => notionPeopleOptions.find(option => option.value === key)?.label ?? key).join(', ')}`, onRemove: () => setNotionPeopleFilter('') })
   if (scope !== 'all')
     activeFilterChips.push({
       key: 'scope',
@@ -1445,7 +1523,7 @@ const CrmStudentsListView: React.FC = () => {
   statusFilters.forEach((status) => {
     activeFilterChips.push({
       key: `status-${status}`,
-      label: `Статус CRM ${statusFilterOperator === 'is_not' ? 'не ' : ''}${PIPELINE_STATUS_LABELS[status]}`,
+      label: `Статус ${statusFilterOperator === 'is_not' ? 'не ' : ''}${PIPELINE_STATUS_LABELS[status]}`,
       onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
     })
   })
@@ -1458,13 +1536,13 @@ const CrmStudentsListView: React.FC = () => {
   if (degreeFilter)
     activeFilterChips.push({
       key: 'degree',
-      label: `Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`,
+      label: `Ступень: ${csvValues(degreeFilter).map(value => DEGREE_LEVEL_LABELS[value as keyof typeof DEGREE_LEVEL_LABELS] ?? value).join(', ')}`,
       onRemove: () => setDegreeFilter(''),
     })
   if (serviceTypeFilter)
     activeFilterChips.push({
       key: 'service',
-      label: `Программа: ${SERVICE_TYPE_LABELS[serviceTypeFilter as ServiceType] ?? serviceTypeFilter}`,
+      label: `Программа: ${csvValues(serviceTypeFilter).map(value => SERVICE_TYPE_LABELS[value as ServiceType] ?? value).join(', ')}`,
       onRemove: () => setServiceTypeFilter(''),
     })
   if (countryFilter.trim())
@@ -1477,7 +1555,6 @@ const CrmStudentsListView: React.FC = () => {
     key: 'notion-value', label: `${notionField}: ${notionValue}`, onRemove: () => setNotionValue(''),
   })
   const clearResponsible = () => {
-    setResponsibleRole('any')
     setMzkManagerFilter('')
     setLeadMentorFilter('')
     setMentorFilter('')
@@ -1491,7 +1568,7 @@ const CrmStudentsListView: React.FC = () => {
   if (leadMentorFilter)
     activeFilterChips.push({
       key: 'lead',
-      label: `Lead: ${responsibleName(leadMentorFilter)}`,
+      label: `Ответственные: ${responsibleName(leadMentorFilter)}`,
       onRemove: clearResponsible,
     })
   if (mentorFilter)
@@ -1515,35 +1592,9 @@ const CrmStudentsListView: React.FC = () => {
     }
     activeFilterChips.push({
       key: 'operational',
-      label: labels[operationalFilter],
+      label: csvValues(operationalFilter).map(value => labels[value as OperationalFilter] ?? value).join(', '),
       onRemove: () => setOperationalFilter('all'),
     })
-  }
-
-  const currentResponsibleUsers =
-    responsibleRole === 'mzk_manager'
-      ? mzkUsers
-      : responsibleRole === 'lead_mentor'
-        ? leadMentorUsers
-        : responsibleRole === 'mentor'
-          ? mentorUsers
-          : []
-
-  const selectedResponsibleId =
-    responsibleRole === 'mzk_manager'
-      ? mzkManagerFilter
-      : responsibleRole === 'lead_mentor'
-        ? leadMentorFilter
-        : responsibleRole === 'mentor'
-          ? mentorFilter
-          : ''
-
-  const setResponsibleFilter = (role: ResponsibleRoleFilter, userId = '') => {
-    setResponsibleRole(role)
-    setMzkManagerFilter(role === 'mzk_manager' ? userId : '')
-    setLeadMentorFilter(role === 'lead_mentor' ? userId : '')
-    setMentorFilter(role === 'mentor' ? userId : '')
-    setResponsibleSearch('')
   }
 
   return (
@@ -1552,18 +1603,18 @@ const CrmStudentsListView: React.FC = () => {
         studentIds: viewedStudents.map((student) => student.id),
         selectedStudentIds: viewedStudents.filter((student) => selectedIds.has(student.id)).map((student) => student.id),
         selectedNames: viewedStudents.filter((student) => selectedIds.has(student.id)).map((student) => student.full_name),
-        label: baseView === 'all' ? 'Все' : baseView === 'mine' ? 'Мои' : baseView === 'diff' ? 'Расхождения' : 'Требуют назначения',
+        label: viewLabel[baseView],
         labels: [
-          ...(baseView !== 'all' ? [`Вид: ${baseView === 'mine' ? 'Мои' : baseView === 'diff' ? 'Расхождения с Notion' : 'Требуют назначения'}`] : []),
+          ...(baseView !== 'all' ? [`Вид: ${viewLabel[baseView]}`] : []),
           ...(debouncedSearch.trim() ? [`Поиск: «${debouncedSearch.trim()}»`] : []),
           ...(intakeYearFilter ? [`Набор: ${intakeYearFilter}`] : []),
-          ...(leadMentorFilter ? [`Lead-Mentor: ${responsibleName(leadMentorFilter)}`] : []),
-          ...(degreeFilter ? [`Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`] : []),
+          ...(leadMentorFilter ? [`Ответственный: ${responsibleName(leadMentorFilter)}`] : []),
+          ...(degreeFilter ? [`Ступень: ${csvValues(degreeFilter).map(value => DEGREE_LEVEL_LABELS[value as keyof typeof DEGREE_LEVEL_LABELS] ?? value).join(', ')}`] : []),
           ...(countryFilter ? [`Страна: ${countryFilter}`] : []),
           ...(countryPrimaryOnly ? ['Страна: только основная'] : []),
-          ...(statusFilters.length ? [`Статус CRM: ${statusFilters.map((status) => PIPELINE_STATUS_LABELS[status]).join(', ')}`] : []),
-          ...(serviceTypeFilter ? [`Программа: ${SERVICE_TYPE_LABELS[serviceTypeFilter as ServiceType] ?? serviceTypeFilter}`] : []),
-          ...(leadMentorFilter ? [`Lead-Mentor: ${responsibleName(leadMentorFilter)}`] : []),
+          ...(statusFilters.length ? [`Статус: ${statusFilters.map((status) => PIPELINE_STATUS_LABELS[status]).join(', ')}`] : []),
+          ...(serviceTypeFilter ? [`Программа: ${csvValues(serviceTypeFilter).map(value => SERVICE_TYPE_LABELS[value as ServiceType] ?? value).join(', ')}`] : []),
+          ...(leadMentorFilter ? [`Ответственный: ${responsibleName(leadMentorFilter)}`] : []),
           ...(mzkManagerFilter ? [`МЗК: ${responsibleName(mzkManagerFilter)}`] : []),
           ...(mentorFilter ? [`Ментор: ${responsibleName(mentorFilter)}`] : []),
           ...(scope !== 'all' ? [`Область: ${scope === 'mine' ? 'мои' : scope === 'assigned' ? 'с ответственным' : 'без ответственного'}`] : []),
@@ -1575,6 +1626,7 @@ const CrmStudentsListView: React.FC = () => {
           ...(!sortAscending ? ['Сортировка: Имя ↓'] : []),
         ],
       }} />
+      {peopleLinksOpen && <NotionPeopleDialog onClose={() => setPeopleLinksOpen(false)} />}
       {fieldSyncReviewOpen && <NotionFieldSyncReviewDialog open onOpenChange={setFieldSyncReviewOpen} />}
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-0">
@@ -1582,9 +1634,9 @@ const CrmStudentsListView: React.FC = () => {
           <h1 className="mt-1 text-[36px] font-extrabold tracking-[-.02em] leading-tight text-ds-ink">Общая база</h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-ds-muted">
             <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-            <span>{incompleteResult ? `Показано ${total} из ${data?.total} студентов CRM` : `${data?.total ?? total} студентов CRM`}</span>
+            <span>{data?.total_all != null && `Всего: ${data.total_all} · `}{incompleteResult ? `Показано ${total} из ${data?.total} студентов CRM` : `Найдено: ${data?.total ?? total} учеников`}</span>
             {canSeeNotion && <><span>·</span><span>{notionStatus?.last_run?.ok && notionStatus.last_run.at
-              ? `Notion синхронизирован ${new Date(notionStatus.last_run.at).toLocaleString('ru-RU')}`
+              ? `Notion прочитан ${new Date(notionStatus.last_run.at).toLocaleString('ru-RU')}`
               : 'Время синхронизации Notion неизвестно'}</span>
               <span>·</span><button type="button" className="font-semibold text-ds-accentText underline underline-offset-2" onClick={() => setShowNotion(true)}>
                 {notionStatus?.needs_review ?? 0} строк Notion без привязки
@@ -1598,6 +1650,7 @@ const CrmStudentsListView: React.FC = () => {
               Данные <ChevronDown className="ml-1 h-4 w-4" />
             </Button>
             {dataMenuOpen && <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-ds-line bg-ds-panel p-1.5 shadow-lg">
+              {can('students', 'manage') && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setPeopleLinksOpen(true) }}>Имена Notion ↔ сотрудники<span className="block text-xs text-ds-muted">Подтвердить соответствия аккаунтов</span></button>}
               {canRunSync && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={syncMutation.isPending} onClick={() => { setDataMenuOpen(false); syncMutation.mutate() }}>Синхронизировать анкеты Google Sheets<span className="block text-xs text-ds-muted">Забрать новые ответы</span></button>}
               {canRunSync && canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={notionSyncMutation.isPending} onClick={() => { setDataMenuOpen(false); notionSyncMutation.mutate() }}>Обновить данные Notion<span className="block text-xs text-ds-muted">Обновить локальную копию</span></button>}
               {isManager && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowInbox(true) }}>Входящие анкеты · {newCount}<span className="block text-xs text-ds-muted">Ответы Google Sheets</span></button>}
@@ -1606,7 +1659,7 @@ const CrmStudentsListView: React.FC = () => {
               {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowNotion(true) }}>Привязки Notion · {notionStatus?.needs_review ?? 0}<span className="block text-xs text-ds-muted">Страницы без студента CRM</span></button>}
             </div>}
           </div>}
-          {can('export', 'manage') && <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} title="Выгрузка настраивается отдельно и не наследует фильтры таблицы"><Download className="mr-1.5 h-4 w-4" />Экспорт</Button>}
+          {can('export', 'manage') && <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} title="Выберите текущий отбор или всю базу"><Download className="mr-1.5 h-4 w-4" />Экспорт</Button>}
           {can('students', 'create') && <Button size="sm" className="bg-ds-accent font-bold text-[#141413] hover:brightness-95" onClick={() => navigate('/students/new')}><Plus className="mr-1 h-4 w-4" />Студент</Button>}
         </div>
       </header>
@@ -1616,9 +1669,9 @@ const CrmStudentsListView: React.FC = () => {
       </div>}
 
       <nav aria-label="Виды общей базы" className="flex flex-wrap gap-1 border-b border-ds-line">
-        {([{ value: 'all', label: 'Все' }, ...(canSeeNotion ? [{ value: 'needs_assignment', label: 'Требуют назначения' } as const, { value: 'diff', label: 'Расхождения с Notion' } as const] : []), { value: 'mine', label: 'Мои' }] as const).map((view) =>
-          <button key={view.value} type="button" title={view.value === 'needs_assignment' ? 'Связанные с Notion студенты со статусом «Активная работа», которым не назначена одна из обязательных ролей: профориентолог, учитель IELTS, ментор по УП, ментор по стране' : undefined} aria-current={baseView === view.value ? 'page' : undefined} onClick={() => setBaseView(view.value)} className={`min-h-10 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseView === view.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink'}`}>
-            {view.label} <span className="ml-1 rounded-full bg-ds-panel2 px-2 py-0.5 text-xs tabular-nums">{view.value === 'diff' ? 'не сверено' : view.value === 'needs_assignment' && (isNotionLoading || isNotionError) ? '—' : incompleteResult ? `${viewCounts[view.value]}+` : viewCounts[view.value]}</span>
+        {([{ value: 'all', label: 'Все' }, { value: 'active', label: 'Активная работа' }, { value: 'completed', label: 'Работа окончена' }, { value: 'no_status', label: 'Нет статуса' }, ...(canSeeNotion ? [{ value: 'needs_assignment', label: 'Требуют назначения' } as const, { value: 'diff', label: 'Расхождения с Notion' } as const] : []), { value: 'mine', label: 'Мои' }] as const).map((view) =>
+          <button key={view.value} type="button" title={view.value === 'needs_assignment' ? 'Активные ученики без команды или с незакрытыми назначениями по услугам' : undefined} aria-current={baseView === view.value ? 'page' : undefined} onClick={() => setBaseView(view.value)} className={`min-h-10 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseView === view.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink'}`}>
+            {view.label} <span className="ml-1 rounded-full bg-ds-panel2 px-2 py-0.5 text-xs tabular-nums">{view.value === 'diff' ? (isReportLoading ? '…' : viewCounts.diff) : view.value === 'needs_assignment' && (isNotionLoading || isNotionError) ? '—' : incompleteResult ? `${viewCounts[view.value]}+` : viewCounts[view.value]}</span>
           </button>)}
       </nav>
       {baseView === 'diff' && <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
@@ -1628,10 +1681,10 @@ const CrmStudentsListView: React.FC = () => {
       {baseView === 'needs_assignment' && (isNotionLoading || isNotionError) && <p className="rounded-xl border border-ds-line bg-ds-panel2 px-3 py-2 text-xs text-ds-muted">{isNotionLoading ? 'Загружаем статусы Notion для этого вида…' : 'Не удалось загрузить статусы Notion. Повторите запрос выше.'}</p>}
 
       {/* Inbox */}
-      {isManager && showInbox && <IntakeInbox />}
+      {isManager && showInbox && <IntakeInbox onClose={() => setShowInbox(false)} />}
 
       {/* Notion без привязки */}
-      {canSeeNotion && showNotion && <NotionInbox />}
+      {canSeeNotion && showNotion && <NotionInbox onClose={() => setShowNotion(false)} />}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
@@ -1645,10 +1698,12 @@ const CrmStudentsListView: React.FC = () => {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-        <Select value={intakeYearFilter || 'all'} onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Набор" /></SelectTrigger><SelectContent><SelectItem value="all">Набор</SelectItem>{(facets?.years ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{item.value} · {item.count}</SelectItem>)}</SelectContent></Select>
-        <Select value={leadMentorFilter || 'all'} onValueChange={(v) => setLeadMentorFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-28 text-xs"><SelectValue placeholder="Lead-Mentor" /></SelectTrigger><SelectContent><SelectItem value="all">Ментор заявки</SelectItem>{leadMentorUsers.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
-        <Select value={degreeFilter || 'all'} onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Ступень" /></SelectTrigger><SelectContent><SelectItem value="all">Ступень</SelectItem>{(facets?.degrees ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{DEGREE_LEVEL_LABELS[item.value as keyof typeof DEGREE_LEVEL_LABELS] ?? item.value}</SelectItem>)}</SelectContent></Select>
-        <Select value={countryFilter || 'all'} onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}><SelectTrigger className="h-9 w-auto min-w-24 text-xs"><SelectValue placeholder="Страна" /></SelectTrigger><SelectContent><SelectItem value="all">Страна</SelectItem>{(facets?.countries ?? []).map((item) => <SelectItem key={item.value} value={item.value}>{item.value}</SelectItem>)}</SelectContent></Select>
+        <MultiFilter label="Набор" value={csvValues(intakeYearFilter)} onChange={values => setIntakeYearFilter(values.join(','))} options={countOptions('years', (facets?.years ?? []).map(item => ({ ...item, label: item.value })))} />
+        <MultiFilter label="Статус" value={statusFilters} onChange={values => setStatusFilters(values as PipelineStatus[])} options={countOptions('statuses', PIPELINE_COLUMNS.map(value => ({ value, label: PIPELINE_STATUS_LABELS[value], count: facets?.statuses.find(item => item.value === value)?.count ?? 0 })))} />
+        <MultiFilter label="Ответственный" value={[...csvValues(leadMentorFilter), ...csvValues(notionPeopleFilter).map(key => `notion:${key}`)]} onChange={values => { setLeadMentorFilter(values.filter(value => !value.startsWith('notion:')).join(',')); setNotionPeopleFilter(values.filter(value => value.startsWith('notion:')).map(value => value.slice(7)).join(',')); setMentorFilter(''); setMzkManagerFilter(''); clearBoardFilter() }} options={countOptions('people', [...staffOptions, ...notionPeopleOptions.filter(item => !catalogFilters.nameAccounts?.[item.value]).map(item => ({ ...item, value: `notion:${item.value}` }))])} />
+        <MultiFilter label="Роль" value={csvValues(assignmentRoleFilter)} onChange={values => setAssignmentRoleFilter(values.join(','))} options={countOptions('roles', Object.entries(MENTOR_ROLE_LABELS).map(([value, label]) => ({ value, label })))} />
+        <MultiFilter label="Ступень" value={csvValues(degreeFilter)} onChange={values => setDegreeFilter(values.join(','))} options={countOptions('degrees', (facets?.degrees ?? []).map(item => ({ ...item, label: DEGREE_LEVEL_LABELS[item.value as keyof typeof DEGREE_LEVEL_LABELS] ?? item.value })))} />
+        <MultiFilter label="Страна" value={csvValues(countryFilter)} onChange={values => setCountryFilter(values.join(','))} options={countOptions('countries', (facets?.countries ?? []).map(item => ({ ...item, label: item.value })))} />
         {canAssign && (
           <Button
             type="button"
@@ -1690,239 +1745,13 @@ const CrmStudentsListView: React.FC = () => {
                 </button>
               </div>
               <div className="p-3 space-y-4">
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Видимость</p>
-                  <div className="grid grid-cols-4 gap-1 rounded-panel border border-p-line bg-p-bg p-1">
-                    {[
-                      { value: 'all', label: 'Все' },
-                      { value: 'mine', label: 'Мои' },
-                      { value: 'assigned', label: 'С отв.' },
-                      { value: 'unassigned', label: 'Без отв.' },
-                    ].map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        onClick={() => setScope(item.value as typeof scope)}
-                        className={`px-2 py-1.5 text-xs font-medium rounded-ctl transition-colors ${
-                          scope === item.value
-                            ? 'bg-p-panel text-p-text shadow-sm'
-                            : 'text-p-muted hover:text-p-text hover:bg-p-panel2'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Статус CRM</p>
-                  <PipelineStatusFilter
-                    value={statusFilters}
-                    onChange={setStatusFilters}
-                    operator={statusFilterOperator}
-                    onOperatorChange={setStatusFilterOperator}
-                    counts={Object.fromEntries((facets?.statuses ?? []).map((option) => [option.value, option.count]))}
-                  />
-                </div>
-
-                {canSeeNotion && <div className="space-y-2 border-t border-p-line pt-3">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Данные Notion</p>
-                  <Select value={notionField} onValueChange={(value) => { setNotionField(value); setNotionValue('') }}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Поле Notion" /></SelectTrigger>
-                    <SelectContent>{(notionTable?.columns ?? ['Статус выплат']).filter((field) => field !== 'Статус CRM').map((field) =>
-                      <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <Select value={notionValue || '__all__'} onValueChange={(value) => setNotionValue(value === '__all__' ? '' : value)}>
-                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Любое значение" /></SelectTrigger>
-                    <SelectContent><SelectItem value="__all__">Все значения</SelectItem>{notionOptions.map((value) =>
-                      <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <p className="text-xs text-p-muted">Фильтр применён к связанным строкам Notion. Несвязанные доступны в разделе «Notion».</p>
-                </div>}
-
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Контроль работы</p>
-                  <Select
-                    value={operationalFilter}
-                    onValueChange={(v) => setOperationalFilter(v as OperationalFilter)}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Все сигналы" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(OPERATIONAL_FILTER_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Год</p>
-                    <Select
-                      value={intakeYearFilter || 'all'}
-                      onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}
-                    >
-                      <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Все годы" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Все годы</SelectItem>
-                        {(facets?.years ?? []).map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.value} · {opt.count}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Ступень</p>
-                    <Select
-                      value={degreeFilter || 'all'}
-                      onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}
-                    >
-                      <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Все ступени" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Все ступени</SelectItem>
-                        {(facets?.degrees ?? []).map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {DEGREE_LEVEL_LABELS[opt.value as keyof typeof DEGREE_LEVEL_LABELS] ?? opt.value} · {opt.count}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Страна поступления</p>
-                  <Select
-                    value={countryFilter || 'all'}
-                    onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Все страны" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Все страны</SelectItem>
-                      {(facets?.countries ?? []).map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.value} · {opt.count}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {countryFilter.trim() && (
-                    <div className="flex rounded-full border border-p-line bg-p-bg p-0.5 text-2xs">
-                      <button
-                        type="button"
-                        onClick={() => setCountryPrimaryOnly(false)}
-                        className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${!countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
-                      >
-                        Любая
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCountryPrimaryOnly(true)}
-                        className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
-                      >
-                        Основная
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Программа / услуга</p>
-                  <Select
-                    value={serviceTypeFilter || 'all'}
-                    onValueChange={(v) => setServiceTypeFilter(v === 'all' ? '' : v)}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Все программы" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Все программы</SelectItem>
-                      {SERVICE_FILTER_OPTIONS.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {SERVICE_TYPE_LABELS[type]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-2xs font-semibold uppercase tracking-wide text-p-muted">Ответственный</p>
-                  <Select
-                    value={responsibleRole}
-                    onValueChange={(v) => setResponsibleFilter(v as ResponsibleRoleFilter)}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Любая роль" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="any">Любая роль</SelectItem>
-                      <SelectItem value="mzk_manager">{ROLE_LABELS.mzk_manager}</SelectItem>
-                      {/* Не роль сотрудника, а ментор заявки в вуз
-                          (applications.lead_mentor_id) — подпись называет это
-                          прямо, иначе пункт читается как дубль «Ментора». */}
-                      <SelectItem value="lead_mentor">Ментор заявки</SelectItem>
-                      <SelectItem value="mentor">{ROLE_LABELS.mentor}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {responsibleRole !== 'any' && (
-                    <div className="space-y-2">
-                      <Input
-                        value={responsibleSearch}
-                        onChange={(e) => setResponsibleSearch(e.target.value)}
-                        placeholder="Найти по имени..."
-                        className="h-9 text-sm"
-                      />
-                      <div className="space-y-1.5 max-h-44 overflow-auto pr-1">
-                        <button
-                          type="button"
-                          onClick={() => setResponsibleFilter(responsibleRole)}
-                          className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
-                            selectedResponsibleId === ''
-                              ? 'border-p-accent-dim bg-p-chip text-p-chip-text'
-                              : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
-                          }`}
-                        >
-                          Все в выбранной роли
-                        </button>
-                        {currentResponsibleUsers
-                          .filter((user) => user.name.toLowerCase().includes(responsibleSearch.trim().toLowerCase()))
-                          .map((user) => (
-                            <button
-                              key={user.id}
-                              type="button"
-                              onClick={() => setResponsibleFilter(responsibleRole, user.id)}
-                              className={`w-full text-left px-2 py-1.5 text-sm rounded-panel border transition-colors ${
-                                selectedResponsibleId === user.id
-                                ? 'border-p-accent-dim bg-p-chip text-p-chip-text'
-                                : 'border-p-line bg-p-panel hover:bg-p-panel2 text-p-text'
-                              }`}
-                            >
-                              {user.name}
-                            </button>
-                          ))}
-                        {currentResponsibleUsers.length === 0 && (
-                          <p className="px-2 py-2 text-sm text-p-muted">Пользователей нет</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-1">
+                <p className="text-xs text-p-muted">В одном фильтре — любое выбранное значение. Между фильтрами — все условия. Числа вариантов учитывают остальные основные фильтры.</p>
+                <MultiFilter label="Программа / услуга" value={csvValues(serviceTypeFilter)} onChange={values => setServiceTypeFilter(values.join(','))} options={countOptions('services', SERVICE_FILTER_OPTIONS.map(value => ({ value, label: SERVICE_TYPE_LABELS[value] })))} />
+                <MultiFilter label="Контроль работы" value={csvValues(operationalFilter === 'all' ? '' : operationalFilter)} onChange={values => setOperationalFilter((values.join(',') || 'all') as OperationalFilter)} options={Object.entries(OPERATIONAL_FILTER_LABELS).filter(([value]) => value !== 'all').map(([value, label]) => ({ value, label }))} />
+                <div className="space-y-2"><p className="text-xs font-semibold">Статус Notion / сохранённый статус платформы</p><PipelineStatusFilter value={statusFilters} onChange={setStatusFilters} operator={statusFilterOperator} onOperatorChange={setStatusFilterOperator} counts={Object.fromEntries((facets?.statuses ?? []).map(option => [option.value, option.count]))} /></div>
+                {canSeeNotion && <div className="space-y-2"><Select value={notionField} onValueChange={value => { setNotionField(value); setNotionValue('') }}><SelectTrigger aria-label="Поле Notion"><SelectValue /></SelectTrigger><SelectContent>{(notionTable?.columns ?? ['Статус выплат']).filter(field => field !== 'Статус CRM').map(field => <SelectItem key={field} value={field}>{field}</SelectItem>)}</SelectContent></Select><MultiFilter label="Значения Notion" value={csvValues(notionValue)} onChange={values => setNotionValue(values.join(','))} options={notionOptions.map(value => ({ value, label: value }))} /></div>}
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-1">
                   <Button
                     type="button"
                     variant="ghost"
@@ -1941,12 +1770,12 @@ const CrmStudentsListView: React.FC = () => {
                     Готово
                   </Button>
                 </div>
-              </div>
             </div>
           )}
         </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+          {can('student_work_status', 'edit') && assignMode && <BulkStudentStatus students={viewedStudents.filter(student => selectedIds.has(student.id))} />}
           <span className="text-xs font-semibold text-ds-muted">Группировка</span>
           <div className="flex rounded-[10px] bg-ds-panel2 p-[3px]">
             {([{ value: 'intake', label: 'Набор' }, { value: 'responsible', label: 'Ответственный' }, { value: 'status', label: 'Статус' }] as const).map((item) => <button key={item.value} type="button" onClick={() => setBaseGrouping(item.value)} className={`min-h-8 rounded-lg px-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseGrouping === item.value ? 'bg-ds-panel text-ds-ink shadow-sm' : 'text-ds-muted'}`}>{item.label}</button>)}
@@ -1960,7 +1789,7 @@ const CrmStudentsListView: React.FC = () => {
       </div>
 
       {/* Активные фильтры — видны без открытия панели */}
-      {activeFilterChips.length > 0 && (
+      {(activeFilterChips.length > 0 || baseView !== 'all' || search) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {activeFilterChips.map((chip) => (
             <span
@@ -2053,6 +1882,7 @@ const CrmStudentsListView: React.FC = () => {
 
       <BaseStudentTable
         groups={groupedStudents}
+        showYear={baseGrouping !== 'intake'}
         selectedIds={selectedIds}
         onToggle={toggleSelected}
         onSelectAll={(ids, selected) => setSelectedIds((previous) => {
@@ -2128,4 +1958,7 @@ const CrmStudentsListView: React.FC = () => {
   )
 }
 
-export const StudentsListPage = CrmStudentsListView
+export const StudentsListPage = () => {
+  const { user } = useAuth()
+  return <CrmStudentsListView key={user?.id ?? 'anonymous'} />
+}

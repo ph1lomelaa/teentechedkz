@@ -72,6 +72,9 @@ class NotionFieldSync(Base):
     expected_notion_last_edited_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Captured at classification time; never redirect a financial operation
+    # to a replacement contract, even if its scalar values happen to match.
+    expected_contract_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

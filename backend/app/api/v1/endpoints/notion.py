@@ -9,6 +9,7 @@ Notion остаётся рабочим инструментом команды. 
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import uuid
 from datetime import datetime, timezone, date, timedelta
 from decimal import Decimal
@@ -577,6 +578,35 @@ async def finance_summary(
 
 # --- Привязка снапшотов ---------------------------------------------------------
 
+def _bulk_link_block_reason(snapshot: NotionSnapshot, candidates: Counter, existing: set) -> str | None:
+    """The inbox and link-all must use the same conservative matching policy."""
+    if snapshot.status != NotionMatchStatus.new:
+        return "Запись уже обработана"
+    if not snapshot.suggested_student_id:
+        return "Выберите студента вручную"
+    if snapshot.suggested_student_id in existing:
+        return "У студента уже есть страница Notion. Проверьте существующую связь в карточке студента."
+    if not snapshot.suggested_student or snapshot.suggested_student.is_archived:
+        return "Предложенный студент недоступен или архивирован"
+    if (snapshot.suggested_confidence or 0) < 1.0:
+        return "Неточное совпадение. Проверьте кандидата и нажмите «Привязать» в этой строке."
+    if candidates[snapshot.suggested_student_id] != 1:
+        return "Несколько страниц предлагают одного студента. Выберите нужную страницу вручную."
+    return None
+
+
+async def _bulk_link_context(db: AsyncSession) -> tuple[Counter, set]:
+    candidate_ids = (await db.execute(select(NotionSnapshot.suggested_student_id).where(
+        NotionSnapshot.status == NotionMatchStatus.new,
+        NotionSnapshot.suggested_student_id.isnot(None),
+    ))).scalars().all()
+    existing = set((await db.execute(select(NotionSnapshot.student_id).where(
+        NotionSnapshot.status == NotionMatchStatus.linked,
+        NotionSnapshot.student_id.isnot(None),
+    ))).scalars())
+    return Counter(candidate_ids), existing
+
+
 @router.get("/snapshots")
 async def list_snapshots(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -593,7 +623,12 @@ async def list_snapshots(
         query = query.where(NotionSnapshot.status == parsed_status)
     result = await db.execute(query.order_by(NotionSnapshot.full_name))
     items = result.scalars().unique().all()
-    return {"items": [_snapshot_to_dict(s) for s in items], "total": len(items)}
+    candidates, existing = await _bulk_link_context(db)
+    rows = []
+    for snapshot in items:
+        reason = _bulk_link_block_reason(snapshot, candidates, existing)
+        rows.append({**_snapshot_to_dict(snapshot), "bulk_link_eligible": reason is None, "link_block_reason": reason})
+    return {"items": rows, "total": len(items)}
 
 
 async def _load_snapshot(db: AsyncSession, snapshot_id: uuid.UUID) -> NotionSnapshot:
@@ -701,26 +736,25 @@ async def link_all_snapshots(
     """Привязать только однозначные точные совпадения."""
     require_access(current_user, "notion", Action.manage)
     result = await db.execute(
-        select(NotionSnapshot)
+        select(NotionSnapshot).options(joinedload(NotionSnapshot.suggested_student))
         .join(Student, Student.id == NotionSnapshot.suggested_student_id)
         .where(
             NotionSnapshot.status == NotionMatchStatus.new,
             NotionSnapshot.suggested_student_id.isnot(None),
-            NotionSnapshot.suggested_confidence >= 1.0,
             Student.is_archived == False,  # noqa: E712
         )
     )
     snapshots = result.scalars().all()
-    from collections import Counter
-    candidates = Counter(snapshot.suggested_student_id for snapshot in snapshots)
-    existing = set((await db.execute(select(NotionSnapshot.student_id).where(
-        NotionSnapshot.status == NotionMatchStatus.linked,
-        NotionSnapshot.student_id.isnot(None),
-    ))).scalars())
+    candidates, existing = await _bulk_link_context(db)
+    skipped_reasons = Counter()
+    linked = 0
     now = datetime.now(timezone.utc)
     for snapshot in snapshots:
-        if candidates[snapshot.suggested_student_id] != 1 or snapshot.suggested_student_id in existing:
+        reason = _bulk_link_block_reason(snapshot, candidates, existing)
+        if reason:
+            skipped_reasons[reason] += 1
             continue
+        linked += 1
         snapshot.student_id = snapshot.suggested_student_id
         snapshot.status = NotionMatchStatus.linked
         snapshot.linked_by = current_user.id
@@ -730,8 +764,8 @@ async def link_all_snapshots(
             None, snapshot.notion_page_id, str(current_user.id), "notion_sync",
         )
     await db.commit()
-    return {"ok": True, "linked": sum(candidates[s.suggested_student_id] == 1 and s.suggested_student_id not in existing for s in snapshots),
-            "skipped": sum(candidates[s.suggested_student_id] != 1 or s.suggested_student_id in existing for s in snapshots)}
+    return {"ok": True, "linked": linked, "skipped": sum(skipped_reasons.values()),
+            "skipped_reasons": dict(skipped_reasons)}
 
 
 # --- Создание студента из Notion-записи ------------------------------------------

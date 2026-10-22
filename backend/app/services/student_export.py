@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from app.services.student_work_status import resolve_work_status
 
 from openpyxl import Workbook
 
@@ -18,7 +19,24 @@ from app.models.user import User
 from migration.transformers.normalize import parse_pipeline_status
 
 
+STATUS_LABELS = {
+    "active_work": "Активная работа", "on_visa": "На визе", "paused": "Пауза",
+    "completed_admitted": "Работа окончена — Поступил", "changed_mind": "Работа окончена — Передумал",
+    "lost_applicant": "Пропал абитуриент", "refund": "На возврате", "unpaid": "Не оплачено",
+    "transferred_pipeline": "Перевели на другой продукт", "ielts_retake": "Пересдача IELTS",
+    "reapplication": "Переподача", "problem": "Проблема", "suspended": "Подвешено", "no_status": "Нет статуса",
+}
+
+
+def display_export_value(key, row):
+    value = str(row.get(key, "") or "")
+    return STATUS_LABELS.get(value, value) if key in {"crm_status", "effective_status"} else value
+
+
 COLUMNS = {
+    "student_id": "ID ученика", "student_url": "Карточка платформы",
+    "effective_status": "Текущий статус", "status_review": "Сверка статуса",
+    "notion_mentors": "Имена менторов Notion", "notion_mzk": "Имя МЗК Notion",
     "full_name": "Студент",
     "phone": "Телефон",
     "intake_year": "Год набора",
@@ -38,7 +56,7 @@ COLUMNS = {
     "mzk": "МЗК",
     "mentors": "Менторы",
 }
-DEFAULT_COLUMNS = ("full_name", "phone", "notion_status", "crm_status", "portal_access", "active_chat", "mzk", "mentors")
+DEFAULT_COLUMNS = ("full_name", "intake_year", "effective_status", "notion_status", "crm_status", "status_review", "mzk", "mentors", "notion_mentors", "student_url")
 
 
 def notion_status(snapshot: NotionSnapshot | None) -> tuple[str, str | None]:
@@ -88,9 +106,14 @@ def make_rows(
         if application.lead_mentor_id and application.lead_mentor_id in user_by_id:
             leads_by_student[application.student_id].add(user_by_id[application.lead_mentor_id].name)
     snapshots_by_student: dict = {}
+    snapshot_groups: dict = defaultdict(list)
     for snapshot in sorted(snapshots, key=lambda s: (s.synced_at.isoformat() if s.synced_at else "", str(s.id))):
         if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
+            snapshot_groups[snapshot.student_id].append(snapshot)
             snapshots_by_student[snapshot.student_id] = snapshot
+    for sid, links in snapshot_groups.items():
+        if len(links) > 1:
+            snapshots_by_student.pop(sid, None)
     people: dict = defaultdict(lambda: defaultdict(list))
     for assignment in assignments:
         if assignment.is_active and assignment.mentor_id and assignment.student_id:
@@ -147,7 +170,14 @@ def make_rows(
         if notion_link == "yes" and not snapshot or notion_link == "no" and snapshot:
             continue
         portal_user = user_by_id.get(student.user_id) if student.user_id else None
+        resolved = resolve_work_status(crm_status, snapshot_groups.get(student.id, []))
+        data = (snapshot.normalized_data or {}) if snapshot else {}
+        review = {"ambiguous_link": "Несколько страниц Notion", "not_linked": "Нет связи с Notion", "unrecognized": "Неизвестный статус Notion", "empty": "Notion пуст — сохранён статус платформы" if crm_status and crm_status != "no_status" else "Статус не заполнен", "crm_empty": "Статус есть в Notion, CRM пуст", "different": "Разные значения", "matched": "Совпадает", "portal_edit": "Изменён на платформе — ожидает обмена"}.get(resolved["status_sync_state"], resolved["status_sync_state"])
+        notion_names = ([str(data["lead_mentor"])] if data.get("lead_mentor") else []) + list(map(str, data.get("mentors") or []))
         rows.append({
+            "student_id": str(student.id), "student_url": f"https://teenteched.kz/students/{student.id}",
+            "effective_status": resolved["pipeline_status"], "status_review": review,
+            "notion_mentors": ", ".join(dict.fromkeys(notion_names)), "notion_mzk": str(data.get("mzk") or ""),
             "full_name": student.full_name or "",
             "phone": student.phone or "",
             "intake_year": str(student.intake_year or ""),
@@ -226,7 +256,7 @@ def serialize_rows(
         output = io.StringIO(newline="")
         writer = csv.writer(output, delimiter=delimiter)
         writer.writerow([COLUMNS[key] for key in columns])
-        writer.writerows([safe_cell(row[key]) for key in columns] for row in rows)
+        writer.writerows([safe_cell(display_export_value(key, row)) for key in columns] for row in rows)
         return (b"\xef\xbb\xbf" if bom else b"") + output.getvalue().encode("utf-8")
     if split_by not in {"none", "intake_year", "notion_status", "mzk"}:
         raise ValueError("Неверный способ разбиения на листы")
@@ -279,11 +309,11 @@ def _write_student_sheet(sheet, rows: list[dict[str, str]], columns: list[str], 
         cell.fill = header_fill
         cell.alignment = Alignment(vertical="top", wrap_text=True)
     for row in rows:
-        sheet.append([safe_xlsx_cell(row[key]) for key in columns])
+        sheet.append([safe_xlsx_cell(display_export_value(key, row)) for key in columns])
         for cell in sheet[sheet.max_row]:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-        if "Статус Notion" in columns:
-            status_cell = sheet.cell(sheet.max_row, columns.index("Статус Notion") + 1)
+        if "notion_status" in columns:
+            status_cell = sheet.cell(sheet.max_row, columns.index("notion_status") + 1)
             status = str(status_cell.value or "").lower()
             color = "DCEFE0" if "активная работа" in status else "FBE2CB" if "виз" in status or "ожид" in status else "F7D8D7" if "возврат" in status or "пропал" in status else "D6EAEE" if "поступ" in status else None
             if color:
@@ -293,8 +323,10 @@ def _write_student_sheet(sheet, rows: list[dict[str, str]], columns: list[str], 
         for cell in sheet[sheet.max_row]:
             cell.font = Font(bold=True)
     sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "A2"
+    sheet.freeze_panes = "B2"
     sheet.auto_filter.ref = sheet.dimensions
     for column in sheet.columns:
         letter = column[0].column_letter
-        sheet.column_dimensions[letter].width = min(48, max(16, max(len(str(cell.value or "")) for cell in column) + 2))
+        key = columns[column[0].column - 1]
+        preferred = {"phone": 20, "full_name": 36, "student_id": 38, "student_url": 34, "status_review": 36}
+        sheet.column_dimensions[letter].width = preferred.get(key, min(40, max(16, max(len(str(cell.value or "")) for cell in column) + 2)))

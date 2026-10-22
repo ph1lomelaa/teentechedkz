@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.schemas.user import UserResponse
 
@@ -38,3 +40,12 @@ class MeResponse(UserResponse):
     Inherits all fields from UserResponse; the separate class allows
     future divergence (e.g. adding last_login, permissions list).
     """
+
+
+class ClientErrorReport(BaseModel):
+    """Categorical diagnostics only; deliberately excludes URLs and error text."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["render", "unhandled"]
+    error_type: Literal["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "NotFoundError", "ChunkLoadError"]
+    route: Literal["student_card", "workspace_student_card", "app"]
+    components: list[Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_.$]{0,79}$")]] = Field(default_factory=list, max_length=30)

@@ -56,6 +56,8 @@ function taskCounts(roadmap: Roadmap) {
 export const WorkspaceRoadmapEditor: React.FC<{
   roadmap: Roadmap
   canManage?: boolean
+  /** Kept for callers from main; the roadmap styling now applies everywhere. */
+  studentCard?: boolean
   onChanged: (updated: Roadmap) => void
 }> = ({ roadmap, canManage = true, onChanged }) => {
   const { theme } = useTheme()

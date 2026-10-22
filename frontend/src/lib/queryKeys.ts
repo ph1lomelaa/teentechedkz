@@ -35,21 +35,13 @@ export const studentKeys = {
   emergencyContacts: (id: MaybeId) => ['emergency-contacts', id] as const,
 }
 
-/**
- * Сбрасывает профиль студента и таймлайн вместе.
- *
- * Это пара, а не полный набор из studentKeys: intake/notion/telegram-chat
- * трогает только то, что их реально меняет (см. вызовы в StudentCardPage),
- * незачем дёргать привязку к Notion на каждую отметку задачи. А вот профиль
- * и таймлайн меняются практически любой правкой карточки — родом из одного и
- * того же события, и должны обновляться вместе. Лишний рефетч таймлайна там,
- * где он не изменился (например, правка портфолио — не событие таймлайна),
- * не заметен и не стоит того, чтобы разбирать 18 мутаций по отдельности —
- * ровно так туда и закралась исходная ошибка.
- */
+/** Profile edits can obsolete AI proposals; refresh the queue and counters too. */
 export function invalidateStudent(queryClient: QueryClient, id: MaybeId): void {
   queryClient.invalidateQueries({ queryKey: studentKeys.detail(id) })
   queryClient.invalidateQueries({ queryKey: studentKeys.timeline(id) })
+  queryClient.invalidateQueries({ queryKey: ['pending-insights'] })
+  queryClient.invalidateQueries({ queryKey: ['workspace'] })
+  queryClient.invalidateQueries({ queryKey: ['students'] })
 }
 
 /**
@@ -70,4 +62,13 @@ export function invalidateFinances(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: financeKeys.summary() })
   queryClient.invalidateQueries({ queryKey: financeKeys.breakdown() })
   queryClient.invalidateQueries({ queryKey: financeKeys.notionSummary() })
+}
+
+/** Document decisions feed card, workspace and overview counters together. */
+export function invalidateDocuments(queryClient: QueryClient, studentId?: string): void {
+  if (studentId) invalidateStudent(queryClient, studentId)
+  else queryClient.invalidateQueries({ queryKey: ['student'] })
+  queryClient.invalidateQueries({ queryKey: ['workspace'] })
+  queryClient.invalidateQueries({ queryKey: ['students'] })
+  queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] })
 }

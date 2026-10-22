@@ -90,21 +90,22 @@ def test_notion_sync_enqueues_only_gated_reviewed_profile_fields():
     enqueue = AsyncMock()
     snapshot = SimpleNamespace(
         id=uuid.uuid4(), notion_page_id="page-1", notion_last_edited_at=datetime.now(timezone.utc),
-        synced_baseline={"full_name": "Было"},
+        synced_baseline={"full_name": "Было", "_initialized_fields": ["full_name"]},
     )
     student = SimpleNamespace(id=uuid.uuid4())
     canon = {
         "full_name": ("Было", "Стало CRM"),
         "phone": ("+77000000000", "+77000000000"),
-        "pipeline_status": ("На визе", "Активная работа"),
+        "pipeline_status": ("on_visa", "active_work"),
     }
     with patch.object(notion_sync.settings, "ENABLE_NOTION_FIELD_SYNC", True), \
          patch("app.services.notion_field_sync_outbox.enqueue_reconciliation", enqueue):
         asyncio.run(notion_sync._enqueue_field_reconciliation(None, snapshot, student, None, canon))
 
-    enqueue.assert_awaited_once()
-    assert enqueue.await_args.kwargs["field_key"] == "full_name"
-    assert enqueue.await_args.kwargs["result"].decision is FieldDecision.CRM_CHANGED
+    calls = {call.kwargs["field_key"]: call.kwargs for call in enqueue.await_args_list}
+    assert set(calls) == {"full_name", "pipeline_status"}
+    assert calls["full_name"]["result"].decision is FieldDecision.CRM_CHANGED
+    assert calls["pipeline_status"]["result"].winning_value == "on_visa"
 
 
 def test_notion_sync_does_not_enqueue_when_disabled():
@@ -115,3 +116,32 @@ def test_notion_sync_does_not_enqueue_when_disabled():
 from datetime import date
 
 import pytest
+
+
+def test_first_activation_prefers_notion_over_historical_crm_discrepancy():
+    from app.services import notion_sync
+    snapshot = SimpleNamespace(id=uuid.uuid4(), notion_page_id='p1', notion_last_edited_at=None,
+        synced_baseline={'intake_year':'2026'})
+    enqueue=AsyncMock()
+    with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
+        asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')}))
+    assert enqueue.await_args.kwargs['result'].winning_value == '2026'
+
+
+def test_bootstrap_keeps_audited_portal_edit_for_review_without_baseline():
+    from app.services import notion_sync
+    snapshot=SimpleNamespace(id=uuid.uuid4(),notion_page_id='p1',notion_last_edited_at=None,synced_baseline={})
+    enqueue=AsyncMock()
+    with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
+        asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')},manual_fields={'intake_year'}))
+    assert enqueue.await_args.kwargs['result'].winner is None
+    assert enqueue.await_args.kwargs['result'].decision is FieldDecision.UNKNOWN_BASELINE
+
+
+def test_bootstrap_propagates_audited_portal_edit_when_notion_is_unchanged():
+    from app.services import notion_sync
+    snapshot=SimpleNamespace(id=uuid.uuid4(),notion_page_id='p1',notion_last_edited_at=None,synced_baseline={'intake_year':'2026'})
+    enqueue=AsyncMock()
+    with patch.object(notion_sync.settings,'ENABLE_NOTION_FIELD_SYNC',True), patch('app.services.notion_field_sync_outbox.enqueue_reconciliation',enqueue):
+        asyncio.run(notion_sync._enqueue_field_reconciliation(None,snapshot,SimpleNamespace(id=uuid.uuid4()),None,{'intake_year':('2026','2027')},manual_fields={'intake_year'}))
+    assert enqueue.await_args.kwargs['result'].winner is FieldSide.CRM

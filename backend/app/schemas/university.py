@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 _cfg = ConfigDict(from_attributes=True)
 
@@ -45,7 +47,7 @@ class UniversityDetailOut(UniversityOut):
 
 
 class UniversityCreate(BaseModel):
-    name: str
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=400)]
     country_name: str | None = None
     country_ref_id: uuid.UUID | None = None
     city: str = ""

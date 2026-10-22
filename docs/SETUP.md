@@ -376,6 +376,7 @@ find / -name docker-compose.prod.yml -not -path '*/node_modules/*' 2>/dev/null
 cd <путь-к-проекту>
 git pull origin main
 bash scripts/backup.sh          # обязательно ДО пересборки
+bash scripts/preserve-frontend-assets.sh  # сохранить файлы открытых вкладок
 docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
 curl -fsS https://teenteched.kz/health
 ```
@@ -426,3 +427,17 @@ docker compose -f monitoring/docker-compose.monitoring.yml up -d
 ---
 
 **Вопросы?** Смотри ARCHITECTURE.md или пиши в канал разработки.
+
+
+### Файлы интерфейса между обновлениями
+
+Хешированные файлы `/assets/*` сохраняются в томе `tte_frontend_assets`.
+Перед заменой старого frontend-контейнера `scripts/preserve-frontend-assets.sh`
+переносит его текущие файлы в том; новый контейнер добавляет свою сборку при старте.
+Это позволяет вкладкам, открытым до обновления, загрузить ещё не открывавшиеся
+разделы карточки. Текущие файлы обновляют время хранения; отсутствующие в новых
+сборках файлы удаляются через 30 дней. Ответы 404 не получают годовой Cache-Control.
+
+Ошибки рендера карточки изолированы от кабинета и сессии. Их категории и имена
+компонентов доступны в логах backend по `CLIENT_RUNTIME_ERROR`; сообщения
+исключений, данные форм, email, URL с параметрами и ID ученика не отправляются.

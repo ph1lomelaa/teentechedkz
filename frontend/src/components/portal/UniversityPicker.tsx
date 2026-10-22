@@ -1,3 +1,5 @@
+import { QueryError } from '@/components/shared/QueryState'
+import { useAuth } from '@/contexts/AuthContext'
 import React, { useDeferredValue, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, Search } from 'lucide-react'
@@ -21,11 +23,13 @@ export const UniversityPicker: React.FC<{
   onPick: (universityId: string) => void
   isPending?: boolean
   canCreate?: boolean
-}> = ({ open, onOpenChange, excludeIds = [], onPick, isPending = false, canCreate = false }) => {
+}> = ({ open, onOpenChange, excludeIds = [], onPick, isPending = false, canCreate }) => {
+  const { can } = useAuth()
+  const allowCreate = canCreate ?? can('universities', 'create')
   const [q, setQ] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const deferredQ = useDeferredValue(q)
-  const { data: catalog = [], isLoading } = useQuery({
+  const { data: catalog = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['universities'],
     queryFn: universitiesApi.list,
     enabled: open,
@@ -36,8 +40,7 @@ export const UniversityPicker: React.FC<{
     () =>
       catalog
         .filter((u) => matchesUniversityQuery(u, deferredQ))
-        .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-        .slice(0, 60),
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [catalog, deferredQ]
   )
 
@@ -60,7 +63,7 @@ export const UniversityPicker: React.FC<{
         </div>
 
         <div className="mt-3 max-h-[50vh] overflow-y-auto rounded-ctl border border-p-line">
-          {isLoading ? (
+          {isError ? <QueryError colorPrefix="p" error={error} onRetry={refetch} /> : isLoading ? (
             <p className="p-4 text-sm text-p-muted">Загрузка…</p>
           ) : filtered.length === 0 ? (
             <p className="p-4 text-sm text-p-muted">Ничего не найдено.</p>
@@ -102,11 +105,11 @@ export const UniversityPicker: React.FC<{
             </ul>
           )}
         </div>
-        {canCreate && <button type="button" className="mt-3 text-sm font-semibold text-brand underline" onClick={() => setCreateOpen(true)}>
+        {allowCreate && <button type="button" className="mt-3 text-sm font-semibold text-brand underline" onClick={() => setCreateOpen(true)}>
           Нет нужного вуза? Добавить в каталог
         </button>}
       </DialogContent>
     </Dialog>
-    <UniversityFormDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={(university) => onPick(university.id)} />
+    <UniversityFormDialog open={createOpen} onOpenChange={setCreateOpen} initialName={q.trim()} excludeIds={excludeIds} onSaved={(university) => { setQ(university.name); onPick(university.id) }} />
   </>)
 }

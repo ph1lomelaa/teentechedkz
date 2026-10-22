@@ -4,9 +4,10 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.student import DegreeLevel, IntakeSeason
+from app.models.contract import PipelineStatus
 
 if TYPE_CHECKING:
     from app.schemas.contract import ContractResponse
@@ -57,10 +58,18 @@ class StudentUpdate(BaseModel):
     achievements_text: str | None = None
     budget_per_year: str | None = None
     transcript_resume_url: str | None = None
-    intake_year: int | None = None
+    intake_year: int | None = Field(default=None, ge=1900, le=2200)
     intake_season: IntakeSeason | None = None
     work_folder_url: str | None = None
     work_phone: str | None = None
+    pipeline_status: PipelineStatus | None = None
+
+    @field_validator("intake_year", "pipeline_status")
+    @classmethod
+    def reject_explicit_null(cls, value):
+        if value is None:
+            raise ValueError("Укажите значение поля")
+        return value
 
 
 class StudentBase(BaseModel):

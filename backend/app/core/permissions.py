@@ -182,6 +182,7 @@ RULES: tuple[Rule, ...] = (
     # студентов, студенту закрыто.
     Rule("students", Action.create, STAFF,
          extra_rules=("Дубль по телефону отбивается 409 с X-Existing-Id — students.py:975",)),
+    Rule("student_work_status", Action.edit, STAFF, scope=_MENTOR_SCOPED),
     Rule("students", Action.edit, STAFF, scope=_MENTOR_SCOPED,
          extra_rules=(
              "Ментор правит только своих: require_student_access отдаёт 404 на "
@@ -429,8 +430,10 @@ RULES: tuple[Rule, ...] = (
                 "(включая студента) — universities.py:46"),
     Rule("universities", _M, MANAGERS,
          review="Константа названа ADMIN, но включает МЗК — universities.py:36"),
-    # Импорт справочника вузов из внешнего источника — переписывает каталог целиком.
-    Rule("universities", Action.create, ADMIN),
+    # Каждый сотрудник может добавить недостающий вуз в общий каталог.
+    Rule("universities", Action.create, STAFF),
+    # Массовый импорт из внешних источников — отдельная операция.
+    Rule("university_import", Action.create, ADMIN),
     Rule("countries", _V, STAFF_AND_OWNER,
          review="Чтение не проверяет роль вообще — countries.py:35"),
     # Решение 30.08.2026: справочник общий для всех учеников, случайная правка

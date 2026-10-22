@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { NotionSyncReportPanel } from './NotionSyncReportPanel'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { syncApi, type NotionFieldSyncItem } from '@/api/sync'
@@ -9,8 +11,8 @@ import { getErrorMessage } from '@/lib/errorMessage'
 import { toast } from '@/hooks/use-toast'
 
 const FIELD_LABELS: Record<string, string> = {
-  full_name: 'ФИО', phone: 'Телефон', degree_level: 'Ступень', intake_year: 'Набор',
-  pipeline_status: 'Статус', signed_date: 'Дата договора', client_fee: 'Сумма договора', english_sum: 'Сумма английского', english_paid: 'Оплачено за английский', mentor_total: 'Всего ментору', client_remaining: 'Остаток клиента', client_remaining_date: 'Дата остатка клиента',
+  full_name: 'ФИО', phone: 'Телефон', degree_level: 'Ступень', intake_year: 'Набор', pipeline_status: 'Статус работы',
+  signed_date: 'Дата договора', client_fee: 'Сумма договора', english_sum: 'Сумма английского', english_paid: 'Оплата английского', mentor_total: 'Сумма менторов', client_remaining: 'Остаток клиента', client_remaining_date: 'Дата остатка клиента',
 }
 const STATUS_LABELS: Record<string, string> = {
   conflict: 'Нужно выбрать источник', dry_run: 'Проверено без записи', pending: 'Ожидает обработки',
@@ -25,11 +27,12 @@ interface Props {
 
 export function NotionFieldSyncReviewDialog({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient()
+  const [tab, setTab] = useState('report')
   const query = useQuery({
     queryKey: ['notion', 'field-sync-queue'],
     queryFn: syncApi.notionFieldSyncQueue,
-    enabled: open,
-    refetchInterval: open ? 30_000 : false,
+    enabled: open && tab === 'queue',
+    refetchInterval: open && tab === 'queue' ? 30_000 : false,
   })
   const resolve = useMutation({
     mutationFn: ({ item, side }: { item: NotionFieldSyncItem; side: 'crm' | 'notion' }) =>
@@ -54,14 +57,16 @@ export function NotionFieldSyncReviewDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-h-[95dvh] max-w-5xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Сверка полей CRM ↔ Notion</DialogTitle>
+          <DialogTitle>Синхронизация Notion</DialogTitle>
           <DialogDescription>
             Выбор создаёт проверяемую задачу. Если значения успели измениться, задача остановится без перезаписи.
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex gap-2"><Button variant={tab === 'report' ? 'default' : 'outline'} onClick={() => setTab('report')}>Вся база</Button><Button variant={tab === 'queue' ? 'default' : 'outline'} onClick={() => setTab('queue')}>Очередь и ошибки</Button></div>
+        {tab === 'report' ? <NotionSyncReportPanel /> : <>
         {query.isLoading && <p className="text-sm text-muted-foreground">Загружаем очередь…</p>}
         {query.isError && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">
           Не удалось загрузить сверку: {getErrorMessage(query.error)}
@@ -106,6 +111,7 @@ export function NotionFieldSyncReviewDialog({ open, onOpenChange }: Props) {
               <RefreshCw className={`mr-2 h-4 w-4 ${query.isFetching ? 'animate-spin' : ''}`} />Обновить
             </Button>
           </div>
+        </>}
         </>}
       </DialogContent>
     </Dialog>

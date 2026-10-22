@@ -114,6 +114,13 @@ jobs:
           heads=$(alembic heads | grep -c '(head)')
           test "$heads" -eq 1 || { echo "Ожидался ровно 1 alembic head, найдено: $heads"; alembic heads; exit 1; }
 
+      - name: Notion synchronization against disposable PostgreSQL
+        env:
+          TTE_NOTION_TEST_DATABASE: postgresql+asyncpg://tte:tte@127.0.0.1:5432/notion_test
+        run: |
+          PGPASSWORD=tte psql -h localhost -U tte -d postgres -c 'CREATE DATABASE notion_test;'
+          python backend/tests/e2e_notion_field_sync.py
+
       - name: Live E2E (auth + role access matrix + telegram)
         working-directory: backend
         env:
@@ -196,6 +203,7 @@ jobs:
             else
               echo "Первый запуск: рабочей БД ещё нет, pre-deploy backup пропущен."
             fi
+            bash scripts/preserve-frontend-assets.sh
             if ! docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180; then
               echo "=== Production compose status ==="
               docker compose -f docker-compose.prod.yml ps -a

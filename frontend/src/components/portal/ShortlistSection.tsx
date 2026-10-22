@@ -102,7 +102,7 @@ export const ShortlistSection: React.FC<{
         excludeIds={items.map((i) => i.university_id)}
         onPick={(id) => addMutation.mutate(id)}
         isPending={addMutation.isPending}
-        canCreate={mode === 'staff' && can('universities', 'manage')}
+        canCreate={can('universities', 'create')}
       />
     </div>
   )

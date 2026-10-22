@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -18,6 +18,7 @@ NOW = datetime(2026, 10, 8, 9, 0, tzinfo=timezone.utc)
 class FakeSession:
     def __init__(self):
         self.flush = AsyncMock()
+        self.add = Mock()
 
 
 def setup_case(field="full_name", direction=FieldSyncDirection.crm_to_notion):
@@ -241,6 +242,7 @@ def test_batch_retains_dry_run_as_reviewable_and_claimable_later(monkeypatch):
     monkeypatch.setattr(runtime, "process_profile_field", ready)
     session = FakeSession()
     session.commit = AsyncMock()
+    session.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [snapshot.id])))
     entities = {item.id: item, item.student_id: student, item.notion_snapshot_id: snapshot}
     session.get = AsyncMock(side_effect=lambda _model, entity_id, **_kwargs: entities.get(entity_id))
 
@@ -316,3 +318,63 @@ def test_batch_marks_changed_live_data_superseded(monkeypatch):
     assert item.status is FieldSyncStatus.superseded
     assert item.locked_until is None
     assert item.last_error == "field changed"
+
+
+@pytest.mark.parametrize('direction', [FieldSyncDirection.crm_to_notion, FieldSyncDirection.notion_to_crm])
+def test_work_status_round_trip_uses_live_notion_options(monkeypatch, direction):
+    from app.models.contract import PipelineStatus
+    item, student, snapshot, *_ = setup_case('intake_year')
+    item.field_key = 'pipeline_status'
+    item.direction = direction
+    item.crm_value = 'completed_admitted' if direction is FieldSyncDirection.crm_to_notion else 'active_work'
+    item.notion_value = 'active_work' if direction is FieldSyncDirection.crm_to_notion else 'completed_admitted'
+    contract = SimpleNamespace(id=uuid4(), pipeline_status=PipelineStatus(item.crm_value))
+    state = {'value': 'Активная работа' if item.notion_value == 'active_work' else 'Работа окончена- Поступил', 'writes': 0}
+    schema = {'Статус выплат': {'type': 'select', 'select': {'options': [{'name': 'Активная работа'}, {'name': 'Работа окончена- Поступил'}]}}}
+    monkeypatch.setattr(runtime.notion_write, 'get_schema', lambda: schema)
+    monkeypatch.setattr(runtime.notion_write, 'read_value', lambda *_: state['value'])
+    def write(_page, payload, _verify):
+        state['value'] = payload['Статус выплат']['select']['name']; state['writes'] += 1
+    monkeypatch.setattr(runtime.notion_write, 'update_page', write)
+    audit = AsyncMock(); monkeypatch.setattr(runtime, 'log_change', audit)
+    result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, contract=contract, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.applied
+    assert contract.pipeline_status is PipelineStatus.completed_admitted
+    assert snapshot.synced_baseline['pipeline_status'] == 'completed_admitted'
+    assert state['writes'] == (1 if direction is FieldSyncDirection.crm_to_notion else 0)
+    if direction is FieldSyncDirection.notion_to_crm:
+        assert audit.await_args.args[1:4] == ('contract', contract.id, 'pipeline_status')
+
+
+def test_no_status_can_be_cleared_in_notion_without_inventing_an_option(monkeypatch):
+    schema={'Статус выплат': {'type': 'select', 'select': {'options': []}}}
+    assert runtime._crm_to_notion_payload('pipeline_status', 'no_status', schema, 'Статус выплат', 'select') == {'select': None}
+    assert runtime.canonical_profile_value('pipeline_status', None) == 'no_status'
+
+
+def test_archived_student_is_never_updated_by_notion(monkeypatch):
+    item, student, snapshot, *_ = setup_case('intake_year', FieldSyncDirection.notion_to_crm)
+    student.is_archived=True
+    result=asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.superseded
+
+
+def test_phone_live_read_uses_the_same_primary_number_as_the_mirror(monkeypatch):
+    item, student, snapshot, _, _ = setup_case('phone', FieldSyncDirection.notion_to_crm)
+    raw = '+7 (700) 123-45-67 мама; +7 701 765-43-21'
+    state, calls = install_fake_notion(monkeypatch, field='phone', live_value=raw)
+    result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.applied
+    assert student.phone == '77001234567'
+    assert state['value'] == raw and calls['writes'] == 0
+    assert snapshot.normalized_data['phone'] == '77001234567'
+    assert snapshot.raw_properties['Номер тел'] == raw
+
+
+def test_reverse_phone_write_does_not_erase_notion_annotations(monkeypatch):
+    item, student, snapshot, _, _ = setup_case('phone')
+    raw = '+7 (700) 555-44-33 мама'
+    state, calls = install_fake_notion(monkeypatch, field='phone', live_value=raw)
+    result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.conflict
+    assert state['value'] == raw and calls['writes'] == 0

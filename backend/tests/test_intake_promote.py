@@ -118,7 +118,7 @@ def _run(session, *, matches, created_names):
         return asyncio.run(intake_promote.promote_new_submissions(session, actor_id=None))
 
 
-async def _empty_index(_db):
+async def _empty_index(_db, **_kwargs):
     return []
 
 

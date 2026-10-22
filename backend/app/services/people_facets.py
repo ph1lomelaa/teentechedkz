@@ -12,12 +12,14 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notion_snapshot import NotionSnapshot, NotionMatchStatus
+from app.models.notion_person_link import NotionPersonLink
+from app.models.student import Student
 from migration.transformers.normalize import squash_name
 
 # Токены-аннотации (роль/страна), не относящиеся к самому имени.
@@ -55,6 +57,8 @@ class PeopleIndex:
     manager_students: dict[str, set[uuid.UUID]]
     student_mentor_labels: dict[uuid.UUID, list[str]]  # для карточек
     student_manager_label: dict[uuid.UUID, str]
+    linked_user_students: dict[uuid.UUID, set[uuid.UUID]] = field(default_factory=dict)
+    confirmed_links: dict[str, uuid.UUID] = field(default_factory=dict)
 
     def mentor_facets(self) -> list[dict]:
         return _facet_list(self.mentor_labels, self.mentor_students)
@@ -75,7 +79,8 @@ def _facet_list(labels: dict[str, str], students: dict[str, set]) -> list[dict]:
 async def build_people_index(db: AsyncSession) -> PeopleIndex:
     rows = (
         await db.execute(
-            select(NotionSnapshot.student_id, NotionSnapshot.normalized_data).where(
+            select(NotionSnapshot.student_id, NotionSnapshot.normalized_data).join(Student, Student.id == NotionSnapshot.student_id).where(
+                Student.is_archived == False,  # noqa: E712
                 NotionSnapshot.status == NotionMatchStatus.linked,
                 NotionSnapshot.student_id.isnot(None),
             )
@@ -123,6 +128,12 @@ async def build_people_index(db: AsyncSession) -> PeopleIndex:
     mentor_labels = {c: v.most_common(1)[0][0] for c, v in mentor_label_votes.items()}
     manager_labels = {c: v.most_common(1)[0][0] for c, v in manager_label_votes.items()}
 
+    links = {link.notion_key: link.user_id for link in
+             (await db.execute(select(NotionPersonLink))).scalars()}
+    linked_students: dict[uuid.UUID, set] = defaultdict(set)
+    for key, user_id in links.items():
+        linked_students[user_id].update(mentor_students.get(key, set()))
+        linked_students[user_id].update(manager_students.get(key, set()))
     return PeopleIndex(
         mentor_labels=mentor_labels,
         manager_labels=manager_labels,
@@ -130,4 +141,6 @@ async def build_people_index(db: AsyncSession) -> PeopleIndex:
         manager_students=dict(manager_students),
         student_mentor_labels=student_mentor_labels,
         student_manager_label=student_manager_label,
+        linked_user_students=dict(linked_students),
+        confirmed_links=links,
     )

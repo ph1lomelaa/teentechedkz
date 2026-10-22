@@ -149,6 +149,8 @@ services:
         VITE_API_URL: ${VITE_API_URL:-https://teenteched.kz}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     container_name: tte_frontend_prod
+    volumes:
+      - frontend_assets:/usr/share/nginx/html/assets
     # Забинжено на 127.0.0.1 — см. комментарий у backend.ports выше.
     ports:
       - "127.0.0.1:8080:80"
@@ -159,5 +161,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  frontend_assets:
+    name: tte_frontend_assets
   postgres_data:
   minio_data:

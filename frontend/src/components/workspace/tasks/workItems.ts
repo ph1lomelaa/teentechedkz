@@ -333,3 +333,37 @@ export function workContext(item: WorkItem): string {
   if (item.kind !== 'roadmap') return item.context
   return `${item.roadmap?.activity_participation_id ? 'Portfolio UP' : 'Roadmap'} · ${item.context}`
 }
+
+export interface StudentGroup {
+  /** studentId или 'general' для задач без студента. */
+  key: string
+  studentId: string | null
+  studentName: string
+  items: WorkItem[]
+  overdue: number
+  review: number
+}
+
+/**
+ * Очередь, разложенная по студентам. Порядок задач внутри группы сохраняется
+ * (его задаёт сортировка таблицы). Группы: сначала у кого есть просрочка,
+ * затем у кого что-то ждёт проверки, затем по имени; «Общие задачи» — в конце.
+ */
+export function groupByStudent(items: WorkItem[]): StudentGroup[] {
+  const map = new Map<string, StudentGroup>()
+  for (const item of items) {
+    const key = item.studentId ?? 'general'
+    const group =
+      map.get(key) ??
+      { key, studentId: item.studentId, studentName: item.studentId ? item.studentName ?? 'Студент' : 'Общие задачи', items: [], overdue: 0, review: 0 }
+    group.items.push(item)
+    if (item.overdueDays > 0) group.overdue += 1
+    if (item.status === 'review') group.review += 1
+    map.set(key, group)
+  }
+  return [...map.values()].sort((a, b) =>
+    Number(!a.studentId) - Number(!b.studentId)
+    || Number(b.overdue > 0) - Number(a.overdue > 0)
+    || b.review - a.review
+    || a.studentName.localeCompare(b.studentName, 'ru'))
+}

@@ -61,19 +61,19 @@ type NoteListItem =
 export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { mentorId, params } = useWorkspaceScope()
+  const { params } = useWorkspaceScope()
   const initialStudentId = new URLSearchParams(window.location.search).get('student_id') || ''
   const [studentId, setStudentId] = useState(initialStudentId)
   const [studentFilter, setStudentFilter] = useLocalState('workspace:notes:studentFilter', initialStudentId)
   const [combinedStatus, setCombinedStatus] = useLocalState<CombinedStatus>('workspace:notes:combinedStatus', 'all')
 
   const { data: studentsData, isLoading: studentsLoading } = useQuery({
-    queryKey: ['workspace', 'notes', 'students', mentorId],
+    queryKey: ['workspace', 'notes', 'students', params],
     queryFn: () => workspaceApi.students(params),
   })
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['workspace', 'notes', mentorId],
+    queryKey: ['workspace', 'notes', params],
     queryFn: () => workspaceApi.notes(params),
   })
 

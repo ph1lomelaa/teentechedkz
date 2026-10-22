@@ -48,7 +48,7 @@ def test_extended_fields_use_strict_canonical_values(field, value, expected):
 ])
 def test_notion_changes_update_the_contract_and_audit_not_the_student(monkeypatch, field, old, new, ptype, expected):
     student = SimpleNamespace(id=uuid4())
-    contract = SimpleNamespace(id=uuid4(), **{runtime.CONTRACT_FIELD_ATTR[field]: old})
+    contract = SimpleNamespace(id=uuid4(), currency="KZT", **{runtime.CONTRACT_FIELD_ATTR[field]: old})
     snapshot = SimpleNamespace(notion_page_id='page', status=NotionMatchStatus.linked, student_id=student.id, normalized_data={}, synced_baseline={})
     item = SimpleNamespace(field_key=field, notion_page_id='page', student_id=student.id, direction=FieldSyncDirection.notion_to_crm, crm_value=runtime.canonical_profile_value(field,old), notion_value=runtime.canonical_profile_value(field,new))
     monkeypatch.setattr(runtime.notion_write,'get_schema',lambda: {})
@@ -79,7 +79,7 @@ def test_report_apply_rejects_a_stale_revision_before_queueing(monkeypatch):
     monkeypatch.setattr(sync, 'require_access', lambda *a: None)
     monkeypatch.setattr(sync.settings, 'ENABLE_NOTION_FIELD_SYNC', True)
     monkeypatch.setattr(sync, 'notion_field_report', AsyncMock(return_value={'revision':'new'}))
-    db=SimpleNamespace(commit=AsyncMock())
+    db=SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
     with pytest.raises(HTTPException) as error:
         asyncio.run(sync.apply_notion_field_report(sync.ApplyNotionFieldReportBody(revision='old'),db,SimpleNamespace(id=uuid4())))
     assert error.value.status_code == 409
@@ -91,8 +91,49 @@ def test_disabled_writer_never_applies_a_report(monkeypatch):
     from fastapi import HTTPException
     monkeypatch.setattr(sync, 'require_access', lambda *a: None)
     monkeypatch.setattr(sync.settings, 'ENABLE_NOTION_FIELD_SYNC', False)
-    db=SimpleNamespace(commit=AsyncMock())
+    db=SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
     with pytest.raises(HTTPException) as error:
         asyncio.run(sync.apply_notion_field_report(sync.ApplyNotionFieldReportBody(revision='x'),db,SimpleNamespace(id=uuid4())))
     assert error.value.status_code == 409
     db.commit.assert_not_awaited()
+
+
+def test_financial_bootstrap_matches_the_background_policy():
+    first = describe_field('client_remaining_date', crm='2026-09-28', notion='2026-07-17', baseline='2026-07-17', has_baseline=True, initialized=False)
+    assert first['eligible'] and first['winner'] == 'notion'
+    edited = describe_field('client_remaining_date', crm='2026-09-28', notion='2026-07-17', baseline='2026-07-17', has_baseline=True, initialized=False, manual_edit=True)
+    assert edited['eligible'] and edited['winner'] == 'crm'
+    later = describe_field('client_remaining_date', crm='2026-09-28', notion='2026-07-17', baseline='2026-07-17', has_baseline=True, initialized=True)
+    assert later['eligible'] and later['winner'] == 'crm'
+
+
+def test_replaced_contract_does_not_receive_an_old_operation():
+    item = SimpleNamespace(field_key='client_fee', notion_page_id='page', student_id=uuid4(), direction=FieldSyncDirection.notion_to_crm, expected_contract_id=uuid4())
+    student = SimpleNamespace(id=item.student_id)
+    snapshot = SimpleNamespace(notion_page_id='page', student_id=student.id, status=NotionMatchStatus.linked)
+    contract = SimpleNamespace(id=uuid4(), currency='KZT', amount=Decimal('100'))
+    result = asyncio.run(runtime.process_profile_field(SimpleNamespace(), item, student=student, snapshot=snapshot, contract=contract, dry_run=False))
+    assert result.disposition is runtime.RuntimeDisposition.superseded
+    assert contract.amount == Decimal('100')
+
+
+@pytest.mark.parametrize('value', ['NaN', 'Infinity', '10000000000000000', '1.001'])
+def test_unrepresentable_money_does_not_get_rounded_or_overflow(value):
+    assert runtime.canonical_profile_value('client_fee', value) is None
+
+
+def test_live_schema_failure_does_not_lock_students(monkeypatch):
+    from app.api.v1.endpoints import sync
+    from fastapi import HTTPException
+    monkeypatch.setattr(sync, 'require_access', lambda *a: None)
+    monkeypatch.setattr(sync.settings, 'ENABLE_NOTION_FIELD_SYNC', True)
+    monkeypatch.setattr(sync.settings, 'NOTION_API_KEY', 'fake')
+    monkeypatch.setattr(sync.settings, 'NOTION_DATABASE_ID', 'fake')
+    def fail():
+        raise RuntimeError('Notion temporarily unavailable')
+    monkeypatch.setattr(runtime.notion_write, 'get_schema', fail)
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(sync.apply_notion_field_report(sync.ApplyNotionFieldReportBody(revision='r'), db, SimpleNamespace(id=uuid4())))
+    assert error.value.status_code == 502
+    db.execute.assert_not_awaited()

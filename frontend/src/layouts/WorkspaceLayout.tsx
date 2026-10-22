@@ -201,7 +201,8 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   // Возврат в CRM больше не живёт в навигации: он в ShellSwitcher в шапке,
   // одинаковый в обеих оболочках, и доступен всем, у кого есть доступ к CRM.
   const isPreview = Boolean(mentorId)
-  const studentsNavLabel = isPreview ? 'Студенты ментора' : 'Мои студенты'
+  const isAllScope = canPreviewMentor && !isPreview && searchParams.get('scope') !== 'mine'
+  const studentsNavLabel = isPreview ? 'Студенты ментора' : isAllScope ? 'Все студенты' : 'Мои студенты'
 
   const isAdminOrMzk = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head'
   const mzkQualityLabel = user?.role === 'admin' || user?.role === 'academic_head' ? 'ОКК МЗК' : 'Моя оценка ОКК'
@@ -269,10 +270,13 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const setMentorFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)
-    if (value) {
+    if (value && value !== 'all' && value !== 'mine') {
+      next.delete('scope')
       next.set('mentor_id', value)
     } else {
       next.delete('mentor_id')
+      if (value === 'mine') next.set('scope', 'mine')
+      else next.delete('scope')
     }
     setSearchParams(next, { replace: true })
   }
@@ -381,6 +385,14 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </div>
         </header>
+        {canPreviewMentor && <div className="flex flex-wrap items-center gap-3 border-b border-w-line bg-w-bg px-3 py-2 sm:px-5 md:px-8">
+          <label htmlFor="workspace-review-scope" className="text-xs font-semibold text-w-muted">Проверка работы</label>
+          <select id="workspace-review-scope" aria-label="Область проверки работы" value={mentorId || (isAllScope ? 'all' : 'mine')} onChange={(event) => setMentorFilter(event.target.value)} className="min-h-9 max-w-full rounded-ctl border border-w-line bg-w-panel px-3 text-sm text-w-ink">
+            <option value="all">Все студенты и менторы</option>
+            <option value="mine">Только мои студенты</option>
+            {mentors.map((mentor) => <option key={mentor.id} value={mentor.id}>{mentor.name}</option>)}
+          </select>
+        </div>}
         {isPreview && canPreviewMentor && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-w-accentDim/40 bg-w-accent/15 px-3 py-2 backdrop-blur-md sm:px-5 md:px-8">
             <span className="font-display text-[10px] font-black uppercase tracking-[0.2em] text-w-accentText">

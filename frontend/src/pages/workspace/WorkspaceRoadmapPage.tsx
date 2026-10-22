@@ -34,7 +34,11 @@ export const WorkspaceRoadmapPage: React.FC = () => {
     const summary = summaries.get(row.student.id)
     return deadlineFilter === 'all' || Boolean(summary?.[deadlineFilter])
   })
-  const missing = rows.filter((row) => !row.roadmap).length
+  const missing = visibleRows.filter((row) => !(updatedRoadmaps[row.student.id] || row.roadmap)).length
+  const rowGroups = [
+    { key: 'assigned', items: visibleRows.filter((row) => Boolean(updatedRoadmaps[row.student.id] || row.roadmap)) },
+    { key: 'missing', items: visibleRows.filter((row) => !(updatedRoadmaps[row.student.id] || row.roadmap)) },
+  ]
   const totals = rows.reduce((sum, row) => {
     const summary = summaries.get(row.student.id)
     sum.overdue += summary?.overdue ?? 0
@@ -160,18 +164,20 @@ export const WorkspaceRoadmapPage: React.FC = () => {
           {visibleRows.length === 0 ? (
             <EmptyState colorPrefix="w" title="Ничего не найдено" description="Измените поиск или выберите всех студентов." />
           ) : (
-            <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
-              {visibleRows.map((row) => {
-                const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
-                return (
-                  <WorkspaceRoadmapCard
-                    key={row.student.id}
-                    studentName={row.student.full_name}
-                    roadmap={roadmap}
-                    onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
-                  />
-                )
-              })}
+            <div className="space-y-5">
+              {rowGroups.filter((group) => group.items.length > 0).map((group) => (
+                <div key={group.key} data-roadmap-group={group.key} className={group.key === 'assigned' ? 'min-w-0 columns-1 gap-5 lg:columns-2' : 'grid min-w-0 items-start gap-5 lg:grid-cols-2'}>
+                  {group.items.map((row) => (
+                    <WorkspaceRoadmapCard
+                      key={row.student.id}
+                      className={cn('w-full', group.key === 'assigned' && 'mb-5 break-inside-avoid')}
+                      studentName={row.student.full_name}
+                      roadmap={updatedRoadmaps[row.student.id] || row.roadmap}
+                      onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
+                    />
+                  ))}
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -177,3 +177,34 @@ def reconcile_field(
         FieldDecision.CONFLICT,
         _later_field_side(crm_event, notion_event),
     )
+
+
+def reconcile_profile_field(*, field_key: str, **values) -> ReconciliationResult:
+    """An absent Notion work status preserves and fills from the portal.
+
+    This includes first reconciliation and an old baseline: deleting a Notion
+    property is never an implicit request to clear a student's working status.
+    """
+    if (field_key == "pipeline_status"
+            and values["notion_value"] in (None, "", "no_status")
+            and values["crm_value"] not in (None, "", "no_status")):
+        return ReconciliationResult(FieldDecision.CRM_CHANGED,
+                                    values["crm_value"], values["notion_value"], FieldSide.CRM)
+    return reconcile_field(**values)
+
+
+def reconcile_shared_field(*, field_key: str, initialized: bool, manual_edit: bool = False,
+                           **values) -> ReconciliationResult:
+    """Use the same bootstrap policy in the report and the background writer.
+
+    Notion is the initial source only for unexplained imported differences.
+    An audited portal edit and an empty Notion property never bootstrap over
+    an employee's value. After initialization the common baseline decides.
+    """
+    result = reconcile_profile_field(field_key=field_key, **values)
+    notion, crm = values["notion_value"], values["crm_value"]
+    if (not initialized and not manual_edit and notion is not None
+            and not (field_key == "pipeline_status" and notion == "no_status")
+            and notion != crm):
+        return ReconciliationResult(FieldDecision.NOTION_CHANGED, crm, notion, FieldSide.NOTION)
+    return result

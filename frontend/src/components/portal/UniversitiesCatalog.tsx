@@ -1,3 +1,4 @@
+import { QueryError } from '@/components/shared/QueryState'
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,13 +18,13 @@ export const DEGREE_LABELS: Record<DegreeLevel, string> = {
 export const UniversitiesCatalog: React.FC<{
   eyebrow?: string
   basePath?: string
-  /** Reveals catalog-management affordances. Off by default so the portal and
-   *  workspace catalogs stay read-only. */
+  /** Existing-entry management is handled by the detail page. */
   canManage?: boolean
+  canCreate?: boolean
   /** The backend import endpoint is admin-only, even though MЗК can edit rows. */
   canImport?: boolean
-}> = ({ eyebrow = 'База знаний', basePath = '/portal/universities', canManage = false, canImport = false }) => {
-  const { data: catalog = [], isLoading } = useQuery({
+}> = ({ eyebrow = 'База знаний', basePath = '/portal/universities', canCreate = false, canImport = false }) => {
+  const { data: catalog = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['universities'],
     queryFn: universitiesApi.list,
   })
@@ -121,9 +122,9 @@ export const UniversitiesCatalog: React.FC<{
             Каталог вузов: рейтинги, стоимость обучения и доступные гранты по странам.
           </p>
         </div>
-        {canManage && (
+        {(canCreate || canImport) && (
           <div className="flex flex-wrap items-center gap-2">
-            {canImport && <button
+            {canCreate && <button
               type="button"
               onClick={() => setFormOpen(true)}
               className="inline-flex h-10 flex-none items-center gap-2 rounded-ctl bg-brand px-4 text-sm font-bold text-black"
@@ -131,7 +132,7 @@ export const UniversitiesCatalog: React.FC<{
               <Plus className="h-4 w-4" />
               Добавить университет
             </button>}
-            <button
+            {canImport && <button
               type="button"
               disabled={importMutation.isPending || importJob?.status === 'running'}
               onClick={() => importMutation.mutate()}
@@ -139,7 +140,7 @@ export const UniversitiesCatalog: React.FC<{
             >
               <RefreshCw className={`h-4 w-4 ${importJob?.status === 'running' ? 'animate-spin' : ''}`} />
               {importJob?.status === 'running' ? 'Импорт идёт…' : 'Импортировать каталог'}
-            </button>
+            </button>}
           </div>
         )}
       </div>
@@ -152,7 +153,12 @@ export const UniversitiesCatalog: React.FC<{
         </div>
       )}
 
-      {canManage && <UniversityFormDialog open={formOpen} onOpenChange={setFormOpen} />}
+      {canCreate && <UniversityFormDialog open={formOpen} onOpenChange={setFormOpen} initialName={q.trim()} onSaved={(saved) => {
+        setQ(saved.name)
+        setCountryFilter('all')
+        setDegreeFilters([])
+        setGrantsOnly(false)
+      }} />}
 
       <div className="relative mb-6 w-full">
         <input
@@ -223,7 +229,7 @@ export const UniversitiesCatalog: React.FC<{
         </button>
       </div>
 
-      {isLoading ? (
+      {isError ? <QueryError colorPrefix="p" error={error} onRetry={refetch} /> : isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="h-52 animate-pulse rounded-card border border-p-line bg-p-panel" />
@@ -238,6 +244,9 @@ export const UniversitiesCatalog: React.FC<{
           <p className="mt-1.5 text-sm text-p-muted">
             Попробуйте изменить поисковый запрос или фильтры.
           </p>
+          {canCreate && <button type="button" onClick={() => setFormOpen(true)} className="mt-4 block mx-auto rounded-ctl bg-brand px-4 py-2 text-sm font-bold text-black">
+            Нет нужного вуза? Добавить в каталог
+          </button>}
           {hasActiveFilters && (
             <button
               type="button"

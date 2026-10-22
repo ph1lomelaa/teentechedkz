@@ -171,7 +171,7 @@ export const StudentRoadmapSection: React.FC<{ studentId: string }> = ({ student
               {showAssignForm && assignForm}
               {selected && <>
                 <RoadmapHeaderCard roadmap={selected} className="mb-5" />
-                <WorkspaceRoadmapEditor key={selected.id} roadmap={selected} canManage={canEdit} onChanged={(rm) => {
+                <WorkspaceRoadmapEditor studentCard key={selected.id} roadmap={selected} canManage={canEdit} onChanged={(rm) => {
                   setRoadmaps((current) => current.map((r) => r.id === rm.id ? rm : r))
                   queryClient.setQueryData<Roadmap[]>(['student-roadmap', studentId], (current) => current?.map((r) => r.id === rm.id ? rm : r))
                   queryClient.invalidateQueries({ queryKey: ['students'] })

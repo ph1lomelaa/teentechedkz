@@ -694,7 +694,11 @@ html[data-crm-theme] :where([role='dialog'], [role='listbox'], [role='menu']) :w
    вне .portal/.workspace-shell, поэтому селектор по предку до них не достаёт —
    именно так переключатель «Жалоба/Рекомендация» получал белый текст. Сплошной
    фирменный жёлтый читается только с чёрным текстом, где бы он ни оказался. */
-:where(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent, .bg-\[\#FFD400\], .bg-\[\#ffd400\], .bg-\[\#FFC800\], .bg-\[\#ffc800\], .bg-\[\#E9C200\], .bg-\[\#e9c200\]) { color: #000 !important; }
+:is(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent, .bg-\[\#FFD400\], .bg-\[\#ffd400\], .bg-\[\#FFC800\], .bg-\[\#ffc800\], .bg-\[\#E9C200\], .bg-\[\#e9c200\], .bg-\[\#E7BF00\], .bg-\[\#ffe04d\]) { color: #000 !important; }
+/* Keep labels and currentColor icons black even when theme utilities target
+   the control or a nested label directly, including portalled dialogs. */
+:is(button, a, [role="button"]):is(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent, .bg-\[\#FFD400\], .bg-\[\#ffd400\], .bg-\[\#FFC800\], .bg-\[\#ffc800\], .bg-\[\#E9C200\], .bg-\[\#e9c200\], .bg-\[\#E7BF00\], .bg-\[\#ffe04d\]),
+:is(button, a, [role="button"]):is(.bg-brand, .bg-primary, .bg-ds-accent, .bg-w-accent, .bg-p-accent, .bg-\[\#FFD400\], .bg-\[\#ffd400\], .bg-\[\#FFC800\], .bg-\[\#ffc800\], .bg-\[\#E9C200\], .bg-\[\#e9c200\], .bg-\[\#E7BF00\], .bg-\[\#ffe04d\]) :where(*) { color: #000 !important; }
 /* Same exception, hover-variant: a button that turns solid brand-colored on
    hover and pairs it with hover:text-black (e.g. PortalRoadmap's CTA) must
    keep that text black on hover too, not get recolored to near-white. */

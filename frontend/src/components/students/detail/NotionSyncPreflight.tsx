@@ -12,7 +12,7 @@ export function NotionSyncPreflight({ studentId }: { studentId: string }) {
   const cache = useQueryClient()
   const query = useQuery({ queryKey: ['notion', 'preflight', studentId], queryFn: () => syncApi.notionFieldReport(studentId), enabled: open })
   const apply = useMutation({
-    mutationFn: () => syncApi.applyNotionFieldReport(query.data!.revision, studentId),
+    mutationFn: () => syncApi.applyNotionFieldReport(query.data!.revision, [], undefined, studentId),
     onSuccess: (result) => {
       toast({ title: result.dry_run ? 'Изменения отправлены на проверку без записи' : 'Изменения поставлены в очередь', description: `Полей: ${result.queued}. Неоднозначные расхождения сохранены для разбора.` })
       cache.invalidateQueries({ queryKey: ['notion'] })

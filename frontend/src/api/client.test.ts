@@ -49,3 +49,28 @@ describe('session refresh', () => {
     expect(getAccessToken()).toBe('new')
   })
 })
+
+it('retries a late card 401 with the token already refreshed by another request', async () => {
+  const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { access_token: 'fresh' } })
+  let releaseLate!: () => void
+  const lateGate = new Promise<void>(resolve => { releaseLate = resolve })
+  const attempts = new Map<string, number>()
+  const adapter = vi.fn(async config => {
+    const url = config.url!
+    const n = (attempts.get(url) ?? 0) + 1
+    attempts.set(url, n)
+    if (n === 1) {
+      if (url === '/late-card') await lateGate
+      throw new AxiosError('expired', 'ERR_BAD_REQUEST', config, undefined,
+        { status: 401, statusText: 'Unauthorized', data: {}, headers: {}, config })
+    }
+    expect(config.headers.Authorization).toBe('Bearer fresh')
+    return { status: 200, statusText: 'OK', data: {}, headers: {}, config }
+  })
+  setAccessToken('old')
+  const late = apiClient.get('/late-card', { adapter })
+  await apiClient.get('/fast-card', { adapter })
+  releaseLate()
+  await late
+  expect(post).toHaveBeenCalledTimes(1)
+})

@@ -11,6 +11,8 @@ export interface NotionSnapshotItem {
   suggested_student_id?: string
   suggested_student_name?: string
   suggested_confidence?: number
+  bulk_link_eligible?: boolean
+  link_block_reason?: string | null
   student_id?: string
   status: NotionMatchStatus
   payment_status?: string
@@ -211,7 +213,7 @@ export const notionApi = {
   },
   linkAll: async () => {
     const res = await apiClient.post('/notion/snapshots/link-all')
-    return res.data as { ok: boolean; linked: number }
+    return res.data as { ok: boolean; linked: number; skipped: number }
   },
   createStudent: async (snapshotId: string) => {
     const res = await apiClient.post(`/notion/snapshots/${snapshotId}/create-student`)

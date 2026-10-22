@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import UUID
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,11 +85,13 @@ class Settings(BaseSettings):
     NOTION_SYNC_INTERVAL_SECONDS: int = 3600
     # Enable only after a production dry run and a checked backup.
     ENABLE_NOTION_PIPELINE_APPLY: bool = False
-    # Background CRM ↔ Notion field writes remain disabled until pilot approval.
+    # Verified profile/work-status synchronization; enable after production dry-run.
     ENABLE_NOTION_FIELD_SYNC: bool = False
     # Validates queued work without mutating CRM or Notion. Keep true until
     # production dry-run results have been reviewed.
     NOTION_FIELD_SYNC_DRY_RUN: bool = True
+    # Optional pilot allowlist. An empty list processes all linked students.
+    NOTION_FIELD_SYNC_STUDENT_IDS: list[UUID] = []
 
     # Google Sheets — автосинк анкет: либо JSON одной строкой, либо путь к файлу ключа
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""

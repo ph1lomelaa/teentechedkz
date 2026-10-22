@@ -1,3 +1,4 @@
+import { reportClientRuntimeError } from '@/lib/clientRuntimeErrors'
 import ReactDOM from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import App, { isRecoverableAppError, recoverPageOnce } from './App'
@@ -24,6 +25,7 @@ function recoverGlobalRuntimeError(reason: unknown) {
   const error = reason instanceof Error
     ? reason
     : new Error(typeof reason === 'string' ? reason : String(reason))
+  reportClientRuntimeError(error, '', 'unhandled')
   if (isRecoverableAppError(error)) recoverPageOnce()
 }
 

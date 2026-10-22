@@ -98,7 +98,9 @@ def find_title_property(schema: dict) -> tuple[str | None, str | None]:
     """Title-колонка называется произвольно — ищем по типу."""
     for name, prop in schema.items():
         if prop.get("type") == "title":
-            return name, "title"
+            # Notion may expose the page title property with an empty display
+            # name. Its stable property id is still usable in page payloads.
+            return name or prop.get("id") or "title", "title"
     return None, None
 
 
@@ -146,7 +148,20 @@ def page_last_edited(page_id: str) -> str | None:
 
 def read_value(page_id: str, real_name: str) -> Any:
     """Текущее плоское значение свойства страницы (для preview и проверки конфликта)."""
-    prop = get_page(page_id).get("properties", {}).get(real_name)
+    page = get_page(page_id)
+    if page.get("archived") or page.get("in_trash"):
+        raise ValueError("Notion page is archived or in trash")
+    parent = page.get("parent") or {}
+    parent_type = parent.get("type")
+    if settings.NOTION_DATABASE_ID and parent_type in ("data_source_id", "database_id"):
+        source = settings.NOTION_DATABASE_ID.replace("-", "").lower()
+        current_source = (parent.get(parent_type) or "").replace("-", "").lower()
+        if current_source != source:
+            raise ValueError("Notion page moved outside the configured source")
+    properties = page.get("properties", {})
+    prop = properties.get(real_name)
+    if prop is None:
+        prop = next((value for value in properties.values() if value.get("id") == real_name), None)
     return flatten_property(prop) if prop else None
 
 
@@ -169,6 +184,11 @@ def _verify_written(page_id: str, properties: dict[str, dict]) -> None:
     for name, payload in properties.items():
         want = _intended_value(payload)
         actual_prop = written.get(name)
+        if actual_prop is None:
+            actual_prop = next(
+                (value for value in written.values() if value.get("id") == name),
+                None,
+            )
         got = flatten_property(actual_prop) if actual_prop else None
         if not _values_equal(want, got):
             raise RuntimeError(
