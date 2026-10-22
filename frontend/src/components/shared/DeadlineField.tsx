@@ -57,6 +57,7 @@ export const DeadlineField: React.FC<DeadlineFieldProps> = ({
         ) : (
           <button
             type="button"
+            data-roadmap-deadline={overdue ? 'overdue' : soon ? 'soon' : undefined}
             data-testid={overdue ? 'overdue-badge' : undefined}
             onClick={() => setPicking(true)}
             className={cn('rounded-full px-2 py-1 font-medium hover:underline', overdue ? 'bg-ds-danger/10 text-ds-danger' : soon ? 'bg-amber-500/10 text-amber-600' : muted, subtle && !dueDate && 'sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:focus-visible:opacity-100')}
@@ -66,7 +67,7 @@ export const DeadlineField: React.FC<DeadlineFieldProps> = ({
           </button>
         )
       ) : (
-        <span data-testid={overdue ? 'overdue-badge' : undefined} className={cn('rounded-full px-2 py-1 tabular-nums', overdue ? 'bg-ds-danger/10 text-ds-danger' : soon ? 'bg-amber-500/10 text-amber-600' : muted)}>{overdue ? `просрочено на ${overdueDays} дн.` : soon ? daysLeft === 0 ? 'сегодня' : `через ${daysLeft} дн.` : `до ${formatDeadline(dueDate!)}`}</span>
+        <span data-roadmap-deadline={overdue ? 'overdue' : soon ? 'soon' : undefined} data-testid={overdue ? 'overdue-badge' : undefined} className={cn('rounded-full px-2 py-1 tabular-nums', overdue ? 'bg-ds-danger/10 text-ds-danger' : soon ? 'bg-amber-500/10 text-amber-600' : muted)}>{overdue ? `просрочено на ${overdueDays} дн.` : soon ? daysLeft === 0 ? 'сегодня' : `через ${daysLeft} дн.` : `до ${formatDeadline(dueDate!)}`}</span>
       )}
     </div>
   )

@@ -153,8 +153,12 @@ class RoadmapTaskOut(BaseModel):
     model_config = _cfg
     activity_participation_id: uuid.UUID | None = None
     id: uuid.UUID
-    stage_id: uuid.UUID
-    roadmap_id: uuid.UUID
+    student_id: uuid.UUID | None = None
+    requires_review: bool = True
+    requires_evidence: bool = False
+    result_text: str | None = None
+    stage_id: uuid.UUID | None = None
+    roadmap_id: uuid.UUID | None = None
     title: str
     description: str
     expected_result: str = ""
@@ -232,8 +236,12 @@ class TaskFlatOut(BaseModel):
     model_config = _cfg
     activity_participation_id: uuid.UUID | None = None
     id: uuid.UUID
-    stage_id: uuid.UUID
-    roadmap_id: uuid.UUID
+    student_id: uuid.UUID | None = None
+    requires_review: bool = True
+    requires_evidence: bool = False
+    result_text: str | None = None
+    stage_id: uuid.UUID | None = None
+    roadmap_id: uuid.UUID | None = None
     stage_name: str
     stage_position: int
     title: str

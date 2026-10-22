@@ -1,14 +1,13 @@
 import React, { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Route, Search } from 'lucide-react'
+import { AlertTriangle, Search } from 'lucide-react'
 import type { Roadmap } from '@/api/roadmap'
 import { workspaceApi } from '@/api/workspace'
-import { WorkspaceRoadmapEditor } from '@/components/workspace/WorkspaceRoadmapEditor'
+import { WorkspaceRoadmapCard } from '@/components/workspace/WorkspaceRoadmapCard'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { cn } from '@/lib/utils'
-import { formatDeadline } from '@/lib/roadmapDeadline'
 import { roadmapDeadlineSummary } from '@/lib/roadmapSummary'
-import { AppCard, AppInput, EmptyState, PageHeader, Pill } from '@/components/ui'
+import { AppCard, AppInput, EmptyState, PageHeader } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 
 export const WorkspaceRoadmapPage: React.FC = () => {
@@ -164,45 +163,13 @@ export const WorkspaceRoadmapPage: React.FC = () => {
             <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
               {visibleRows.map((row) => {
                 const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
-                const deadlines = summaries.get(row.student.id)
                 return (
-                  <AppCard colorPrefix="w" key={row.student.id} className="min-w-0 p-4">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Route className="h-4 w-4 shrink-0 text-w-accentText" />
-                          <h2 className="truncate font-display text-lg font-black text-w-ink">{row.student.full_name}</h2>
-                        </div>
-                        <div className="mt-1 truncate text-xs text-w-muted">{roadmap?.name || 'Roadmap не назначен'}</div>
-                      </div>
-                      {roadmap && (
-                        <Pill colorPrefix="w">
-                          {roadmap.country_flag_emoji ? `${roadmap.country_flag_emoji} ` : ''}
-                          {roadmap.country_name || 'Страна не указана'}
-                        </Pill>
-                      )}
-                    </div>
-
-                    {roadmap && <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                      {Boolean(deadlines?.overdue) && <span className="rounded-full bg-red-500/15 px-2 py-1 font-bold text-red-600">Просрочено: {deadlines?.overdue}</span>}
-                      {Boolean(deadlines?.next7) && <span className="rounded-full bg-amber-500/15 px-2 py-1 font-bold text-amber-600">7 дней: {deadlines?.next7}</span>}
-                      {Boolean(deadlines?.withoutDate) && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Без срока: {deadlines?.withoutDate}</span>}
-                      {deadlines?.nearest && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Ближайший: {formatDeadline(deadlines.nearest)}</span>}
-                    </div>}
-
-                    {roadmap ? (
-                      <WorkspaceRoadmapEditor
-                        roadmap={roadmap}
-                        onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
-                      />
-                    ) : (
-                      <EmptyState colorPrefix="w"
-                        icon={<Route className="h-5 w-5" />}
-                        title="Roadmap не назначен"
-                        description="Назначение roadmap будет добавлено в кабинет отдельным действием."
-                      />
-                    )}
-                  </AppCard>
+                  <WorkspaceRoadmapCard
+                    key={row.student.id}
+                    studentName={row.student.full_name}
+                    roadmap={roadmap}
+                    onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
+                  />
                 )
               })}
             </div>

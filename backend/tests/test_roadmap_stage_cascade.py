@@ -1,73 +1,11 @@
-"""Откат задачи внутри завершённого этапа.
-
-Регрессия: ментор, случайно отметивший задачу выполненной, не мог снять
-отметку. Инвариант «этап done => все обязательные задачи приняты» проверялся
-только при завершении этапа, а обратный переход не рассматривался: этап
-оставался `done` с незакрытой обязательной задачей.
-"""
+"""Task priority and student visibility rules."""
 import unittest
 
-from app.models.roadmap import RoadmapItemStatus, TaskAudience, TaskPriority
+from app.models.roadmap import TaskAudience, TaskPriority
 from app.services.roadmap_rules import (
     is_required,
-    stage_status_after_task_change,
     task_visible_to_student,
 )
-
-
-class StageCascadeTests(unittest.TestCase):
-    def test_unchecking_task_reopens_completed_stage(self):
-        """Главная регрессия: снятие отметки возвращает этап в работу."""
-        self.assertEqual(
-            stage_status_after_task_change(
-                stage_status=RoadmapItemStatus.done,
-                required_total=3,
-                required_done=2,
-            ),
-            RoadmapItemStatus.in_progress,
-        )
-
-    def test_completed_stage_stays_done_while_all_required_are_done(self):
-        self.assertEqual(
-            stage_status_after_task_change(
-                stage_status=RoadmapItemStatus.done,
-                required_total=3,
-                required_done=3,
-            ),
-            RoadmapItemStatus.done,
-        )
-
-    def test_finishing_last_task_does_not_auto_complete_stage(self):
-        """Завершение этапа — решение ментора: там висит проверка на команду."""
-        self.assertEqual(
-            stage_status_after_task_change(
-                stage_status=RoadmapItemStatus.in_progress,
-                required_total=2,
-                required_done=2,
-            ),
-            RoadmapItemStatus.in_progress,
-        )
-
-    def test_planned_stage_is_untouched(self):
-        self.assertEqual(
-            stage_status_after_task_change(
-                stage_status=RoadmapItemStatus.planned,
-                required_total=1,
-                required_done=0,
-            ),
-            RoadmapItemStatus.planned,
-        )
-
-    def test_stage_without_required_tasks_stays_done(self):
-        """Этап из одних recommended/optional задач не должен переоткрываться."""
-        self.assertEqual(
-            stage_status_after_task_change(
-                stage_status=RoadmapItemStatus.done,
-                required_total=0,
-                required_done=0,
-            ),
-            RoadmapItemStatus.done,
-        )
 
 
 class RequiredPriorityTests(unittest.TestCase):

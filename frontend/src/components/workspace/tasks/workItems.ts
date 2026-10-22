@@ -327,3 +327,9 @@ export function rollupByStudent(items: WorkItem[]): StudentRollup[] {
   }
   return [...map.values()]
 }
+
+/** Подпись источника задачи: шаг активности — это Portfolio UP, а не roadmap. */
+export function workContext(item: WorkItem): string {
+  if (item.kind !== 'roadmap') return item.context
+  return `${item.roadmap?.activity_participation_id ? 'Portfolio UP' : 'Roadmap'} · ${item.context}`
+}

@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, date, timezone
 import enum
 
-from sqlalchemy import String, Integer, Text, Date, DateTime, Boolean, ForeignKey, Enum as SAEnum, JSON
+from sqlalchemy import CheckConstraint, UniqueConstraint, String, Integer, Text, Date, DateTime, Boolean, ForeignKey, Enum as SAEnum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -36,7 +36,8 @@ class RoadmapItemStatus(str, enum.Enum):
 class TaskReviewStatus(str, enum.Enum):
     """Заявка студента о выполнении — ось, ортогональная канонному status.
 
-    status='done' всегда означает «подтверждено ментором»; review_status несёт
+    status='done' означает завершение: для requires_review — подтверждение
+    ментором, иначе самостоятельную отметку ученика. review_status несёт
     жизненный цикл заявки: none (нет заявки / внесено ментором), pending (студент
     отметил, ждёт ревью), approved (ментор подтвердил), returned (ментор вернул
     с комментарием).
@@ -207,13 +208,19 @@ class Stage(Base):
 
 class RoadmapTask(Base):
     __tablename__ = "roadmap_tasks"
+    __table_args__ = (CheckConstraint("(stage_id IS NULL) = (roadmap_id IS NULL)", name="ck_learner_task_context"), UniqueConstraint("creation_key", name="uq_learner_task_creation_key"))
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     activity_participation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("student_activities.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    stage_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stages.id", ondelete="CASCADE"), index=True)
-    roadmap_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmaps.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    stage_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("stages.id", ondelete="CASCADE"), nullable=True, index=True)
+    roadmap_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("roadmaps.id", ondelete="CASCADE"), nullable=True, index=True)
+    creation_key: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    requires_review: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    requires_evidence: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    result_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(String(500))
     source_notion_page_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     manual_fields: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")

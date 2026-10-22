@@ -12,6 +12,11 @@ const createSubtask = vi.fn()
 const deleteSubtask = vi.fn()
 const studentRoadmaps = vi.fn()
 
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { role: 'mentor' }, can: () => true }) }))
+vi.mock('@/api/learnerTasks', () => ({ learnerTasksApi: { get: async () => {
+  const maps = await studentRoadmaps()
+  return { ...maps[0].stages[0].tasks[0], stage_id: 'st', priority: 'required', audience: 'applicant', visible_to_student: true }
+} }, portfolioDocumentsApi: { list: async () => [] } }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
 vi.mock('@/api/roadmap', () => ({
   roadmapApi: {

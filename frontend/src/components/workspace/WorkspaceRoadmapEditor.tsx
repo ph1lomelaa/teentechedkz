@@ -95,6 +95,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
       // Кроссфейд перестройки: галочки, счётчики done/total и статус-пиллы
       // меняются плавно, а не одним кадром.
       withViewTransition(() => onChanged(updated))
+      queryClient.invalidateQueries({ queryKey: ['student-roadmap', updated.student_id] })
+      queryClient.invalidateQueries({ queryKey: ['students'] })
       onSuccess?.()
     } catch (err) {
       const response = (err as {
@@ -190,14 +192,6 @@ export const WorkspaceRoadmapEditor: React.FC<{
     run(() => roadmapApi.updateSubtask(subId, { is_done: !isDone }))
   const cycleStage = (s: RoadmapStage) => {
     const nextStatus = STAGE_CYCLE[s.status]
-    if (nextStatus === 'done' && !s.can_complete) {
-      toast({
-        title: 'Этап ещё нельзя закрыть',
-        description: `Принято обязательных задач: ${s.required_done}/${s.required_total}`,
-        variant: 'destructive',
-      })
-      return
-    }
     return run(() => roadmapApi.updateStage(s.id, { status: nextStatus }))
   }
 
@@ -283,7 +277,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
 
   return (
     <>
-    <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>
+    <div className={cn('roadmap-ui transition-opacity', busy && 'pointer-events-none opacity-60')}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-xs font-bold text-w-muted">
           Прогресс · {done}/{total} задач
@@ -317,7 +311,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
               <StageNode
                 status={s.status}
                 onClick={() => canManage && cycleStage(s)}
-                disabled={!canManage || (STAGE_CYCLE[s.status] === 'done' && !s.can_complete)}
+                disabled={!canManage}
               />
 
               <div
@@ -424,7 +418,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       />
     )}
     <Dialog open={Boolean(uncheckTask)} onOpenChange={(o) => !o && setUncheckTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Снять отметку о выполнении</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -450,7 +444,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(returnTask)} onOpenChange={(o) => !o && setReturnTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Вернуть задачу студенту</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -480,7 +474,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая задача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -526,7 +520,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(editTask)} onOpenChange={(o) => !o && setEditTask(null)}>
-      <DialogContent data-theme={theme} className="portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
+      <DialogContent data-theme={theme} className="portal roadmap-ui max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Изменить задачу</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -583,7 +577,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     {/* Подзадача и удаление — свои диалоги вместо window.prompt/confirm:
         системные окна игнорируют тему платформы и выпадают из вёрстки. */}
     <Dialog open={Boolean(subtaskParent)} onOpenChange={(o) => !o && setSubtaskParent(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая подзадача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -632,7 +626,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(deleteTask)} onOpenChange={(o) => !o && setDeleteTask(null)}>
-      <DialogContent className="portal border-w-line bg-w-panel text-w-ink">
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Удалить задачу?</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -666,6 +660,7 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
     onClick={onClick}
     disabled={disabled}
     title="Сменить статус этапа"
+    data-roadmap-badge={status === 'planned' ? undefined : status}
     className={cn(
       'absolute left-0 top-1.5 grid h-[21px] w-[21px] place-items-center rounded-full border-2 transition active:scale-[0.98]',
       status === 'done' && 'border-w-good bg-w-good text-black',
@@ -775,7 +770,7 @@ const TaskCard: React.FC<{
               <Pill colorPrefix="w" tone="accent">ждёт проверки</Pill>
             )}
             {task.review_status === 'returned' && (
-              <Pill colorPrefix="w" tone="neutral" className="bg-w-danger/15 text-w-danger">возвращена</Pill>
+              <Pill colorPrefix="w" tone="danger">возвращена</Pill>
             )}
             {task.review_status === 'pending' && canManage && (
               <>

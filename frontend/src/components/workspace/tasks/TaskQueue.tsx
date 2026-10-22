@@ -7,6 +7,7 @@ import {
   formatDue,
   isClosed,
   relativeDue,
+  workContext,
   type SortDir,
   type SortKey,
   type WorkItem,
@@ -170,7 +171,7 @@ const Row: React.FC<{ item: WorkItem; actions: RowActions }> = ({ item, actions 
           {item.title}
         </button>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-w-muted">
-          <span>{item.kind === 'roadmap' ? `Roadmap · ${item.context}` : item.context}</span>
+          <span>{workContext(item)}</span>
           {roadmap && roadmap.subtasks_total > 0 && (
             <span className="tabular-nums">подзадач {roadmap.subtasks_done}/{roadmap.subtasks_total}</span>
           )}

@@ -1,30 +1,22 @@
+import { LearnerStep } from '@/components/activities/LearnerStep'
 import React from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckSquare, ClipboardList, Search } from 'lucide-react'
 import { roadmapApi, FlatTask } from '@/api/roadmap'
 import { questionnairesApi, QUESTIONNAIRE_STATUS_LABEL } from '@/api/questionnaires'
 import { PortalQuestionnaireDialog } from '@/components/portal/PortalQuestionnaireDialog'
 import {
-  ClaimCheckbox,
-  MentorComment,
-  ReviewChip,
   useReviewLiveUpdates,
-  useTaskClaim,
 } from '@/components/portal/PortalRoadmap'
 import { cn } from '@/lib/utils'
 import { withViewTransition } from '@/lib/motion'
 import { PageShell } from '@/components/shared/PageShell'
 import { QueryState } from '@/components/shared/QueryState'
 import { useLocalState } from '@/lib/use-local-state'
-import { SegmentedTabs, EmptyState, PriorityPill, StatusPill } from '@/components/ui'
-import { studentDueText, studentOverdueDays } from '@/lib/studentDeadline'
+import { SegmentedTabs, EmptyState } from '@/components/ui'
 
 type TaskTab = 'open' | 'pending' | 'done'
-
-function isOverdue(t: FlatTask): boolean {
-  return studentOverdueDays(t, t.status === 'done') > 0
-}
 
 function byDue(a: FlatTask, b: FlatTask): number {
   return (a.due_date || '9999').localeCompare(b.due_date || '9999')
@@ -66,7 +58,6 @@ export const PortalTasksPage: React.FC = () => {
   })
 
   // Заявки о выполнении (одна/две галочки) + live-вердикты ментора
-  const { claim, unclaim } = useTaskClaim()
   useReviewLiveUpdates()
 
   // Три группы двухосевой модели: заявленные задачи покидают «открытые»
@@ -150,7 +141,7 @@ export const PortalTasksPage: React.FC = () => {
           <EmptyState
             icon={<CheckSquare className="w-5 h-5" />}
             title="Задач пока нет"
-            description="Задачи появятся, когда ментор назначит вам дорожную карту."
+            description="Здесь появятся задачи от ментора, шаги активностей и дорожной карты."
             colorPrefix="p"
             className="anim-view-in"
           />
@@ -185,15 +176,15 @@ export const PortalTasksPage: React.FC = () => {
                     <span className="rounded-full bg-p-line/80 px-2.5 py-0.5 text-[10px] font-bold text-p-muted2">
                       {stageTasks.length} {plural(stageTasks.length, ['задача', 'задачи', 'задач'])}
                     </span>
+                    {stageTasks[0]?.activity_participation_id && (
+                      <Link to={`/portal/activities/participations/${stageTasks[0].activity_participation_id}`} className="ml-auto rounded-full bg-p-accent/15 px-2.5 py-0.5 text-[10px] font-bold text-p-accent-text hover:underline">
+                        Portfolio UP · весь план
+                      </Link>
+                    )}
                   </div>
                   <div className="space-y-2.5">
                     {stageTasks.map((task) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        onClaim={() => withViewTransition(() => claim.mutate(task.id))}
-                        onUnclaim={() => withViewTransition(() => unclaim.mutate(task.id))}
-                      />
+                      <LearnerStep key={`${task.id}:${task.review_status}:${task.status}`} task={task} defaultOpen={task.id === focusedTask} />
                     ))}
                   </div>
                 </section>
@@ -207,52 +198,5 @@ export const PortalTasksPage: React.FC = () => {
         <PortalQuestionnaireDialog questionnaireId={openQ} open onClose={() => setOpenQ(null)} />
       )}
     </PageShell>
-  )
-}
-
-const TaskCard: React.FC<{ task: FlatTask; onClaim: () => void; onUnclaim: () => void }> = ({
-  task,
-  onClaim,
-  onUnclaim,
-}) => {
-  const done = task.status === 'done'
-  const pending = !done && task.review_status === 'pending'
-  const returned = !done && !pending && task.review_status === 'returned'
-  const overdue = isOverdue(task)
-  const doneSubtasks = task.subtasks.filter((s) => s.is_done).length
-  const meta = done ? `Этап: ${task.stage_name} · выполнено` : `Этап: ${task.stage_name} · ${studentDueText(task, false)}`
-  return (
-    <div id={`task-${task.id}`} className="flex items-center gap-3.5 rounded-panel border border-p-line bg-p-panel2 px-3.5 py-3 transition hover:border-p-accent-dim">
-      <ClaimCheckbox task={task} size="sm" onClaim={onClaim} onUnclaim={onUnclaim} />
-      <div className="flex-1 min-w-0">
-        <div className={cn('truncate text-[15px] font-bold', done ? 'text-p-muted2' : 'text-p-text')}>
-          {task.title}
-        </div>
-        <small className={cn('mt-0.5 flex items-center gap-1.5 truncate text-[11px]', overdue ? 'text-p-danger-text' : 'text-p-muted')}>
-          {meta}
-        </small>
-        {pending && (
-          <small className="mt-0.5 block text-[11px] text-brand/90">
-            Ментор проверит и подтвердит — обычно в течение 1–2 дней
-          </small>
-        )}
-        {returned && task.review_comment && <MentorComment comment={task.review_comment} />}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {task.subtasks.length > 0 && (
-          <span className="text-[11px] font-semibold text-p-muted2">
-            {doneSubtasks}/{task.subtasks.length}
-          </span>
-        )}
-        <ReviewChip task={task} className="shrink-0" />
-        <PriorityPill
-          priority={task.priority as 'required' | 'recommended' | 'optional'}
-          colorPrefix="p"
-          showIcon={false}
-          className="shrink-0"
-        />
-        <StatusPill status={task.status} colorPrefix="p" className="shrink-0" showIcon={false} />
-      </div>
-    </div>
   )
 }

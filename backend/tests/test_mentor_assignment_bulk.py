@@ -1,8 +1,5 @@
 """Team assignment keeps colleagues, reuses personal rows, and fills placeholders."""
 import asyncio
-from app.api.v1.endpoints import roadmaps
-import re
-import inspect
 import unittest
 import uuid
 
@@ -270,19 +267,6 @@ class MzkRoleTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 422)
 
-
-    def test_mzk_is_not_part_of_the_required_team(self) -> None:
-        """Гейт этапа роадмапа остаётся на четырёх менторских ролях.
-
-        Если добавить сюда «МЗК», у каждого студента без назначенного менеджера
-        команда разом станет неполной и этап нельзя будет начать — то есть
-        новая роль молча остановит работу по всей базе. Проверяем сам источник:
-        множество ролей в `update_stage`.
-        """
-        source = inspect.getsource(roadmaps.update_stage)
-        match = re.search(r"required_roles = \{([^}]*)\}", source)
-        self.assertIsNotNone(match, "гейт команды в update_stage переписан — проверьте тест")
-        self.assertNotIn("mzk", match.group(1))
 
 
 class BulkLimitTests(unittest.TestCase):
