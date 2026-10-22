@@ -80,7 +80,8 @@ export const GoogleSignInButton: React.FC<{
   text?: 'signin_with' | 'continue_with'
   /** Внутри кабинета (тема переключается): цвета берутся из токенов, а не белые под тёмную страницу входа. */
   themed?: boolean
-}> = ({ onCredential, onError, divider = true, text = 'signin_with', themed = false }) => {
+  colorPrefix?: 'w' | 'p'
+}> = ({ onCredential, onError, divider = true, text = 'signin_with', themed = false, colorPrefix = 'w' }) => {
   const holder = useRef<HTMLDivElement>(null)
   const [phase, setPhase] = useState<Phase>('loading')
   const [width, setWidth] = useState(0)
@@ -180,7 +181,7 @@ export const GoogleSignInButton: React.FC<{
           <div
             className={cn(
               'w-full animate-pulse rounded-ctl border',
-              themed ? 'border-w-line bg-w-panel2' : 'border-[#343434] bg-[#1C1C1C]',
+              themed ? (colorPrefix === 'p' ? 'border-p-line bg-p-bg' : 'border-w-line bg-w-panel2') : 'border-[#343434] bg-[#1C1C1C]',
             )}
             style={{ height: BUTTON_HEIGHT }}
             aria-hidden
@@ -189,12 +190,12 @@ export const GoogleSignInButton: React.FC<{
 
         {/* Молча спрятанная кнопка читается как поломка, поэтому говорим прямо. */}
         {phase === 'disabled' && (
-          <p className={cn('text-center text-[13px] leading-5', themed ? 'text-w-muted' : 'text-white/60')}>
+          <p className={cn('text-center text-[13px] leading-5', themed ? (colorPrefix === 'p' ? 'text-p-muted' : 'text-w-muted') : 'text-white/60')}>
             Вход через Google временно недоступен
           </p>
         )}
         {phase === 'failed' && (
-          <p className={cn('text-center text-[13px] leading-5', themed ? 'text-w-muted' : 'text-white/60')}>
+          <p className={cn('text-center text-[13px] leading-5', themed ? (colorPrefix === 'p' ? 'text-p-muted' : 'text-w-muted') : 'text-white/60')}>
             Google не отвечает — попробуйте обновить страницу
           </p>
         )}

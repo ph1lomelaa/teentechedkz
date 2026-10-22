@@ -1,3 +1,4 @@
+import { useAuth } from '@/contexts/AuthContext'
 import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Copy, ExternalLink, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react'
@@ -26,6 +27,7 @@ export const PortalCredentialsSection: React.FC<{
   studentId?: string
 }> = ({ mode, studentId }) => {
   const queryClient = useQueryClient()
+  const { can } = useAuth()
   // null — диалог закрыт; undefined — создание; доступ — правка
   const [editing, setEditing] = useState<PortalCredential | null | undefined>(null)
   const [presetApp, setPresetApp] = useState<Application | null>(null)
@@ -44,7 +46,7 @@ export const PortalCredentialsSection: React.FC<{
     enabled,
   })
 
-  const canManage = mode === 'staff' && Boolean(studentId)
+  const canManage = mode === 'staff' && Boolean(studentId) && can('credentials', 'manage')
   const invalidate = () => queryClient.invalidateQueries({ queryKey })
 
   const saveMutation = useMutation({

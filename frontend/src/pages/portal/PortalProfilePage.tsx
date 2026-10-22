@@ -6,6 +6,7 @@ import { DEGREE_LEVEL_LABELS } from '@/types'
 import { AppButton, AppInput, AppCard } from '@/components/ui'
 import { PageShell } from '@/components/shared/PageShell'
 import { QueryError } from '@/components/shared/QueryState'
+import { AccountAccessCard } from '@/components/auth/AccountAccessCard'
 
 export const PortalProfilePage: React.FC = () => {
   const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: ['portal', 'profile'], queryFn: portalApi.profile })
@@ -64,7 +65,9 @@ export const PortalProfilePage: React.FC = () => {
             </dl>
           </AppCard>
 
-          <AppCard className="h-fit">
+          <div className="space-y-4">
+          <AccountAccessCard colorPrefix="p" />
+          <AppCard className="h-fit" colorPrefix="p">
             <h2 className="text-sm font-extrabold text-p-text mb-3">Смена пароля</h2>
             {msg && (
               <div className={`text-sm mb-3 px-3 py-2 rounded-ctl ${msg.ok ? 'bg-p-good/10 text-p-good-text' : 'bg-p-danger/10 text-p-danger-text'}`}>
@@ -80,6 +83,7 @@ export const PortalProfilePage: React.FC = () => {
               </AppButton>
             </div>
           </AppCard>
+          </div>
         </div>
       )}
     </PageShell>

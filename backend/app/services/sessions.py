@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -48,7 +48,8 @@ async def issue_session(db: AsyncSession, response: Response, user: User) -> dic
     """
     from app.services.user_payload import resolve_user_payload
 
-    access_token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    access_token = create_access_token({"sub": str(user.id), "role": user.role.value,
+                                        "av": getattr(user, "auth_version", 0) or 0})
     refresh_token_raw = create_refresh_token()
     db.add(RefreshToken(
         user_id=user.id,
@@ -90,4 +91,11 @@ async def revoke_all_sessions(
             continue
         token.revoked = True
         revoked += 1
+    # Access JWTs must stop working too, even if no refresh tokens remain.
+    # Keep-device mode is reserved for callers which do not revoke ALL access.
+    if keep_token_hash is None:
+        await db.execute(
+            update(User).where(User.id == user_id).values(auth_version=User.auth_version + 1)
+            .execution_options(synchronize_session="fetch")
+        )
     return revoked
