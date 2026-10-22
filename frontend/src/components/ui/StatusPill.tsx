@@ -70,6 +70,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({
 
   return (
     <span
+      data-roadmap-badge={status}
       className={cn(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full',
         baseClasses,

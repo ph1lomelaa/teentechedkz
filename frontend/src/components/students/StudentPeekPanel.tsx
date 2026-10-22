@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { studentsApi } from '@/api/students'
 import { notionApi } from '@/api/notion'
+import { roadmapApi } from '@/api/roadmap'
 import { DEGREE_LEVEL_LABELS, PIPELINE_STATUS_LABELS } from '@/types'
 
 // Флаг по названию страны (данные в базе преимущественно на русском,
@@ -55,6 +56,14 @@ export function StudentPeekPanel({ studentId, fallbackName, onClose }: {
   onClose: () => void
 }) {
   const { data: full, isLoading } = useQuery({ queryKey: ['student', studentId, 'peek'], queryFn: () => studentsApi.get(studentId) })
+  const roadmapQuery = useQuery({ queryKey: ['student-roadmap', studentId], queryFn: () => roadmapApi.studentRoadmaps(studentId) })
+  const roadmapSummary = roadmapQuery.isError ? 'Не удалось загрузить' : !roadmapQuery.data ? 'Загрузка…' : roadmapQuery.data.length
+    ? roadmapQuery.data.map((roadmap) => {
+      const tasks = roadmap.stages.flatMap((stage) => stage.tasks)
+      const done = tasks.filter((task) => task.status === 'done').length
+      return `${roadmap.name} · ${tasks.length ? Math.round(done / tasks.length * 100) : 0}%`
+    }).join('; ')
+    : 'Не назначен'
   const { data: notion, isLoading: notionLoading } = useQuery({ queryKey: ['notion', 'student', studentId], queryFn: () => notionApi.studentNotion(studentId) })
   const contract = full?.contracts?.[0]
   const notionRows = notion?.comparison ?? []
@@ -68,7 +77,7 @@ export function StudentPeekPanel({ studentId, fallbackName, onClose }: {
         <header className="flex items-start justify-between gap-3 border-b border-p-line px-5 py-5"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-p-muted2">Быстрый просмотр</p><h2 className="mt-2 font-display text-xl font-black text-p-text">{full?.full_name ?? fallbackName ?? 'Студент'}</h2>{full && <p className="mt-1 text-xs text-p-muted">{DEGREE_LEVEL_LABELS[full.degree_level]} · {full.intake_year || 'Год не указан'}</p>}</div><button type="button" onClick={onClose} className="text-2xl text-p-muted" aria-label="Закрыть">×</button></header>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {isLoading && <p className="text-sm text-p-muted">Загрузка полного профиля…</p>}
-          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Ответственные" value={mentors.join(', ') || 'Не назначены'} /><Property label="МЗК" value={full?.mzk_manager_name} /><Property label="Roadmap" value={full?.roadmap?.name ? `${full.roadmap.name} · ${full.roadmap.progress ?? 0}%` : 'Не назначен'} /><Property label="Конспекты" value={full?.notes?.length ?? 0} /><Property label="Личный кабинет" value={full ? (full.user_id ? 'Доступ открыт' : 'Доступ не открыт') : undefined} /></section>
+          <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Работа команды</h3><Property label="Ответственные" value={mentors.join(', ') || 'Не назначены'} /><Property label="МЗК" value={full?.mzk_manager_name} /><Property label="Roadmap" value={roadmapSummary} /><Property label="Конспекты" value={full?.notes?.length ?? 0} /><Property label="Личный кабинет" value={full ? (full.user_id ? 'Доступ открыт' : 'Доступ не открыт') : undefined} /></section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Основные данные</h3><Property label="Этап" value={full ? PIPELINE_STATUS_LABELS[full.pipeline_status ?? 'no_status'] : undefined} /><Property label="Страна" value={full?.country ? `${countryFlag(full.country)} ${full.country}` : undefined} /><Property label="Город" value={full?.city} /><Property label="Телефон" value={full?.phone} /><Property label="Специальность" value={full?.specialty} /><Property label="GPA" value={full?.gpa} /></section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Услуги и документы</h3><Property label="Услуги" value={full?.services?.length ?? 0} /><Property label="Документы" value={full?.documents?.length ?? 0} /><Property label="Заявки" value={full?.applications?.length ?? 0} /><Property label="Платежей" value={contract?.payments?.length ?? 0} /></section>
           <section className="rounded-panel border border-p-line bg-p-panel p-4"><h3 className="text-xs font-black uppercase tracking-wider text-p-muted2">Договор и финансы</h3><Property label="Дата договора" value={contract?.signed_date} /><Property label="Client fee" value={contract?.amount ? `${contract.amount} ${contract.currency}` : undefined} /><Property label="Остаток клиента" value={contract?.client_remaining_amount ? `${contract.client_remaining_amount} ${contract.currency}` : undefined} /><Property label="Сумма англ." value={contract?.english_sum} /><Property label="Ментору итого" value={contract?.mentor_total_owed} /></section>

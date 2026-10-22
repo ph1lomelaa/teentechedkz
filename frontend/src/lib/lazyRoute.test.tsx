@@ -28,7 +28,7 @@ beforeEach(() => {
 })
 
 // Импорт после подмены window.location: модуль App читает его при загрузке.
-const { recoverPageOnce } = await import('@/App')
+const { AppErrorBoundary, recoverPageOnce } = await import('@/App')
 
 describe('восстановление после устаревшей сборки', () => {
   it('перезагружает вкладку один раз', () => {
@@ -41,6 +41,27 @@ describe('восстановление после устаревшей сбор�
     reload.mockClear()
     recoverPageOnce()
     expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('does not re-arm automatic reload after ten seconds of rendering', () => {
+    vi.useFakeTimers()
+    try {
+      recoverPageOnce()
+      render(<AppErrorBoundary><div>healthy page</div></AppErrorBoundary>)
+      vi.advanceTimersByTime(11_000)
+      reload.mockClear()
+      recoverPageOnce()
+      expect(reload).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('allows one recovery when the loaded build changes', () => {
+    sessionStorage.setItem('tte:runtime-recovery-reloaded', 'https://example.test/assets/old-build.js')
+    recoverPageOnce()
+    recoverPageOnce()
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 })
 

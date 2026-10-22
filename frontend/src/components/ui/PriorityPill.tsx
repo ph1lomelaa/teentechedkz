@@ -68,6 +68,7 @@ export const PriorityPill: React.FC<PriorityPillProps> = ({
 
   return (
     <span
+      data-roadmap-badge={priority}
       className={cn(
         'inline-flex items-center gap-1 whitespace-nowrap rounded-full tracking-wide',
         baseClasses,

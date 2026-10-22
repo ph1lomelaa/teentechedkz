@@ -1,0 +1,88 @@
+name: tte-student-card
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: preview
+      POSTGRES_PASSWORD: preview-local
+      POSTGRES_DB: student_card
+    volumes:
+      - card_postgres:/var/lib/postgresql/data
+      - ./backend/init_pgcrypto.sql:/docker-entrypoint-initdb.d/init_pgcrypto.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U preview -d student_card]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+  minio:
+    image: tte-portfolio-minio:local
+    build:
+      context: .
+      dockerfile: docker/portfolio/minio.Dockerfile
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: preview
+      MINIO_ROOT_PASSWORD: preview-local
+    volumes:
+      - card_minio:/data
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  backend:
+    image: tte-portfolio-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://preview:preview-local@postgres:5432/student_card
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: preview
+      MINIO_SECRET_KEY: preview-local
+      JWT_SECRET_KEY: student-card-local-preview-only-secret
+      PGCRYPTO_KEY: student-card-local-preview-only-secret
+      FRONTEND_URL: http://localhost:3016
+      ALLOWED_ORIGINS: http://localhost:3016,http://127.0.0.1:3016
+      FIRST_ADMIN_EMAIL: preview.admin@example.test
+      FIRST_ADMIN_PASSWORD: PreviewLocal2026!
+      ENABLE_AGREEMENT_GATE: 'false'
+      ENABLE_NOTION_FIELD_SYNC: 'false'
+      NOTION_FIELD_SYNC_DRY_RUN: 'true'
+      TELEGRAM_BOT_TOKEN: ''
+      NOTION_API_KEY: ''
+      GOOGLE_SHEETS_CREDENTIALS_JSON: ''
+    volumes:
+      - ./backend:/app
+      - ./migration:/app/migration:ro
+    ports:
+      - '127.0.0.1:8116:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: >-
+      sh -c 'python -m app.core.bootstrap_db && alembic upgrade head &&
+      python -m app.core.seed && python -m app.core.seed_demo &&
+      python -m app.core.seed_student_card_demo &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000'
+  frontend:
+    image: node:24-alpine
+    command: node /preview/server.mjs
+    volumes:
+      - ./frontend/dist:/site:ro
+      - ./docker/student-card:/preview:ro
+    ports:
+      - '127.0.0.1:3016:3000'
+    depends_on:
+      - backend
+volumes:
+  card_postgres:
+  card_minio:

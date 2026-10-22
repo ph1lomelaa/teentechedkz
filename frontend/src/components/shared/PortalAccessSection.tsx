@@ -5,7 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@/components/ui/primitives/accordion'
+} from '@/components/students/detail/StudentDetailSections'
 import { Button } from '@/components/ui/primitives/button'
 import { Input } from '@/components/ui/primitives/input'
 import { Badge } from '@/components/ui/primitives/badge'
