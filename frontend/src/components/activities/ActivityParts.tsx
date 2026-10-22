@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import type { Activity, StepsSummary } from '@/api/activities'
+import type { Activity, ExperienceKey, StepsSummary } from '@/api/activities'
 import { cn } from '@/lib/utils'
-import { PUBLICATION, cleanDirection, directionTone, progressSegments } from '@/lib/activityUi'
+import { EXPERIENCE_TYPES, PUBLICATION, cleanDirection, directionTone, progressSegments } from '@/lib/activityUi'
 
 /** «IT / Программирование · Курс». Цвет — по номеру направления из данных. */
 export function DirectionBadge({ direction, kind, className }: { direction: string | null; kind?: string | null; className?: string }) {
@@ -74,5 +74,14 @@ export function UnderlineTabs<T extends string>({ tabs, value, onChange, label }
         value === tab.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink')}>
       {tab.label}
     </button>)}
+  </div>
+}
+
+/** Фильтр по типу опыта — сюда ведёт «Подобрать» из плитки «Типы опыта». */
+export function ExperienceChips({ items, value, onChange }: { items: Array<Pick<Activity, 'experience_type'>>; value: ExperienceKey | ''; onChange: (value: ExperienceKey | '') => void }) {
+  const count = (key: ExperienceKey) => items.filter((a) => (a.experience_type ?? 'other') === key).length
+  return <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0" aria-label="Тип опыта">
+    <FilterChip active={!value} onClick={() => onChange('')}>Любой тип</FilterChip>
+    {EXPERIENCE_TYPES.filter((t) => count(t.key)).map((t) => <FilterChip key={t.key} active={value === t.key} onClick={() => onChange(value === t.key ? '' : t.key)} count={count(t.key)}>{t.short}</FilterChip>)}
   </div>
 }

@@ -51,7 +51,7 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const navGroups: NavGroup[] = [
+const originalGroups: NavGroup[] = [
   {
     group: 'МОЙ ПУТЬ',
     items: [
@@ -69,7 +69,7 @@ const navGroups: NavGroup[] = [
   {
     group: 'МАТЕРИАЛЫ',
     items: [
-      { label: 'Активности', path: '/portal/activities', icon: <Star className="w-[18px] h-[18px]" /> },
+      { label: 'Portfolio UP', path: '/portal/activities', icon: <Star className="w-[18px] h-[18px]" /> },
       { label: 'Конспекты', path: '/portal/notes', icon: <ScrollText className="w-[18px] h-[18px]" /> },
       { label: 'Заметки', path: '/portal/important-notes', icon: <StickyNote className="w-[18px] h-[18px]" /> },
       { label: 'Документы', path: '/portal/documents', icon: <FileText className="w-[18px] h-[18px]" />, permission: ['documents', 'view'] },
@@ -94,14 +94,30 @@ const navGroups: NavGroup[] = [
   },
 ]
 
+const portalSections = [
+  { path: '/portal/roadmap', label: 'Roadmap', children: ['/portal/roadmap'] },
+  { path: '/portal/meetings', label: 'Встречи', children: ['/portal/meetings'] },
+  { path: '/portal/applications', label: 'Вузы и заявки', children: ['/portal/applications', '/portal/shortlist', '/portal/credentials'] },
+  { path: '/portal/activities', label: 'Portfolio UP', children: ['/portal/activities'] },
+  { path: '/portal/tasks', label: 'Задачи и записи', children: ['/portal/tasks', '/portal/notes', '/portal/important-notes', '/portal/documents'] },
+  { path: '/portal/chat', label: 'Общение', children: ['/portal/chat', '/portal/complaints', '/portal/notifications'] },
+  { path: '/portal/profile', label: 'О студенте', children: ['/portal/profile', '/portal/questionnaires'] },
+]
+const originalItems = originalGroups.flatMap((group) => group.items)
+const navGroups: NavGroup[] = [
+  { group: 'МОЯ РАБОТА', items: [originalItems.find((item) => item.path === '/portal')!, ...portalSections.map((section) => ({ ...originalItems.find((item) => item.path === section.path)!, label: section.label }))] },
+  { group: 'СПРАВОЧНИКИ', items: originalItems.filter((item) => ['/portal/universities', '/portal/countries'].includes(item.path)) },
+]
+
 function isActivePath(current: string, path: string): boolean {
   if (path === '/portal') return current === '/portal'
-  return current === path || current.startsWith(path)
+  const section = portalSections.find((item) => item.children.includes(path))
+  return section ? section.children.some((child) => current === child || current.startsWith(child + '/')) : current === path || current.startsWith(path + '/')
 }
 
 
 function breadcrumbFor(path: string): string {
-  for (const group of navGroups) {
+  for (const group of originalGroups) {
     const found = group.items.find((n) => isActivePath(path, n.path))
     if (found) return found.label
   }
@@ -113,7 +129,16 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
   // Фильтр добавочный: кабинет и так открыт только студенту, поэтому пункт
   // может лишь исчезнуть, но не появиться у того, кому он не положен.
   const visibleGroups = filterNavByPermission(navGroups, can)
+  // A granted child remains reachable even when an individual override hides its default parent.
+  const workGroup = visibleGroups.find((group) => group.group === 'МОЯ РАБОТА')
+  for (const section of portalSections) {
+    if (workGroup?.items.some((item) => item.path === section.path)) continue
+    const allowedChildren = filterNavByPermission([{ group: 'section', items: originalItems.filter((item) => section.children.includes(item.path)) }], can).flatMap((group) => group.items)
+    if (allowedChildren[0] && workGroup) workGroup.items.push({ ...allowedChildren[0], label: section.label })
+  }
   const location = useLocation()
+  const currentSection = portalSections.find((section) => section.children.some((path) => location.pathname === path || location.pathname.startsWith(path + '/')))
+  const sectionItems = currentSection ? filterNavByPermission([{ group: 'section', items: originalItems.filter((item) => currentSection.children.includes(item.path)) }], can).flatMap((group) => group.items) : []
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
 
@@ -249,6 +274,9 @@ export const StudentPortalLayout: React.FC<{ children: React.ReactNode }> = ({ c
           </header>
 
           <main className="min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-7 md:px-8 md:py-8">
+            {sectionItems.length > 1 && <nav className="student-detail-subnav mb-5 !pt-0" aria-label="Подразделы кабинета">
+              {sectionItems.map((item) => <Link key={item.path} to={item.path} aria-current={location.pathname === item.path ? 'page' : undefined} className={cn('student-detail-subtab', location.pathname === item.path && 'is-active')}>{item.label}</Link>)}
+            </nav>}
             <React.Suspense
               fallback={(
                 <div className="flex min-h-[50vh] items-center justify-center text-sm text-p-muted">

@@ -54,6 +54,7 @@ export interface User {
   phone?: string
   is_active: boolean
   must_change_password: boolean
+  google_account?: { linked: boolean; emails: string[] }
   /**
    * Специализация ментора — ключи MENTOR_ROLE_LABELS (на бэке MentorRole).
    * Отвечает на вопрос «кто этот человек», тогда как MentorAssignment.role —

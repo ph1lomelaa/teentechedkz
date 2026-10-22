@@ -18,7 +18,7 @@ from .confidential_note import ConfidentialNote
 from .student_task import StudentTask
 from .task_evidence import TaskEvidence
 from .payment import Payment
-from .document import Document
+from .document import Document, PortfolioDocumentLink
 from .communication_log import CommunicationLog
 from .pending_insight import PendingInsight
 from .status_history import StatusHistory
@@ -125,4 +125,4 @@ __all__ = [
     "Activity", "ActivityIntake", "StudentActivity",
 ]
 
-from .activity import Activity, ActivityIntake, StudentActivity
+from .activity import Activity, ActivityIntake, StudentActivity, PortfolioFocus, ActivityStepTemplate

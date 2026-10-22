@@ -2,7 +2,8 @@
  * Правила отображения Portfolio UP в кабинете ученика — в одном месте, чтобы
  * план, карточка участия и каталог говорили одно и то же.
  */
-import type { Activity, BoardColumn, BoardItem, Intake, Participation, StepsSummary } from '@/api/activities'
+import type { Activity, ActivityInput, BoardColumn, BoardItem, ExperienceKey, Intake, IntakeInput, Participation, PortfolioAction, StepsSummary, TemplateStep } from '@/api/activities'
+import type { StepInput } from '@/api/learnerTasks'
 import { formatDeadline, parseDateOnly } from './roadmapDeadline'
 
 /** Набор, который создаёт импорт Excel. Ученику это название ничего не говорит. */
@@ -57,6 +58,8 @@ export function participationStatus(item: Pick<Participation, 'decision' | 'stat
 export type NextAction =
   | { kind: 'step'; item: Participation; step: NonNullable<StepsSummary['next']> }
   | { kind: 'waiting'; item: Participation }
+  | { kind: 'result'; item: Participation }
+  | { kind: 'result_waiting'; item: Participation }
   | { kind: 'plan'; item: Participation }
   | { kind: 'empty' }
 
@@ -77,6 +80,10 @@ export function pickNextAction(items: Participation[]): NextAction {
       STEP_PRIORITY[a.step.state as keyof typeof STEP_PRIORITY] - STEP_PRIORITY[b.step.state as keyof typeof STEP_PRIORITY]
       || (a.step.due_date ?? '9999').localeCompare(b.step.due_date ?? '9999'))
   if (steps.length) return { kind: 'step', ...steps[0] }
+  const result = active.find(item => item.result_review_status !== undefined && item.result_review_status !== 'pending' && (item.steps?.total ?? 0) > 0 && item.steps?.done === item.steps?.total)
+  if (result) return { kind: 'result', item: result }
+  const pendingResult = active.find(item => item.result_review_status === 'pending')
+  if (pendingResult) return { kind: 'result_waiting', item: pendingResult }
   const waiting = active.find((item) => item.steps?.next?.state === 'pending')
   if (waiting) return { kind: 'waiting', item: waiting }
   const unplanned = active.find((item) => !item.steps?.total)
@@ -210,6 +217,7 @@ export function boardContext(item: BoardItem, today: Date = new Date()): string 
   if (item.column === 'suggested') return `отправлено ${relativeDay(item.created_at, today)}`
   if (item.column === 'planning') return 'шагов ещё нет'
   if (item.column === 'review') {
+    if (item.result_review_status === 'pending') return 'Итог участия ждёт подтверждения'
     const when = relativeDay(steps?.next?.state === 'pending' ? steps.next.submitted_at : null, today)
     return [steps?.pending && steps.pending > 1 ? `на проверке: ${steps.pending}` : 'работа отправлена', when].filter(Boolean).join(' · ')
   }
@@ -227,4 +235,109 @@ export function progressSegments(steps: StepsSummary | undefined): Array<'done' 
   const done = Math.min(steps.done, steps.total)
   const pending = Math.min(steps.pending, steps.total - done)
   return [...Array(done).fill('done'), ...Array(pending).fill('pending'), ...Array(steps.total - done - pending).fill('todo')]
+}
+
+// ---------------------------------------------------------------- портфолио
+
+
+/** Тот же список, что на backend (app/services/experience.py): каталогу подписи нужны и без сводки. */
+export const EXPERIENCE_TYPES: Array<{ key: ExperienceKey; label: string; short: string }> = [
+  { key: 'competitions', label: 'Олимпиады и конкурсы', short: 'Олимпиады' },
+  { key: 'research', label: 'Исследования и проекты', short: 'Исследования' },
+  { key: 'programs', label: 'Программы и летние школы', short: 'Программы' },
+  { key: 'courses', label: 'Курсы', short: 'Курсы' },
+  { key: 'internships', label: 'Стажировки', short: 'Стажировки' },
+  { key: 'social', label: 'Волонтёрство и социальные проекты', short: 'Волонтёрство' },
+  { key: 'other', label: 'Другое', short: 'Другое' },
+]
+export const EXPERIENCE_LABEL = Object.fromEntries(EXPERIENCE_TYPES.map((t) => [t.key, t.label])) as Record<ExperienceKey, string>
+
+export function isExperienceKey(value: string | null | undefined): value is ExperienceKey {
+  return EXPERIENCE_TYPES.some((t) => t.key === value)
+}
+
+export interface ActionCopy { title: string; detail: string; cta: string | null; tone: 'urgent' | 'normal' | 'calm' }
+
+/**
+ * Текст пункта «Сейчас». viewer — кто смотрит: у ученика и ментора ход разный,
+ * а сам пункт один и тот же (сервер считает его одной функцией).
+ */
+export function actionCopy(action: PortfolioAction, viewer: 'student' | 'staff', today: Date = new Date()): ActionCopy {
+  const step = action.step_title ? `«${action.step_title}»` : ''
+  const due = action.due_date ? (action.overdue ? `срок прошёл ${formatDeadline(action.due_date, today)}` : `до ${formatDeadline(action.due_date, today)}`) : ''
+  const where = [action.activity_title, due].filter(Boolean).join(' · ')
+  if (viewer === 'staff') {
+    if (action.kind === 'result_waiting') return { title: 'Подтвердить итог участия', detail: action.activity_title, cta: 'Проверить итог', tone: 'urgent' }
+    if (action.kind === 'step_waiting') return { title: step ? `Проверить шаг ${step}` : 'Проверить отправленные шаги', detail: action.activity_title, cta: 'Проверить', tone: 'urgent' }
+    if (action.kind === 'plan_waiting') return { title: 'Составить план шагов', detail: action.activity_title, cta: 'Составить план', tone: 'normal' }
+  }
+  switch (action.kind) {
+    case 'fix_step': return { title: `Исправьте шаг ${step}`, detail: `${where} · ментор оставил комментарий`, cta: 'Исправить', tone: 'urgent' }
+    case 'fix_result': return { title: 'Исправьте итог участия', detail: `${action.activity_title} · ментор оставил комментарий`, cta: 'Исправить итог', tone: 'urgent' }
+    case 'do_step': return { title: `Сделайте шаг ${step}`, detail: where, cta: 'Открыть шаг', tone: action.overdue ? 'urgent' : 'normal' }
+    case 'submit_result': return { title: 'Отправьте итог участия', detail: `${action.activity_title} · шаги выполнены, осталось описать результат и приложить сертификат`, cta: 'Отправить итог', tone: 'normal' }
+    case 'decide': return { title: `Ментор предлагает: ${action.activity_title}`, detail: due ? `Решите до ${formatDeadline(action.due_date!, today)}` : 'Решите, будете ли участвовать', cta: null, tone: 'normal' }
+    case 'step_waiting': return { title: 'Работа у ментора на проверке', detail: [step, action.activity_title].filter(Boolean).join(' · '), cta: null, tone: 'calm' }
+    case 'result_waiting': return { title: 'Итог участия на проверке', detail: `${action.activity_title} · ментор подтвердит или вернёт с комментарием`, cta: null, tone: 'calm' }
+    case 'plan_waiting': return { title: 'Ментор готовит шаги', detail: action.activity_title, cta: null, tone: 'calm' }
+  }
+}
+
+/** Ссылка на участие; шаг открывается по якорю. */
+export function participationPath(base: '/portal' | '/workspace', action: Pick<PortfolioAction, 'participation_id' | 'step_id' | 'kind'>): string {
+  const anchor = action.step_id && action.kind !== 'step_waiting' ? `#step-${action.step_id}` : ['submit_result', 'fix_result', 'result_waiting'].includes(action.kind) ? '#result' : ''
+  return `${base}/activities/participations/${action.participation_id}${anchor}`
+}
+
+/** Ближайший срок участия — то же правило, что nearest_due на backend: личный, организатора, следующего шага. */
+export function nearestDue(item: Pick<Participation, 'personal_deadline' | 'intake' | 'steps'>): string | null {
+  const dates = [item.personal_deadline, item.intake?.deadline, item.steps?.next?.due_date].filter((d): d is string => Boolean(d))
+  return dates.sort()[0] ?? null
+}
+
+// ---------------------------------------------------------------- конструктор активности
+
+/** Чего не хватает до публикации — то же правило, что review_issues на backend. */
+export function publishIssues(form: Pick<ActivityInput, 'source_url' | 'description'>, intakes: Array<Pick<IntakeInput, 'mode' | 'deadline' | 'cost_state'>>): string[] {
+  const issues: string[] = []
+  if (!form.source_url?.trim()) issues.push('Ссылка организатора')
+  if (!form.description?.trim()) issues.push('Описание')
+  if (!intakes.length) issues.push('Сроки набора')
+  else if (intakes.every((i) => i.mode === 'unknown' && !i.deadline)) issues.push('Сроки набора')
+  if (intakes.length && intakes[0].cost_state === 'unknown') issues.push('Стоимость')
+  return issues
+}
+
+function shiftDate(iso: string, days: number): string {
+  const d = parseDateOnly(iso)
+  d.setDate(d.getDate() - days)
+  return d.toLocaleDateString('en-CA')
+}
+
+/**
+ * Типовые шаги → личный план с датами: «за N дней до дедлайна организатора».
+ * Дата в прошлом сдвигается на сегодня — иначе шаг родится просроченным.
+ */
+export function stepsFromTemplate(template: TemplateStep[], deadline: string | null | undefined, today: string = new Date().toLocaleDateString('en-CA')): StepInput[] {
+  return template.map((t) => {
+    const due = deadline && t.days_before_deadline !== null ? shiftDate(deadline, t.days_before_deadline) : null
+    return { title: t.title, description: t.description, expected_result: t.expected_result, priority: t.priority,
+      requires_review: t.requires_review, requires_evidence: t.requires_evidence, subtasks: [...t.subtasks],
+      due_date: due && due < today ? today : due }
+  })
+}
+
+const step = (title: string, days: number | null, extra: Partial<TemplateStep> = {}): TemplateStep => ({
+  title, description: '', expected_result: '', priority: 'required', requires_review: false, requires_evidence: false, days_before_deadline: days, subtasks: [], ...extra,
+})
+
+/** Заготовки шагов по типу опыта — чтобы не писать одно и то же с нуля. */
+export const TEMPLATE_PRESETS: Record<ExperienceKey, TemplateStep[]> = {
+  competitions: [step('Зарегистрироваться у организатора', 30, { requires_evidence: true, expected_result: 'Скриншот или письмо о регистрации' }), step('Разобрать задания прошлых лет', 14), step('Принять участие', 0), step('Сохранить результат или диплом', null, { priority: 'recommended' })],
+  research: [step('Выбрать тему и обсудить с ментором', 45, { requires_review: true }), step('Подготовить черновик работы', 20, { requires_review: true, requires_evidence: true }), step('Оформить и подать работу', 3, { requires_evidence: true })],
+  programs: [step('Проверить требования и собрать документы', 30), step('Написать мотивационное письмо', 14, { requires_review: true, requires_evidence: true }), step('Подать заявку', 2, { requires_evidence: true, expected_result: 'Подтверждение подачи' })],
+  courses: [step('Записаться на курс', null, { requires_evidence: true }), step('Пройти основные модули', null), step('Сдать итоговое задание', null, { requires_evidence: true })],
+  internships: [step('Обновить резюме', 21, { requires_review: true, requires_evidence: true }), step('Отправить отклик', 7, { requires_evidence: true }), step('Подготовиться к собеседованию', null)],
+  social: [step('Выбрать проект и роль', 30), step('Провести активность', null), step('Собрать подтверждение участия', null, { requires_evidence: true })],
+  other: [step('Зарегистрироваться', 14), step('Выполнить задание', 3)],
 }

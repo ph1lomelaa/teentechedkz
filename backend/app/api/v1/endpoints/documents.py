@@ -18,7 +18,7 @@ from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.core.audit import log_change
 from app.core.uploads import read_upload_capped
-from app.models.document import Document, DocType, DocSource
+from app.models.document import Document, DocType, DocSource, PortfolioDocumentLink
 from app.models.student import Student
 from app.models.telegram_attachment import TelegramAttachment, TelegramAttachmentStatus
 from app.models.telegram_chat_session import TelegramChatSession, TelegramSessionStatus
@@ -274,6 +274,7 @@ async def delete_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
 
+    await _assert_portfolio_document_deletable(db, doc)
     storage_path = doc.storage_path
     await db.delete(doc)
     await db.commit()
@@ -573,9 +574,10 @@ async def portal_delete_document(
 
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
-    if not doc or doc.student_id != sid or doc.source != DocSource.manual_upload:
+    if not doc or doc.student_id != sid or doc.source != DocSource.manual_upload or doc.uploaded_by != current_user.id or not doc.visible_to_student:
         raise HTTPException(status_code=404, detail="Документ не найден")
 
+    await _assert_portfolio_document_deletable(db, doc)
     storage_path = doc.storage_path
     await db.delete(doc)
     await db.commit()
@@ -611,3 +613,18 @@ def _doc_to_dict(d: Document) -> dict:
         "signature_full_name": d.signature_full_name,
         "uploaded_at": d.uploaded_at.isoformat(),
     }
+
+
+async def _assert_portfolio_document_deletable(db, doc):
+    from app.models.roadmap import RoadmapTask, RoadmapItemStatus, TaskReviewStatus
+    from app.models.activity import StudentActivity
+    links = (await db.execute(select(PortfolioDocumentLink).where(PortfolioDocumentLink.document_id == doc.id))).scalars().all()
+    for link in links:
+        if link.task_id:
+            task = await db.get(RoadmapTask, link.task_id)
+            if task and task.deleted_at is None and (task.status == RoadmapItemStatus.done or task.review_status == TaskReviewStatus.pending):
+                raise HTTPException(409, 'Документ используется в выполненной или отправленной работе')
+        if link.participation_id:
+            item = await db.get(StudentActivity, link.participation_id)
+            if item and item.result_review_status in ('pending', 'approved'):
+                raise HTTPException(409, 'Документ используется в отправленном или подтверждённом результате')

@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     documents,
     portfolio,
     activities,
+    activity_compose,
     activity_import,
     confidential_notes,
     tasks,
@@ -36,6 +37,8 @@ from app.api.v1.endpoints import (
     sync,
     notion,
     roadmaps,
+    learner_tasks,
+    portfolio_workflow,
     questionnaires,
     meetings,
     universities,
@@ -79,6 +82,7 @@ api_router.include_router(responsibilities.router)
 api_router.include_router(documents.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(activities.router)
+api_router.include_router(activity_compose.router)
 api_router.include_router(activity_import.router)
 api_router.include_router(confidential_notes.router)
 api_router.include_router(tasks.router)
@@ -118,3 +122,6 @@ api_router.include_router(reward_rules.router)
 # credentials was written but never registered — its endpoints were unreachable.
 api_router.include_router(credentials.router)
 api_router.include_router(student_universities.router)
+
+api_router.include_router(learner_tasks.router)
+api_router.include_router(portfolio_workflow.router)

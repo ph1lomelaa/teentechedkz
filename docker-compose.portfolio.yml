@@ -1,0 +1,82 @@
+# Отдельный стенд для проверки Portfolio UP на синтетических данных.
+# Запуск:  docker compose -f docker-compose.portfolio.yml up -d --build
+# Фронт:   cd frontend && VITE_LOCAL_API_PORT=8017 npx vite --port 3017
+# Входы:   portfolio.preview.mentor@example.test / portfolio.preview.student@example.test,
+#          пароль PortfolioPreview2026!
+name: tte-portfolio
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: preview
+      POSTGRES_PASSWORD: preview-local
+      POSTGRES_DB: tte_portfolio_check_docker
+    volumes:
+      - portfolio_postgres:/var/lib/postgresql/data
+      - ./backend/init_pgcrypto.sql:/docker-entrypoint-initdb.d/init_pgcrypto.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U preview -d tte_portfolio_check_docker]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+  minio:
+    image: tte-portfolio-minio:local
+    build:
+      context: .
+      dockerfile: docker/portfolio/minio.Dockerfile
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: preview
+      MINIO_ROOT_PASSWORD: preview-local
+    volumes:
+      - portfolio_minio:/data
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  backend:
+    image: tte-portfolio-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://preview:preview-local@postgres:5432/tte_portfolio_check_docker
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: preview
+      MINIO_SECRET_KEY: preview-local
+      JWT_SECRET_KEY: portfolio-local-preview-only-secret
+      PGCRYPTO_KEY: portfolio-local-preview-only-secret
+      FRONTEND_URL: http://localhost:3017
+      ALLOWED_ORIGINS: http://localhost:3017,http://127.0.0.1:3017
+      FIRST_ADMIN_EMAIL: preview.admin@example.test
+      FIRST_ADMIN_PASSWORD: PreviewLocal2026!
+      ENABLE_AGREEMENT_GATE: 'false'
+      ENABLE_NOTION_FIELD_SYNC: 'false'
+      NOTION_FIELD_SYNC_DRY_RUN: 'true'
+      TELEGRAM_BOT_TOKEN: ''
+      NOTION_API_KEY: ''
+      GOOGLE_SHEETS_CREDENTIALS_JSON: ''
+    volumes:
+      - ./backend:/app
+      - ./migration:/app/migration:ro
+    ports:
+      - '127.0.0.1:8017:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: >-
+      sh -c 'python -m app.core.bootstrap_db && alembic upgrade head &&
+      python -m app.core.seed && python -m app.core.seed_portfolio_demo &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
+volumes:
+  portfolio_postgres:
+  portfolio_minio:

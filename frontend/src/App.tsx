@@ -1,3 +1,4 @@
+import { ParticipationDetailPage } from './pages/ParticipationDetailPage'
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -214,7 +215,10 @@ export function isRecoverableAppError(error: Error): boolean {
 /** Ключ одноразовой попытки: страховка от петли перезагрузок, если новая
  * сборка или DOM действительно не могут восстановиться. */
 const RELOAD_GUARD = 'tte:runtime-recovery-reloaded'
-const HEALTHY_APP_DELAY_MS = 10_000
+// The loaded module URL changes with the production build hash. One automatic
+// recovery per build avoids a reload loop when an extension repeatedly changes
+// the DOM after the first ten seconds, while allowing recovery after a deploy.
+const RELOAD_GUARD_VALUE = import.meta.url
 
 /**
  * Из аварийного экрана нужен выход, который не возвращает человека в тот же
@@ -243,8 +247,8 @@ function resetClientStateAndOpenLogin() {
  */
 export function recoverPageOnce(): boolean {
   try {
-    const alreadyTried = sessionStorage.getItem(RELOAD_GUARD) === '1'
-    sessionStorage.setItem(RELOAD_GUARD, '1')
+    const alreadyTried = sessionStorage.getItem(RELOAD_GUARD) === RELOAD_GUARD_VALUE
+    sessionStorage.setItem(RELOAD_GUARD, RELOAD_GUARD_VALUE)
     if (!alreadyTried) window.location.reload()
     return true
   } catch {
@@ -254,7 +258,7 @@ export function recoverPageOnce(): boolean {
   }
 }
 
-class AppErrorBoundary extends React.Component<
+export class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }
 > {
@@ -262,21 +266,6 @@ class AppErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(error: Error) {
     return { error }
-  }
-
-  componentDidMount() {
-    // Не снимаем флаг сразу: boundary монтируется до lazy-страницы, и при
-    // ошибке её загрузки это превратило бы защиту в бесконечную перезагрузку.
-    // Десять секунд стабильной работы достаточно, чтобы признать вкладку
-    // здоровой и разрешить восстановление после следующего деплоя.
-    window.setTimeout(() => {
-      if (this.state.error) return
-      try {
-        sessionStorage.removeItem(RELOAD_GUARD)
-      } catch {
-        // Хранилище недоступно — не страшно, страховки тогда и не было.
-      }
-    }, HEALTHY_APP_DELAY_MS)
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
@@ -577,6 +566,8 @@ function AppRoutes() {
 
       <Route path="/activities" element={<ProtectedRoute permission={['portfolio', 'manage']}><AppLayout><ActivitiesPage /></AppLayout></ProtectedRoute>} />
       <Route path="/portal/activities/:activityId" element={<StudentRoute><PortalActivityDetailPage /></StudentRoute>} />
+      <Route path="/portal/activities/participations/:participationId" element={<StudentRoute><ParticipationDetailPage /></StudentRoute>} />
+      <Route path="/workspace/activities/participations/:participationId" element={<WorkspaceRoute permission={['portfolio', 'manage']}><ParticipationDetailPage /></WorkspaceRoute>} />
       <Route path="/portal/activities" element={<StudentRoute><ActivitiesPage /></StudentRoute>} />
 
       <Route

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, Numeric, Enum as SAEnum
+from sqlalchemy import CheckConstraint, Index, text, String, Integer, Boolean, Text, DateTime, ForeignKey, Numeric, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -66,3 +66,18 @@ class Document(Base):
     student: Mapped["Student"] = relationship(back_populates="documents")
     uploader: Mapped["User"] = relationship(foreign_keys=[uploaded_by])
     payment: Mapped["Payment | None"] = relationship(foreign_keys=[payment_id])
+
+
+class PortfolioDocumentLink(Base):
+    """A stored document may be reused for multiple steps and participation results."""
+    __tablename__ = "portfolio_document_links"
+    __table_args__ = (
+        CheckConstraint("(purpose = 'evidence' AND task_id IS NOT NULL AND participation_id IS NULL) OR (purpose = 'result' AND task_id IS NULL AND participation_id IS NOT NULL)", name='ck_portfolio_document_target'),
+        Index('uq_portfolio_document_task', 'document_id', 'task_id', unique=True, postgresql_where=text('task_id IS NOT NULL')),
+        Index('uq_portfolio_document_participation', 'document_id', 'participation_id', unique=True, postgresql_where=text('participation_id IS NOT NULL')),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("roadmap_tasks.id", ondelete="CASCADE"), nullable=True, index=True)
+    participation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("student_activities.id", ondelete="CASCADE"), nullable=True, index=True)
+    purpose: Mapped[str] = mapped_column(String(20))

@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentStudent, CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.activity import Activity, ActivityIntake, StudentActivity
+from app.models.document import Document, PortfolioDocumentLink, DocType
 from app.models.student import Student
 from app.models.user import User, UserRole
 from app.models.mentor_assignment import MentorAssignment, MentorRole
@@ -238,12 +239,12 @@ async def steps_by_participation(db, participation_ids, *, for_student: bool) ->
     if not participation_ids:
         return {}
     rows = (await db.execute(select(RoadmapTask, Stage.visible_to_student, Roadmap.status)
-        .join(Stage, RoadmapTask.stage_id == Stage.id).join(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
+        .outerjoin(Stage, RoadmapTask.stage_id == Stage.id).outerjoin(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
         .where(RoadmapTask.activity_participation_id.in_(participation_ids), RoadmapTask.deleted_at.is_(None)))).all()
     grouped: dict[uuid.UUID, list[RoadmapTask]] = {}
     for task, stage_visible, roadmap_status in rows:
-        if for_student and not (roadmap_status == RoadmapStatus.active and task_visible_to_student(
-                audience=task.audience, task_visible=task.visible_to_student, stage_visible=stage_visible)):
+        if for_student and not ((roadmap_status is None or roadmap_status == RoadmapStatus.active) and task_visible_to_student(
+                audience=task.audience, task_visible=task.visible_to_student, stage_visible=stage_visible if stage_visible is not None else True)):
             continue
         grouped.setdefault(task.activity_participation_id, []).append(task)
     return {pid: summarize_steps(sorted(tasks, key=lambda t: (t.position, str(t.id)))) for pid, tasks in grouped.items()}
@@ -260,18 +261,43 @@ def participation_rows():
         .join(Student, StudentActivity.student_id == Student.id))
 
 
+async def result_document_counts(db, ids):
+    if not ids: return {}
+    rows = (await db.execute(select(PortfolioDocumentLink.participation_id, func.count(Document.id), func.count(Document.id).filter(Document.doc_type == DocType.certificate)).join(Document, PortfolioDocumentLink.document_id == Document.id).where(PortfolioDocumentLink.participation_id.in_(ids), Document.visible_to_student.is_(True)).group_by(PortfolioDocumentLink.participation_id))).all()
+    return {pid: {'result_documents_count': total, 'certificates_count': certificates} for pid, total, certificates in rows}
+
+
 async def participation_details(db, student_id, *, for_student: bool = False):
     rows = (await db.execute(participation_rows()
         .where(StudentActivity.student_id == student_id)
         .order_by(StudentActivity.created_at.desc()))).all()
+    return await build_details(db, rows, student_id, for_student=for_student)
+
+
+async def participation_details_many(db, student_ids) -> dict:
+    """Участия нескольких учеников одним набором запросов — для обзора ментора."""
+    if not student_ids:
+        return {}
+    rows = (await db.execute(participation_rows()
+        .where(StudentActivity.student_id.in_(student_ids))
+        .order_by(StudentActivity.created_at.desc()))).all()
+    items = await build_details(db, rows, None)
+    grouped: dict = {}
+    for item in items:
+        grouped.setdefault(item.student_id, []).append(item)
+    return grouped
+
+
+async def build_details(db, rows, student_id, *, for_student: bool = False):
     steps = await steps_by_participation(db, [row[0].id for row in rows], for_student=for_student)
+    documents = await result_document_counts(db, [row[0].id for row in rows])
     # Участие без ответственного, а ментор портфолио у ученика один — показываем
     # его, а не «не назначен»: ученик не должен думать, что его бросили.
     fallback = None
-    if any(row[0].mentor_id is None for row in rows):
+    if student_id and any(row[0].mentor_id is None for row in rows):
         mentors = await mentor_options(db, student_id)
         fallback = mentors[0]['name'] if len(mentors) == 1 else None
-    return [ParticipationDetail(**ParticipationOut.model_validate(item).model_dump(),
+    return [ParticipationDetail(**{**ParticipationOut.model_validate(item).model_dump(), **documents.get(item.id, {})},
         activity=ActivityOut.model_validate(activity), intake=IntakeOut.model_validate(intake),
         mentor_name=mentor_name or (fallback if item.mentor_id is None else None), student_name=student_name,
         selected_by_name=selected_by, steps=steps.get(item.id, StepsSummary()))
@@ -386,7 +412,18 @@ async def update_my_participation(participation_id: uuid.UUID, body: MyParticipa
         activity = await db.get(Activity, intake.activity_id)
         if activity.publication == 'archived' or (intake.deadline and intake.deadline < date.today()):
             raise HTTPException(409, 'Набор закрыт')
-    return await edit_participation(db, item, body.model_dump(exclude_unset=True), user)
+    data = body.model_dump(exclude_unset=True)
+    note = None
+    if data.get('decision') == 'not_interested' and item.decision != 'not_interested':
+        from app.api.v1.endpoints.portfolio_workflow import participation_notify
+        note = await participation_notify(db, item, user, 'activity_declined', 'Ученик отказался от активности', mentor=True)
+    result = await edit_participation(db, item, data, user)
+    if note:
+        from app.services.notify import push_notification, push_ws
+        await db.refresh(note)
+        await push_notification(note)
+        await push_ws([note.user_id], 'portfolio.updated', {})
+    return result
 
 
 @router.get('/participations/{participation_id}/tasks', response_model=list[RoadmapTaskOut])
@@ -395,11 +432,11 @@ async def participation_tasks(participation_id: uuid.UUID, db: DB, user: Current
     if user.role != UserRole.student:
         require_access(user, 'roadmaps', Action.view)
     rows = (await db.execute(select(RoadmapTask, Stage.visible_to_student, Roadmap.status)
-        .join(Stage, RoadmapTask.stage_id == Stage.id).join(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
+        .outerjoin(Stage, RoadmapTask.stage_id == Stage.id).outerjoin(Roadmap, RoadmapTask.roadmap_id == Roadmap.id)
         .where(RoadmapTask.activity_participation_id == participation_id, RoadmapTask.deleted_at.is_(None))
-        .options(selectinload(RoadmapTask.subtasks)).order_by(RoadmapTask.due_date.asc().nullslast(), RoadmapTask.position))).all()
+        .options(selectinload(RoadmapTask.subtasks)).order_by(RoadmapTask.position, RoadmapTask.created_at))).all()
     return [task for task, visible, roadmap_status in rows if user.role != UserRole.student or
-        (roadmap_status == RoadmapStatus.active and task_visible_to_student(audience=task.audience, task_visible=task.visible_to_student, stage_visible=visible))]
+        ((roadmap_status is None or roadmap_status == RoadmapStatus.active) and task_visible_to_student(audience=task.audience, task_visible=task.visible_to_student, stage_visible=visible if visible is not None else True))]
 
 
 @router.post('/participations/{participation_id}/tasks', response_model=dict)
@@ -408,8 +445,8 @@ async def link_task(participation_id: uuid.UUID, body: ActivityTaskLink, db: DB,
     item = await participation_access(db, participation_id, user)
     await validate_activity_task(db, participation_id, item.student_id)
     task = await db.get(RoadmapTask, body.task_id)
-    roadmap = await db.get(Roadmap, task.roadmap_id) if task else None
-    if not roadmap or roadmap.student_id != item.student_id:
+    roadmap = await db.get(Roadmap, task.roadmap_id) if task and task.roadmap_id else None
+    if not task or (roadmap.student_id if roadmap else task.student_id) != item.student_id:
         raise HTTPException(404, 'Задача не найдена для этого ученика')
     if task.activity_participation_id and task.activity_participation_id != item.id:
         raise HTTPException(409, 'Задача уже относится к другой активности')
@@ -422,12 +459,12 @@ async def link_task(participation_id: uuid.UUID, body: ActivityTaskLink, db: DB,
 
 @router.get('/staff/participations')
 async def staff_participations(db: DB, user: CurrentUser, student_id: uuid.UUID | None = None,
-    activity_id: uuid.UUID | None = None, q: str = Query('', max_length=200),
+    activity_id: uuid.UUID | None = None, mentor_id: uuid.UUID | None = None, q: str = Query('', max_length=200),
     decision: str | None = Query(None, pattern='^(selected|suggested|not_interested)$'),
     status: str | None = Query(None, pattern='^(not_started|in_progress|submitted|completed|cancelled)$'),
     source: str | None = Query(None, pattern='^(unknown|student|staff)$'),
     column: str | None = Query(None, pattern='^(suggested|planning|in_work|review|done|closed)$'),
-    view: str = Query('all', pattern='^(all|waiting|due_soon|closed)$'),
+    view: str = Query('all', pattern='^(all|waiting|due_soon|closed|planning|review|in_work|done)$'),
     offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=500)):
     """Участия для доски и таблицы. Колонка вычисляется (activity_board), поэтому
     фильтр по ней и счётчики считаются после выборки — в пределах учеников
@@ -441,6 +478,7 @@ async def staff_participations(db: DB, user: CurrentUser, student_id: uuid.UUID 
         query = query.where(StudentActivity.student_id.in_(allowed))
     if student_id: query = query.where(StudentActivity.student_id == student_id)
     if activity_id: query = query.where(Activity.id == activity_id)
+    if mentor_id: query = query.where(StudentActivity.mentor_id == mentor_id)
     if decision: query = query.where(StudentActivity.decision == decision)
     if status: query = query.where(StudentActivity.status == status)
     if source: query = query.where(StudentActivity.selection_source == source)
@@ -448,13 +486,14 @@ async def staff_participations(db: DB, user: CurrentUser, student_id: uuid.UUID 
         query = query.where(or_(Student.full_name.ilike('%' + q.strip() + '%'), Activity.title.ilike('%' + q.strip() + '%')))
     rows = (await db.execute(query.order_by(StudentActivity.created_at.desc(), StudentActivity.id))).all()
     steps = await steps_by_participation(db, [row[0].id for row in rows], for_student=False)
+    documents = await result_document_counts(db, [row[0].id for row in rows])
     today = date.today()
     items = []
     for item, intake, activity, mentor, name, selected_by in rows:
         summary = steps.get(item.id, StepsSummary())
-        col = board_column(item.decision, item.status, summary)
+        col = 'review' if item.decision == 'selected' and item.status not in ('completed', 'cancelled') and item.result_review_status == 'pending' else board_column(item.decision, item.status, summary)
         due = nearest_due(item.personal_deadline, intake.deadline, summary)
-        items.append(BoardItem(**ParticipationOut.model_validate(item).model_dump(),
+        items.append(BoardItem(**{**ParticipationOut.model_validate(item).model_dump(), **documents.get(item.id, {})},
             activity=ActivityOut.model_validate(activity), intake=IntakeOut.model_validate(intake),
             student_name=name, mentor_name=mentor, selected_by_name=selected_by, steps=summary,
             column=col, due=due, due_soon=is_due_soon(col, due, today),
@@ -466,11 +505,13 @@ async def staff_participations(db: DB, user: CurrentUser, student_id: uuid.UUID 
         'due_soon': sum(i.due_soon for i in open_items),
         'closed': len(items) - len(open_items),
     }
+    counts.update({col: sum(i.column == col for i in open_items) for col in ('planning', 'review', 'in_work', 'done')})
     by_view = {
         'all': open_items,
         'waiting': [i for i in open_items if i.column in MENTOR_ACTION_COLUMNS],
         'due_soon': [i for i in open_items if i.due_soon],
         'closed': [i for i in items if i.column == 'closed'],
+        **{col: [i for i in open_items if i.column == col] for col in ('planning', 'review', 'in_work', 'done')},
     }[view]
     columns = {c: sum(i.column == c for i in by_view) for c in ('suggested', 'planning', 'in_work', 'review', 'done', 'closed')}
     if column:

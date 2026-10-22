@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ClipboardCheck } from 'lucide-react'
 import { workspaceApi, WorkspaceRoadmapTask } from '@/api/workspace'
 import { roadmapApi } from '@/api/roadmap'
+import { activitiesApi } from '@/api/activities'
+import { useAuth } from '@/contexts/AuthContext'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
 import { withViewTransition } from '@/lib/motion'
 import { useWsEvent } from '@/lib/ws'
@@ -49,6 +51,18 @@ export const WorkspaceReviewPage: React.FC = () => {
   const { params, isPreview, mentorId } = useWorkspaceScope()
   const [returnTarget, setReturnTarget] = useState<WorkspaceRoadmapTask | null>(null)
   const [comment, setComment] = useState('')
+  const { can } = useAuth()
+  // Итоги участия Portfolio UP проверяются на странице участия (текст + сертификат),
+  // здесь — только очередь, чтобы ментор видел всю свою проверку в одном месте.
+  const results = useQuery({
+    queryKey: ['activities', 'review-results', mentorId ?? 'mine'],
+    queryFn: () => activitiesApi.overview({ view: 'waiting', limit: 200, ...(mentorId ? { mentor_id: mentorId } : {}) }),
+    enabled: can('portfolio', 'manage'),
+  })
+  const pendingResults = (results.data?.items ?? []).filter((p) => p.result_review_status === 'pending')
+  const taskPath = (task: WorkspaceRoadmapTask) => task.activity_participation_id
+    ? `/workspace/activities/participations/${task.activity_participation_id}#step-${task.id}`
+    : `/workspace/students/${task.student_id}#roadmap`
 
   const { data: queueData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workspace', 'review-queue', params],
@@ -176,7 +190,7 @@ export const WorkspaceReviewPage: React.FC = () => {
                           </Link>
                           <div className="mt-0.5 text-sm font-bold text-w-ink">{task.title}</div>
                           <div className="mt-0.5 text-xs text-w-muted">
-                            {task.stage_name} · отмечена {relativeTimeRu(task.completed_at)}
+                            {task.activity_participation_id ? `Portfolio UP · ${task.stage_name}` : task.stage_name} · отмечена {relativeTimeRu(task.completed_at)}
                           </div>
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -224,7 +238,7 @@ export const WorkspaceReviewPage: React.FC = () => {
                           colorPrefix="w"
                           size="sm"
                           variant="subtle"
-                          onClick={() => navigate(`/workspace/students/${task.student_id}#roadmap`)}
+                          onClick={() => navigate(taskPath(task))}
                         >
                           Открыть
                         </AppButton>
@@ -235,6 +249,25 @@ export const WorkspaceReviewPage: React.FC = () => {
               </div>
             )}
           </section>
+
+          {pendingResults.length > 0 && (
+            <section className="anim-view-in space-y-3">
+              <h2 className="text-sm font-bold text-w-ink">Итоги участия Portfolio UP ({pendingResults.length})</h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {pendingResults.map((p) => (
+                  <AppCard key={p.id} colorPrefix="w" className="space-y-2 p-4">
+                    <Link to={`/workspace/students/${p.student_id}#portfolio`} className="text-xs font-bold text-w-accentText hover:underline">{p.student_name}</Link>
+                    <div className="text-sm font-bold text-w-ink">{p.activity.title}</div>
+                    <div className="text-xs text-w-muted">
+                      Итог отправлен {relativeTimeRu(p.result_submitted_at ?? null)}{p.certificates_count ? ` · сертификатов: ${p.certificates_count}` : ' · без сертификата'}
+                    </div>
+                    {p.result_text && <p className="line-clamp-2 text-xs text-w-muted">{p.result_text}</p>}
+                    <AppButton colorPrefix="w" size="sm" onClick={() => navigate(`/workspace/activities/participations/${p.id}#result`)}>Проверить итог</AppButton>
+                  </AppCard>
+                ))}
+              </div>
+            </section>
+          )}
 
           {resolvedRecent.length > 0 && (
             <section className="anim-view-in space-y-3">

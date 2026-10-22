@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Compass, Search } from 'lucide-react'
-import { activitiesApi, type Participation } from '@/api/activities'
+import { activitiesApi, type ExperienceKey, type Participation } from '@/api/activities'
 import { AppButton, Avatar, EmptyState } from '@/components/ui'
 import { Input } from '@/components/ui/primitives/input'
 import { QueryState } from '@/components/shared/QueryState'
-import { directionCounts } from '@/lib/activityUi'
+import { directionCounts, isExperienceKey } from '@/lib/activityUi'
 import { ActivityCatalogCard, planStateOf } from './ActivityCards'
-import { DirectionBadge, FilterChip } from './ActivityParts'
+import { DirectionBadge, ExperienceChips, FilterChip } from './ActivityParts'
 import { participationByActivity, useAddToPlan, useDecline, useMyPlan } from './useStudentActivities'
 
 /** Один крупный блок рекомендаций; несколько — листаются стрелками. */
@@ -55,12 +55,16 @@ export function StudentCatalog() {
   const [search, setSearch] = useState('')
   const [direction, setDirection] = useState('')
   const [freeOnly, setFreeOnly] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const type = isExperienceKey(params.get('type')) ? params.get('type') as ExperienceKey : ''
+  const setType = (next: ExperienceKey | '') => { const p = new URLSearchParams(params); if (next) p.set('type', next); else p.delete('type'); setParams(p, { replace: true }) }
   const byActivity = useMemo(() => participationByActivity(plan.data), [plan.data])
   const suggestions = (plan.data ?? []).filter((item) => item.status !== 'cancelled' && item.status !== 'completed' && item.activity.publication !== 'archived' && item.decision === 'suggested')
   const all = catalog.data ?? []
   const directions = directionCounts(all)
   const needle = search.trim().toLocaleLowerCase()
   const visible = all.filter((a) => (!direction || a.direction === direction)
+    && (!type || (a.experience_type ?? 'other') === type)
     && (!freeOnly || a.next_intake?.cost_state === 'free')
     && (!needle || `${a.title} ${a.organizer ?? ''} ${a.country ?? ''} ${a.kind ?? ''}`.toLocaleLowerCase().includes(needle)))
   const open = (activityId: string) => navigate(`/portal/activities/${activityId}`)
@@ -78,13 +82,14 @@ export function StudentCatalog() {
         <span aria-hidden className="mx-1 w-px shrink-0 self-stretch bg-ds-line" />
         <FilterChip active={freeOnly} onClick={() => setFreeOnly(!freeOnly)} count={all.filter((a) => a.next_intake?.cost_state === 'free').length}>Бесплатно</FilterChip>
       </div>
+      <ExperienceChips items={all} value={type} onChange={setType} />
     </div>
     <QueryState isLoading={catalog.isLoading || plan.isLoading} isError={catalog.isError || plan.isError} error={catalog.error || plan.error} onRetry={() => { catalog.refetch(); plan.refetch() }}>
       {!visible.length
         ? <EmptyState icon={<Compass className="h-6 w-6" />}
             title={all.length ? 'Ничего не нашлось' : 'Каталог скоро наполнится'}
             description={all.length ? 'Измените поиск или снимите фильтры.' : 'Здесь появятся проверенные возможности с открытым набором.'}
-            action={all.length ? <AppButton size="sm" variant="subtle" onClick={() => { setSearch(''); setDirection(''); setFreeOnly(false) }}>Сбросить фильтры</AppButton> : undefined} />
+            action={all.length ? <AppButton size="sm" variant="subtle" onClick={() => { setSearch(''); setDirection(''); setFreeOnly(false); setType('') }}>Сбросить фильтры</AppButton> : undefined} />
         : <div className="grid gap-4 pt-1 sm:grid-cols-2 xl:grid-cols-3">
             {visible.map((activity) => {
               const existing = byActivity.get(activity.id)
