@@ -107,7 +107,20 @@ export interface NotionFieldSyncQueue {
   items: NotionFieldSyncItem[]
 }
 
+export interface NotionFieldReport {
+  revision: string; students: number; ready: number; review: number; enabled: boolean; dry_run: boolean; excluded: string[]
+  rows: Array<{ snapshot_id: string; student_id: string; student_name: string; synced_at: string | null; fields: Array<{ field_key: string; label: string; crm: string | null; notion: string | null; decision: string; winner: string | null; eligible: boolean; reason: string | null }> }>
+}
+
 export const syncApi = {
+  notionFieldReport: async (studentId?: string) => {
+    const res = await apiClient.get<NotionFieldReport>('/sync/notion-field-report', { params: { student_id: studentId } })
+    return res.data
+  },
+  applyNotionFieldReport: async (revision: string, studentId?: string) => {
+    const res = await apiClient.post<{ queued: number; review: number; dry_run: boolean }>('/sync/notion-field-report/apply', { revision, student_id: studentId })
+    return res.data
+  },
   run: async () => {
     const res = await apiClient.post('/sync/run')
     return res.data as { ok: boolean; counters: SyncCounters }

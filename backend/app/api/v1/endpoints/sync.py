@@ -750,8 +750,11 @@ async def resolve_notion_field_sync_conflict(
         raise HTTPException(status_code=404, detail="Запись очереди не найдена")
     if item.status is not FieldSyncStatus.conflict:
         raise HTTPException(status_code=409, detail="Разрешать можно только открытый конфликт")
-    if item.field_key not in {"full_name", "phone", "degree_level", "intake_year"}:
-        raise HTTPException(status_code=409, detail="Это поле не входит в автоматический пилот")
+    from app.services.notion_field_sync_runtime import _FIELD_PROPERTY, CONTRACT_FIELD_ATTR
+    if item.field_key not in _FIELD_PROPERTY:
+        raise HTTPException(status_code=409, detail="Это поле не поддерживает автоматический обмен")
+    if item.field_key in CONTRACT_FIELD_ATTR:
+        require_access(current_user, "contracts", Action.manage)
 
     from app.models.student import Student as StudentModel
     from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult
@@ -773,7 +776,14 @@ async def resolve_notion_field_sync_conflict(
         raise HTTPException(status_code=409, detail="Связь CRM ↔ Notion изменилась; обновите сверку")
 
     field = item.field_key
-    current_crm = _crm_raw(field, student)
+    contract = None
+    if field in CONTRACT_FIELD_ATTR:
+        from app.models.contract import Contract
+        contracts = (await db.execute(select(Contract).where(Contract.student_id == student.id).limit(2))).scalars().all()
+        if len(contracts) != 1:
+            raise HTTPException(status_code=409, detail="Нужно однозначно определить договор")
+        contract = contracts[0]
+    current_crm = _crm_raw(field, student, contract)
     current_notion = (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
     if (
         not _matches_expected(field, current_crm, item.crm_value)
@@ -813,3 +823,68 @@ async def resolve_notion_field_sync_conflict(
     )
     await db.commit()
     return {"resolved": True, "side": body.side, "queued_item_id": str(next_item.id)}
+
+
+@router.get("/notion-field-report")
+async def notion_field_report(
+    db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser,
+    student_id: uuid.UUID | None = None,
+):
+    """Preflight remains available with writes disabled; no baseline/queue changes."""
+    require_access(current_user, "notion", Action.manage)
+    from app.services.mentor_scope import mentor_assigned_student_ids
+    from app.core.permissions import Action as PermissionAction
+    from app.services.notion_field_sync_report import build_report
+    allowed_ids = await mentor_assigned_student_ids(db, current_user)
+    # Financial values are exposed only to a principal already allowed to view contracts.
+    try:
+        require_access(current_user, "contracts", PermissionAction.view)
+        include_contract = True
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        include_contract = False
+    report = await build_report(db, student_id=student_id, allowed_ids=allowed_ids, include_contract=include_contract)
+    return {**report, "enabled": settings.ENABLE_NOTION_FIELD_SYNC, "dry_run": settings.NOTION_FIELD_SYNC_DRY_RUN}
+
+
+class ApplyNotionFieldReportBody(BaseModel):
+    revision: str
+    student_id: uuid.UUID | None = None
+
+
+@router.post("/notion-field-report/apply")
+async def apply_notion_field_report(
+    body: ApplyNotionFieldReportBody,
+    db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser,
+):
+    require_access(current_user, "notion", Action.manage)
+    require_access(current_user, "students", Action.edit)
+    if not settings.ENABLE_NOTION_FIELD_SYNC:
+        raise HTTPException(status_code=409, detail="Автоматический обмен выключен; отчёт доступен без записи")
+    report = await notion_field_report(db, current_user, student_id=body.student_id)
+    if report["revision"] != body.revision:
+        raise HTTPException(status_code=409, detail="Данные изменились после отчёта. Обновите его перед применением")
+    from app.services.notion_field_sync_outbox import enqueue_reconciliation
+    from app.services.notion_field_sync_policy import reconcile_field
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
+    ready = [f for row in report["rows"] for f in row["fields"] if f["eligible"]]
+    if any(f["field_key"] in CONTRACT_FIELD_ATTR for f in ready):
+        require_access(current_user, "contracts", Action.manage)
+    queued = 0
+    for row in report["rows"]:
+        for field in row["fields"]:
+            if not field["eligible"]:
+                continue
+            result = reconcile_field(baseline=field["baseline"], has_baseline=field["has_baseline"], crm_value=field["crm"], notion_value=field["notion"])
+            await enqueue_reconciliation(
+                db, notion_snapshot_id=uuid.UUID(row["snapshot_id"]), student_id=uuid.UUID(row["student_id"]),
+                notion_page_id=row["notion_page_id"], field_key=field["field_key"],
+                source_revision=f"approved-report:{report['revision']}", result=result,
+                baseline_value=field["baseline"], has_baseline=field["has_baseline"],
+                reason=f"Проверенный отчёт; подтверждён пользователем {current_user.id}",
+            )
+            queued += 1
+    await log_change(db, "notion_sync_report", current_user.id, "approved_report", None, report["revision"], str(current_user.id), "manual")
+    await db.commit()
+    return {"queued": queued, "review": report["review"], "dry_run": settings.NOTION_FIELD_SYNC_DRY_RUN}

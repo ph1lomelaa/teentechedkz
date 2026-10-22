@@ -69,10 +69,10 @@ async def _load_students_index(db: AsyncSession) -> list[dict]:
 
 
 # --- Двусторонняя синхронизация «кто последний правил» ---------------------------
-# Синк НИЧЕГО не пишет в CRM автоматически. Он лишь ведёт «эталон» (synced_baseline)
-# — последнее значение, на котором Notion и CRM сошлись, — чтобы карточка могла
-# показать, какая сторона изменилась последней. Перенос значений всегда вручную:
-# «Принять из Notion» (apply_field) или «→ Записать в Notion» (push_field).
+# По умолчанию синк только обновляет зеркало и общий эталон. При явном включении
+# ENABLE_NOTION_FIELD_SYNC изменения общих полей проходят через долговечную
+# очередь; NOTION_FIELD_SYNC_DRY_RUN оставляет проверку без записи. Исторические
+# конфликты без достоверных событий поля требуют выбора источника.
 
 # Поля, которые можно править и синхронизировать в обе стороны. Ключ — внутреннее имя
 # поля (как в сверке и в whitelist apply/push), значения канонизируются одинаково для
@@ -202,7 +202,7 @@ def reconcile_baseline(snapshot: NotionSnapshot, student, contract) -> None:
         snapshot.synced_baseline = baseline
 
 
-AUTO_RECONCILE_FIELDS = frozenset({"full_name", "phone", "degree_level", "intake_year"})
+AUTO_RECONCILE_FIELDS = frozenset(EDITABLE_FIELDS)
 
 
 async def _enqueue_field_reconciliation(
@@ -212,11 +212,11 @@ async def _enqueue_field_reconciliation(
     contract: Contract | None,
     canon: dict[str, tuple[str | None, str | None]],
 ) -> None:
-    """Persist only reviewed profile-field decisions for the gated worker.
+    """Queue shared scalar fields only when the writer feature is enabled.
 
-    The general sync continues to be read-only. Creating outbox items is
-    disabled with the writer flag, and financial/status fields stay out until
-    their own pilot policy is reviewed.
+    Unknown baselines, clears and two-sided conflicts retain both values.
+    Contract fields require a contract; the executor additionally validates
+    uniqueness, currency, live property type and current values before writes.
     """
     if not settings.ENABLE_NOTION_FIELD_SYNC:
         return
@@ -225,7 +225,10 @@ async def _enqueue_field_reconciliation(
     from app.services.notion_field_sync_policy import reconcile_field
 
     baseline = snapshot.synced_baseline or {}
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
     for field in AUTO_RECONCILE_FIELDS:
+        if field in CONTRACT_FIELD_ATTR and contract is None:
+            continue
         pair = canon.get(field)
         if pair is None:
             continue
@@ -257,7 +260,7 @@ async def _enqueue_field_reconciliation(
             baseline_value=baseline_value,
             has_baseline=has_baseline,
             expected_notion_last_edited_at=snapshot.notion_last_edited_at,
-            reason="Автосверка разрешена только для имени, телефона, ступени и набора; конфликт требует проверки.",
+            reason="Автосверка общих полей: изменения одной стороны передаются автоматически; неоднозначные конфликты сохраняются для проверки.",
         )
 
 

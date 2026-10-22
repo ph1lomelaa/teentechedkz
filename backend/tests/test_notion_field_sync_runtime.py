@@ -182,7 +182,7 @@ def test_unrelated_page_edit_does_not_block_unchanged_field(monkeypatch):
 
 def test_fields_outside_allowlist_never_write():
     item, student, snapshot, _crm, _notion = setup_case("full_name")
-    item.field_key = "pipeline_status"
+    item.field_key = "countries"
 
     result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
 
@@ -242,7 +242,7 @@ def test_batch_retains_dry_run_as_reviewable_and_claimable_later(monkeypatch):
     session = FakeSession()
     session.commit = AsyncMock()
     entities = {item.id: item, item.student_id: student, item.notion_snapshot_id: snapshot}
-    session.get = AsyncMock(side_effect=lambda _model, entity_id: entities.get(entity_id))
+    session.get = AsyncMock(side_effect=lambda _model, entity_id, **_kwargs: entities.get(entity_id))
 
     counts = asyncio.run(runtime.process_outbox_batch(session, limit=5, dry_run=True))
 
@@ -255,7 +255,7 @@ def test_batch_retains_dry_run_as_reviewable_and_claimable_later(monkeypatch):
 
 def test_batch_retries_transient_external_failure(monkeypatch):
     item = SimpleNamespace(
-        id=uuid4(), student_id=None, notion_snapshot_id=None,
+        id=uuid4(), student_id=None, notion_snapshot_id=None, field_key="phone",
         status=FieldSyncStatus.processing,
     )
     claims = 0
@@ -288,7 +288,7 @@ def test_batch_retries_transient_external_failure(monkeypatch):
 
 def test_batch_marks_changed_live_data_superseded(monkeypatch):
     item = SimpleNamespace(
-        id=uuid4(), student_id=None, notion_snapshot_id=None,
+        id=uuid4(), student_id=None, notion_snapshot_id=None, field_key="phone",
         status=FieldSyncStatus.processing, locked_until=NOW, last_error=None,
         updated_at=NOW,
     )

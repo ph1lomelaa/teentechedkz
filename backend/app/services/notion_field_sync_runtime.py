@@ -1,4 +1,4 @@
-"""Conservative executor for the first supported CRM ↔ Notion profile fields.
+"""Verified executor for the shared CRM ↔ Notion scalar fields.
 
 This module is deliberately not a worker or scheduler. The caller claims items
 through the feature-gated outbox service and owns the transaction/commit. Dry
@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
 
@@ -19,6 +20,7 @@ from app.core.audit import log_change
 from app.models.notion_field_sync import FieldSyncDirection, FieldSyncStatus, NotionFieldSync
 from app.models.notion_snapshot import NotionMatchStatus
 from app.models.student import DegreeLevel
+from app.models.contract import Contract, PipelineStatus
 from app.services import notion_write
 
 
@@ -42,12 +44,33 @@ _FIELD_PROPERTY = {
     "phone": "Номер тел",
     "degree_level": "Degree",
     "intake_year": "Intake",
+    "pipeline_status": "Статус выплат",
+    "signed_date": "Date of Agreement",
+    "client_fee": "Client fee",
+    "english_sum": "Сумм Англ",
+    "english_paid": "PAID Англ",
+    "client_remaining": "Остаток клиента",
+    "client_remaining_date": "Остаток клиента (дата)",
+    "mentor_total": "TOTAL (Mentors)",
 }
+CONTRACT_FIELD_ATTR = {
+    "pipeline_status": "pipeline_status", "signed_date": "signed_date",
+    "client_fee": "amount", "english_sum": "english_sum", "english_paid": "english_paid",
+    "client_remaining": "client_remaining_amount", "client_remaining_date": "client_remaining_date",
+    "mentor_total": "mentor_total_owed",
+}
+MONEY_FIELDS = frozenset({"client_fee", "english_sum", "english_paid", "client_remaining", "mentor_total"})
+DATE_FIELDS = frozenset({"signed_date", "client_remaining_date"})
+
 _SNAPSHOT_VALUE_KEY = {
     "full_name": "full_name",
     "phone": "phone",
     "degree_level": "degree_raw",
     "intake_year": "intake_raw",
+    "pipeline_status": "payment_status_raw", "signed_date": "date_of_agreement",
+    "client_fee": "client_fee", "english_sum": "english_sum", "english_paid": "english_paid",
+    "client_remaining": "client_remaining", "client_remaining_date": "client_remaining_date",
+    "mentor_total": "mentor_total",
 }
 
 
@@ -78,10 +101,31 @@ def canonical_profile_value(field: str, value: Any) -> str | None:
             return None
     if field == "intake_year":
         return _parse_intake(value)
+    if field == "pipeline_status":
+        if str(value) in {status.value for status in PipelineStatus}:
+            return str(value)
+        from migration.transformers.normalize import parse_pipeline_status
+        try:
+            return parse_pipeline_status(str(value))
+        except (ValueError, TypeError):
+            return None
+    if field in MONEY_FIELDS:
+        try:
+            amount = Decimal(str(value).replace(" ", "").replace(",", "."))
+            return format(amount.quantize(Decimal("0.01")), ".2f") if amount.is_finite() else None
+        except (InvalidOperation, ValueError):
+            return None
+    if field in DATE_FIELDS:
+        try:
+            return date.fromisoformat(str(value)[:10]).isoformat()
+        except ValueError:
+            return None
     return None
 
 
-def _crm_raw(field: str, student: Any) -> Any:
+def _crm_raw(field: str, student: Any, contract: Any = None) -> Any:
+    if field in CONTRACT_FIELD_ATTR:
+        return getattr(contract, CONTRACT_FIELD_ATTR[field], None)
     if field == "full_name":
         return student.full_name
     if field == "phone":
@@ -129,6 +173,9 @@ def _crm_to_notion_payload(
         "phone": {"phone_number", "rich_text"},
         "degree_level": {"select", "status"},
         "intake_year": {"select", "status"},
+        "pipeline_status": {"select", "status"},
+        **{key: {"number"} for key in MONEY_FIELDS},
+        **{key: {"date"} for key in DATE_FIELDS},
     }
     if prop_type not in expected_types[field]:
         return None
@@ -136,10 +183,16 @@ def _crm_to_notion_payload(
     if canonical is None:
         return None
     notion_value = crm_value
-    if field in ("degree_level", "intake_year"):
+    if field in ("degree_level", "intake_year", "pipeline_status"):
         notion_value = _select_option_for(field, notion_write, schema, real_name, canonical)
         if notion_value is None:
             return None
+    if field in MONEY_FIELDS:
+        notion_value = float(canonical)
+        if canonical_profile_value(field, notion_value) != canonical:
+            return None
+    if field in DATE_FIELDS:
+        notion_value = canonical
     return notion_write.build_property(prop_type, notion_value)
 
 
@@ -160,6 +213,12 @@ def _notion_to_crm_value(field: str, notion_value: Any) -> Any | None:
     if field == "intake_year":
         parsed_year = _parse_intake(notion_value)
         return int(parsed_year) if parsed_year else None
+    if field == "pipeline_status":
+        return PipelineStatus(canonical_profile_value(field, notion_value))
+    if field in MONEY_FIELDS:
+        return Decimal(canonical_profile_value(field, notion_value))
+    if field in DATE_FIELDS:
+        return date.fromisoformat(canonical_profile_value(field, notion_value))
     return None
 
 
@@ -170,6 +229,7 @@ async def process_profile_field(
     student: Any,
     snapshot: Any,
     dry_run: bool = True,
+    contract: Any = None,
 ) -> RuntimeResult:
     """Validate live values then optionally apply one supported profile field.
 
@@ -180,7 +240,7 @@ async def process_profile_field(
     """
     field = item.field_key
     if field not in _FIELD_PROPERTY:
-        return RuntimeResult(RuntimeDisposition.unsupported, field, "Field is outside the first safe profile-field allowlist")
+        return RuntimeResult(RuntimeDisposition.unsupported, field, "Field is outside the shared scalar-field allowlist")
     if item.direction not in (FieldSyncDirection.crm_to_notion, FieldSyncDirection.notion_to_crm):
         return RuntimeResult(RuntimeDisposition.conflict, field, "Outbox item has no safe write direction")
     if student is None:
@@ -195,7 +255,11 @@ async def process_profile_field(
     if item.student_id != student.id:
         return RuntimeResult(RuntimeDisposition.superseded, field, "Linked CRM student changed or is missing")
 
-    current_crm = _crm_raw(field, student)
+    if field in CONTRACT_FIELD_ATTR and contract is None:
+        return RuntimeResult(RuntimeDisposition.conflict, field, "A single verified contract is required for this field")
+    if field in MONEY_FIELDS and getattr(contract, "currency", "KZT") != "KZT":
+        return RuntimeResult(RuntimeDisposition.conflict, field, "Notion financial columns use KZT; contract currency must be reviewed")
+    current_crm = _crm_raw(field, student, contract)
     if not _matches_expected(field, current_crm, item.crm_value):
         return RuntimeResult(RuntimeDisposition.superseded, field, "CRM field changed after this item was queued")
 
@@ -278,12 +342,14 @@ async def process_profile_field(
         elif field == "phone":
             new_crm = str(target_raw).strip()[:100]
         old_crm = current_crm
-        setattr(student, field, new_crm)
+        target = contract if field in CONTRACT_FIELD_ATTR else student
+        attribute = CONTRACT_FIELD_ATTR.get(field, field)
+        setattr(target, attribute, new_crm)
         await log_change(
             session,
-            "student",
-            student.id,
-            f"notion_auto_sync:{field}",
+            "contract" if field in CONTRACT_FIELD_ATTR else "student",
+            target.id,
+            f"notion_auto_sync:{attribute}",
             old_crm.value if isinstance(old_crm, Enum) else old_crm,
             new_crm.value if isinstance(new_crm, Enum) else new_crm,
             "system:notion_field_sync",
@@ -340,10 +406,15 @@ async def process_outbox_batch(
         if item is None:
             continue
         try:
-            student = await session.get(Student, item.student_id) if item.student_id else None
-            snapshot = await session.get(NotionSnapshot, item.notion_snapshot_id) if item.notion_snapshot_id else None
+            student = await session.get(Student, item.student_id, with_for_update=True) if item.student_id else None
+            snapshot = await session.get(NotionSnapshot, item.notion_snapshot_id, with_for_update=True) if item.notion_snapshot_id else None
+            contract = None
+            if item.field_key in CONTRACT_FIELD_ATTR and student is not None:
+                contracts = (await session.execute(select(Contract).where(Contract.student_id == student.id).with_for_update().limit(2))).scalars().all()
+                if len(contracts) == 1:
+                    contract = contracts[0]
             result = await process_profile_field(
-                session, item, student=student, snapshot=snapshot, dry_run=dry_run
+                session, item, student=student, snapshot=snapshot, dry_run=dry_run, contract=contract
             )
             if result.disposition is RuntimeDisposition.ready:
                 item.status = FieldSyncStatus.dry_run

@@ -651,6 +651,7 @@ async def _append_new_live_tasks(
                         continue
                     else:
                         live_task = RoadmapTask(
+                            student_id=roadmap.student_id,
                             roadmap_id=roadmap.id, stage_id=live_stage.id,
                             source_notion_page_id=source_id, title=source_task.title,
                             description=source_task.description, expected_result=source_task.expected_result,
