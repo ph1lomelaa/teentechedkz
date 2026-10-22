@@ -91,3 +91,6 @@ docker-compose.seed.yml
 PLAN_PERMISSIONS.md
 STUDENT_REGISTRATION_GUIDE.md
 delete_test_users.sql
+
+# Локальные отчёты и патчи агентов
+output/
