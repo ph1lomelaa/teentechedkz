@@ -13,9 +13,9 @@ vi.mock('./PortfolioFiles', () => ({ PortfolioFiles: () => <p>Файлы</p> }))
 const wrap = (node: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>)
 beforeEach(() => { vi.clearAllMocks(); mocks.setFocus.mockResolvedValue(null); mocks.submitResult.mockResolvedValue({}); mocks.reviewResult.mockResolvedValue({}) })
 
-it('ученик видит фокус ментора только для чтения, без фокуса блока нет', () => {
-  const { container } = wrap(<FocusNote focus={null} />)
-  expect(container).toBeEmptyDOMElement()
+it('ученик видит фокус ментора только для чтения, без фокуса тихая подсказка', () => {
+  wrap(<FocusNote focus={null} />)
+  expect(screen.getByText('Ментор напишет здесь, что усилить.')).toBeInTheDocument()
   wrap(<FocusNote focus={{ text: 'Нужна стажировка', updated_at: '2030-10-01T00:00:00Z', updated_by_name: 'Айгерим' }} />)
   expect(screen.getByText('Нужна стажировка')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Изменить|Задать/ })).toBeNull()
@@ -29,9 +29,9 @@ it('ментор задаёт фокус на месте', async () => {
 })
 
 const item = { id: 'p1', decision: 'selected', status: 'in_progress', result_review_status: 'none', result_text: null, result_review_comment: null } as unknown as Participation
-it('итог закрыт для ученика, пока обязательные шаги не выполнены', () => {
+it('итог закрыт, пока обязательные шаги не выполнены', () => {
   wrap(<ResultStep item={item} number={3} own canManage={false} ready={false} />)
-  expect(screen.getByText('Откроется, когда обязательные шаги будут выполнены.')).toBeInTheDocument()
+  expect(screen.getByText('После шагов 1–2')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Отправить итог ментору' })).toBeNull()
 })
 it('после шагов ученик отправляет итог, ментор подтверждает его', async () => {

@@ -728,6 +728,10 @@ async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: Curren
     if not task.roadmap_id:
         await learner_service.task_context(db, task, current_user, edit=True, actionable=True)
         data = body.model_dump(exclude_unset=True)
+        # Шаг Portfolio UP с проверкой закрывается только решением по отправке ученика.
+        if (task.activity_participation_id and task.requires_review and data.get('status') == RoadmapItemStatus.done
+                and task.review_status != TaskReviewStatus.pending):
+            raise HTTPException(409, 'Шаг закрывается через проверку')
         if task.review_status == TaskReviewStatus.pending and data.get('status') == RoadmapItemStatus.done:
             await learner_service.review(db, task, current_user, 'approve', None)
         else:

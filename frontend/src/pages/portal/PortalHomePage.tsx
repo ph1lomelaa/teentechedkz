@@ -46,7 +46,7 @@ function meetingTime(m: Meeting) {
 
 export const PortalHomePage: React.FC = () => {
   const { user } = useAuth()
-  const firstName = givenName(user?.name)
+  const firstName = givenName(user?.name, '')
 
   const roadmapsQuery = useQuery({ queryKey: ['portal', 'roadmap'], queryFn: roadmapApi.myRoadmaps })
   const tasksQuery = useQuery({ queryKey: ['portal', 'tasks'], queryFn: roadmapApi.myTasks })
@@ -77,6 +77,10 @@ export const PortalHomePage: React.FC = () => {
   const openTasks = notDone.filter((t) => t.review_status !== 'pending')
   const pendingCount = notDone.length - openTasks.length
   const overdue = openTasks.filter((t) => isOverdue(t)).length
+  const todayIso = new Date().toLocaleDateString('en-CA')
+  // Срок сегодня ещё не просрочка, но «в норме» про него писать нельзя.
+  const dueToday = openTasks.filter((t) => !isOverdue(t) && t.due_date === todayIso).length
+  const urgent = overdue + dueToday
   const nextTasks = [...notDone]
     .sort((a, b) => (a.due_date || '9999-12-31').localeCompare(b.due_date || '9999-12-31'))
     .slice(0, 4)
@@ -94,7 +98,7 @@ export const PortalHomePage: React.FC = () => {
             Панель студента
           </div>
           <h1 className="font-display text-3xl font-black leading-[1.05] tracking-tight text-p-text sm:text-4xl">
-            Привет, <span className="text-p-accent-text">{firstName}</span>
+            {firstName ? <>Привет, <span className="text-p-accent-text">{firstName}</span></> : 'Привет'}
           </h1>
           <p className="mt-2 max-w-[440px] text-sm text-p-muted">
             Здесь собраны ваши ближайшие задачи, встречи и общий прогресс по дорожной карте.{' '}
@@ -138,7 +142,7 @@ export const PortalHomePage: React.FC = () => {
           sub={pendingCount > 0 ? `ещё ${pendingCount} на проверке` : 'активных задач'}
           icon={<CheckCircle2 className="h-4 w-4" />}
         />
-        <StatCard colorPrefix="p" label="Дедлайны" value={String(overdue)} sub={overdue > 0 ? 'требуют внимания' : 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={overdue > 0} />
+        <StatCard colorPrefix="p" label="Дедлайны" value={String(urgent)} sub={[overdue ? `просрочено: ${overdue}` : '', dueToday ? `сегодня: ${dueToday}` : ''].filter(Boolean).join(' · ') || 'в норме'} icon={<Clock3 className="h-4 w-4" />} warn={urgent > 0} />
         <StatCard colorPrefix="p" label="Портфолио" value={portfolio.data ? String(portfolio.data.counts.confirmed) : '—'}
           sub={portfolio.data ? `достижений · в работе ${portfolio.data.counts.active}${portfolio.data.counts.suggested ? ` · рекомендаций ${portfolio.data.counts.suggested}` : ''}` : 'Portfolio UP'}
           icon={<Trophy className="h-4 w-4" />} onClick={() => navigate('/portal/activities')} />
@@ -184,12 +188,24 @@ export const PortalHomePage: React.FC = () => {
                     i < nextTasks.length - 1 ? 'mb-2.5' : ''
                   )}
                 >
-                  <ClaimCheckbox
-                    task={t}
-                    size="md"
-                    onClaim={() => withViewTransition(() => claim.mutate(t.id))}
-                    onUnclaim={() => withViewTransition(() => unclaim.mutate(t.id))}
-                  />
+                  {/* Шаг Portfolio UP с проверкой закрывается отправкой в плане, а не галочкой. */}
+                  {t.activity_participation_id && t.requires_review !== false && t.status !== 'done' ? (
+                    <Link
+                      to={`/portal/activities/participations/${t.activity_participation_id}#step-${t.id}`}
+                      aria-label={`Открыть шаг «${t.title}»`}
+                      title="Открыть шаг в плане"
+                      className="grid h-[22px] w-[22px] flex-none place-items-center rounded-ctl border-2 border-p-line text-p-muted transition hover:border-p-accent-dim"
+                    >
+                      <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  ) : (
+                    <ClaimCheckbox
+                      task={t}
+                      size="md"
+                      onClaim={() => withViewTransition(() => claim.mutate(t.id))}
+                      onUnclaim={() => withViewTransition(() => unclaim.mutate(t.id))}
+                    />
+                  )}
                   <span className="min-w-0 flex-1">
                     {t.activity_participation_id
                       ? <Link to={`/portal/activities/participations/${t.activity_participation_id}#step-${t.id}`} className="block truncate text-[13.5px] font-bold text-p-text hover:underline">{t.title}</Link>

@@ -36,13 +36,13 @@ it('подробнее открывает полную карточку с ре�
 })
 it('повторный выбор заменён меткой «В моём плане»', async () => {
   mocks.plan.mockResolvedValue([participation]); open('/portal/activities?view=catalog')
-  expect(await screen.findByText('В моём плане')).toBeTruthy()
+  expect(await screen.findByText('В плане')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Добавить в план: Конкурс проектов' })).toBeNull()
   expect(mocks.select).not.toHaveBeenCalled()
 })
 it('рекомендация принимает существующее участие вместо POST дубля', async () => {
   mocks.plan.mockResolvedValue([{ ...participation, decision: 'suggested', recommendation_note: 'Для твоего проекта' }]); open('/portal/activities?view=catalog')
-  fireEvent.click(await screen.findByRole('button', { name: 'Добавить в план' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить в план: Конкурс проектов' }))
   await waitFor(() => expect(mocks.editPlan).toHaveBeenCalledWith('p1', { decision: 'selected' }, true))
   expect(mocks.select).not.toHaveBeenCalled()
 })

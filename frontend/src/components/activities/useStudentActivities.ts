@@ -34,7 +34,7 @@ export function useAddToPlan() {
     },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ['activities'] })
-      toast({ title: 'Добавлено в ваш план', description: 'Это ещё не регистрация у организатора — шаги подскажет ментор.' })
+      toast({ title: 'Добавлено в ваш план', description: 'Это ещё не регистрация у организатора. Шаги подскажет ментор.' })
     },
     onError: (error) => toast({ title: getErrorMessage(error), variant: 'destructive' }),
   })

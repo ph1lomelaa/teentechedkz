@@ -3,10 +3,10 @@ import { ArrowUpRight, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 import type { Participation, PortfolioSummary } from '@/api/activities'
 import { formatDeadline } from '@/lib/roadmapDeadline'
 import { EXPERIENCE_LABEL, nearestDue, planGroup } from '@/lib/activityUi'
-import { Eyebrow, ProgressSegments } from './ActivityParts'
+import { ProgressSegments } from './ActivityParts'
 import { PortfolioFiles } from './PortfolioFiles'
 import { StatusTag } from './StatusTag'
-import { ExperienceStrip, FocusNote, NextDeadlineNote, NowList, PanelTitle, PortfolioNumbers } from './PortfolioParts'
+import { ExperienceStrip, FocusNote, NowList, PanelTitle } from './PortfolioParts'
 
 function rowState(item: Participation): { label: string; tone: 'neutral' | 'info' | 'danger' | 'good' } {
   const steps = item.steps
@@ -56,16 +56,25 @@ function AchievementCard({ item }: { item: Participation }) {
   </article>
 }
 
+/** Полка: фокус от ментора сверху, под ним ячейки типов опыта. */
 function Experience({ id, summary, pick, wide = false }: { id: string; summary: PortfolioSummary; pick: (key: string) => string; wide?: boolean }) {
   return <section aria-labelledby={id} className="space-y-3 rounded-card border border-ds-line bg-ds-panel p-4">
-    <PanelTitle id={id} hint="что уже есть, чего не хватает">Полка</PanelTitle>
+    <PanelTitle id={id}>Полка</PanelTitle>
+    <FocusNote focus={summary.focus} />
     <ExperienceStrip tiles={summary.experience} pickPath={pick} wide={wide} />
   </section>
 }
 
+function Achievements({ results }: { results: Participation[] }) {
+  return results.length
+    ? <div className="grid gap-3 md:grid-cols-2">{results.map((item) => <AchievementCard key={item.id} item={item} />)}</div>
+    : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Здесь появятся участия, итог которых подтвердил ментор.</p>
+}
+
 /**
- * Портфолио ученика: слева — что делать (сейчас и в работе) и что уже есть,
- * справа — общая картина: совет ментора, типы опыта, ближайший срок.
+ * Портфолио ученика. Компьютер: слева «Сейчас», участия, достижения, справа полка.
+ * Телефон: «Сейчас» первым, чтобы главное действие было на первом экране,
+ * затем полка, участия и свёрнутые достижения.
  */
 export function StudentPlan({ items, summary, catalogPath }: { items: Participation[]; summary: PortfolioSummary; catalogPath: string }) {
   const active = items.filter((item) => planGroup(item) === 'active')
@@ -74,10 +83,8 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
   const closed = items.filter((item) => planGroup(item) === 'closed')
   const pick = (key: string) => `${catalogPath}&type=${key}`
   return <div className="space-y-6">
-    <PortfolioNumbers counts={summary.counts} />
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-8">
-        <div className="lg:hidden"><FocusNote focus={summary.focus} /></div>
         <section aria-labelledby="portfolio-now" className="space-y-3">
           <PanelTitle id="portfolio-now">Сейчас</PanelTitle>
           <NowList actions={summary.actions} viewer="student" plan={items} empty={items.length
@@ -96,15 +103,17 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
             : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Сейчас участий в работе нет.</p>}
         </section>
 
-        <section aria-labelledby="portfolio-results" className="space-y-3">
+        <section aria-labelledby="portfolio-results" className="hidden space-y-3 lg:block">
           <PanelTitle id="portfolio-results">Достижения{results.length > 0 && <span className="font-semibold text-ds-muted"> · {results.length}</span>}</PanelTitle>
-          {results.length
-            ? <div className="grid gap-3 md:grid-cols-2">{results.map((item) => <AchievementCard key={item.id} item={item} />)}</div>
-            : <div className="rounded-card border border-dashed border-ds-line px-5 py-6 text-center">
-                <Eyebrow>Полка пока пустая</Eyebrow>
-                <p className="mx-auto mt-2 max-w-md text-sm text-ds-muted">Здесь соберутся активности, итог которых подтвердил ментор: дипломы, проекты, сертификаты.</p>
-              </div>}
+          <Achievements results={results} />
         </section>
+        <details className="group rounded-card border border-ds-line bg-ds-panel px-5 py-4 lg:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-bold">
+            <span>Достижения <span className="font-semibold text-ds-muted">· {results.length}</span></span>
+            <ChevronDown className="h-4 w-4 text-ds-muted transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="mt-3"><Achievements results={results} /></div>
+        </details>
 
         {closed.length > 0 && <details className="group rounded-card border border-ds-line bg-ds-panel px-5 py-4">
           <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-bold">
@@ -121,9 +130,7 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
       </div>
 
       <aside className="hidden min-w-0 space-y-4 lg:sticky lg:top-6 lg:block">
-        <FocusNote focus={summary.focus} />
         <Experience id="portfolio-experience" summary={summary} pick={pick} />
-        <NextDeadlineNote deadline={summary.next_deadline} base="/portal" />
       </aside>
     </div>
   </div>

@@ -28,19 +28,19 @@ export function ResultStep({ item, number, own, canManage, ready }: {
   const done = item.status === 'completed'
   const pending = item.result_review_status === 'pending'
   const returned = item.result_review_status === 'returned'
-  // Ученику пункт открывается, когда обязательные шаги выполнены; ментор видит его всегда.
-  const locked = own && !ready && !pending && !done
+  // Итог открывается, когда обязательные шаги готовы; правило одно для ученика и ментора.
+  const locked = !ready && !pending && !done
   const value = text ?? item.result_text ?? ''
-  const tag = done ? <StatusTag tone="good">Подтверждено</StatusTag> : pending ? <StatusTag tone="info">На проверке</StatusTag>
-    : returned ? <StatusTag tone="danger">Нужны правки</StatusTag> : locked ? <StatusTag>После шагов</StatusTag> : null
+  const tag = done ? <StatusTag tone="good">Готово</StatusTag> : pending ? <StatusTag tone="info">На проверке</StatusTag>
+    : returned ? <StatusTag tone="danger">Нужны правки</StatusTag> : locked ? <StatusTag>{number > 2 ? `После шагов 1–${number - 1}` : 'После шага 1'}</StatusTag> : null
   return <article id="result" className={cn('scroll-mt-6 overflow-hidden rounded-card border bg-ds-panel', done ? 'border-ds-good/40' : returned ? 'border-ds-danger/40' : 'border-ds-line')}>
     <header className="flex flex-wrap items-start gap-3 p-4 sm:p-5">
-      <span aria-hidden className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-black', done ? 'bg-ds-good/15 text-ds-good' : locked ? 'bg-ds-panel2 text-ds-muted' : 'bg-ds-accent text-black')}>
+      <span aria-hidden className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-black', done ? 'bg-ds-good/15 text-ds-good' : 'bg-ds-panel2 text-ds-muted')}>
         {done ? <CheckCircle2 className="h-4 w-4" /> : locked ? <Lock className="h-3.5 w-3.5" /> : number}
       </span>
       <div className="min-w-0 flex-1">
         <h3 className="font-semibold">Итог</h3>
-        <p className="mt-0.5 text-xs text-ds-muted">{locked ? 'Откроется, когда обязательные шаги будут выполнены.' : 'Опишите, что получилось, и приложите сертификат или диплом. Ментор подтвердит итог — и он появится в ваших достижениях.'}</p>
+        <p className="mt-0.5 text-xs text-ds-muted">что получилось и файл · подтверждает ментор</p>
       </div>
       {tag}
     </header>
@@ -49,7 +49,7 @@ export function ResultStep({ item, number, own, canManage, ready }: {
       {own && !closed && !pending
         ? <label className="block text-sm font-semibold">Что получилось<Textarea className="mt-2" value={value} maxLength={20000} onChange={(e) => setText(e.target.value)} placeholder="Результат, место, ссылка на проект" /></label>
         : item.result_text ? <p className="whitespace-pre-wrap break-words text-sm">{item.result_text}</p> : !done && <p className="text-sm text-ds-muted">Ученик ещё не отправил итог.</p>}
-      <PortfolioFiles target={{ participation_id: item.id }} result editable={(own || canManage) && item.decision === 'selected' && item.status !== 'cancelled'} />
+      <PortfolioFiles target={{ participation_id: item.id }} result editable={own && item.decision === 'selected' && item.status !== 'cancelled'} />
       {own && !closed && (pending
         ? <p className="text-sm text-ds-info">Итог отправлен. Ментор проверит его и ответит здесь.</p>
         : <AppButton disabled={!value.trim() || action.isPending} onClick={() => action.mutate(() => activitiesApi.submitResult(item.id, value))}>{returned ? 'Отправить исправленный итог' : 'Отправить итог ментору'}</AppButton>)}

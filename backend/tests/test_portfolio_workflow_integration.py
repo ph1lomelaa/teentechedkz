@@ -103,6 +103,8 @@ async def run_workflow(monkeypatch):
         await call('POST',f"/learner-tasks/{register['id']}/complete",role='learner',json={})
         await call('DELETE',f"/documents/portal/{doc['id']}",role='learner',expected=409)
         await call('POST',f'/activities/participations/{pid}/result',role='learner',json={'text':'Olympiad finished'},expected=409)
+        # A mentor cannot tick a reviewed step done without the learner's submission.
+        await call('PATCH',f"/roadmap-tasks/{essay['id']}",json={'status':'done'},expected=409)
         await call('POST',f"/learner-tasks/{essay['id']}/start",role='learner')
         await call('POST',f"/learner-tasks/{essay['id']}/complete",role='learner',json={'result_text':'First draft'})
         await call('POST',f"/learner-tasks/{essay['id']}/review",expected=422,json={'action':'return'})

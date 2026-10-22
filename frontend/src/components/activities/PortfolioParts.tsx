@@ -61,7 +61,7 @@ function ActionItem({ action, viewer, plan, primary }: { action: PortfolioAction
       <p className="mt-0.5 break-words text-xs text-ds-muted">{viewer === 'staff' && action.student_name ? `${action.student_name} · ` : ''}{copy.detail}</p>
     </div>
     {suggestion ? <div className="flex w-full flex-wrap gap-2 pl-11 sm:w-auto sm:pl-0">
-      <AppButton size="sm" disabled={busy} onClick={() => add.mutate({ intakeId: suggestion.intake_id, existing: suggestion })}>Добавить в план</AppButton>
+      <AppButton size="sm" variant={primary ? undefined : 'subtle'} disabled={busy} onClick={() => add.mutate({ intakeId: suggestion.intake_id, existing: suggestion })}>Добавить в план</AppButton>
       <AppButton size="sm" variant="subtle" disabled={busy} onClick={() => decline.mutate(suggestion)}>Не интересно</AppButton>
       <Link to={participationPath(base, action)} className="self-center px-1 text-sm font-semibold underline underline-offset-4">Подробнее</Link>
     </div> : copy.cta
@@ -122,7 +122,7 @@ export function FocusNote({ focus, studentId, editable = false }: { focus: Portf
     mutationFn: () => activitiesApi.setFocus(studentId!, text),
     onSuccess: () => { client.invalidateQueries({ queryKey: ['activities'] }); setEditing(false) },
   })
-  if (!focus && !editable) return null
+  if (!focus && !editable) return <p className="text-xs text-ds-muted">Ментор напишет здесь, что усилить.</p>
   if (editing) return <div className="space-y-2 rounded-card border border-ds-accent-dim bg-ds-panel p-4">
     <label htmlFor="portfolio-focus" className="text-sm font-bold">Что усилить в портфолио</label>
     <Textarea id="portfolio-focus" value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} placeholder="Например: не хватает стажировки — летом попробовать IT-стажировку" />
@@ -133,11 +133,11 @@ export function FocusNote({ focus, studentId, editable = false }: { focus: Portf
     </div>
     {save.isError && <p role="alert" className="text-sm text-ds-danger">{getErrorMessage(save.error)}</p>}
   </div>
-  return <section aria-label="Фокус от ментора" className="rounded-card border border-ds-accent-dim bg-ds-accent/[0.07] p-4 sm:p-5">
+  return <section aria-label="Фокус от ментора" className="rounded-ctl bg-ds-panel2 p-3">
     <div className="flex items-start gap-3">
-      <MessageSquareQuote className="mt-0.5 h-5 w-5 shrink-0 text-ds-accentText" aria-hidden />
+      <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-ds-muted" aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="text-2xs font-bold uppercase tracking-caps text-ds-accentText">Фокус от ментора</p>
+        <p className="text-xs font-bold">Фокус от ментора</p>
         {focus
           ? <><p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed">{focus.text}</p>
               <p className="mt-2 text-xs text-ds-muted">{[focus.updated_by_name, formatDeadline(focus.updated_at.slice(0, 10))].filter(Boolean).join(' · ')}</p></>
