@@ -123,6 +123,10 @@ async def submit_result(participation_id: uuid.UUID, body: ResultInput, db: DB, 
     if not body.text.strip(): raise HTTPException(422, 'Опишите результат участия')
     tasks = (await db.execute(task_service.task_query().where(RoadmapTask.activity_participation_id == item.id, RoadmapTask.deleted_at.is_(None)))).scalars().all()
     if any(t.priority == TaskPriority.required and t.status != RoadmapItemStatus.done for t in tasks): raise HTTPException(409, 'Сначала завершите обязательные шаги')
+    requires_file = (await db.execute(select(Activity.result_requires_file).join(ActivityIntake, ActivityIntake.activity_id == Activity.id)
+        .where(ActivityIntake.id == item.intake_id))).scalar_one_or_none()
+    if requires_file and not (await db.execute(select(PortfolioDocumentLink.id).where(PortfolioDocumentLink.participation_id == item.id).limit(1))).scalar_one_or_none():
+        raise HTTPException(422, 'Прикрепите файл итога')
     item.result_text = body.text.strip()
     item.result_review_status = 'pending'
     item.result_submitted_at = datetime.now(timezone.utc)
@@ -260,7 +264,7 @@ async def focus_of(db, student_ids) -> dict:
         return {}
     rows = (await db.execute(select(PortfolioFocus, User.name).outerjoin(User, PortfolioFocus.updated_by == User.id)
         .where(PortfolioFocus.student_id.in_(student_ids)))).all()
-    return {focus.student_id: PortfolioFocusOut(text=focus.text, updated_at=focus.updated_at, updated_by_name=name) for focus, name in rows}
+    return {focus.student_id: PortfolioFocusOut(text=focus.text, types=focus.types or [], updated_at=focus.updated_at, updated_by_name=name) for focus, name in rows}
 
 
 @router.get('/activities/my/portfolio-summary', response_model=PortfolioSummary)
@@ -288,18 +292,23 @@ async def set_focus(student_id: uuid.UUID, body: FocusInput, db: DB, user: Curre
         raise HTTPException(404, 'Студент не найден')
     row = await db.get(PortfolioFocus, student_id)
     text = body.text.strip()
+    types = list(dict.fromkeys(body.types))
     old = row.text if row else None
-    if old == (text or None):
+    old_types = (row.types or []) if row else []
+    if old == (text or None) and old_types == (types if text else []):
         return (await focus_of(db, [student_id])).get(student_id)
     if not text:
         if row:
             await db.delete(row)
     elif row:
-        row.text, row.updated_at, row.updated_by = text, datetime.now(timezone.utc), user.id
+        row.text, row.types, row.updated_at, row.updated_by = text, types, datetime.now(timezone.utc), user.id
     else:
-        db.add(PortfolioFocus(student_id=student_id, text=text, updated_by=user.id))
+        db.add(PortfolioFocus(student_id=student_id, text=text, types=types, updated_by=user.id))
     await log_change(db, 'portfolio_focus', student_id, 'text', old, text or None, str(user.id), source='portfolio')
-    note = notify(db, student.user_id, kind='portfolio_focus_updated', title='Ментор подсказал, что усилить в портфолио', body=text, link='/portal/activities') if text and student.user_id else None
+    if old_types != types:
+        await log_change(db, 'portfolio_focus', student_id, 'types', ','.join(old_types) or None, ','.join(types) or None, str(user.id), source='portfolio')
+    # Уведомляем, только когда меняется сам текст: выбор ячеек без текста ученику ничего не говорит.
+    note = notify(db, student.user_id, kind='portfolio_focus_updated', title='Ментор обновил фокус портфолио', body=text, link='/portal/activities') if text and old != text and student.user_id else None
     await db.commit()
     if note:
         await db.refresh(note)
@@ -330,5 +339,6 @@ async def students_overview(db: DB, user: CurrentUser, mentor_id: uuid.UUID | No
     for sid, name in students:
         summary = summarize(items.get(sid, []), focus.get(sid))
         rows.append(StudentOverviewRow(student_id=sid, name=name, focus_set=summary.focus is not None, counts=summary.counts,
+            focus_text=summary.focus.text[:80] if summary.focus else None, focus_types=summary.focus.types if summary.focus else [],
             experience_confirmed=[t.key for t in summary.experience if t.confirmed], next_deadline=summary.next_deadline))
     return rows

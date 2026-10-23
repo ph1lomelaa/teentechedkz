@@ -23,6 +23,8 @@ class ActivityCreate(BaseModel):
     conditions_checked_at: date | None = None
     # Явный выбор типа опыта; None — вывести из kind.
     experience_type: Literal['competitions', 'research', 'programs', 'courses', 'internships', 'social', 'other'] | None = None
+    # Итог подтверждается только с файлом.
+    result_requires_file: bool = False
     @field_validator('title')
     @classmethod
     def clean_title(cls, value):
@@ -100,6 +102,8 @@ class ParticipationOut(BaseModel):
     goal: str | None
     recommendation_note: str | None = None
     personal_deadline: date | None = None
+    # До какой даты решить по рекомендации (колонка или за 10 дней до подачи).
+    decide_by: date | None = None
     created_at: datetime
     result_documents_count: int = 0
     certificates_count: int = 0
@@ -120,6 +124,12 @@ class NextStep(BaseModel):
     state: Literal['returned', 'overdue', 'todo', 'pending']
     # Когда ученик отправил работу — для «отправлено · вчера» на доске.
     submitted_at: datetime | None = None
+    # Номер среди шагов участия (с 1) и проверяет ли ментор.
+    index: int = 0
+    requires_review: bool = False
+    # Последний комментарий ментора — первым пунктом в «Сейчас» у шага на правках.
+    review_comment: str | None = None
+    reviewed_at: datetime | None = None
 
 
 class StepsSummary(BaseModel):
@@ -206,6 +216,16 @@ class PortfolioAction(BaseModel):
     step_title: str | None = None
     due_date: date | None = None
     overdue: bool = False
+    overdue_days: int = 0
+    experience_type: str | None = None
+    # Комментарий ментора к правкам и кто его оставил.
+    comment: str | None = None
+    comment_by: str | None = None
+    comment_at: datetime | None = None
+    # Рекомендация: причина, решить до, подача у организатора.
+    reason: str | None = None
+    decide_by: date | None = None
+    submit_deadline: date | None = None
 
 
 class PortfolioCounts(BaseModel):
@@ -219,8 +239,24 @@ class PortfolioCounts(BaseModel):
 
 class PortfolioFocusOut(BaseModel):
     text: str
+    types: list[ExperienceKey] = Field(default_factory=list)
     updated_at: datetime
     updated_by_name: str | None = None
+
+
+class ShelfEntry(BaseModel):
+    participation_id: uuid.UUID
+    title: str
+
+
+class ShelfCell(BaseModel):
+    """Ячейка полки: заполнена достижением, в работе или пуста."""
+    key: ExperienceKey
+    label: str
+    state: Literal['filled', 'in_work', 'empty']
+    achievements: list[ShelfEntry] = Field(default_factory=list)
+    in_work: list[ShelfEntry] = Field(default_factory=list)
+    recommended: list[ShelfEntry] = Field(default_factory=list)
 
 
 class NextDeadline(BaseModel):
@@ -233,6 +269,8 @@ class PortfolioSummary(BaseModel):
     focus: PortfolioFocusOut | None = None
     counts: PortfolioCounts
     experience: list[ExperienceTile]
+    # Шесть ячеек полки (без «Другое»).
+    shelf: list[ShelfCell] = Field(default_factory=list)
     next_deadline: NextDeadline | None = None
     # Ход ученика: одно самое срочное действие на участие.
     actions: list[PortfolioAction]
@@ -244,6 +282,8 @@ class StudentOverviewRow(BaseModel):
     student_id: uuid.UUID
     name: str
     focus_set: bool
+    focus_text: str | None = None
+    focus_types: list[ExperienceKey] = Field(default_factory=list)
     counts: PortfolioCounts
     experience_confirmed: list[ExperienceKey]
     next_deadline: NextDeadline | None = None
@@ -252,6 +292,7 @@ class StudentOverviewRow(BaseModel):
 class FocusInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     text: str = Field(default='', max_length=1000)
+    types: list[Literal['competitions', 'research', 'programs', 'courses', 'internships', 'social']] = Field(default_factory=list, max_length=6)
 
 
 # ---------------------------------------------------------------- конструктор активности
@@ -302,3 +343,21 @@ class DuplicateMatch(BaseModel):
     title: str
     publication: Publication
     reason: Literal['title', 'source_url']
+
+
+# ---------------------------------------------------------------- история отправок шага
+
+class SubmissionFile(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class SubmissionOut(BaseModel):
+    id: uuid.UUID
+    submitted_at: datetime
+    note: str | None = None
+    files: list[SubmissionFile] = Field(default_factory=list)
+    verdict: Literal['pending', 'accepted', 'returned']
+    review_comment: str | None = None
+    reviewer_name: str | None = None
+    reviewed_at: datetime | None = None

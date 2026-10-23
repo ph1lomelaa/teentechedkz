@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Activity, Intake, Participation } from '@/api/activities'
+import type { Activity, Intake, Participation, TemplateStep } from '@/api/activities'
 import { cn } from '@/lib/utils'
 import { formatDeadline } from '@/lib/roadmapDeadline'
 import { dateSummary, directionTone, intakeCost, intakeLabel, intakeWhen } from '@/lib/activityUi'
@@ -65,13 +65,6 @@ export function ActivityCatalogCard({ activity, planState = 'none', onOpen, onAd
   </article>
 }
 
-function FactTile({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0 rounded-panel bg-ds-panel/70 px-3 py-2.5">
-    <dt className="truncate text-2xs font-bold uppercase tracking-wide text-ds-muted" title={label}>{label}</dt>
-    <dd title={value} className="mt-1 truncate text-sm font-semibold">{value}</dd>
-  </div>
-}
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return <section className="space-y-3">
     <h2 className="text-base font-bold">{title}</h2>
@@ -79,46 +72,48 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   </section>
 }
 
-function intakeWhenFull(intake: Intake): string {
-  if (intake.deadline) return `Дедлайн организатора: ${formatDeadline(intake.deadline)}`
-  return intakeWhen(intake)
+/** Срок подачи и набор одной строкой для шапки: «Подача до 15 нояб. · Набор осень 2026». */
+function intakeHeadline(intake: Intake | null): string | null {
+  if (!intake) return null
+  const when = intake.deadline ? `Подача до ${formatDeadline(intake.deadline)}` : intakeWhen(intake)
+  const label = intakeLabel(intake)
+  return [when, label ? `Набор ${label.toLocaleLowerCase('ru')}` : null].filter(Boolean).join(' · ')
 }
 
-/** Полная карточка активности: шапка в цвете направления, разделы, панель действий. */
-export function ActivityDetailView({ activity, intakes, aside }: { activity: Activity; intakes: Intake[]; aside?: ReactNode }) {
+/**
+ * Полная карточка активности. Срок подачи показан один раз, в шапке.
+ * `steps` — типовые шаги: если они есть, «Что нужно сделать» показывает их и итог.
+ */
+export function ActivityDetailView({ activity, intakes, aside, steps, top }: { activity: Activity; intakes: Intake[]; aside?: ReactNode; steps?: TemplateStep[]; top?: ReactNode }) {
   const tone = directionTone(activity.direction)
-  const when = dateSummary(activity)
   const near = activity.next_intake ?? null
+  const headline = intakeHeadline(near) ?? (intakes.length ? 'Набор закрыт, ждём следующий' : null)
+  const facts = knownFacts(near)
   return <div className="space-y-6">
     <header className={cn('rounded-card border p-5 sm:p-7', tone.soft, tone.line)}>
       <ActivityTags activity={activity} />
       <h1 className="mt-3 break-words text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{activity.title}</h1>
-      <p className="mt-2 text-sm text-ds-muted">{[activity.organizer, activity.country].filter(Boolean).join(' · ') || 'Организатор уточняется'}</p>
-      <dl className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <FactTile label="Подача" value={when.short} />
-        <FactTile label="Формат" value={near?.format || 'Уточняется'} />
-        <FactTile label="Стоимость" value={intakeCost(near)} />
-        
-      </dl>
+      {[activity.organizer, activity.country].some(Boolean) && <p className="mt-2 text-sm text-ds-muted">{[activity.organizer, activity.country].filter(Boolean).join(' · ')}</p>}
+      {(headline || facts.length > 0) && <p className="mt-4 text-sm font-semibold">{[headline, ...facts].filter(Boolean).join(' · ')}</p>}
     </header>
+    {top}
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-7">
-        <Section title="О чём это">
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{activity.description || 'Описание пока не добавлено. Подробности — на сайте организатора.'}</p>
-        </Section>
-        <Section title="Кто может участвовать">
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{activity.eligibility || 'Требования уточняются — спросите ментора.'}</p>
-        </Section>
+        {activity.description?.trim() && <Section title="О чём это">
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{activity.description}</p>
+        </Section>}
+        {activity.eligibility?.trim() && <Section title="Кто может участвовать">
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{activity.eligibility}</p>
+        </Section>}
         <Section title="Что нужно сделать">
-          {activity.assignment ? <AssignmentText text={activity.assignment} /> : <p className="text-sm text-ds-muted">Задание уточняется. Ментор разобьёт его на шаги в вашем плане.</p>}
-        </Section>
-        <Section title="Сроки">
-          {intakes.length ? <ul className="divide-y divide-ds-line rounded-panel border border-ds-line bg-ds-panel">
-            {intakes.map((intake) => <li key={intake.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 text-sm">
-              <span className="font-semibold">{intakeLabel(intake) ?? 'Основной набор'}</span>
-              <span className="text-ds-muted">{intakeWhenFull(intake)}</span>
-            </li>)}
-          </ul> : <p className="text-sm text-ds-muted">Дата неизвестна — организатор ещё не объявил набор.</p>}
+          {steps?.length
+            ? <ol className="space-y-3">
+                {[...steps.map((step) => step.title), 'Итог: что получилось и файл'].map((title, index) => <li key={index} className="flex gap-3 text-sm leading-relaxed">
+                  <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-ds-panel2 text-2xs font-bold text-ds-muted">{index + 1}</span>
+                  <span className="min-w-0 break-words pt-0.5">{title}</span>
+                </li>)}
+              </ol>
+            : activity.assignment ? <AssignmentText text={activity.assignment} /> : <p className="text-sm text-ds-muted">Задание уточняется. Ментор разобьёт его на шаги в вашем плане.</p>}
         </Section>
       </div>
       {aside && <aside className="lg:sticky lg:top-6 lg:self-start">{aside}</aside>}

@@ -173,11 +173,11 @@ export const PortalTasksPage: React.FC = () => {
                     <span className="h-4 w-1 rounded bg-p-accent" />
                     <b className="font-display text-[27px] font-extrabold leading-none text-p-text">{stageName}</b>
                     <span className="rounded-full bg-p-line/80 px-2.5 py-0.5 text-[10px] font-bold text-p-muted2">
-                      {stageTasks.length} {plural(stageTasks.length, ['задача', 'задачи', 'задач'])}
+                      {stageTasks.length} {plural(stageTasks.length, stageTasks[0]?.activity_participation_id ? ['шаг', 'шага', 'шагов'] : ['задача', 'задачи', 'задач'])}
                     </span>
                     {stageTasks[0]?.activity_participation_id && (
-                      <Link to={`/portal/activities/participations/${stageTasks[0].activity_participation_id}`} className="ml-auto rounded-full bg-p-accent/15 px-2.5 py-0.5 text-[10px] font-bold text-p-accent-text hover:underline">
-                        Portfolio UP · весь план
+                      <Link to={`/portal/activities/participations/${stageTasks[0].activity_participation_id}`} className="ml-auto text-xs font-semibold text-p-muted underline underline-offset-4 hover:text-p-text">
+                        Весь план
                       </Link>
                     )}
                   </div>

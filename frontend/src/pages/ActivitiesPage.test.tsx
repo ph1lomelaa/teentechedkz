@@ -31,7 +31,7 @@ it('ученик выбирает из каталога и не запрашив
 it('подробнее открывает полную карточку с регистрацией отдельно', async () => {
   open('/portal/activities?view=catalog')
   fireEvent.click(await screen.findByRole('button', { name: /Подробнее/ }))
-  expect(await screen.findByRole('button', { name: 'Добавить в мой план' })).toBeEnabled()
+  expect(await screen.findByRole('button', { name: 'Добавить в план' })).toBeEnabled()
   expect(screen.getByText(/ещё не регистрация/)).toBeTruthy()
 })
 it('повторный выбор заменён меткой «В моём плане»', async () => {
@@ -121,7 +121,7 @@ it('ментор видит карточки и открывает превью 
   fireEvent.click(await screen.findByRole('button', { name: 'Карточками' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Подробнее' }))
   expect(screen.getByRole('tab', { name: 'Как увидит ученик' })).toHaveAttribute('aria-selected', 'true')
-  expect(await screen.findByText('Кто может участвовать')).toBeTruthy()
+  expect(await screen.findByText('Что нужно сделать')).toBeTruthy()
   expect(mocks.select).not.toHaveBeenCalled()
   expect(mocks.recommend).not.toHaveBeenCalled()
 })

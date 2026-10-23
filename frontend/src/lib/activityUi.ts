@@ -5,7 +5,7 @@
 import type { Activity, ActivityInput, BoardColumn, BoardItem, ExperienceKey, Intake, IntakeInput, Participation, PortfolioAction, StepsSummary, TemplateStep } from '@/api/activities'
 import type { StepInput } from '@/api/learnerTasks'
 import { formatDeadline, parseDateOnly } from './roadmapDeadline'
-import { INTAKE_MODE_LABEL, PARTICIPATION_STAGE, formatPast, participationStage } from './portfolio/dictionary'
+import { EXPERIENCE_LABEL, INTAKE_MODE_LABEL, PARTICIPATION_STAGE, formatDay, formatDue, formatPast, participationStage } from './portfolio/dictionary'
 
 export { EXPERIENCE_TYPES, EXPERIENCE_LABEL, isExperienceKey } from './portfolio/dictionary'
 
@@ -243,19 +243,25 @@ export interface ActionCopy { title: string; detail: string; cta: string | null;
  */
 export function actionCopy(action: PortfolioAction, viewer: 'student' | 'staff', today: Date = new Date()): ActionCopy {
   const step = action.step_title ? `«${action.step_title}»` : ''
-  const due = action.due_date ? (action.overdue ? `срок прошёл ${formatDeadline(action.due_date, today)}` : `до ${formatDeadline(action.due_date, today)}`) : ''
-  const where = [action.activity_title, due].filter(Boolean).join(' · ')
   if (viewer === 'staff') {
     if (action.kind === 'result_waiting') return { title: 'Подтвердить итог участия', detail: action.activity_title, cta: 'Проверить итог', tone: 'urgent' }
     if (action.kind === 'step_waiting') return { title: step ? `Проверить шаг ${step}` : 'Проверить отправленные шаги', detail: action.activity_title, cta: 'Проверить', tone: 'urgent' }
     if (action.kind === 'plan_waiting') return { title: 'Составить план шагов', detail: action.activity_title, cta: 'Составить план', tone: 'normal' }
   }
+  const plain = action.step_title ? `шаг «${action.step_title}»` : 'шаг'
+  const dueText = action.due_date ? `срок ${formatDue(action.due_date, today)}` : ''
   switch (action.kind) {
-    case 'fix_step': return { title: `Исправьте шаг ${step}`, detail: `${where} · ментор оставил комментарий`, cta: 'Исправить', tone: 'urgent' }
-    case 'fix_result': return { title: 'Исправьте итог участия', detail: `${action.activity_title} · ментор оставил комментарий`, cta: 'Исправить итог', tone: 'urgent' }
-    case 'do_step': return { title: `Сделайте шаг ${step}`, detail: where, cta: 'Открыть шаг', tone: action.overdue ? 'urgent' : 'normal' }
+    case 'fix_step': return { title: `Исправьте ${plain}`, detail: [action.activity_title, dueText].filter(Boolean).join(' · '), cta: 'Исправить', tone: 'urgent' }
+    case 'fix_result': return { title: 'Исправьте итог', detail: action.activity_title, cta: 'Исправить итог', tone: 'urgent' }
+    case 'do_step': return action.overdue
+      ? { title: `Сделайте ${plain}`, detail: [action.activity_title, action.due_date ? `срок прошёл ${formatDay(action.due_date, today)}` : ''].filter(Boolean).join(' · '), cta: 'Открыть шаг', tone: 'urgent' }
+      : { title: `Сделайте ${plain}`, detail: [action.activity_title, dueText].filter(Boolean).join(' · '), cta: 'Открыть шаг', tone: 'normal' }
     case 'submit_result': return { title: 'Отправьте итог участия', detail: `${action.activity_title} · шаги готовы, осталось описать итог и приложить файл`, cta: 'Отправить итог', tone: 'normal' }
-    case 'decide': return { title: `Рекомендация: ${action.activity_title}`, detail: due ? `решите до ${formatDeadline(action.due_date!, today)}` : 'Решите, будете ли участвовать', cta: null, tone: 'normal' }
+    case 'decide': return { title: `Рекомендация: ${action.activity_title}`, detail: [
+      action.experience_type ? EXPERIENCE_LABEL[action.experience_type] : '',
+      action.decide_by ? `решите до ${formatDay(action.decide_by, today)}` : '',
+      action.submit_deadline ? `подача у организатора до ${formatDay(action.submit_deadline, today)}` : '',
+    ].filter(Boolean).join(' · ') || 'Решите, будете ли участвовать', cta: null, tone: 'normal' }
     case 'step_waiting': return { title: 'Шаг на проверке', detail: [step, action.activity_title].filter(Boolean).join(' · '), cta: null, tone: 'calm' }
     case 'result_waiting': return { title: 'Итог участия на проверке', detail: `${action.activity_title} · ментор подтвердит или вернёт с комментарием`, cta: null, tone: 'calm' }
     case 'plan_waiting': return { title: 'Ментор готовит шаги', detail: action.activity_title, cta: null, tone: 'calm' }

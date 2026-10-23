@@ -1,4 +1,5 @@
 """Shared ownership, visibility and lifecycle for student-facing work."""
+import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select, or_, and_, inspect
@@ -7,7 +8,7 @@ from app.core.audit import log_change
 from app.core.permissions import Action, require_access
 from app.models.activity import StudentActivity, ActivityIntake, Activity
 from app.models.document import Document, PortfolioDocumentLink
-from app.models.roadmap import RoadmapTask, Stage, Roadmap, RoadmapStatus, TaskAudience, RoadmapItemStatus, TaskReviewStatus
+from app.models.roadmap import RoadmapTask, Stage, Roadmap, RoadmapStatus, TaskAudience, RoadmapItemStatus, TaskReviewStatus, TaskSubmission
 from app.models.student import Student
 from app.models.user import UserRole
 from app.schemas.roadmap import RoadmapTaskOut, TaskFlatOut
@@ -119,6 +120,11 @@ async def complete(db, task, user, result_text=None):
     task.status = RoadmapItemStatus.in_progress if task.requires_review else RoadmapItemStatus.done
     await log_change(db, 'roadmap_task', task.id, 'review_status', old, task.review_status.value, str(user.id), source='portfolio')
     await log_change(db, 'roadmap_task', task.id, 'status', None, task.status.value, str(user.id), source='portfolio')
+    if task.requires_review:
+        # Снимок отправки: что было приложено сейчас. Файлы потом могут смениться.
+        files = (await db.execute(select(PortfolioDocumentLink.document_id).where(PortfolioDocumentLink.task_id == task.id))).scalars().all()
+        db.add(TaskSubmission(task_id=task.id, submitted_by=user.id, submitted_at=task.completed_at, note=task.result_text,
+                              document_ids=[str(doc_id) for doc_id in files]))
     # Шаг активности без проверки — обычный прогресс: ментор видит его на доске и в
     # карточке, отдельное уведомление на каждый такой шаг было бы шумом.
     await emit_task(db, task, user, 'task_review_requested' if task.requires_review else 'task_completed', 'Работа отправлена на проверку' if task.requires_review else 'Ученик выполнил шаг', mentor=True,
@@ -137,6 +143,33 @@ async def review(db, task, user, action, comment):
     task.review_comment = (comment or '').strip() or None
     task.reviewed_by = user.id
     task.reviewed_at = datetime.now(timezone.utc)
+    submission = (await db.execute(select(TaskSubmission).where(TaskSubmission.task_id == task.id, TaskSubmission.verdict == 'pending')
+        .order_by(TaskSubmission.submitted_at.desc()).limit(1))).scalar_one_or_none()
+    if submission:
+        submission.verdict = 'accepted' if action == 'approve' else 'returned'
+        submission.review_comment, submission.reviewed_by, submission.reviewed_at = task.review_comment, user.id, task.reviewed_at
     await log_change(db, 'roadmap_task', task.id, 'review_status', 'pending', task.review_status.value, str(user.id), source='portfolio')
     await emit_task(db, task, user, 'task_approved' if action == 'approve' else 'task_returned', 'Ментор принял работу' if action == 'approve' else 'Нужны правки')
     return task
+
+
+async def submissions_by_task(db, task_ids) -> dict:
+    """Отправки шагов, новые сверху, с именами файлов и проверяющего."""
+    from app.models.user import User
+    from app.schemas.activity import SubmissionFile, SubmissionOut
+    if not task_ids:
+        return {}
+    rows = (await db.execute(select(TaskSubmission, User.name).outerjoin(User, TaskSubmission.reviewed_by == User.id)
+        .where(TaskSubmission.task_id.in_(task_ids)).order_by(TaskSubmission.submitted_at.desc()))).all()
+    doc_ids = {doc_id for submission, _ in rows for doc_id in submission.document_ids or []}
+    names = {}
+    if doc_ids:
+        documents = (await db.execute(select(Document.id, Document.display_name, Document.file_name).where(Document.id.in_([uuid.UUID(doc_id) for doc_id in doc_ids])))).all()
+        names = {str(doc_id): display or file for doc_id, display, file in documents}
+    grouped: dict = {}
+    for submission, reviewer in rows:
+        grouped.setdefault(str(submission.task_id), []).append(SubmissionOut(
+            id=submission.id, submitted_at=submission.submitted_at, note=submission.note, verdict=submission.verdict,
+            files=[SubmissionFile(id=doc_id, name=names[doc_id]) for doc_id in submission.document_ids or [] if doc_id in names],
+            review_comment=submission.review_comment, reviewer_name=reviewer, reviewed_at=submission.reviewed_at))
+    return grouped

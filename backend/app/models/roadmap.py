@@ -272,6 +272,26 @@ class RoadmapTask(Base):
     )
 
 
+class TaskSubmission(Base):
+    """Одна отправка шага учеником и решение ментора по ней.
+
+    На задаче хранится только последнее состояние; эта таблица помнит, что ученик
+    прислал раньше и что ментор ответил, чтобы шаг на правках показывал прошлую версию.
+    """
+    __tablename__ = "roadmap_task_submissions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roadmap_tasks.id", ondelete="CASCADE"), index=True)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_ids: Mapped[list] = mapped_column(JSON, default=list)
+    verdict: Mapped[str] = mapped_column(String(20), default="pending")
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class RoadmapSubtask(Base):
     __tablename__ = "roadmap_subtasks"
 

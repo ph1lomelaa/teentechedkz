@@ -25,7 +25,7 @@ it('ментор задаёт фокус на месте', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Задать' }))
   fireEvent.change(screen.getByLabelText('Что усилить в портфолио'), { target: { value: 'Олимпиада по математике' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await waitFor(() => expect(mocks.setFocus).toHaveBeenCalledWith('s1', 'Олимпиада по математике'))
+  await waitFor(() => expect(mocks.setFocus).toHaveBeenCalledWith('s1', 'Олимпиада по математике', []))
 })
 
 const item = { id: 'p1', decision: 'selected', status: 'in_progress', result_review_status: 'none', result_text: null, result_review_comment: null } as unknown as Participation

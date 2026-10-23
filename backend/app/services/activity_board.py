@@ -53,3 +53,20 @@ def needs_reminder(column: str, steps: StepsSummary, created: date, today: date)
     if column == 'suggested':
         return (today - created).days >= 7
     return False
+
+
+DECIDE_DAYS = 10
+
+
+def decide_by(item, intake, today: date | None = None) -> date | None:
+    """До какой даты решить по рекомендации: выбор ментора или за 10 дней до подачи,
+    но не раньше завтра. Без даты подачи срока решения нет."""
+    if getattr(item, 'decision', None) != 'suggested':
+        return None
+    if getattr(item, 'decide_by', None):
+        return item.decide_by
+    deadline = getattr(intake, 'deadline', None)
+    if not deadline:
+        return None
+    tomorrow = (today or date.today()) + timedelta(days=1)
+    return min(deadline, max(deadline - timedelta(days=DECIDE_DAYS), tomorrow))

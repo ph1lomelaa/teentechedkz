@@ -97,7 +97,7 @@ async def duplicate(activity_id: uuid.UUID, db: DB, user: CurrentUser):
     require_catalog_editor(user)
     source = await visible_activity(db, activity_id, user)
     copy = Activity(**{c: getattr(source, c) for c in ('direction', 'kind', 'organizer', 'country', 'description',
-        'eligibility', 'assignment', 'source_url', 'experience_type')}, title=f'{source.title} (копия)'[:500], publication='draft')
+        'eligibility', 'assignment', 'source_url', 'experience_type', 'result_requires_file')}, title=f'{source.title} (копия)'[:500], publication='draft')
     db.add(copy)
     await db.flush()
     db.add_all(template_rows(copy.id, await load_template(db, activity_id)))

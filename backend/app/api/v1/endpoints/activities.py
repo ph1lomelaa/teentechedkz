@@ -26,7 +26,7 @@ from app.services.activity_tasks import validate_activity_task
 from app.schemas.activity import ActivityCard, ActivityCreate, ActivityOut, IntakeCreate, IntakeOut, ParticipationCreate, ParticipationOut, ParticipationDetail, StepsSummary, NextStep
 from app.services.task_urgency import overdue_days
 from app.services.mentor_scope import activity_student_ids, require_activity_student
-from app.services.activity_board import MENTOR_ACTION_COLUMNS, board_column, is_due_soon, nearest_due, needs_reminder
+from app.services.activity_board import MENTOR_ACTION_COLUMNS, board_column, decide_by, is_due_soon, nearest_due, needs_reminder
 
 router = APIRouter(prefix='/activities', tags=['activities'])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -216,7 +216,7 @@ def summarize_steps(tasks: list[RoadmapTask], today: date | None = None) -> Step
     дополнительная работа не должна выглядеть как отставание."""
     summary = StepsSummary()
     candidates = []
-    for task in tasks:
+    for index, task in enumerate(tasks, 1):
         state = task_state(task, today)
         if task.priority != TaskPriority.optional:
             summary.total += 1
@@ -227,11 +227,14 @@ def summarize_steps(tasks: list[RoadmapTask], today: date | None = None) -> Step
         summary.returned += state == 'returned'
         summary.overdue += state == 'overdue'
         if state != 'done':
-            candidates.append((_NEXT_ORDER[state], task.due_date or date.max, task.position, task, state))
+            candidates.append((_NEXT_ORDER[state], task.due_date or date.max, task.position, index, task, state))
     if candidates:
-        *_, task, state = min(candidates, key=lambda c: c[:3])
+        *_, index, task, state = min(candidates, key=lambda c: c[:3])
         summary.next = NextStep(id=task.id, title=task.title, due_date=task.due_date, state=state,
-                                submitted_at=getattr(task, 'completed_at', None) if state == 'pending' else None)
+                                submitted_at=getattr(task, 'completed_at', None) if state == 'pending' else None,
+                                index=index, requires_review=bool(getattr(task, 'requires_review', False)),
+                                review_comment=getattr(task, 'review_comment', None) if state == 'returned' else None,
+                                reviewed_at=getattr(task, 'reviewed_at', None) if state == 'returned' else None)
     return summary
 
 
@@ -297,7 +300,8 @@ async def build_details(db, rows, student_id, *, for_student: bool = False):
     if student_id and any(row[0].mentor_id is None for row in rows):
         mentors = await mentor_options(db, student_id)
         fallback = mentors[0]['name'] if len(mentors) == 1 else None
-    return [ParticipationDetail(**{**ParticipationOut.model_validate(item).model_dump(), **documents.get(item.id, {})},
+    return [ParticipationDetail(**{**ParticipationOut.model_validate(item).model_dump(), **documents.get(item.id, {}),
+        'decide_by': decide_by(item, intake)},
         activity=ActivityOut.model_validate(activity), intake=IntakeOut.model_validate(intake),
         mentor_name=mentor_name or (fallback if item.mentor_id is None else None), student_name=student_name,
         selected_by_name=selected_by, steps=steps.get(item.id, StepsSummary()))
@@ -437,6 +441,16 @@ async def participation_tasks(participation_id: uuid.UUID, db: DB, user: Current
         .options(selectinload(RoadmapTask.subtasks)).order_by(RoadmapTask.position, RoadmapTask.created_at))).all()
     return [task for task, visible, roadmap_status in rows if user.role != UserRole.student or
         ((roadmap_status is None or roadmap_status == RoadmapStatus.active) and task_visible_to_student(audience=task.audience, task_visible=task.visible_to_student, stage_visible=visible if visible is not None else True))]
+
+
+@router.get('/participations/{participation_id}/submissions')
+async def participation_submissions(participation_id: uuid.UUID, db: DB, user: CurrentUser):
+    """История отправок по шагам участия: {task_id: [отправка, …]}, новые сверху."""
+    from app.services.learner_tasks import submissions_by_task
+    await participation_access(db, participation_id, user)
+    task_ids = (await db.execute(select(RoadmapTask.id).where(RoadmapTask.activity_participation_id == participation_id,
+        RoadmapTask.deleted_at.is_(None)))).scalars().all()
+    return await submissions_by_task(db, task_ids)
 
 
 @router.post('/participations/{participation_id}/tasks', response_model=dict)

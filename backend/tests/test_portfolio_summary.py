@@ -64,9 +64,12 @@ def test_student_actions_order_urgent_first_and_mentor_last():
     result = item(title='Итог', summary=steps(2, 2))
     suggested = item(title='Предложено', decision='suggested', status='not_started')
     todo = item(title='Шаг', summary=steps(2, 0, state='todo', due=TODAY + timedelta(days=1)))
-    data = summarize([waiting, todo, suggested, result, returned], None, TODAY)
-    assert [a.kind for a in data.actions] == ['fix_step', 'do_step', 'submit_result', 'decide', 'step_waiting']
-    assert data.counts.waiting_student == 4
+    overdue = item(title='Просрочка', summary=steps(2, 0, overdue=1, state='overdue', due=TODAY - timedelta(days=4)))
+    data = summarize([waiting, todo, suggested, result, returned, overdue], None, TODAY)
+    # Правки → просрочка → рекомендация → итог → ближайший шаг → ожидание ментора.
+    assert [a.kind for a in data.actions] == ['fix_step', 'do_step', 'decide', 'submit_result', 'do_step', 'step_waiting']
+    assert data.actions[1].overdue and data.actions[1].overdue_days == 4
+    assert data.counts.waiting_student == 5
 
 
 def test_mentor_sees_pending_step_even_when_student_has_other_work():
@@ -98,3 +101,28 @@ def test_experience_labels_match_frontend_dictionary():
         pytest.skip('frontend is not mounted')
     pairs = dict(re.findall(r"key: '(\w+)', label: '([^']+)'", dictionary.read_text(encoding='utf-8')))
     assert pairs == dict(EXPERIENCE_TYPES)
+
+
+def test_shelf_cells_filled_in_work_and_recommended():
+    data = summarize([
+        item('Курс', status='completed', result='approved', title='Курс Python'),
+        item('Стажировка', summary=steps(2, 1, state='todo'), title='IT-стажировка'),
+        item('Конкурс / олимпиада', decision='suggested', status='not_started', title='Олимпиада'),
+        item('Что-то новое', status='completed', result='approved'),
+    ], None, TODAY)
+    cells = {c.key: c for c in data.shelf}
+    assert len(data.shelf) == 6 and 'other' not in cells
+    assert cells['courses'].state == 'filled' and cells['courses'].achievements[0].title == 'Курс Python'
+    assert cells['internships'].state == 'in_work' and cells['internships'].in_work[0].title == 'IT-стажировка'
+    assert cells['competitions'].state == 'empty' and cells['competitions'].recommended[0].title == 'Олимпиада'
+
+
+def test_decide_by_defaults_ten_days_before_deadline_but_not_before_tomorrow():
+    from app.services.activity_board import decide_by
+    from types import SimpleNamespace as NS
+    suggested = NS(decision='suggested', decide_by=None)
+    assert decide_by(suggested, NS(deadline=TODAY + timedelta(days=30)), TODAY) == TODAY + timedelta(days=20)
+    assert decide_by(suggested, NS(deadline=TODAY + timedelta(days=5)), TODAY) == TODAY + timedelta(days=1)
+    assert decide_by(suggested, NS(deadline=None), TODAY) is None
+    assert decide_by(NS(decision='suggested', decide_by=TODAY), NS(deadline=None), TODAY) == TODAY
+    assert decide_by(NS(decision='selected', decide_by=None), NS(deadline=TODAY), TODAY) is None

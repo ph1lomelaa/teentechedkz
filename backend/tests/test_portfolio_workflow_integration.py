@@ -111,6 +111,9 @@ async def run_workflow(monkeypatch):
         await call('POST',f"/learner-tasks/{essay['id']}/review",json={'action':'return','comment':'Add examples'})
         await call('POST',f"/learner-tasks/{essay['id']}/complete",role='learner',json={'result_text':'Revised essay'})
         await call('POST',f"/roadmap-tasks/{essay['id']}/review",json={'action':'approve'})
+        history=(await call('GET',f'/activities/participations/{pid}/submissions',role='learner'))[essay['id']]
+        assert [(h['verdict'],h['note']) for h in history]==[('accepted','Revised essay'),('returned','First draft')]
+        assert history[1]['review_comment']=='Add examples'
         await call('POST',f"/learner-tasks/{essay['id']}/review",expected=409,json={'action':'approve'})
         plan=await call('GET',f'/activities/participations/{pid}',role='learner')
         assert plan['steps']['done']==2 and plan['status']!='completed'
