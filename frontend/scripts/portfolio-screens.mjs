@@ -33,11 +33,13 @@ const ROLES = {
     email: 'portfolio.preview.mentor@example.test',
     screens: [
       { name: 'students', path: '/workspace/activities' },
+      { name: 'board', path: '/workspace/activities?layout=board' },
       { name: 'catalog', path: '/workspace/activities?view=catalog' },
       { name: 'review', path: '/workspace/review' },
       { name: 'tasks', path: '/workspace/tasks' },
       { name: 'participation', path: '/workspace/activities/participations/{participation}' },
       { name: 'student-card', path: '/workspace/students', follow: 'a[href^="/workspace/students/"]', hash: '#portfolio' },
+      { name: 'pick', path: '/workspace/activities/pick?student={student}&type=internships' },
     ],
   },
 }
@@ -60,8 +62,8 @@ async function login(context, email) {
 const found = {}
 
 async function open(page, screen) {
-  if (screen.path.includes('{participation}') && !found.participation) return false
-  await page.goto(`${BASE_URL}${screen.path.replace('{participation}', found.participation)}`)
+  if ((screen.path.includes('{participation}') && !found.participation) || (screen.path.includes('{student}') && !found.student)) return false
+  await page.goto(`${BASE_URL}${screen.path.replace('{participation}', found.participation).replace('{student}', found.student)}`)
   await page.waitForLoadState('networkidle')
   if (screen.click) {
     const button = page.getByRole('button', { name: screen.click, exact: true }).first()
@@ -77,7 +79,8 @@ async function open(page, screen) {
   if (!(await link.count())) return false
   const href = await link.getAttribute('href')
   found.participation ??= href.match(/participations\/([\w-]+)/)?.[1]
-  await page.goto(`${BASE_URL}${href}${screen.hash ?? ''}`)
+  found.student ??= href.match(/\/workspace\/students\/([\w-]+)/)?.[1]
+  await page.goto(`${BASE_URL}${screen.hash ? href.split('#')[0] + screen.hash : href}`)
   await page.waitForLoadState('networkidle')
   return true
 }

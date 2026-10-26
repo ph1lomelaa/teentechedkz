@@ -1795,13 +1795,11 @@ export const StudentCardPage: React.FC = () => {
           <AccordionTrigger className="text-base font-semibold">
             <span className="flex flex-wrap items-center gap-2">
               Portfolio UP
-              <ResponsibilityBadge studentId={id!} area="portfolio" />
             </span>
           </AccordionTrigger>
           <AccordionContent>
             <div className="mb-6">
-              <div className="mb-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm"><Link className="underline" to={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=plan`}>Открыть портфолио целиком</Link><Link className="underline" to={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
-              <ActivityPlan studentId={student.id} catalogPath={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`} />
+                            <ActivityPlan studentId={student.id} catalogPath={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`} />
             </div>
             {/* Поля из Notion — только для просмотра истории (см. память notion-view-only);
                 живое портфолио — выше, в плане активностей. */}

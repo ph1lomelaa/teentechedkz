@@ -12,6 +12,11 @@ function open(activity: Activity | null = null, onSaved = vi.fn()) {
     <ActivityComposer activity={activity} catalog={[]} editable presetType="competitions" onSaved={onSaved} onDuplicated={vi.fn()} /></QueryClientProvider>)
   return onSaved
 }
+const openMenu = () => {
+  const trigger = screen.getByRole('button', { name: 'Другие действия' })
+  trigger.focus()
+  fireEvent.keyDown(trigger, { key: 'Enter' })
+}
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.createFull.mockResolvedValue(created); mocks.duplicates.mockResolvedValue([]); mocks.template.mockResolvedValue([]); mocks.intakes.mockResolvedValue([])
@@ -24,7 +29,14 @@ it('новая активность с набором и типовыми шаг
   expect(screen.getByRole('radio', { name: 'Олимпиады' })).toHaveAttribute('aria-checked', 'true')
   fireEvent.change(screen.getByLabelText('Дедлайн организатора'), { target: { value: '2030-11-01' } })
   fireEvent.click(screen.getByRole('button', { name: /Типовые шаги/ }))
-  fireEvent.click(screen.getByRole('button', { name: 'Опубликовать и рекомендовать' }))
+  // Пока не хватает полей, «Опубликовать» недоступна.
+  expect(screen.getByRole('button', { name: 'Опубликовать' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Ссылка организатора'), { target: { value: 'https://example.org' } })
+  fireEvent.change(screen.getByLabelText('О чём это'), { target: { value: 'Олимпиада для старшеклассников' } })
+  fireEvent.change(screen.getByLabelText('Стоимость'), { target: { value: 'free' } })
+  expect(screen.getByText('Готово к публикации')).toBeInTheDocument()
+  openMenu()
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Опубликовать и рекомендовать' }))
   await waitFor(() => expect(mocks.createFull).toHaveBeenCalledTimes(1))
   const body = mocks.createFull.mock.calls[0][0]
   expect(body.activity).toMatchObject({ title: 'Олимпиада по физике', publication: 'published', experience_type: 'competitions' })
@@ -36,8 +48,9 @@ it('черновик без сроков не создаёт пустой наб
   open()
   fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Идея на потом' } })
   fireEvent.click(screen.getByRole('radio', { name: 'Пока неизвестно' }))
-  expect(screen.getByText('До публикации не хватает:')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить черновик' }))
+  expect(screen.getByText(/Не хватает:/)).toBeInTheDocument()
+  openMenu()
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Сохранить черновик' }))
   await waitFor(() => expect(mocks.createFull).toHaveBeenCalled())
   expect(mocks.createFull.mock.calls[0][0]).toMatchObject({ intake: null, steps: [], activity: { publication: 'draft' } })
 })

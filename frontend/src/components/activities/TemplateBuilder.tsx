@@ -11,7 +11,8 @@ export const blankTemplateStep = (): TemplateStep => ({ title: '', description: 
  * Типовые шаги активности. При выдаче ученику они становятся его личным планом,
  * а сроки считаются от дедлайна выбранного набора.
  */
-export function TemplateBuilder({ steps, onChange, type, disabled = false }: { steps: TemplateStep[]; onChange: (steps: TemplateStep[]) => void; type: ExperienceKey; disabled?: boolean }) {
+/** `relative` — набор без дедлайна: сроки шагов считаются от даты добавления в план. */
+export function TemplateBuilder({ steps, onChange, type, disabled = false, relative = false }: { steps: TemplateStep[]; onChange: (steps: TemplateStep[]) => void; type: ExperienceKey; disabled?: boolean; relative?: boolean }) {
   const edit = (index: number, patch: Partial<TemplateStep>) => onChange(steps.map((s, i) => i === index ? { ...s, ...patch } : s))
   const move = (index: number, delta: number) => { const next = [...steps]; [next[index], next[index + delta]] = [next[index + delta], next[index]]; onChange(next) }
   const label = EXPERIENCE_TYPES.find((t) => t.key === type)?.short.toLowerCase() ?? ''
@@ -32,10 +33,15 @@ export function TemplateBuilder({ steps, onChange, type, disabled = false }: { s
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-8 text-xs">
-          <label className="inline-flex items-center gap-1.5">За
-            <input type="number" min={0} max={730} aria-label={`Дней до дедлайна, шаг ${index + 1}`} className="w-16 rounded-ctl border border-ds-line bg-ds-panel px-2 py-1" value={step.days_before_deadline ?? ''}
-              onChange={(e) => edit(index, { days_before_deadline: e.target.value === '' ? null : Math.max(0, Math.min(730, Number(e.target.value))) })} placeholder="—" />
-            дн. до дедлайна</label>
+          {relative
+            ? <label className="inline-flex items-center gap-1.5">Через
+                <input type="number" min={0} max={730} aria-label={`Дней после добавления в план, шаг ${index + 1}`} className={`w-16 rounded-ctl border bg-ds-panel px-2 py-1 ${step.days_after_start == null ? 'border-ds-danger/60' : 'border-ds-line'}`} value={step.days_after_start ?? ''}
+                  onChange={(e) => edit(index, { days_after_start: e.target.value === '' ? null : Math.max(0, Math.min(730, Number(e.target.value))) })} placeholder="—" />
+                дн. после добавления в план</label>
+            : <label className="inline-flex items-center gap-1.5">За
+                <input type="number" min={0} max={730} aria-label={`Дней до дедлайна, шаг ${index + 1}`} className={`w-16 rounded-ctl border bg-ds-panel px-2 py-1 ${step.days_before_deadline == null ? 'border-ds-danger/60' : 'border-ds-line'}`} value={step.days_before_deadline ?? ''}
+                  onChange={(e) => edit(index, { days_before_deadline: e.target.value === '' ? null : Math.max(0, Math.min(730, Number(e.target.value))) })} placeholder="—" />
+                дн. до дедлайна</label>}
           <label className="inline-flex items-center gap-1.5"><select className="rounded-ctl border border-ds-line bg-ds-panel px-2 py-1" value={step.priority} onChange={(e) => edit(index, { priority: e.target.value as TemplateStep['priority'] })}><option value="required">Обязательно</option><option value="recommended">Желательно</option><option value="optional">По желанию</option></select></label>
           <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={step.requires_review} onChange={(e) => edit(index, { requires_review: e.target.checked })} />Проверка ментора</label>
           <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={step.requires_evidence} onChange={(e) => edit(index, { requires_evidence: e.target.checked })} />Нужен файл</label>

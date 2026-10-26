@@ -126,3 +126,26 @@ def test_decide_by_defaults_ten_days_before_deadline_but_not_before_tomorrow():
     assert decide_by(suggested, NS(deadline=None), TODAY) is None
     assert decide_by(NS(decision='suggested', decide_by=TODAY), NS(deadline=None), TODAY) == TODAY
     assert decide_by(NS(decision='selected', decide_by=None), NS(deadline=TODAY), TODAY) is None
+
+
+def test_pending_step_is_tracked_apart_from_next_step():
+    from types import SimpleNamespace as NS
+    from app.api.v1.endpoints.activities import summarize_steps
+    from app.models.roadmap import RoadmapItemStatus, TaskPriority, TaskReviewStatus
+    def task(title, review, due, completed=None):
+        return NS(id=uuid.uuid4(), title=title, status=RoadmapItemStatus.in_progress, review_status=review, priority=TaskPriority.required,
+                  due_date=due, position=0, completed_at=completed, requires_review=True, review_comment=None, reviewed_at=None)
+    sent = task('Эссе', TaskReviewStatus.pending, TODAY + timedelta(days=5))
+    late = task('Отклик', TaskReviewStatus.none, TODAY - timedelta(days=3))
+    summary = summarize_steps([sent, late], TODAY)
+    assert summary.next.title == 'Отклик' and summary.next.state == 'overdue'
+    assert summary.pending_step.title == 'Эссе' and summary.pending_step.index == 1
+
+
+def test_intake_label_from_deadline_season():
+    from app.services.activity_board import intake_label
+    assert intake_label('', date(2026, 10, 1), 'fixed') == 'Осень 2026'
+    assert intake_label('', date(2026, 12, 15), 'fixed') == 'Зима 2027'
+    assert intake_label('', date(2027, 2, 1), 'fixed') == 'Зима 2027'
+    assert intake_label(' ', None, 'rolling') == 'Принимают постоянно'
+    assert intake_label('Весенний поток', date(2026, 10, 1), 'fixed') == 'Весенний поток'

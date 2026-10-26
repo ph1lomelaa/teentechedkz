@@ -105,4 +105,5 @@ class ActivityStepTemplate(Base):
     requires_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
     # За сколько дней до дедлайна организатора. Пусто — срок не задаётся.
     days_before_deadline: Mapped[int | None] = mapped_column(Integer)
+    days_after_start: Mapped[int | None] = mapped_column(Integer)
     subtasks: Mapped[list] = mapped_column(JSON, default=list)

@@ -86,7 +86,7 @@ const baseNavGroups: NavGroup[] = [
   {
     group: 'РАБОТА',
     items: [
-      { label: 'Активности', path: '/activities', icon: <Award className="w-4 h-4" />, permission: ['portfolio', 'manage'] },
+      { label: 'Portfolio UP', path: '/activities', icon: <Award className="w-4 h-4" />, permission: ['portfolio', 'manage'] },
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" />, permission: ['notes', 'manage'] },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" />, permission: ['telegram_chats', 'view'] },
       { label: 'На подтверждение', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },

@@ -8,8 +8,13 @@ const sections = [
   ['5. Итог', 'Когда обязательные шаги выполнены, ученик отправляет итог и файл. «Подтвердить итог» превращает участие в достижение и заполняет ячейку полки. Регистрацию у организатора ученик делает сам на сайте организатора.'],
 ]
 
+const GUIDE_KEY = 'portfolio-guide'
+
 export function MentorActivityGuide() {
-  return <details className="group rounded-panel border border-ds-line bg-ds-panel">
+  // Свёрнуто по умолчанию; раз открытое состояние запоминаем у этого сотрудника.
+  let open = false
+  try { open = localStorage.getItem(GUIDE_KEY) === 'open' } catch { /* хранилище недоступно */ }
+  return <details open={open} onToggle={(e) => { try { localStorage.setItem(GUIDE_KEY, e.currentTarget.open ? 'open' : 'closed') } catch { /* ignore */ } }} className="group rounded-panel border border-ds-line bg-ds-panel">
     <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold"><BookOpen className="h-4 w-4 shrink-0 text-ds-muted" aria-hidden />Как работать с портфолио учеников<ChevronDown className="ml-auto h-4 w-4 shrink-0 text-ds-muted transition group-open:rotate-180" aria-hidden /></summary>
     <div className="grid gap-5 border-t border-ds-line p-4 sm:p-5 lg:grid-cols-2">{sections.map(([title, text]) => <section key={title} className="min-w-0"><h2 className="text-sm font-bold">{title}</h2><p className="mt-2 text-sm leading-relaxed text-ds-muted">{text}</p></section>)}</div>
   </details>

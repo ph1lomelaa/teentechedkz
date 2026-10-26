@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.permissions import Action, require_access
+from app.core.permissions import Action, allows, require_access
 from app.core.audit import log_change
 from app.models.activity import StudentActivity, Activity, ActivityIntake, PortfolioFocus
 from app.models.document import Document, PortfolioDocumentLink
@@ -23,7 +23,7 @@ from app.api.v1.endpoints.learner_tasks import CreateInput, StepInput, create_ro
 from app.api.v1.endpoints.activities import participation_access, participation_details, participation_details_many, mentor_options
 from app.core.deps import CurrentStudent
 from app.schemas.activity import FocusInput, PortfolioFocusOut, PortfolioSummary, StudentOverviewRow
-from app.services.portfolio_summary import summarize
+from app.services.portfolio_summary import overview_actions, summarize
 from app.api.v1.endpoints.documents import _doc_to_dict, portal_upload, upload_document
 
 router = APIRouter(tags=['portfolio-workflow'])
@@ -40,6 +40,8 @@ class BulkInput(BaseModel):
     intake_id: uuid.UUID
     decision: Literal['selected', 'suggested'] = 'selected'
     recommendation_note: str | None = Field(default=None, max_length=2000)
+    # До какой даты ученику решить по рекомендации; пусто — за 10 дней до подачи.
+    decide_by: date | None = None
     # A participation is unique per student/intake; a replay never adds steps twice.
     request_key: uuid.UUID
     recipients: list[Recipient] = Field(min_length=1, max_length=100)
@@ -88,7 +90,8 @@ async def assign(body: BulkInput, db: DB, user: CurrentUser):
                     results.append({'student_id': str(recipient.student_id), 'status': 'existing', 'participation_id': str(existing.id)})
                     continue
                 mentors = await mentor_options(db, recipient.student_id)
-                item = StudentActivity(student_id=recipient.student_id, intake_id=body.intake_id, decision=body.decision, selection_source='staff', selected_by_id=user.id, mentor_id=mentors[0]['id'] if len(mentors) == 1 else None, recommendation_note=body.recommendation_note, personal_deadline=recipient.personal_deadline)
+                item = StudentActivity(student_id=recipient.student_id, intake_id=body.intake_id, decision=body.decision, selection_source='staff', selected_by_id=user.id, mentor_id=mentors[0]['id'] if len(mentors) == 1 else None, recommendation_note=body.recommendation_note, personal_deadline=recipient.personal_deadline,
+                    decide_by=body.decide_by if body.decision == 'suggested' else None)
                 db.add(item)
                 await db.flush()
                 for i, step in enumerate(recipient.steps):
@@ -318,7 +321,8 @@ async def set_focus(student_id: uuid.UUID, body: FocusInput, db: DB, user: Curre
 
 
 @router.get('/activities/staff/students-overview', response_model=list[StudentOverviewRow])
-async def students_overview(db: DB, user: CurrentUser, mentor_id: uuid.UUID | None = None, q: str = ''):
+async def students_overview(db: DB, user: CurrentUser, mentor_id: uuid.UUID | None = None, q: str = '',
+                            filter: Literal['all', 'need_me', 'overdue', 'no_achievements', 'no_focus'] = 'all'):
     """Одна строка на ученика: что у него есть, что в работе, что ждёт ментора."""
     from app.models.mentor_assignment import MentorAssignment
     from app.services.mentor_scope import activity_student_ids
@@ -336,9 +340,101 @@ async def students_overview(db: DB, user: CurrentUser, mentor_id: uuid.UUID | No
     ids = [sid for sid, _ in students]
     items, focus = await participation_details_many(db, ids), await focus_of(db, ids)
     rows = []
+    now = datetime.now(timezone.utc)
     for sid, name in students:
-        summary = summarize(items.get(sid, []), focus.get(sid))
+        student_items = items.get(sid, [])
+        summary = summarize(student_items, focus.get(sid))
+        mentor_action, student_action = overview_actions(student_items, summary, now)
         rows.append(StudentOverviewRow(student_id=sid, name=name, focus_set=summary.focus is not None, counts=summary.counts,
             focus_text=summary.focus.text[:80] if summary.focus else None, focus_types=summary.focus.types if summary.focus else [],
+            shelf=summary.shelf, mentor_action=mentor_action, student_action=student_action,
             experience_confirmed=[t.key for t in summary.experience if t.confirmed], next_deadline=summary.next_deadline))
+    keep = {
+        'all': lambda r: True,
+        'need_me': lambda r: r.mentor_action is not None,
+        'overdue': lambda r: bool(r.student_action and r.student_action.kind == 'overdue'),
+        'no_achievements': lambda r: r.counts.confirmed == 0,
+        'no_focus': lambda r: not r.focus_set,
+    }[filter]
+    # Сначала строки с действием ментора (дольше ждущие выше), затем просрочка, затем по ближайшему сроку.
+    rows = sorted((r for r in rows if keep(r)), key=lambda r: (
+        r.mentor_action is None,
+        r.mentor_action.since or now if r.mentor_action else now,
+        not (r.student_action and r.student_action.kind == 'overdue'),
+        (r.student_action.due if r.student_action and r.student_action.due else date.max),
+        r.name))
     return rows
+
+
+@router.get('/activities/staff/results-pending-count')
+async def results_pending_count(db: DB, user: CurrentUser):
+    """Сколько итогов участия ждут подтверждения — для бейджа «Проверка» в меню."""
+    from sqlalchemy import func
+    from app.services.mentor_scope import activity_student_ids
+    if not allows(resource='portfolio', action=Action.manage, role=user.role):
+        return {'count': 0}
+    query = select(func.count(StudentActivity.id)).where(StudentActivity.result_review_status == 'pending',
+        StudentActivity.decision == 'selected', StudentActivity.status.notin_(('completed', 'cancelled')))
+    allowed = await activity_student_ids(db, user)
+    if allowed is not None:
+        query = query.where(StudentActivity.student_id.in_(allowed))
+    return {'count': (await db.execute(query)).scalar_one()}
+
+
+BOARD_STAGES = ('recommendation', 'in_work', 'result_review', 'achievement')
+
+
+def board_stage(item) -> str | None:
+    """Стадия участия на доске; отказы и отмены на доску не попадают."""
+    if item.decision == 'not_interested' or item.status == 'cancelled':
+        return None
+    if item.decision == 'suggested':
+        return 'recommendation'
+    if item.status == 'completed':
+        return 'achievement'
+    if item.result_review_status == 'pending':
+        return 'result_review'
+    return 'in_work'
+
+
+@router.get('/activities/staff/board')
+async def activity_board(db: DB, user: CurrentUser, q: str = '', experience_type: str = '', mentor_id: uuid.UUID | None = None):
+    """Доска по активностям: в колонке стадии — карточка активности со списком учеников."""
+    from app.models.mentor_assignment import MentorAssignment
+    from app.services.mentor_scope import activity_student_ids
+    require_access(user, 'portfolio', Action.manage)
+    query = select(Student.id).where(Student.is_archived.is_(False))
+    allowed = await activity_student_ids(db, user)
+    if allowed is not None:
+        query = query.where(Student.id.in_(allowed))
+    if mentor_id:
+        query = query.where(Student.id.in_(select(MentorAssignment.student_id).where(
+            MentorAssignment.mentor_id == mentor_id, MentorAssignment.is_active.is_(True), MentorAssignment.assignment_status == 'active')))
+    ids = (await db.execute(query)).scalars().all()
+    grouped = await participation_details_many(db, ids)
+    needle = q.strip().lower()
+    columns: dict[str, dict] = {stage: {} for stage in BOARD_STAGES}
+    declined = 0
+    today = date.today()
+    for items in grouped.values():
+        for item in items:
+            stage = board_stage(item)
+            if stage is None:
+                declined += 1
+                continue
+            if experience_type and item.activity.experience_type != experience_type:
+                continue
+            if needle and needle not in item.activity.title.lower() and needle not in (item.student_name or '').lower():
+                continue
+            card = columns[stage].setdefault(item.activity.id, {
+                'activity_id': str(item.activity.id), 'title': item.activity.title, 'experience_type': item.activity.experience_type,
+                'submit_deadline': item.intake.deadline, 'students': []})
+            nxt = item.steps.next
+            due = nxt.due_date if nxt else item.personal_deadline
+            card['students'].append({
+                'student_id': str(item.student_id), 'name': item.student_name, 'participation_id': str(item.id),
+                'step_index': nxt.index if nxt else item.steps.done, 'step_total': item.steps.total, 'due': due,
+                'overdue_days': max((today - due).days, 0) if due and nxt and nxt.state == 'overdue' else 0,
+                'needs_me': bool(item.decision == 'selected' and (item.result_review_status == 'pending' or item.steps.pending or not item.steps.total))})
+    return {'columns': [{'key': stage, 'items': sorted(cards.values(), key=lambda c: (c['submit_deadline'] or date.max, c['title']))}
+                        for stage, cards in columns.items()], 'declined': declined}

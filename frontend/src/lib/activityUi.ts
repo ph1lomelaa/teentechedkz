@@ -181,7 +181,8 @@ export type CatalogFilter = 'all' | 'published' | 'draft' | 'review' | 'archived
 
 export function matchesCatalogFilter(activity: Activity, filter: CatalogFilter): boolean {
   if (filter === 'all') return activity.publication !== 'archived'
-  if (filter === 'review') return activity.publication === 'draft' && !!activity.review_issues?.length
+  // «Нужно дополнить»: не хватает полей, в том числе у старых опубликованных записей.
+  if (filter === 'review') return activity.publication !== 'archived' && !!activity.review_issues?.length
   return activity.publication === filter
 }
 
@@ -300,12 +301,16 @@ function shiftDate(iso: string, days: number): string {
 }
 
 /**
- * Типовые шаги → личный план с датами: «за N дней до дедлайна организатора».
+ * Типовые шаги → личный план с датами: «за N дней до дедлайна организатора»
+ * или, без дедлайна, «через N дней после добавления в план».
  * Дата в прошлом сдвигается на сегодня — иначе шаг родится просроченным.
  */
 export function stepsFromTemplate(template: TemplateStep[], deadline: string | null | undefined, today: string = new Date().toLocaleDateString('en-CA')): StepInput[] {
   return template.map((t) => {
-    const due = deadline && t.days_before_deadline !== null ? shiftDate(deadline, t.days_before_deadline) : null
+    // Без дедлайна («Принимают постоянно», «В своём темпе») срок считаем от сегодняшнего дня.
+    const due = deadline
+      ? t.days_before_deadline !== null ? shiftDate(deadline, t.days_before_deadline) : null
+      : t.days_after_start != null ? shiftDate(today, -t.days_after_start) : null
     return { title: t.title, description: t.description, expected_result: t.expected_result, priority: t.priority,
       requires_review: t.requires_review, requires_evidence: t.requires_evidence, subtasks: [...t.subtasks],
       due_date: due && due < today ? today : due }

@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.activities import activity_values, require_catalog_editor, visible_activity
+from app.services.activity_board import intake_label
+from app.api.v1.endpoints.activities import assert_publishable, activity_values, require_catalog_editor, visible_activity
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentUser
@@ -37,8 +38,12 @@ async def create_full(body: ActivityComposeInput, db: DB, user: CurrentUser):
     db.add(activity)
     await db.flush()
     if body.intake:
-        db.add(ActivityIntake(activity_id=activity.id, **body.intake.model_dump()))
+        values = body.intake.model_dump()
+        values['label'] = intake_label(values.get('label'), values.get('deadline'), values.get('mode', 'unknown'))
+        db.add(ActivityIntake(activity_id=activity.id, **values))
     db.add_all(template_rows(activity.id, body.steps))
+    await db.flush()
+    await assert_publishable(db, activity, was_published=False)
     await log_change(db, 'activity', activity.id, 'created', None, activity.title, str(user.id), source='portfolio')
     await db.commit()
     await db.refresh(activity)

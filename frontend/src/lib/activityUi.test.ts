@@ -97,11 +97,12 @@ describe('сроки', () => {
     expect(dateSummary({ next_intake: intake({ mode: 'self_paced' }) as never, intake_count: 1 }).short).toBe('В своём темпе')
     expect(dateSummary({ next_intake: intake({ mode: 'fixed', deadline: '2030-10-15' }) as never, intake_count: 1 }).short).toMatch(/^до 15 окт/)
   })
-  it('фильтр «Проверить» — только черновики, которым не хватает данных', () => {
+  it('фильтр «Нужно дополнить» — записи без нужных данных, кроме архива', () => {
     const a = (publication: string, review_issues: string[]) => ({ publication, review_issues }) as never
     expect(matchesCatalogFilter(a('draft', ['Нет ссылки организатора']), 'review')).toBe(true)
     expect(matchesCatalogFilter(a('draft', []), 'review')).toBe(false)
-    expect(matchesCatalogFilter(a('published', ['Нет описания']), 'review')).toBe(false)
+    expect(matchesCatalogFilter(a('published', ['Нет описания']), 'review')).toBe(true)
+    expect(matchesCatalogFilter(a('archived', ['Нет описания']), 'review')).toBe(false)
     expect(matchesCatalogFilter(a('archived', []), 'all')).toBe(false)
   })
 })
@@ -189,4 +190,9 @@ describe('конструктор активности', () => {
   it('для каждого типа опыта есть заготовка шагов', () => {
     for (const steps of Object.values(TEMPLATE_PRESETS)) expect(steps.length).toBeGreaterThan(0)
   })
+})
+
+it('без дедлайна сроки шагов считаются от даты добавления в план', () => {
+  const steps = stepsFromTemplate([{ title: 'Записаться', description: '', expected_result: '', priority: 'required', requires_review: false, requires_evidence: false, days_before_deadline: null, days_after_start: 7, subtasks: [] }], null, '2026-10-01')
+  expect(steps[0].due_date).toBe('2026-10-08')
 })

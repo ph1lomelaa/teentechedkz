@@ -58,7 +58,8 @@ class ActivityOut(ActivityCreate):
 
 class IntakeCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    label: str = Field(min_length=1, max_length=255)
+    # Пусто — название по сезону дедлайна («осень 2026») или по режиму набора.
+    label: str = Field(default='', max_length=255)
     mode: Literal['fixed', 'rolling', 'self_paced', 'unknown'] = 'unknown'
     deadline: date | None = None
     dates_text: str | None = Field(default=None, max_length=20000)
@@ -69,9 +70,8 @@ class IntakeCreate(BaseModel):
     @field_validator('label')
     @classmethod
     def clean_label(cls, value):
+        # Пустое название заполняет сервер по сезону дедлайна.
         value = value.strip()
-        if not value:
-            raise ValueError('Название набора не может быть пустым')
         return value
 
 class IntakeOut(IntakeCreate):
@@ -140,6 +140,8 @@ class StepsSummary(BaseModel):
     returned: int = 0
     overdue: int = 0
     next: NextStep | None = None
+    # Самый ранний шаг на проверке: следующий шаг ученика может быть другим.
+    pending_step: NextStep | None = None
 
 
 class ParticipationDetail(ParticipationOut):
@@ -278,12 +280,31 @@ class PortfolioSummary(BaseModel):
     mentor_actions: list[PortfolioAction] = Field(default_factory=list)
 
 
+class OverviewAction(BaseModel):
+    """Одно действие в строке обзора: что сделать и куда вести."""
+    kind: str
+    label: str
+    participation_id: uuid.UUID
+    activity_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    due: date | None = None
+    since: datetime | None = None
+    # Ждёт ментора больше суток или просрочено у ученика.
+    stale: bool = False
+    overdue_days: int = 0
+    # Ученик сам выбрал активность (для «Составить план»).
+    chosen_by_student: bool = False
+
+
 class StudentOverviewRow(BaseModel):
     student_id: uuid.UUID
     name: str
     focus_set: bool
     focus_text: str | None = None
     focus_types: list[ExperienceKey] = Field(default_factory=list)
+    shelf: list[ShelfCell] = Field(default_factory=list)
+    mentor_action: OverviewAction | None = None
+    student_action: OverviewAction | None = None
     counts: PortfolioCounts
     experience_confirmed: list[ExperienceKey]
     next_deadline: NextDeadline | None = None
@@ -306,6 +327,8 @@ class TemplateStep(BaseModel):
     requires_review: bool = False
     requires_evidence: bool = False
     days_before_deadline: int | None = Field(default=None, ge=0, le=730)
+    # Для «Принимают постоянно» и «В своём темпе»: через N дней после добавления в план.
+    days_after_start: int | None = Field(default=None, ge=0, le=730)
     subtasks: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator('title')

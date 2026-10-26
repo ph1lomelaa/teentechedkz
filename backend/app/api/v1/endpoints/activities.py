@@ -1,6 +1,6 @@
 """Activity catalogue and student-owned participation. No external registration is performed."""
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,7 +26,7 @@ from app.services.activity_tasks import validate_activity_task
 from app.schemas.activity import ActivityCard, ActivityCreate, ActivityOut, IntakeCreate, IntakeOut, ParticipationCreate, ParticipationOut, ParticipationDetail, StepsSummary, NextStep
 from app.services.task_urgency import overdue_days
 from app.services.mentor_scope import activity_student_ids, require_activity_student
-from app.services.activity_board import MENTOR_ACTION_COLUMNS, board_column, decide_by, is_due_soon, nearest_due, needs_reminder
+from app.services.activity_board import MENTOR_ACTION_COLUMNS, board_column, decide_by, intake_label, is_due_soon, nearest_due, needs_reminder
 
 router = APIRouter(prefix='/activities', tags=['activities'])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -83,6 +83,17 @@ def review_issues(activity: Activity, intakes: list[ActivityIntake], near: Activ
     return issues
 
 
+async def assert_publishable(db, activity: Activity, was_published: bool) -> None:
+    """Опубликовать можно только полную запись. Уже опубликованные старые записи
+    сохраняются как есть: они видны команде в фильтре «Нужно дополнить»."""
+    if activity.publication != 'published' or was_published:
+        return
+    intakes = (await db.execute(select(ActivityIntake).where(ActivityIntake.activity_id == activity.id))).scalars().all() if activity.id else []
+    issues = review_issues(activity, list(intakes), nearest_intake(list(intakes), date.today()))
+    if issues:
+        raise HTTPException(422, {'message': 'До публикации не хватает: ' + ', '.join(i.lower() for i in issues), 'issues': issues})
+
+
 def nearest_intake(intakes: list[ActivityIntake], today: date) -> ActivityIntake | None:
     """Набор для карточки каталога: ближайший будущий дедлайн, иначе постоянный
     набор, иначе любой. Прошедшие дедлайны не выдаём за действующие."""
@@ -131,6 +142,8 @@ async def create_activity(body: ActivityCreate, db: DB, current_user: CurrentUse
     require_catalog_editor(current_user)
     activity = Activity(**activity_values(body))
     db.add(activity)
+    await db.flush()
+    await assert_publishable(db, activity, was_published=False)
     await db.commit()
     await db.refresh(activity)
     return activity
@@ -140,8 +153,10 @@ async def create_activity(body: ActivityCreate, db: DB, current_user: CurrentUse
 async def update_activity(activity_id: uuid.UUID, body: ActivityCreate, db: DB, current_user: CurrentUser):
     require_catalog_editor(current_user)
     activity = await visible_activity(db, activity_id, current_user)
+    was_published = activity.publication == 'published'
     for key, value in activity_values(body).items():
         setattr(activity, key, value)
+    await assert_publishable(db, activity, was_published)
     await db.commit()
     await db.refresh(activity)
     return activity
@@ -157,7 +172,9 @@ async def list_intakes(activity_id: uuid.UUID, db: DB, current_user: CurrentUser
 async def create_intake(activity_id: uuid.UUID, body: IntakeCreate, db: DB, current_user: CurrentUser):
     require_catalog_editor(current_user)
     await visible_activity(db, activity_id, current_user)
-    intake = ActivityIntake(activity_id=activity_id, **body.model_dump())
+    values = body.model_dump()
+    values['label'] = intake_label(values.get('label'), values.get('deadline'), values.get('mode', 'unknown'))
+    intake = ActivityIntake(activity_id=activity_id, **values)
     db.add(intake)
     await db.commit()
     await db.refresh(intake)
@@ -228,6 +245,11 @@ def summarize_steps(tasks: list[RoadmapTask], today: date | None = None) -> Step
         summary.overdue += state == 'overdue'
         if state != 'done':
             candidates.append((_NEXT_ORDER[state], task.due_date or date.max, task.position, index, task, state))
+    waiting = [c for c in candidates if c[-1] == 'pending']
+    if waiting:
+        *_, index, task, state = min(waiting, key=lambda c: (getattr(c[-2], 'completed_at', None) or datetime.max.replace(tzinfo=timezone.utc), c[2]))
+        summary.pending_step = NextStep(id=task.id, title=task.title, due_date=task.due_date, state=state, index=index,
+                                        submitted_at=getattr(task, 'completed_at', None), requires_review=True)
     if candidates:
         *_, index, task, state = min(candidates, key=lambda c: c[:3])
         summary.next = NextStep(id=task.id, title=task.title, due_date=task.due_date, state=state,
@@ -348,7 +370,9 @@ async def update_intake(activity_id: uuid.UUID, intake_id: uuid.UUID, body: Inta
     intake = await db.get(ActivityIntake, intake_id)
     if not intake or intake.activity_id != activity_id:
         raise HTTPException(404, 'Набор не найден')
-    for key, value in body.model_dump().items():
+    values = body.model_dump()
+    values['label'] = intake_label(values.get('label'), values.get('deadline'), values.get('mode', 'unknown'))
+    for key, value in values.items():
         setattr(intake, key, value)
     await db.commit()
     await db.refresh(intake)

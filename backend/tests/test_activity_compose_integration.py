@@ -63,6 +63,12 @@ async def run():
                 'intake': {'label': 'Осень 2030', 'mode': 'fixed', 'deadline': '2030-11-01', 'cost_state': 'paid', 'cost_text': '10 USD'}, 'steps': steps}
         await call('POST', '/activities/full', role='learner', expected=403, json=body)
         await call('POST', '/activities/full', expected=422, json={**body, 'steps': [{'title': '   '}]})
+        # Без описания опубликовать нельзя, черновик сохраняется.
+        blocked = await call('POST', '/activities/full', expected=422, json={**body, 'activity': {**body['activity'], 'title': f'Публикация {suffix}', 'source_url': f'https://example.net/{suffix}/pub', 'publication': 'published'}})
+        assert 'Нет описания' in blocked['detail']['issues']
+        unlabeled = await call('POST', '/activities/full', expected=201, json={**body, 'activity': {**body['activity'], 'title': f'Сезон {suffix}', 'source_url': f'https://example.net/{suffix}/season'}, 'intake': {**body['intake'], 'label': ''}})
+        intakes = await call('GET', f"/activities/{unlabeled['id']}/intakes")
+        assert intakes[0]['label'] == 'Осень 2030'
         created = await call('POST', '/activities/full', expected=201, json=body)
         # Явный тип важнее угаданного по kind («Курс»).
         assert created['experience_type'] == 'competitions' and created['experience_explicit'] is True

@@ -118,6 +118,14 @@ async def run_workflow(monkeypatch):
         plan=await call('GET',f'/activities/participations/{pid}',role='learner')
         assert plan['steps']['done']==2 and plan['status']!='completed'
         await call('POST',f'/activities/participations/{pid}/result',role='learner',json={'text':'Participation finished'})
+        # Overview, board and the menu counter agree on «итог на проверке».
+        overview=await call('GET','/activities/staff/students-overview?filter=need_me')
+        row=next(r for r in overview if r['student_id']==str(student.id))
+        assert row['mentor_action']['kind']=='review_result' and len(row['shelf'])==6
+        assert (await call('GET','/activities/staff/results-pending-count'))['count']>=1
+        stages=await call('GET','/activities/staff/board')
+        review_cards=next(c for c in stages['columns'] if c['key']=='result_review')['items']
+        assert any(s['participation_id']==pid and s['needs_me'] for card in review_cards for s in card['students'])
         board=await call('GET','/activities/staff/participations?view=waiting')
         assert any(t['id']==pid and t['column']=='review' for t in board['items'])
         await call('POST',f'/activities/participations/{pid}/result/review',json={'action':'return','comment':'Add the final result'})
@@ -130,9 +138,11 @@ async def run_workflow(monkeypatch):
         # A second activity tests recommendation, refusal and mentor resumption.
         async with sessions() as db:
             second = ActivityIntake(activity_id=activity.id,label='Another intake',mode='rolling'); db.add(second); await db.commit()
-        next_payload={**payload,'intake_id':str(second.id),'decision':'suggested','recipients':[{'student_id':str(student.id),'steps':[{'title':'Another step'}]}]}
+        decide=(date.today()+timedelta(days=5)).isoformat()
+        next_payload={**payload,'intake_id':str(second.id),'decision':'suggested','decide_by':decide,'recipients':[{'student_id':str(student.id),'steps':[{'title':'Another step'}]}]}
         issued=await call('POST','/activities/assignments',json=next_payload)
         next_pid=issued['results'][0]['participation_id']
+        assert (await call('GET',f'/activities/participations/{next_pid}',role='learner'))['decide_by']==decide
         await call('PATCH',f'/activities/my/participations/{next_pid}',role='learner',json={'decision':'selected'})
         await call('PATCH',f'/activities/my/participations/{next_pid}',role='learner',json={'decision':'not_interested','decline_reason':'No time'})
         active=await call('GET','/portal/tasks',role='learner')

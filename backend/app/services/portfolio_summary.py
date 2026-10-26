@@ -3,11 +3,11 @@
 Одно правило на весь модуль: раздел ученика, главная портала, карточка ученика
 и обзор ментора читают сводку отсюда, поэтому видят одно и то же.
 """
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from app.schemas.activity import (
     ExperienceTile, NextDeadline, ParticipationDetail, PortfolioAction, PortfolioCounts,
-    PortfolioFocusOut, PortfolioSummary, ShelfCell, ShelfEntry,
+    OverviewAction, PortfolioFocusOut, PortfolioSummary, ShelfCell, ShelfEntry,
 )
 from app.services.activity_board import nearest_due
 from app.services.experience import EXPERIENCE_TYPES
@@ -70,7 +70,7 @@ def mentor_actions(item: ParticipationDetail) -> list[PortfolioAction]:
     if not item.steps.total:
         return [PortfolioAction(kind='plan_waiting', **base)]
     if item.steps.pending:
-        step = item.steps.next if item.steps.next and item.steps.next.state == 'pending' else None
+        step = item.steps.pending_step or (item.steps.next if item.steps.next and item.steps.next.state == 'pending' else None)
         return [PortfolioAction(kind='step_waiting', step_id=step.id if step else None, step_title=step.title if step else None, **base)]
     return []
 
@@ -137,3 +137,41 @@ def summarize(items: list[ParticipationDetail], focus: PortfolioFocusOut | None,
     experience = [t for t in tiles.values() if t.key != 'other' or t.confirmed or t.active]
     return PortfolioSummary(focus=focus, counts=counts, experience=experience, shelf=build_shelf(items), next_deadline=deadline,
                             actions=sort_actions(actions), mentor_actions=sort_actions(waiting))
+
+
+def overview_actions(items: list[ParticipationDetail], summary: PortfolioSummary, now: datetime) -> tuple[OverviewAction | None, OverviewAction | None]:
+    """Строка обзора: одно действие ментора и одно действие ученика.
+
+    Ментору — самое давнее из ожидающих (шаг, итог, план); ученику — первый пункт
+    его «Сейчас»: правки, просрочка, рекомендация, ближайший шаг.
+    """
+    by_id = {item.id: item for item in items}
+    mentor: list[OverviewAction] = []
+    for action in summary.mentor_actions:
+        item = by_id[action.participation_id]
+        if action.kind == 'step_waiting':
+            since = item.steps.pending_step.submitted_at if item.steps.pending_step else None
+            mentor.append(OverviewAction(kind='review_step', label=action.step_title or item.activity.title, participation_id=item.id,
+                                         task_id=action.step_id, since=since, stale=bool(since and now - since > timedelta(days=1))))
+        elif action.kind == 'result_waiting':
+            since = item.result_submitted_at
+            mentor.append(OverviewAction(kind='review_result', label=item.activity.title, participation_id=item.id,
+                                         since=since, stale=bool(since and now - since > timedelta(days=1))))
+        elif action.kind == 'plan_waiting':
+            mentor.append(OverviewAction(kind='make_plan', label=item.activity.title, participation_id=item.id, activity_id=item.activity.id,
+                                         chosen_by_student=item.selection_source == 'student'))
+    mentor.sort(key=lambda a: (a.kind == 'make_plan', a.since or now))
+    student = None
+    for action in summary.actions:
+        if action.owner != 'student':
+            continue
+        if action.kind == 'decide':
+            student = OverviewAction(kind='decide', label=action.activity_title, participation_id=action.participation_id, due=action.decide_by)
+        elif action.kind in ('do_step', 'fix_step'):
+            kind = 'fix' if action.kind == 'fix_step' else 'overdue' if action.overdue else 'next'
+            student = OverviewAction(kind=kind, label=action.step_title or action.activity_title, participation_id=action.participation_id,
+                                     task_id=action.step_id, due=action.due_date, overdue_days=action.overdue_days, stale=action.overdue)
+        else:
+            student = OverviewAction(kind=action.kind, label=action.activity_title, participation_id=action.participation_id, due=action.due_date)
+        break
+    return (mentor[0] if mentor else None), student

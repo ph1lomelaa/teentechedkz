@@ -1,26 +1,24 @@
 /**
- * Общие блоки портфолио: «Сейчас», «Типы опыта», фокус ментора, ближайший срок.
+ * Общие блоки портфолио: «Сейчас» и фокус ментора.
  * Одни и те же у ученика (раздел и главная), в карточке ученика и у ментора —
  * поэтому раздел и выглядит, и читается одинаково везде.
  */
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, CalendarClock, Check, Clock, MessageSquareQuote, Plus } from 'lucide-react'
-import { activitiesApi, type ExperienceKey, type ExperienceTile, type NextDeadline, type Participation, type PortfolioAction, type PortfolioCounts, type PortfolioFocus } from '@/api/activities'
+import { ArrowRight, Clock, MessageSquareQuote } from 'lucide-react'
+import { activitiesApi, type ExperienceKey, type Participation, type PortfolioAction, type PortfolioFocus } from '@/api/activities'
 import { AppButton } from '@/components/ui'
 import { Textarea } from '@/components/ui/primitives/textarea'
 import { cn } from '@/lib/utils'
 import { formatDeadline } from '@/lib/roadmapDeadline'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { EXPERIENCE_TYPES, actionCopy, participationPath } from '@/lib/activityUi'
-import { pluralRu } from '@/lib/contextDraft'
+import { actionCopy, participationPath } from '@/lib/activityUi'
 import { useAddToPlan, useDecline } from './useStudentActivities'
 import { SHELF_TYPES } from '@/lib/portfolio/dictionary'
 import { MentorComment } from './shared/MentorComment'
 
 type Viewer = 'student' | 'staff'
-const EXPERIENCE_SHORT = Object.fromEntries(EXPERIENCE_TYPES.map((t) => [t.key, t.short])) as Record<ExperienceTile['key'], string>
 
 export function PanelTitle({ id, children, hint }: { id: string; children: ReactNode; hint?: ReactNode }) {
   return <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -29,23 +27,16 @@ export function PanelTitle({ id, children, hint }: { id: string; children: React
   </div>
 }
 
-/** «2 достижения · 1 в работе · 1 рекомендация» — одна строка вместо четырёх плашек. */
-export function PortfolioNumbers({ counts, className }: { counts: PortfolioCounts; className?: string }) {
-  const parts: Array<[number, string, string]> = [
-    [counts.confirmed, pluralRu(counts.confirmed, 'достижение', 'достижения', 'достижений'), 'text-ds-good'],
-    [counts.active, 'в работе', 'text-ds-ink'],
-    [counts.suggested, pluralRu(counts.suggested, 'рекомендация', 'рекомендации', 'рекомендаций'), 'text-ds-ink'],
-  ]
-  return <p className={cn('flex flex-wrap gap-x-4 gap-y-1 text-sm text-ds-muted', className)}>
-    {parts.map(([n, label, tone]) => <span key={label}><b className={cn('text-base font-extrabold', n ? tone : 'text-ds-muted')}>{n}</b> {label}</span>)}
-    {counts.overdue > 0 && <span className="font-semibold text-ds-danger">просрочено шагов: {counts.overdue}</span>}
-  </p>
-}
 
 // ------------------------------------------------------------------ «Сейчас»
 
+/** Ментор читает действия ученика без обращения на «вы» и без кнопок ученика. */
+const NEUTRAL: Array<[RegExp, string]> = [[/^Исправьте/, 'Исправить'], [/^Сделайте/, 'Сделать'], [/^Отправьте/, 'Отправить']]
+
 function ActionItem({ action, viewer, plan, primary }: { action: PortfolioAction; viewer: Viewer; plan?: Participation[]; primary: boolean }) {
-  const copy = actionCopy(action, viewer)
+  const raw = actionCopy(action, viewer)
+  const watching = viewer === 'staff' && action.owner === 'student'
+  const copy = watching ? { ...raw, title: NEUTRAL.reduce((t, [re, to]) => t.replace(re, to), raw.title), cta: null } : raw
   const base = viewer === 'student' ? '/portal' : '/workspace'
   const add = useAddToPlan()
   const decline = useDecline()
@@ -95,28 +86,6 @@ export function NowList({ actions, viewer, plan, limit = 3, empty }: { actions: 
 
 // ------------------------------------------------------------------ типы опыта
 
-/**
- * Что есть и чего нет по типам опыта. Пустая плитка ведёт в каталог с этим
- * типом: ученику — подобрать самому, ментору — подобрать и рекомендовать.
- */
-export function ExperienceStrip({ tiles, pickPath, wide = false }: { tiles: ExperienceTile[]; pickPath: (key: ExperienceTile['key']) => string; wide?: boolean }) {
-  return <ul className={cn('grid grid-cols-2 gap-2', wide && 'sm:grid-cols-3')}>
-    {tiles.map((tile) => {
-      const has = tile.confirmed > 0
-      return <li key={tile.key} className={cn('flex min-w-0 flex-col justify-between gap-2 rounded-panel border p-3', has ? 'border-ds-good/40 bg-ds-good/[0.06]' : 'border-ds-line bg-ds-panel')}>
-        <p title={tile.label} className="text-xs font-bold leading-snug">{EXPERIENCE_SHORT[tile.key]}</p>
-        {has || tile.active
-          ? <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-              {has && <span className="inline-flex items-center gap-1 font-bold text-ds-good"><Check className="h-3.5 w-3.5" aria-hidden />{tile.confirmed}</span>}
-              {tile.active > 0 && <span className="text-ds-info">в работе: {tile.active}</span>}
-            </p>
-          : <Link to={pickPath(tile.key)} className="inline-flex items-center gap-1 text-xs font-semibold text-ds-muted underline-offset-4 hover:text-ds-ink hover:underline">
-              <Plus className="h-3.5 w-3.5" aria-hidden />Подобрать
-            </Link>}
-      </li>
-    })}
-  </ul>
-}
 
 // ------------------------------------------------------------------ фокус ментора
 
@@ -166,13 +135,3 @@ export function FocusNote({ focus, studentId, editable = false }: { focus: Portf
   </section>
 }
 
-export function NextDeadlineNote({ deadline, base }: { deadline: NextDeadline | null; base: '/portal' | '/workspace' }) {
-  if (!deadline) return null
-  return <Link to={`${base}/activities/participations/${deadline.participation_id}`} className="flex items-center gap-3 rounded-card border border-ds-line bg-ds-panel p-4 transition hover:border-ds-muted2">
-    <CalendarClock className="h-5 w-5 shrink-0 text-ds-muted" aria-hidden />
-    <span className="min-w-0">
-      <span className="block text-xs text-ds-muted">Ближайший срок · {formatDeadline(deadline.date)}</span>
-      <span className="block truncate text-sm font-bold">{deadline.title}</span>
-    </span>
-  </Link>
-}

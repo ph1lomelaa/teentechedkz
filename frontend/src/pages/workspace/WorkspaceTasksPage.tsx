@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, X } from 'lucide-react'
 import { roadmapApi } from '@/api/roadmap'
@@ -259,6 +259,8 @@ export const WorkspaceTasksPage: React.FC = () => {
             )}
           </button>
         ))}
+        {/* Работы учеников (шаги и итоги) проверяются в одной очереди; здесь — ещё и поручения сотрудникам. */}
+        <Link to="/workspace/review" className="ml-auto shrink-0 self-center px-3 text-xs font-semibold text-w-muted underline underline-offset-4 hover:text-w-ink">Работы учеников → Проверка</Link>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">

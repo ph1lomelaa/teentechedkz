@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ActivitiesPage } from './ActivitiesPage'
 import { PortalActivityDetailPage } from './portal/PortalActivityDetailPage'
-const mocks = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), intakes: vi.fn(), plan: vi.fn(), tasks: vi.fn(), select: vi.fn(), editPlan: vi.fn(), recommend: vi.fn(), assign: vi.fn(), staffStudents: vi.fn(), staffMentors: vi.fn(), overview: vi.fn(), summary: vi.fn(), studentsOverview: vi.fn(), user: { role: 'student' } }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), intakes: vi.fn(), plan: vi.fn(), tasks: vi.fn(), select: vi.fn(), editPlan: vi.fn(), recommend: vi.fn(), assign: vi.fn(), staffStudents: vi.fn(), staffMentors: vi.fn(), overview: vi.fn(), board: vi.fn(), summary: vi.fn(), studentsOverview: vi.fn(), user: { role: 'student' } }))
 vi.mock('@/api/activities', () => ({ activitiesApi: mocks }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: mocks.user, can: () => mocks.user.role !== 'student' }) }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
@@ -48,6 +48,7 @@ it('рекомендация принимает существующее уча�
 })
 it('ментор выдаёт рекомендацию через конструктор с причиной и личным сроком', async () => {
   mocks.user.role = 'mentor'; mocks.list.mockResolvedValue([{ ...activity, publication: 'draft' }]); open('/workspace/activities?view=catalog')
+  fireEvent.click(await screen.findByRole('button', { name: /Черновики/ }))
   fireEvent.click(await screen.findByRole('button', { name: 'Конкурс проектов' }))
   fireEvent.click(screen.getByRole('tab', { name: 'Рекомендовать' }))
   fireEvent.change(await screen.findByLabelText('Способ выдачи'), { target: { value: 'suggested' } })
@@ -67,13 +68,18 @@ it('повторная выдача сообщает о существующем
   fireEvent.click(screen.getByRole('button', { name: /Назначить · 1/ }))
   expect(await screen.findByText('Участие уже существует — план сохранён')).toBeInTheDocument()
 })
-it('доска раскладывает карточки по колонкам API и по умолчанию ждёт действия ментора', async () => {
-  mocks.user.role = 'mentor'; mocks.overview.mockResolvedValue({ ...board, items: [{ ...participation, column: 'planning' }], total: 1, counts: { ...board.counts, waiting: 1, all: 1 } }); open('/workspace/activities?view=overview')
-  fireEvent.click(await screen.findByRole('button', { name: 'Доской' }))
-  const column = await screen.findByRole('region', { name: 'Нужен план' })
+it('доска по активностям: в колонке стадии карточка активности с учениками', async () => {
+  mocks.user.role = 'mentor'
+  mocks.board.mockResolvedValue({ declined: 1, columns: [
+    { key: 'recommendation', items: [] },
+    { key: 'in_work', items: [{ activity_id: 'a1', title: 'Конкурс проектов', experience_type: 'competitions', submit_deadline: null,
+      students: [{ student_id: 's1', name: 'Алина', participation_id: 'p1', step_index: 2, step_total: 3, due: null, overdue_days: 0, needs_me: true }] }] },
+    { key: 'result_review', items: [] }, { key: 'achievement', items: [] }] })
+  open('/workspace/activities?layout=board')
+  const column = await screen.findByRole('region', { name: 'В работе' })
   expect(within(column).getByText('Конкурс проектов')).toBeTruthy()
-  expect(within(column).getByRole('button', { name: 'Составить план' })).toBeTruthy()
-  await waitFor(() => expect(mocks.overview).toHaveBeenCalledWith(expect.objectContaining({ view: 'waiting' })))
+  expect(within(column).getByRole('link', { name: 'План: Алина' })).toBeTruthy()
+  expect(screen.getByText('Отказались · 1')).toBeTruthy()
 })
 const action = (kind: string, extra = {}) => ({ kind, owner: 'student', participation_id: 'p1', activity_title: 'Конкурс проектов', student_id: 's1', student_name: 'Ученик', step_id: 't1', step_title: 'Эссе', due_date: null, overdue: false, ...extra })
 it('«Сейчас» начинается с самого срочного действия и ведёт в нужный шаг', async () => {

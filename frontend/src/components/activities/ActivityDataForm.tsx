@@ -6,7 +6,8 @@ export function activityInput(a: Activity): ActivityInput {
     description: a.description, eligibility: a.eligibility, assignment: a.assignment, source_url: a.source_url,
     publication: a.publication, conditions_checked_at: a.conditions_checked_at ?? null,
     // Угаданный по kind тип не фиксируем: иначе после правки kind он бы «застыл».
-    experience_type: a.experience_explicit ? a.experience_type ?? null : null }
+    experience_type: a.experience_explicit ? a.experience_type ?? null : null,
+    result_requires_file: a.result_requires_file ?? false }
 }
 // Тип активности сводится к типу опыта портфолио по ключевым словам
 // (backend app/services/experience.py). Подсказки — формулировки, которые точно распознаются.
