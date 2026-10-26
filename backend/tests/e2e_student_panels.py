@@ -3,6 +3,7 @@
 Run with TTE_PANELS_TEST_DATABASE pointing at a dedicated test database.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import subprocess
@@ -35,12 +36,14 @@ async def bootstrap():
 if not asyncio.run(bootstrap()):
     subprocess.run([sys.executable, "-m", "alembic", "stamp", "116"], cwd=ROOT / "backend", check=True)
 
-result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"],
-    cwd=ROOT / "backend", capture_output=True, text=True)
-if result.returncode:
-    print(result.stderr[-7000:])
-    raise SystemExit(result.returncode)
-print("Migration to head passed")
+# Проверяется ровно переход 116 -> 118; более поздние миграции схема из моделей уже содержит.
+for args in [("upgrade", "118"), ("stamp", "head")]:
+    result = subprocess.run([sys.executable, "-m", "alembic", *args],
+        cwd=ROOT / "backend", capture_output=True, text=True)
+    if result.returncode:
+        print(result.stderr[-7000:])
+        raise SystemExit(result.returncode)
+print("Migration 116 -> 118 passed")
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -71,7 +74,9 @@ async def main():
         db.add_all(pupils)
         await db.flush()
         a, b, c, d, e = pupils
+        # У b два договора: статус берётся из последнего, старый «Возврат» не влияет.
         db.add_all([Contract(student_id=b.id, pipeline_status=PipelineStatus.active_work),
+                    Contract(student_id=b.id, pipeline_status=PipelineStatus.refund, created_at=datetime.now(timezone.utc) - timedelta(days=30)),
                     Contract(student_id=c.id, pipeline_status=PipelineStatus.on_visa)])
         alias = f"Notion Alias {suffix}"
         for pupil, raw in [(a, "Активная работа"), (b, ""), (c, "Работа окончена- Поступил"), (e, "Активная работа")]:
@@ -115,7 +120,10 @@ async def main():
         assert set(await listed(lead_mentor_id=str(users["mentor"].id), countries="США,Германия")) == {str(a.id)}
         assert set(await listed(intake_years="2026,2027", pipeline_statuses="active_work")) == {str(a.id), str(b.id), str(e.id)}
         assert set(await listed(pipeline_statuses="no_status")) == {str(d.id)}
-        checks += 5
+        assert set(await listed(pipeline_statuses="refund")) == set()
+        assert set(await listed(pipeline_statuses="active_work", pipeline_status_operator="is_not")) == {str(c.id), str(d.id)}
+        assert set(await listed(pipeline_statuses="no_status", pipeline_status_operator="is_not")) == ids - {str(d.id)}
+        checks += 8
         for role, target in [("mzk_manager", "paused"), ("academic_head", "on_visa"), ("admin", "active_work")]:
             actor[0] = users[role]
             saved = (await request("PATCH", f"/students/{b.id}", json={"pipeline_status": target})).json()
