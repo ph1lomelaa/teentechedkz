@@ -516,7 +516,8 @@ async def process_outbox_batch(
                     await session.commit()
                     counters["superseded"] += 1
                     continue
-            if getattr(item, "field_key", None) == "phone" and getattr(snapshot, "phone_normalized", None) in await load_shared_phones(session):
+            phone = getattr(snapshot, "phone_normalized", None)
+            if getattr(item, "field_key", None) == "phone" and phone and phone in await load_shared_phones(session):
                 item.status = FieldSyncStatus.conflict
                 item.locked_until = None
                 item.last_error = SHARED_PHONE_REASON
