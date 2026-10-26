@@ -24,6 +24,8 @@ DEGREE_MAP: dict[str, str] = {
     "бакалавриат": "undergraduate",
     "бакалавр": "undergraduate",
     "ug": "undergraduate",
+    # Школьник поступает на бакалавриат.
+    "high school": "undergraduate",
     "master's": "masters",
     "masters": "masters",
     "магистратура": "masters",

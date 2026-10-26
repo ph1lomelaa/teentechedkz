@@ -378,3 +378,14 @@ def test_reverse_phone_write_does_not_erase_notion_annotations(monkeypatch):
     result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, dry_run=False))
     assert result.disposition is runtime.RuntimeDisposition.conflict
     assert state['value'] == raw and calls['writes'] == 0
+
+
+def test_shared_phones_are_numbers_on_several_pages():
+    assert runtime.shared_phones(["77001516218", "77001516218", "77011112233", None, ""]) == {"77001516218"}
+    assert runtime.shared_phones(["77011112233", "77022223344"]) == set()
+
+
+def test_degree_notes_are_not_degrees():
+    assert runtime.canonical_profile_value("degree_level", "High School") == "undergraduate"
+    assert runtime.degree_is_note("Улучшение портфолио") and runtime.degree_is_note("not decided yet")
+    assert not runtime.degree_is_note("Бакалавриат") and not runtime.degree_is_note("") and not runtime.degree_is_note(None)

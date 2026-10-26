@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone, date
 from decimal import Decimal, InvalidOperation
@@ -81,6 +83,35 @@ def phone_requires_review(value: Any) -> bool:
     digits = re.sub(r"\D", "", raw)
     return bool(re.search(r"[^0-9+()\s.\-]", raw) or "\n" in raw or raw.count("+") > 1
                 or len(digits) > 15 or (len(digits) > 11 and digits.startswith(("7", "8"))))
+
+
+SHARED_PHONE_REASON = "Телефон в Notion указан у нескольких страниц; общий номер не переносим"
+
+
+def shared_phones(phones: Iterable[str | None]) -> set[str]:
+    """Номер с нескольких страниц Notion — контакт менеджера или родителя, а не ученика.
+
+    Такой номер не годится ни для привязки страницы к карточке, ни для переноса
+    в карточку: иначе один общий номер склеивает разных учеников.
+    """
+    counts = Counter(phone for phone in phones if phone)
+    return {phone for phone, total in counts.items() if total > 1}
+
+
+async def load_shared_phones(session: AsyncSession) -> set[str]:
+    from sqlalchemy import select
+
+    from app.models.notion_snapshot import NotionSnapshot
+    return shared_phones((await session.execute(select(NotionSnapshot.phone_normalized))).scalars())
+
+
+def degree_is_note(raw: Any) -> bool:
+    """В колонке «Ступень» заметка вместо ступени («Улучшение портфолио», «not decided yet»).
+
+    Её не переносим ни в одну сторону: иначе платформа затёрла бы заметку
+    менеджера ступенью, а пустую ступень — заметкой.
+    """
+    return raw not in (None, "") and canonical_profile_value("degree_level", raw) is None
 
 
 def snapshot_phone_raw(snapshot: Any) -> Any:
@@ -484,6 +515,14 @@ async def process_outbox_batch(
                     await session.commit()
                     counters["superseded"] += 1
                     continue
+            if getattr(item, "field_key", None) == "phone" and getattr(snapshot, "phone_normalized", None) in await load_shared_phones(session):
+                item.status = FieldSyncStatus.conflict
+                item.locked_until = None
+                item.last_error = SHARED_PHONE_REASON
+                item.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+                counters["conflict"] += 1
+                continue
             result = await process_profile_field(
                 session, item, student=student, snapshot=snapshot, contract=contract, dry_run=dry_run
             )

@@ -168,14 +168,14 @@ async def enqueue_reconciliation(
     return existing
 
 
-async def retire_resolved(session, *, snapshot_id, field_key):
+async def retire_resolved(session, *, snapshot_id, field_key, reason="Both sources now agree"):
     """Keep old comparisons out of the open queue once the sources agree."""
     await session.execute(update(NotionFieldSync).where(
         NotionFieldSync.notion_snapshot_id == snapshot_id,
         NotionFieldSync.field_key == field_key,
         NotionFieldSync.status.in_([FieldSyncStatus.pending, FieldSyncStatus.dry_run, FieldSyncStatus.conflict, FieldSyncStatus.failed]),
     ).values(status=FieldSyncStatus.superseded, locked_until=None,
-             updated_at=datetime.now(timezone.utc), last_error="Both sources now agree"))
+             updated_at=datetime.now(timezone.utc), last_error=reason))
 
 
 async def claim_next(

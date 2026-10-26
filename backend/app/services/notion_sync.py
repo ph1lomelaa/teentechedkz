@@ -276,7 +276,8 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
     """Массовая фиксация эталона по привязанным снапшотам: грузим студентов и их
     последние договоры одним заходом, затем сверяем каждый снапшот с CRM."""
     from app.services.notion_field_sync_report import load_context, manual_fields_for
-    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
+    from app.services.notion_field_sync_outbox import retire_resolved
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR, SHARED_PHONE_REASON, degree_is_note
     ids = sorted({s.student_id for s in snapshots if s.student_id})
     if ids:
         await db.execute(select(Student.id).where(Student.id.in_(ids)).order_by(Student.id).with_for_update())
@@ -288,6 +289,15 @@ async def _reconcile_baselines(db: AsyncSession, snapshots: list[NotionSnapshot]
         contracts = context["contracts"].get(student.id, [])
         contract = contracts[0] if contracts else None
         canon = editable_canon(snapshot.normalized_data or {}, student, contract)
+        skipped = {}
+        if snapshot.phone_normalized in context.get("shared_phones", set()):
+            # Общий номер не переносится ни в одну сторону, пока его не исправят в Notion.
+            skipped["phone"] = SHARED_PHONE_REASON
+        if degree_is_note((snapshot.normalized_data or {}).get("degree_raw")):
+            skipped["degree_level"] = "В колонке ступени заметка, а не ступень; не переносим"
+        for field, reason in skipped.items():
+            canon.pop(field, None)
+            await retire_resolved(db, snapshot_id=snapshot.id, field_key=field, reason=reason)
         if len(contracts) != 1:
             canon = {key: value for key, value in canon.items()
                      if key not in CONTRACT_FIELD_ATTR or key == "pipeline_status"}
@@ -394,6 +404,8 @@ async def run_sync(db: AsyncSession) -> dict:
                 )).scalars().all()
             }
 
+            from app.services.notion_field_sync_runtime import shared_phones
+            batch_shared_phones = shared_phones(normalize_phone(row.get("phone", "")) or None for row in rows)
             now = datetime.now(timezone.utc)
             created = updated = unchanged = auto_linked = 0
             # Привязанные снапшоты — для прохода по эталону после основного цикла.
@@ -405,9 +417,11 @@ async def run_sync(db: AsyncSession) -> dict:
                     snapshot.suggested_student_id = None
                     snapshot.suggested_confidence = None
                     return False
-                match = plausible_student_candidates(
-                    row.get("full_name", ""), row.get("phone", ""), students_index
-                )
+                # Общий номер нескольких страниц (менеджер, родитель) не опознаёт ученика.
+                phone = row.get("phone", "")
+                if normalize_phone(phone) in batch_shared_phones:
+                    phone = ""
+                match = plausible_student_candidates(row.get("full_name", ""), phone, students_index)
                 # После ручной отвязки автопривязка запрещена — только предложение
                 # Предложение собирает ВСЕх возможных кандидатов. Для автопривязки
                 # требуется один кандидат с точным/транслитерированным именем или
