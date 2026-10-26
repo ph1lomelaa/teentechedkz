@@ -35,7 +35,11 @@ export const WorkspaceRoadmapPage: React.FC = () => {
     const summary = summaries.get(row.student.id)
     return deadlineFilter === 'all' || Boolean(summary?.[deadlineFilter])
   })
-  const missing = rows.filter((row) => !row.roadmap).length
+  const missing = visibleRows.filter((row) => !(updatedRoadmaps[row.student.id] || row.roadmap)).length
+  const rowGroups = [
+    { key: 'assigned', items: visibleRows.filter((row) => Boolean(updatedRoadmaps[row.student.id] || row.roadmap)) },
+    { key: 'missing', items: visibleRows.filter((row) => !(updatedRoadmaps[row.student.id] || row.roadmap)) },
+  ]
   const totals = rows.reduce((sum, row) => {
     const summary = summaries.get(row.student.id)
     sum.overdue += summary?.overdue ?? 0
@@ -161,50 +165,54 @@ export const WorkspaceRoadmapPage: React.FC = () => {
           {visibleRows.length === 0 ? (
             <EmptyState colorPrefix="w" title="Ничего не найдено" description="Измените поиск или выберите всех студентов." />
           ) : (
-            <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
-              {visibleRows.map((row) => {
-                const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
-                const deadlines = summaries.get(row.student.id)
-                return (
-                  <AppCard colorPrefix="w" key={row.student.id} className="min-w-0 p-4">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Route className="h-4 w-4 shrink-0 text-w-accentText" />
-                          <h2 className="truncate font-display text-lg font-black text-w-ink">{row.student.full_name}</h2>
+            <div className="space-y-5">
+              {rowGroups.filter((group) => group.items.length > 0).map((group) => (
+                <div key={group.key} data-roadmap-group={group.key} className={group.key === 'assigned' ? 'min-w-0 columns-1 gap-5 lg:columns-2' : 'grid min-w-0 items-start gap-5 lg:grid-cols-2'}>
+                  {group.items.map((row) => {
+                    const roadmap = updatedRoadmaps[row.student.id] || row.roadmap
+                    const deadlines = summaries.get(row.student.id)
+                    return (
+                      <AppCard colorPrefix="w" key={row.student.id} className={cn('w-full min-w-0 p-4', group.key === 'assigned' && 'mb-5 break-inside-avoid')}>
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-w-line pb-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Route className="h-4 w-4 shrink-0 text-w-accentText" />
+                              <h2 className="truncate font-display text-lg font-black text-w-ink">{row.student.full_name}</h2>
+                            </div>
+                            <div className="mt-1 truncate text-xs text-w-muted">{roadmap?.name || 'Roadmap не назначен'}</div>
+                          </div>
+                          {roadmap && (
+                            <Pill colorPrefix="w">
+                              {roadmap.country_flag_emoji ? `${roadmap.country_flag_emoji} ` : ''}
+                              {roadmap.country_name || 'Страна не указана'}
+                            </Pill>
+                          )}
                         </div>
-                        <div className="mt-1 truncate text-xs text-w-muted">{roadmap?.name || 'Roadmap не назначен'}</div>
-                      </div>
-                      {roadmap && (
-                        <Pill colorPrefix="w">
-                          {roadmap.country_flag_emoji ? `${roadmap.country_flag_emoji} ` : ''}
-                          {roadmap.country_name || 'Страна не указана'}
-                        </Pill>
-                      )}
-                    </div>
 
-                    {roadmap && <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                      {Boolean(deadlines?.overdue) && <span className="rounded-full bg-red-500/15 px-2 py-1 font-bold text-red-600">Просрочено: {deadlines?.overdue}</span>}
-                      {Boolean(deadlines?.next7) && <span className="rounded-full bg-amber-500/15 px-2 py-1 font-bold text-amber-600">7 дней: {deadlines?.next7}</span>}
-                      {Boolean(deadlines?.withoutDate) && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Без срока: {deadlines?.withoutDate}</span>}
-                      {deadlines?.nearest && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Ближайший: {formatDeadline(deadlines.nearest)}</span>}
-                    </div>}
+                        {roadmap && <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                          {Boolean(deadlines?.overdue) && <span className="rounded-full bg-red-500/15 px-2 py-1 font-bold text-red-600">Просрочено: {deadlines?.overdue}</span>}
+                          {Boolean(deadlines?.next7) && <span className="rounded-full bg-amber-500/15 px-2 py-1 font-bold text-amber-600">7 дней: {deadlines?.next7}</span>}
+                          {Boolean(deadlines?.withoutDate) && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Без срока: {deadlines?.withoutDate}</span>}
+                          {deadlines?.nearest && <span className="rounded-full bg-w-panel2 px-2 py-1 text-w-muted">Ближайший: {formatDeadline(deadlines.nearest)}</span>}
+                        </div>}
 
-                    {roadmap ? (
-                      <WorkspaceRoadmapEditor
-                        roadmap={roadmap}
-                        onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
-                      />
-                    ) : (
-                      <EmptyState colorPrefix="w"
-                        icon={<Route className="h-5 w-5" />}
-                        title="Roadmap не назначен"
-                        description="Назначение roadmap будет добавлено в кабинет отдельным действием."
-                      />
-                    )}
-                  </AppCard>
-                )
-              })}
+                        {roadmap ? (
+                          <WorkspaceRoadmapEditor
+                            roadmap={roadmap}
+                            onChanged={(updated) => setUpdatedRoadmaps((current) => ({ ...current, [row.student.id]: updated }))}
+                          />
+                        ) : (
+                          <EmptyState colorPrefix="w"
+                            icon={<Route className="h-5 w-5" />}
+                            title="Roadmap не назначен"
+                            description="Назначение roadmap будет добавлено в кабинет отдельным действием."
+                          />
+                        )}
+                      </AppCard>
+                    )
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>

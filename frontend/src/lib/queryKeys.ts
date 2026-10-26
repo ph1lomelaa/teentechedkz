@@ -35,21 +35,13 @@ export const studentKeys = {
   emergencyContacts: (id: MaybeId) => ['emergency-contacts', id] as const,
 }
 
-/**
- * Сбрасывает профиль студента и таймлайн вместе.
- *
- * Это пара, а не полный набор из studentKeys: intake/notion/telegram-chat
- * трогает только то, что их реально меняет (см. вызовы в StudentCardPage),
- * незачем дёргать привязку к Notion на каждую отметку задачи. А вот профиль
- * и таймлайн меняются практически любой правкой карточки — родом из одного и
- * того же события, и должны обновляться вместе. Лишний рефетч таймлайна там,
- * где он не изменился (например, правка портфолио — не событие таймлайна),
- * не заметен и не стоит того, чтобы разбирать 18 мутаций по отдельности —
- * ровно так туда и закралась исходная ошибка.
- */
+/** Profile edits can obsolete AI proposals; refresh the queue and counters too. */
 export function invalidateStudent(queryClient: QueryClient, id: MaybeId): void {
   queryClient.invalidateQueries({ queryKey: studentKeys.detail(id) })
   queryClient.invalidateQueries({ queryKey: studentKeys.timeline(id) })
+  queryClient.invalidateQueries({ queryKey: ['pending-insights'] })
+  queryClient.invalidateQueries({ queryKey: ['workspace'] })
+  queryClient.invalidateQueries({ queryKey: ['students'] })
 }
 
 /**

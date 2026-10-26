@@ -8,6 +8,7 @@ import {
   filterByBucket,
   fromDelegated,
   fromRoadmap,
+  groupByStudent,
   relativeDue,
   rollupByStudent,
   sortItems,
@@ -176,5 +177,21 @@ describe('сводка по студентам', () => {
     expect(rollupByStudent(items)).toEqual([
       { studentId: 's1', studentName: 'Алимов Бекзат', open: 2, overdue: 1, review: 1, nextDue: '2026-09-20' },
     ])
+  })
+})
+
+describe('groupByStudent', () => {
+  it('просрочка выше, затем проверка, затем по имени; общие задачи в конце; порядок внутри сохранён', () => {
+    const items = [
+      fromRoadmap(roadmap({ id: 'a1', student_id: 'a', student_name: 'Анна' }), TODAY),
+      fromRoadmap(roadmap({ id: 'b1', student_id: 'b', student_name: 'Борис', due_date: '2026-09-01' }), TODAY),
+      fromRoadmap(roadmap({ id: 'a2', student_id: 'a', student_name: 'Анна', title: 'Второй' }), TODAY),
+      fromRoadmap(roadmap({ id: 'v1', student_id: 'v', student_name: 'Вера', review_status: 'pending', status: 'in_progress' }), TODAY),
+      { ...fromRoadmap(roadmap({ id: 'g1' }), TODAY), studentId: null, studentName: null },
+    ]
+    const groups = groupByStudent(items)
+    expect(groups.map((g) => g.studentName)).toEqual(['Борис', 'Вера', 'Анна', 'Общие задачи'])
+    expect(groups[0].overdue).toBe(1)
+    expect(groups[2].items.map((i) => i.id)).toEqual(['a1', 'a2'])
   })
 })

@@ -24,6 +24,7 @@ from app.models.document import Document
 from app.models.meeting import Meeting, MeetingStatus
 from app.models.mentor_assignment import MentorAssignment, MentorRole
 from app.models.note_session import NoteSession, NoteSessionStatus
+from app.services.pending_insights import needs_review_condition
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.questionnaire import Questionnaire, QuestionnaireStatus
 from app.core.country_flags_data import flag_for
@@ -381,6 +382,7 @@ async def _student_summary(db: AsyncSession, student: Student) -> dict:
             PendingInsight.student_id == student.id,
             PendingInsight.status == InsightStatus.pending,
             PendingInsight.source_telegram_message_id.is_not(None),
+            needs_review_condition(),
         ),
     )
     note_sessions = await _count(
@@ -557,6 +559,7 @@ async def _student_summaries(
             PendingInsight.student_id.in_(student_ids),
             PendingInsight.status == InsightStatus.pending,
             PendingInsight.source_telegram_message_id.is_not(None),
+            needs_review_condition(),
         )
         .group_by(PendingInsight.student_id)
     )
@@ -1675,6 +1678,21 @@ async def create_workspace_context_draft(
     messages = message_response["items"]
     if not messages:
         raise HTTPException(status_code=422, detail="Нет сообщений для анализа")
+    from app.services.telegram_recognition_context import message_roles
+    telegram_ids = [uuid.UUID(m["id"]) for m in messages if m["source"] == "telegram"]
+    telegram_roles = {}
+    if telegram_ids:
+        telegram_rows = (await db.execute(select(TelegramMessage).where(TelegramMessage.id.in_(telegram_ids)))).scalars().all()
+        telegram_roles = await message_roles(db, telegram_rows, student_id=student.id)
+    source_messages = [
+        {"message_id": message["id"], "created_at": message.get("created_at"),
+         "source": message["source"], "sender_name": message.get("sender_name"),
+         "sender_role": telegram_roles.get(uuid.UUID(message["id"]), "unknown") if message["source"] == "telegram"
+             else ("other_student" if message.get("sender_role") == "student" and message.get("sender_id") != str(student.user_id) else message.get("sender_role", "unknown")),
+         "text": message.get("body") or ""}
+        for message in messages
+    ]
+
     source_text = "\n".join(
         f"[{message['source']} · {message.get('sender_name') or 'участник'}]: {message.get('body') or '[вложение]'}"
         for message in messages
@@ -1687,6 +1705,7 @@ async def create_workspace_context_draft(
     snapshot = snapshot_student(student)
     draft = await generate_context_review_draft(
         source_text=source_text,
+        source_messages=source_messages,
         snapshot=snapshot,
         attachments=attachments,
     )
@@ -1704,6 +1723,7 @@ async def create_workspace_context_draft(
         input_snapshot={
             "message_count": len(messages),
             "source_text": source_text,
+            "source_messages": source_messages,
             "attachments": attachments,
             "profile_snapshot": snapshot,
         },
