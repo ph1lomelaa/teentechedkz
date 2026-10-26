@@ -1,10 +1,9 @@
 import type { PortfolioSummary } from '@/api/activities'
 import { FocusNote, NowList, PanelTitle } from './PortfolioParts'
-import { Shelf } from './shared/Shelf'
 
 /**
  * Портфолио ученика глазами сотрудника: что нужно от ментора, что нужно от
- * ученика (вместе с рекомендациями без решения) и полка с редактируемым фокусом.
+ * ученика (вместе с рекомендациями без решения) и фокус, который ментор правит.
  */
 export function PortfolioSummaryCard({ studentId, summary, editable }: {
   studentId: string; summary: PortfolioSummary; editable: boolean
@@ -21,7 +20,6 @@ export function PortfolioSummaryCard({ studentId, summary, editable }: {
         <NowList actions={studentActions} viewer="staff" empty="У ученика сейчас нет открытых шагов." />
       </section>
     </div>
-    <Shelf cells={summary.shelf} base="/workspace" pickPath={(key) => `/workspace/activities/pick?student=${studentId}&type=${key}`} focusTypes={summary.focus?.types}
-      focus={<FocusNote key={summary.focus?.updated_at ?? 'none'} focus={summary.focus} studentId={studentId} editable={editable} />} />
+    <FocusNote key={summary.focus?.updated_at ?? 'none'} focus={summary.focus} studentId={studentId} editable={editable} />
   </div>
 }

@@ -26,9 +26,9 @@ export function ActivityTags({ activity, className }: { activity: Pick<Activity,
 export function FilterBar<T extends string>({ options, value, onChange, label }: {
   options: Array<{ value: T; label: ReactNode; count?: number }>; value: T; onChange: (value: T) => void; label: string
 }) {
-  return <div role="group" aria-label={label} className="-mx-4 flex gap-5 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+  return <div role="group" aria-label={label} className="scroll-row -mx-4 flex gap-5 px-4 sm:mx-0 sm:px-0">
     {options.filter((o) => o.value === value || o.count === undefined || o.count > 0).map((o) => <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}
-      className={cn('-mb-px inline-flex shrink-0 items-baseline gap-1.5 whitespace-nowrap border-b-2 pb-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent-dim',
+      className={cn('inline-flex shrink-0 items-baseline gap-1.5 whitespace-nowrap border-b-2 pb-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent-dim',
         value === o.value ? 'border-ds-accent font-bold text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink')}>
       {o.label}{o.count !== undefined && o.count > 0 && <span className="text-xs font-normal text-ds-muted2">{o.count}</span>}
     </button>)}
@@ -36,13 +36,14 @@ export function FilterBar<T extends string>({ options, value, onChange, label }:
 }
 
 /** Компактный выпадающий фильтр «Тип опыта: все ▾». Числа внутри списка, а не на экране. */
-export function FilterSelect<T extends string>({ label, options, value, onChange }: {
-  label: string; options: Array<{ value: T; label: string; count?: number }>; value: T | ''; onChange: (value: T | '') => void
+export function FilterSelect<T extends string>({ label, options, value, onChange, lowercase = true }: {
+  lowercase?: boolean; label: string; options: Array<{ value: T; label: string; count?: number }>; value: T | ''; onChange: (value: T | '') => void
 }) {
+  const shown = options.find((o) => o.value === value)?.label
   return <label className={cn('relative inline-flex shrink-0 items-center gap-1 rounded-ctl border px-3 py-2 text-sm transition focus-within:ring-2 focus-within:ring-ds-accent-dim',
     value ? 'border-ds-ink font-bold text-ds-ink' : 'border-ds-line text-ds-muted hover:border-ds-muted2')}>
     <span>{label}:</span>
-    <span className={value ? '' : 'text-ds-ink'}>{options.find((o) => o.value === value)?.label.toLocaleLowerCase('ru') ?? 'все'}</span>
+    <span className={value ? '' : 'text-ds-ink'}>{shown ? (lowercase ? shown.toLocaleLowerCase('ru') : shown) : 'все'}</span>
     <span aria-hidden className="text-xs">▾</span>
     <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value as T | '')} className="absolute inset-0 cursor-pointer opacity-0">
       <option value="">Все</option>
@@ -108,9 +109,9 @@ export function FilterChip({ active, onClick, children, count }: { active: boole
 export function UnderlineTabs<T extends string>({ tabs, value, onChange, label }: {
   tabs: Array<{ value: T; label: ReactNode }>; value: T; onChange: (value: T) => void; label: string
 }) {
-  return <div role="tablist" aria-label={label} className="flex gap-6 overflow-x-auto border-b border-ds-line">
+  return <div role="tablist" aria-label={label} className="scroll-row flex gap-6 shadow-[inset_0_-1px_0_rgb(var(--ds-line-rgb))]">
     {tabs.map((tab) => <button key={tab.value} type="button" role="tab" aria-selected={value === tab.value} onClick={() => onChange(tab.value)}
-      className={cn('-mb-px inline-flex shrink-0 items-center gap-2 border-b-2 pb-3 pt-1 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent-dim',
+      className={cn('inline-flex shrink-0 items-center gap-2 border-b-2 pb-3 pt-1 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent-dim',
         value === tab.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink')}>
       {tab.label}
     </button>)}

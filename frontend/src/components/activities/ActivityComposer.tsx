@@ -14,6 +14,7 @@ import { SHELF_TYPES } from '@/lib/portfolio/dictionary'
 import { activityInput, emptyActivity, STANDARD_KINDS } from './ActivityDataForm'
 import { IntakeEditor } from './IntakeEditor'
 import { TemplateBuilder } from './TemplateBuilder'
+import { SuggestInput } from './shared/SuggestInput'
 
 export type ComposerNext = 'stay' | 'recommend'
 type SaveAction = 'draft' | 'publish' | 'recommend' | 'save'
@@ -87,6 +88,9 @@ export function ActivityComposer({ activity, catalog, editable, presetType, onSa
   const text = (key: 'title' | 'organizer' | 'country' | 'source_url' | 'kind' | 'direction', label: string, max: number, props: Record<string, unknown> = {}) =>
     <label className="block text-sm font-semibold">{label}<Input className="mt-1" maxLength={max} value={form[key] ?? ''} onChange={(e) => set(key, e.target.value || (key === 'title' ? '' : null))} {...props} /></label>
 
+  const suggest = (key: 'kind' | 'direction', label: string, max: number, options: string[], placeholder?: string) =>
+    <label className="block text-sm font-semibold">{label}<SuggestInput className="mt-1" maxLength={max} placeholder={placeholder} options={options} value={form[key] ?? ''} onChange={(v) => set(key, v || null)} /></label>
+
   return <div className="space-y-8">
     <fieldset disabled={!editable || save.isPending} className="space-y-8">
       <Section title="Что это">
@@ -104,14 +108,12 @@ export function ActivityComposer({ activity, catalog, editable, presetType, onSa
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          {text('kind', 'Подзаголовок (необязательно)', 100, { list: 'composer-kind', placeholder: 'Например: командный конкурс' })}
-          {text('direction', 'Направление', 255, { list: 'composer-direction' })}
+          {suggest('kind', 'Подзаголовок (необязательно)', 100, [...new Set([...STANDARD_KINDS, ...catalog.map((a) => a.kind).filter((v): v is string => Boolean(v))])], 'Например: командный конкурс')}
+          {suggest('direction', 'Направление', 255, [...new Set(catalog.map((a) => a.direction).filter((v): v is string => Boolean(v)))])}
           {text('organizer', 'Организатор', 500)}
           {text('country', 'Страна', 500)}
         </div>
         {text('source_url', 'Ссылка организатора', 2048, { type: 'url', placeholder: 'https://', id: 'composer-source_url' })}
-        <datalist id="composer-kind">{[...new Set([...STANDARD_KINDS, ...catalog.map((a) => a.kind).filter(Boolean)])].map((v) => <option key={v} value={v!} />)}</datalist>
-        <datalist id="composer-direction">{[...new Set(catalog.map((a) => a.direction).filter(Boolean))].map((v) => <option key={v} value={v!} />)}</datalist>
         {!!dupes.data?.length && <div role="status" className="flex gap-3 rounded-panel border border-ds-accent-dim bg-ds-accent/[0.07] p-3 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ds-accentText" aria-hidden />
           <div><p className="font-semibold">Похожее уже есть в каталоге</p><ul className="mt-1 space-y-0.5 text-ds-muted">{dupes.data.map((d) => <li key={d.id}>«{d.title}» · {d.reason === 'title' ? 'то же название' : 'тот же сайт'}{d.publication === 'archived' ? ' · в архиве' : d.publication === 'draft' ? ' · черновик' : ''}</li>)}</ul></div>

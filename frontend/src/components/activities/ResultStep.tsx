@@ -40,7 +40,6 @@ export function ResultStep({ item, number, own, canManage, ready }: {
       </span>
       <div className="min-w-0 flex-1">
         <h3 className="font-semibold">Итог</h3>
-        <p className="mt-0.5 text-xs text-ds-muted">что получилось и файл · подтверждает ментор</p>
       </div>
       {tag}
     </header>
@@ -49,7 +48,7 @@ export function ResultStep({ item, number, own, canManage, ready }: {
       {own && !closed && !pending
         ? <label className="block text-sm font-semibold">Что получилось<Textarea className="mt-2" value={value} maxLength={20000} onChange={(e) => setText(e.target.value)} placeholder="Результат, место, ссылка на проект" /></label>
         : item.result_text ? <p className="whitespace-pre-wrap break-words text-sm">{item.result_text}</p> : !done && <p className="text-sm text-ds-muted">Ученик ещё не отправил итог.</p>}
-      <PortfolioFiles target={{ participation_id: item.id }} result editable={own && item.decision === 'selected' && item.status !== 'cancelled'} />
+      <PortfolioFiles target={{ participation_id: item.id }} result editable={(own || canManage) && item.decision === 'selected' && item.status !== 'cancelled'} />
       {own && !closed && (pending
         ? <p className="text-sm text-ds-info">Итог отправлен. Ментор проверит его и ответит здесь.</p>
         : <AppButton disabled={!value.trim() || action.isPending} onClick={() => action.mutate(() => activitiesApi.submitResult(item.id, value))}>{returned ? 'Отправить исправленный итог' : 'Отправить итог ментору'}</AppButton>)}

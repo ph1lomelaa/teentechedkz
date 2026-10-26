@@ -101,15 +101,17 @@ export function ActivityPickPage() {
       const clean = steps.filter((s) => s.title.trim()).map((s) => ({ ...s, title: s.title.trim() }))
       if (participationId) {
         for (const [i, step] of clean.entries()) await learnerTasksApi.create({ ...step, creation_key: (stepKeys.current[i] ??= crypto.randomUUID()), student_id: studentId, activity_participation_id: participationId })
-        return
+        return participationId
       }
       if (!intake) throw new Error('У активности нет открытого набора')
       const res = await activitiesApi.assign({ intake_id: intake.id, decision: mode, recommendation_note: reason.trim() || null, request_key: requestKey.current,
         ...(mode === 'suggested' && decideBy ? { decide_by: decideBy } : {}), recipients: [{ student_id: studentId, personal_deadline: null, steps: clean }] })
       const result = res.results[0]
       if (result?.status === 'error') throw new Error(result.message || 'Не удалось выдать активность')
+      return result?.participation_id ?? null
     },
-    onSuccess: () => { ['activities', 'portal', 'workspace'].forEach((k) => client.invalidateQueries({ queryKey: [k] })); navigate(`/workspace/students/${studentId}#portfolio`) },
+    // После выдачи — сразу в карточку ученика, на раскрытую активность: там можно дописать шаги и файлы.
+    onSuccess: (pid) => { ['activities', 'portal', 'workspace'].forEach((k) => client.invalidateQueries({ queryKey: [k] })); navigate(`/workspace/students/${studentId}${pid ? `?p=${pid}` : ''}#portfolio`) },
   })
 
   const exit = `/workspace/students/${studentId}#portfolio`

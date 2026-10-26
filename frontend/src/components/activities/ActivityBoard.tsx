@@ -1,74 +1,68 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Search } from 'lucide-react'
-import { activitiesApi, type BoardCard, type BoardStage, type ExperienceKey } from '@/api/activities'
+import { Plus } from 'lucide-react'
 import { Avatar } from '@/components/ui'
-import { Input } from '@/components/ui/primitives/input'
-import { QueryState } from '@/components/shared/QueryState'
 import { cn } from '@/lib/utils'
-import { EXPERIENCE_LABEL, EXPERIENCE_TYPES, PARTICIPATION_STAGE, formatDay, formatDue } from '@/lib/portfolio/dictionary'
-import { FilterBar, FilterSelect } from './ActivityParts'
+import { EXPERIENCE_LABEL, PARTICIPATION_STAGE, formatDay, formatDue } from '@/lib/portfolio/dictionary'
+import type { ActivityGroup, BoardEntry } from '@/lib/portfolio/boardGroups'
+import { ProgressSegments } from './ActivityParts'
 
-const STAGES: BoardStage[] = ['recommendation', 'in_work', 'result_review', 'achievement']
-const participationPath = (id: string) => `/workspace/activities/participations/${id}`
-
-/** Карточка активности: тип, срок подачи, аватары учеников; раскрывается списком. */
-function Card({ card }: { card: BoardCard }) {
-  const [open, setOpen] = useState(false)
-  const shown = card.students.slice(0, 5)
-  return <article className="rounded-card border border-ds-line bg-ds-panel p-3">
-    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="block w-full text-left">
-      <h3 className="break-words text-sm font-bold leading-snug">{card.title}</h3>
-      <p className="mt-1 text-xs text-ds-muted">{[EXPERIENCE_LABEL[card.experience_type], card.submit_deadline ? `подача до ${formatDay(card.submit_deadline)}` : null].filter(Boolean).join(' · ')}</p>
-    </button>
-    <ul className="mt-2.5 flex flex-wrap items-center gap-1">
-      {shown.map((s) => <li key={s.participation_id} className="relative">
-        <Link to={participationPath(s.participation_id)} title={s.name ?? 'Ученик'} aria-label={`План: ${s.name ?? 'ученик'}`}><Avatar name={s.name || 'Ученик'} size={28} /></Link>
-        {(s.needs_me || s.overdue_days > 0) && <span aria-hidden className={cn('absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-ds-panel', s.overdue_days > 0 ? 'bg-ds-danger' : 'bg-ds-accent')} />}
-      </li>)}
-      {card.students.length > 5 && <li className="text-xs font-semibold text-ds-muted">+{card.students.length - 5}</li>}
-    </ul>
-    {open && <ul className="mt-3 divide-y divide-ds-line border-t border-ds-line text-xs">
-      {card.students.map((s) => <li key={s.participation_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2">
-        <Link to={participationPath(s.participation_id)} className="font-semibold hover:underline">{s.name ?? 'Ученик'}</Link>
-        {s.step_total > 0 && <span className="text-ds-muted">Шаг {s.step_index || s.step_total} из {s.step_total}</span>}
-        {s.due && <span className={s.overdue_days ? 'font-semibold text-ds-danger' : 'text-ds-muted'}>{formatDue(s.due)}</span>}
-        {s.needs_me && <span className="ml-auto font-semibold text-ds-accentText">нужно от меня</span>}
-      </li>)}
-    </ul>}
-  </article>
+/** Что ждёт ментора по участию — коротко, для метки. */
+function mentorNeed(entry: BoardEntry): string | null {
+  if (!entry.needs_me) return null
+  if (entry.stage === 'result_review') return 'Проверить итог'
+  if (entry.step_pending) return 'Проверить шаг'
+  if (!entry.step_total) return 'Составить план'
+  return 'Нужно от меня'
 }
 
-/** Доска по активностям: стадии колонками, в карточке активности — её ученики. */
-export function ActivityBoard() {
-  const [search, setSearch] = useState('')
-  const [type, setType] = useState<ExperienceKey | ''>('')
-  const [stage, setStage] = useState<BoardStage>('in_work')
-  const query = useQuery({ queryKey: ['activities', 'board', search, type], queryFn: () => activitiesApi.board({ q: search, experience_type: type }) })
-  const columns = query.data?.columns ?? []
-  const column = (key: BoardStage) => columns.find((c) => c.key === key)?.items ?? []
-  const count = (key: BoardStage) => column(key).reduce((n, card) => n + card.students.length, 0)
-  const list = (key: BoardStage) => column(key).length
-    ? <div className="space-y-2">{column(key).map((card) => <Card key={card.activity_id} card={card} />)}</div>
-    : <p className="rounded-card border border-dashed border-ds-line p-4 text-xs text-ds-muted">Пусто</p>
-  return <div className="space-y-4">
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-0 flex-1 basis-full sm:basis-64"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ds-muted" aria-hidden /><Input aria-label="Поиск по доске" className="pl-10" placeholder="Активность или ученик" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-      <FilterSelect label="Тип опыта" value={type} onChange={setType} options={EXPERIENCE_TYPES.filter((t) => t.key !== 'other').map((t) => ({ value: t.key, label: t.short }))} />
-    </div>
-    <QueryState isLoading={query.isLoading} isError={query.isError} error={query.error} onRetry={() => query.refetch()}>
-      <div className="md:hidden space-y-3">
-        <FilterBar label="Стадия" value={stage} onChange={setStage} options={STAGES.map((key) => ({ value: key, label: PARTICIPATION_STAGE[key].label, count: count(key) || undefined }))} />
-        {list(stage)}
-      </div>
-      <div className="hidden gap-3 md:grid md:grid-cols-4">
-        {STAGES.map((key) => <section key={key} aria-label={PARTICIPATION_STAGE[key].label} className="min-w-0 space-y-2">
-          <h2 className="flex items-baseline gap-1.5 text-sm font-bold">{PARTICIPATION_STAGE[key].label}{count(key) > 0 && <span className="text-xs font-normal text-ds-muted">{count(key)}</span>}</h2>
-          {list(key)}
-        </section>)}
-      </div>
-      {!!query.data?.declined && <p className="text-xs text-ds-muted">Отказались · {query.data.declined}</p>}
-    </QueryState>
+/** Где ученик сейчас одной строкой: следующий шаг и срок. */
+function whereNow(entry: BoardEntry): { text: string; late: boolean } {
+  const late = entry.overdue_days > 0
+  if (entry.stage === 'recommendation') return { text: entry.due ? `Ученик решает · ${formatDue(entry.due)}` : 'Ученик решает', late: false }
+  if (entry.stage === 'achievement') return { text: 'Итог подтверждён', late: false }
+  if (entry.stage === 'result_review') return { text: 'Итог прислан', late: false }
+  if (!entry.step_total) return { text: 'Шагов пока нет', late: false }
+  if (!entry.next_title) return { text: 'Шаги готовы, ждём итог', late: false }
+  const due = entry.due ? (late ? ` · просрочено ${entry.overdue_days} дн.` : ` · ${formatDue(entry.due)}`) : ''
+  return { text: `Шаг ${entry.step_index} из ${entry.step_total}: ${entry.next_title}${due}`, late }
+}
+
+/** Участие одной карточкой. В колонке активности заголовок — ученик, в списке ученика — активность. */
+export function EntryCard({ entry, heading, onOpen }: { entry: BoardEntry; heading: 'student' | 'activity'; onOpen: (entry: BoardEntry) => void }) {
+  const need = mentorNeed(entry)
+  const now = whereNow(entry)
+  const title = heading === 'student' ? entry.name || 'Ученик' : entry.title
+  return <button type="button" onClick={() => onOpen(entry)} aria-label={`Путь: ${entry.name || 'ученик'} · ${entry.title}`}
+    className={cn('flex h-full w-full flex-col items-stretch justify-start gap-2 rounded-card border bg-ds-panel p-3 text-left transition hover:border-ds-muted2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent-dim',
+      need ? 'border-ds-accent-dim' : 'border-ds-line')}>
+    <span className="flex items-start gap-2">
+      {heading === 'student' && <Avatar name={entry.name || 'Ученик'} size={24} className="shrink-0" />}
+      <span className="min-w-0 flex-1">
+        <span className="block break-words text-sm font-bold leading-snug">{title}</span>
+        {heading === 'activity' && <span className="block text-2xs text-ds-muted">{[EXPERIENCE_LABEL[entry.experience_type], entry.submit_deadline ? `подача до ${formatDay(entry.submit_deadline)}` : null].filter(Boolean).join(' · ')}</span>}
+      </span>
+      <span className="shrink-0 text-2xs font-semibold text-ds-muted">{PARTICIPATION_STAGE[entry.stage].label}</span>
+    </span>
+    {entry.step_total > 0 && <ProgressSegments steps={{ total: entry.step_total, done: entry.step_done, pending: entry.step_pending, returned: 0, overdue: 0, next: null }} />}
+    <span className={cn('block text-xs leading-snug', now.late ? 'font-semibold text-ds-danger' : 'text-ds-muted')}>{now.text}</span>
+    {need && <span className="inline-flex self-start rounded-pill bg-ds-accent px-2 py-0.5 text-2xs font-bold text-black">{need}</span>}
+  </button>
+}
+
+/** Канбан: одна активность — одна колонка, внутри её ученики. */
+export function ActivityBoard({ groups, onOpen, onAddStudent }: { groups: ActivityGroup[]; onOpen: (entry: BoardEntry) => void; onAddStudent?: (activityId: string) => void }) {
+  if (!groups.length) return <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Пока никто не участвует. Подберите активность ученику во вкладке «Ученики» или в каталоге.</p>
+  return <div className="flex flex-col gap-3 md:-mx-1 md:flex-row md:items-start md:overflow-x-auto md:px-1 md:pb-3">
+    {groups.map((group) => <section key={group.activity_id} aria-label={group.title} className="min-w-0 space-y-2 rounded-card bg-ds-panel2 p-2.5 md:w-[300px] md:shrink-0">
+      <header className="flex items-start gap-2 px-1 pt-0.5">
+        <div className="min-w-0 flex-1">
+          <h2 className="break-words text-sm font-bold leading-snug">{group.title} <span className="font-normal text-ds-muted">{group.entries.length}</span></h2>
+          <p className="mt-0.5 text-2xs text-ds-muted">{[EXPERIENCE_LABEL[group.experience_type], group.submit_deadline ? `подача до ${formatDay(group.submit_deadline)}` : null].filter(Boolean).join(' · ')}</p>
+        </div>
+        {onAddStudent && <button type="button" onClick={() => onAddStudent(group.activity_id)} aria-label={`Рекомендовать «${group.title}» ещё ученикам`} title="Рекомендовать ещё ученикам"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-ctl text-ds-muted hover:bg-ds-panel hover:text-ds-ink"><Plus className="h-4 w-4" /></button>}
+      </header>
+      <div className="space-y-2">{group.entries.map((entry) => <EntryCard key={entry.participation_id} entry={entry} heading="student" onOpen={onOpen} />)}</div>
+      {!!group.declined.length && <p className="px-1 text-2xs text-ds-muted" title={group.declined.map((d) => d.name).join(', ')}>Отказались · {group.declined.length}</p>}
+    </section>)}
   </div>
 }

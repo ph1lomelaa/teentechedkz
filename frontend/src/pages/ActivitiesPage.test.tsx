@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ActivitiesPage } from './ActivitiesPage'
 import { PortalActivityDetailPage } from './portal/PortalActivityDetailPage'
-const mocks = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), intakes: vi.fn(), plan: vi.fn(), tasks: vi.fn(), select: vi.fn(), editPlan: vi.fn(), recommend: vi.fn(), assign: vi.fn(), staffStudents: vi.fn(), staffMentors: vi.fn(), overview: vi.fn(), board: vi.fn(), summary: vi.fn(), studentsOverview: vi.fn(), user: { role: 'student' } }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), intakes: vi.fn(), plan: vi.fn(), tasks: vi.fn(), select: vi.fn(), editPlan: vi.fn(), recommend: vi.fn(), assign: vi.fn(), staffStudents: vi.fn(), staffMentors: vi.fn(), overview: vi.fn(), board: vi.fn(), participation: vi.fn(), submissions: vi.fn(), summary: vi.fn(), studentsOverview: vi.fn(), user: { role: 'student' } }))
 vi.mock('@/api/activities', () => ({ activitiesApi: mocks }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: mocks.user, can: () => mocks.user.role !== 'student' }) }))
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }))
@@ -16,12 +16,13 @@ const emptySummary = { focus: null, counts, experience: [{ key: 'research', labe
 const board = { items: [], total: 0, counts: { all: 0, waiting: 0, due_soon: 0, closed: 0 }, columns: {} }
 function ParticipationDestination() { return <p>Открытое участие</p> }
 function TaskDestination() { const { search } = useLocation(); return <p>Открытая задача: {new URLSearchParams(search).get('task_id')}</p> }
+function StudentCardDestination() { const { id } = useParams(); const { search, hash } = useLocation(); return <p>Карточка: {id} {search} {hash}</p> }
 function open(path = '/portal/activities') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/portal/activities/:activityId" element={<PortalActivityDetailPage />} /><Route path="/portal/activities/participations/:participationId" element={<ParticipationDestination />} /><Route path="/portal/tasks" element={<TaskDestination />} /><Route path="*" element={<ActivitiesPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/portal/activities/:activityId" element={<PortalActivityDetailPage />} /><Route path="/portal/activities/participations/:participationId" element={<ParticipationDestination />} /><Route path="/portal/tasks" element={<TaskDestination />} /><Route path="/workspace/students/:id" element={<StudentCardDestination />} /><Route path="*" element={<ActivitiesPage />} /></Routes></MemoryRouter></QueryClientProvider>)
 }
 afterEach(cleanup)
-beforeEach(() => { vi.clearAllMocks(); mocks.user.role = 'student'; mocks.list.mockResolvedValue([activity]); mocks.get.mockResolvedValue(activity); mocks.intakes.mockResolvedValue([intake]); mocks.overview.mockResolvedValue(board); mocks.plan.mockResolvedValue([]); mocks.tasks.mockResolvedValue([]); mocks.select.mockResolvedValue({}); mocks.editPlan.mockResolvedValue({}); mocks.recommend.mockResolvedValue({}); mocks.assign.mockResolvedValue({ results: [{ student_id: 's1', status: 'created', participation_id: 'p1' }] }); mocks.staffMentors.mockResolvedValue([]); mocks.summary.mockResolvedValue(emptySummary); mocks.studentsOverview.mockResolvedValue([]); mocks.staffStudents.mockResolvedValue([{ id: 's1', name: 'Ученик' }]) })
+beforeEach(() => { vi.clearAllMocks(); mocks.user.role = 'student'; mocks.list.mockResolvedValue([activity]); mocks.get.mockResolvedValue(activity); mocks.intakes.mockResolvedValue([intake]); mocks.overview.mockResolvedValue(board); mocks.plan.mockResolvedValue([]); mocks.tasks.mockResolvedValue([]); mocks.submissions.mockResolvedValue({}); mocks.select.mockResolvedValue({}); mocks.editPlan.mockResolvedValue({}); mocks.recommend.mockResolvedValue({}); mocks.assign.mockResolvedValue({ results: [{ student_id: 's1', status: 'created', participation_id: 'p1' }] }); mocks.staffMentors.mockResolvedValue([]); mocks.summary.mockResolvedValue(emptySummary); mocks.studentsOverview.mockResolvedValue([]); mocks.staffStudents.mockResolvedValue([{ id: 's1', name: 'Ученик' }]) })
 it('ученик выбирает из каталога и не запрашивает список чужих учеников', async () => {
   open('/portal/activities?view=catalog')
   fireEvent.click(await screen.findByRole('button', { name: 'Добавить в план: Конкурс проектов' }))
@@ -68,18 +69,34 @@ it('повторная выдача сообщает о существующем
   fireEvent.click(screen.getByRole('button', { name: /Назначить · 1/ }))
   expect(await screen.findByText('Участие уже существует — план сохранён')).toBeInTheDocument()
 })
-it('доска по активностям: в колонке стадии карточка активности с учениками', async () => {
+const boardData = { declined: 1, declined_students: [{ activity_id: 'a1', student_id: 's2', name: 'Бекзат', participation_id: 'p9' }], columns: [
+  { key: 'recommendation', items: [] },
+  { key: 'in_work', items: [{ activity_id: 'a1', title: 'Конкурс проектов', experience_type: 'competitions', submit_deadline: null,
+    students: [{ student_id: 's1', name: 'Алина', participation_id: 'p1', step_index: 2, step_total: 3, step_done: 1, step_pending: 1, next_title: 'Эссе', due: null, overdue_days: 0, needs_me: true }] }] },
+  { key: 'result_review', items: [] }, { key: 'achievement', items: [] }] }
+it('канбан: колонка — активность, в ней ученики; клик ведёт в карточку ученика на эту активность', async () => {
   mocks.user.role = 'mentor'
-  mocks.board.mockResolvedValue({ declined: 1, columns: [
-    { key: 'recommendation', items: [] },
-    { key: 'in_work', items: [{ activity_id: 'a1', title: 'Конкурс проектов', experience_type: 'competitions', submit_deadline: null,
-      students: [{ student_id: 's1', name: 'Алина', participation_id: 'p1', step_index: 2, step_total: 3, due: null, overdue_days: 0, needs_me: true }] }] },
-    { key: 'result_review', items: [] }, { key: 'achievement', items: [] }] })
-  open('/workspace/activities?layout=board')
-  const column = await screen.findByRole('region', { name: 'В работе' })
-  expect(within(column).getByText('Конкурс проектов')).toBeTruthy()
-  expect(within(column).getByRole('link', { name: 'План: Алина' })).toBeTruthy()
-  expect(screen.getByText('Отказались · 1')).toBeTruthy()
+  mocks.board.mockResolvedValue(boardData)
+  open('/workspace/activities')
+  const column = await screen.findByRole('region', { name: 'Конкурс проектов' })
+  expect(within(column).getByText('Проверить шаг')).toBeTruthy()
+  expect(within(column).getByText('Шаг 2 из 3: Эссе')).toBeTruthy()
+  expect(within(column).getByText('Отказались · 1')).toBeTruthy()
+  fireEvent.click(within(column).getByRole('button', { name: 'Путь: Алина · Конкурс проектов' }))
+  expect(await screen.findByText('Карточка: s1 ?p=p1 #portfolio')).toBeTruthy()
+})
+it('список учеников раскрывается, как Roadmap: внутри активности ученика с шагами', async () => {
+  mocks.user.role = 'mentor'
+  mocks.studentsOverview.mockResolvedValue([
+    { student_id: 's1', name: 'Алина', focus_set: true, focus_text: 'Медицина', counts: { confirmed: 0 }, experience_confirmed: [] },
+    { student_id: 's3', name: 'Дана', focus_set: false, counts: { confirmed: 0 }, experience_confirmed: [] }])
+  mocks.plan.mockResolvedValue([{ ...participation, activity: { ...activity, title: 'Конкурс проектов' } }])
+  open('/workspace/activities?view=students')
+  fireEvent.click(await screen.findByRole('button', { name: /Алина/ }))
+  expect(await screen.findByRole('button', { name: /Конкурс проектов/ })).toBeTruthy()
+  expect(mocks.plan).toHaveBeenCalledWith('s1')
+  expect(screen.queryByRole('button', { name: /Нужно от меня/ })).toBeNull()
+  expect(mocks.board).not.toHaveBeenCalled()
 })
 const action = (kind: string, extra = {}) => ({ kind, owner: 'student', participation_id: 'p1', activity_title: 'Конкурс проектов', student_id: 's1', student_name: 'Ученик', step_id: 't1', step_title: 'Эссе', due_date: null, overdue: false, ...extra })
 it('«Сейчас» начинается с самого срочного действия и ведёт в нужный шаг', async () => {
@@ -97,12 +114,6 @@ it('если действие за ментором, «Сейчас» не пр�
   expect(within(now).getByText('Шаг на проверке')).toBeTruthy()
   expect(within(now).queryByRole('button')).toBeNull()
   expect(within(now).queryByRole('link', { name: /Отправ|Исправ/ })).toBeNull()
-})
-it('пустой тип опыта ведёт в каталог с этим типом', async () => {
-  mocks.summary.mockResolvedValue({ ...emptySummary, focus: { text: 'Нужна стажировка', updated_at: '2030-10-01T00:00:00Z', updated_by_name: 'Айгерим' } }); open()
-  expect((await screen.findAllByText('Нужна стажировка')).length).toBeGreaterThan(0)
-  fireEvent.click((await screen.findAllByRole('link', { name: 'Подобрать' }))[0])
-  expect(await screen.findByRole('tab', { name: 'Каталог' })).toHaveAttribute('aria-selected', 'true')
 })
 it('ошибка плана показана как ошибка с повтором', async () => {
   mocks.plan.mockRejectedValue(new Error('Нет связи')); open()

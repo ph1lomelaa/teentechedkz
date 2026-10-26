@@ -12,7 +12,6 @@ import { parseDateOnly } from '@/lib/roadmapDeadline'
 
 export const TERMS = {
   section: 'Portfolio UP',
-  shelf: 'Полка',
   recommendation: 'Рекомендация',
   participation: 'Участие',
   participations: 'Участия',

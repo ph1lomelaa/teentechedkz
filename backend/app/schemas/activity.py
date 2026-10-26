@@ -246,21 +246,6 @@ class PortfolioFocusOut(BaseModel):
     updated_by_name: str | None = None
 
 
-class ShelfEntry(BaseModel):
-    participation_id: uuid.UUID
-    title: str
-
-
-class ShelfCell(BaseModel):
-    """Ячейка полки: заполнена достижением, в работе или пуста."""
-    key: ExperienceKey
-    label: str
-    state: Literal['filled', 'in_work', 'empty']
-    achievements: list[ShelfEntry] = Field(default_factory=list)
-    in_work: list[ShelfEntry] = Field(default_factory=list)
-    recommended: list[ShelfEntry] = Field(default_factory=list)
-
-
 class NextDeadline(BaseModel):
     participation_id: uuid.UUID
     title: str
@@ -272,7 +257,6 @@ class PortfolioSummary(BaseModel):
     counts: PortfolioCounts
     experience: list[ExperienceTile]
     # Шесть ячеек полки (без «Другое»).
-    shelf: list[ShelfCell] = Field(default_factory=list)
     next_deadline: NextDeadline | None = None
     # Ход ученика: одно самое срочное действие на участие.
     actions: list[PortfolioAction]
@@ -302,7 +286,6 @@ class StudentOverviewRow(BaseModel):
     focus_set: bool
     focus_text: str | None = None
     focus_types: list[ExperienceKey] = Field(default_factory=list)
-    shelf: list[ShelfCell] = Field(default_factory=list)
     mentor_action: OverviewAction | None = None
     student_action: OverviewAction | None = None
     counts: PortfolioCounts

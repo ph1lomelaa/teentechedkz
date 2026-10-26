@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 
 from app.schemas.activity import (
     ExperienceTile, NextDeadline, ParticipationDetail, PortfolioAction, PortfolioCounts,
-    OverviewAction, PortfolioFocusOut, PortfolioSummary, ShelfCell, ShelfEntry,
+    OverviewAction, PortfolioFocusOut, PortfolioSummary,
 )
 from app.services.activity_board import nearest_due
 from app.services.experience import EXPERIENCE_TYPES
@@ -83,25 +83,6 @@ def sort_actions(actions: list[PortfolioAction]) -> list[PortfolioAction]:
     return sorted(actions, key=lambda a: (action_rank(a), a.due_date or date.max, a.activity_title))
 
 
-def build_shelf(items: list[ParticipationDetail]) -> list[ShelfCell]:
-    """Шесть ячеек: достижения, участия в работе и рекомендации по типу опыта."""
-    cells = {key: ShelfCell(key=key, label=label, state='empty') for key, label in EXPERIENCE_TYPES if key != 'other'}
-    for item in items:
-        cell = cells.get(item.activity.experience_type)
-        if not cell:
-            continue
-        entry = ShelfEntry(participation_id=item.id, title=item.activity.title)
-        if is_confirmed(item):
-            cell.achievements.append(entry)
-        elif is_open(item) and item.decision == 'suggested':
-            cell.recommended.append(entry)
-        elif is_open(item):
-            cell.in_work.append(entry)
-    for cell in cells.values():
-        cell.state = 'filled' if cell.achievements else 'in_work' if cell.in_work else 'empty'
-    return list(cells.values())
-
-
 def summarize(items: list[ParticipationDetail], focus: PortfolioFocusOut | None, today: date | None = None) -> PortfolioSummary:
     today = today or date.today()
     counts = PortfolioCounts()
@@ -135,7 +116,7 @@ def summarize(items: list[ParticipationDetail], focus: PortfolioFocusOut | None,
     # «Другое» показываем только когда там что-то есть: пустая плитка «Другое»
     # не подсказывает, что делать.
     experience = [t for t in tiles.values() if t.key != 'other' or t.confirmed or t.active]
-    return PortfolioSummary(focus=focus, counts=counts, experience=experience, shelf=build_shelf(items), next_deadline=deadline,
+    return PortfolioSummary(focus=focus, counts=counts, experience=experience, next_deadline=deadline,
                             actions=sort_actions(actions), mentor_actions=sort_actions(waiting))
 
 

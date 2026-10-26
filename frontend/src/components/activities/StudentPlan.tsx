@@ -3,12 +3,11 @@ import { ArrowUpRight, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 import type { Participation, PortfolioSummary } from '@/api/activities'
 import { cn } from '@/lib/utils'
 import { PARTICIPATION_STAGE, STEP_STATUS, formatDay, formatDue, type StatusTone } from '@/lib/portfolio/dictionary'
-import { EXPERIENCE_LABEL, nearestDue, planGroup } from '@/lib/activityUi'
+import { nearestDue, planGroup } from '@/lib/activityUi'
 import { ProgressSegments } from './ActivityParts'
 import { PortfolioFiles } from './PortfolioFiles'
 import { StatusTag } from './StatusTag'
-import { FocusNote, NowList, PanelTitle } from './PortfolioParts'
-import { Shelf } from './shared/Shelf'
+import { NowList, PanelTitle } from './PortfolioParts'
 
 /** Чип по следующему шагу; шаг на проверке не делает всё участие «на проверке». */
 function rowState(item: Participation): { label: string; tone: StatusTone } | null {
@@ -21,15 +20,15 @@ function rowState(item: Participation): { label: string; tone: StatusTone } | nu
   return null
 }
 
-/** «Шаг 2 из 3 · дальше: Эссе, 26 окт.» или «Шаг 1 на проверке · можно делать шаг 2». */
+/** «Шаг 2 из 3: Эссе, 26 окт.» или «Шаг 1 на проверке». */
 function rowLine(item: Participation): { text: string; overdue: string | null } {
   const steps = item.steps
   const next = steps?.next
   if (!steps?.total) return { text: 'Ментор готовит шаги', overdue: null }
-  if (!next) return { text: `Готово шагов: ${steps.done} из ${steps.total}`, overdue: null }
+  if (!next) return { text: '', overdue: null }
   if (next.state === 'pending') return { text: `Шаг ${next.index || steps.done + 1} на проверке`, overdue: null }
   const date = next.due_date ? `, ${formatDay(next.due_date)}` : ''
-  const lead = steps.pending ? `Шаг ${steps.done + 1} на проверке · можно делать: ${next.title}` : `Шаг ${next.index || steps.done + 1} из ${steps.total} · дальше: ${next.title}${date}`
+  const lead = steps.pending ? `Шаг ${steps.done + 1} на проверке` : `Шаг ${next.index || steps.done + 1} из ${steps.total}: ${next.title}${date}`
   const late = next.state === 'overdue' && next.due_date ? formatDue(next.due_date) : null
   return { text: lead, overdue: late }
 }
@@ -41,7 +40,6 @@ export function ActivityRow({ item, base }: { item: Participation; base: '/porta
   return <li>
     <Link to={`${base}/activities/participations/${item.id}`} className="group flex items-center gap-4 px-4 py-4 transition hover:bg-ds-panel2 sm:px-5">
       <div className="min-w-0 flex-1 space-y-2">
-        <p className="text-xs text-ds-muted">{EXPERIENCE_LABEL[item.activity.experience_type ?? 'other']}</p>
         <p className="break-words font-bold leading-snug">{item.activity.title}</p>
         <div className="flex max-w-xs items-center gap-1">
           <ProgressSegments steps={item.steps} className="flex-1" />
@@ -60,7 +58,7 @@ export function ActivityRow({ item, base }: { item: Participation; base: '/porta
 
 /** Достижение строкой: название, «тип · дата · итог», справа файл или «+ Файл». */
 function AchievementRow({ item }: { item: Participation }) {
-  const meta = [EXPERIENCE_LABEL[item.activity.experience_type ?? 'other'], item.result_reviewed_at ? formatDay(item.result_reviewed_at) : null, item.result_text].filter(Boolean).join(' · ')
+  const meta = [item.result_reviewed_at ? formatDay(item.result_reviewed_at) : null, item.result_text].filter(Boolean).join(' · ')
   return <li className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
     <Trophy className="h-4 w-4 shrink-0 text-ds-good" aria-hidden />
     <Link to={`/portal/activities/participations/${item.id}`} className="min-w-0 flex-1 basis-48">
@@ -75,30 +73,20 @@ function AchievementRow({ item }: { item: Participation }) {
   </li>
 }
 
-/** Полка ученика: фокус от ментора сверху, под ним ячейки. */
-function StudentShelf({ summary, pick, wide = false }: { summary: PortfolioSummary; pick: (key: string) => string; wide?: boolean }) {
-  return <Shelf cells={summary.shelf} base="/portal" pickPath={pick} wide={wide} focusTypes={summary.focus?.types} focus={<FocusNote focus={summary.focus} />} />
-}
-
 function Achievements({ results }: { results: Participation[] }) {
   return results.length
     ? <ul className="divide-y divide-ds-line overflow-hidden rounded-card border border-ds-line bg-ds-panel">{results.map((item) => <AchievementRow key={item.id} item={item} />)}</ul>
     : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Здесь появятся участия, итог которых подтвердил ментор.</p>
 }
 
-/**
- * Портфолио ученика. Компьютер: слева «Сейчас», участия, достижения, справа полка.
- * Телефон: «Сейчас» первым, чтобы главное действие было на первом экране,
- * затем полка, участия и свёрнутые достижения.
- */
+/** Портфолио ученика: «Сейчас», участия, достижения. На телефоне достижения свёрнуты. */
 export function StudentPlan({ items, summary, catalogPath }: { items: Participation[]; summary: PortfolioSummary; catalogPath: string }) {
   const active = items.filter((item) => planGroup(item) === 'active')
     .sort((a, b) => (nearestDue(a) ?? '9999').localeCompare(nearestDue(b) ?? '9999'))
   const results = items.filter((item) => planGroup(item) === 'results')
   const closed = items.filter((item) => planGroup(item) === 'closed')
-  const pick = (key: string) => `${catalogPath}&type=${key}`
   return <div className="space-y-6">
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="max-w-3xl">
       <div className="min-w-0 space-y-8">
         <section aria-labelledby="portfolio-now" className="space-y-3">
           <PanelTitle id="portfolio-now">Сейчас</PanelTitle>
@@ -106,8 +94,6 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
             ? <>Новых дел нет. <Link to={catalogPath} className="font-semibold text-ds-ink underline underline-offset-4">Подобрать активность</Link></>
             : <>Портфолио начинается с первой активности. <Link to={catalogPath} className="font-semibold text-ds-ink underline underline-offset-4">Открыть каталог</Link></>} />
         </section>
-
-        <div className="lg:hidden"><StudentShelf summary={summary} pick={pick} wide /></div>
 
         <section aria-labelledby="portfolio-active" className="space-y-3">
           <PanelTitle id="portfolio-active" hint={<Link to={catalogPath} className="inline-flex items-center gap-1 font-semibold underline underline-offset-4 hover:text-ds-ink">Каталог <ArrowUpRight className="h-3.5 w-3.5" aria-hidden /></Link>}>
@@ -144,9 +130,6 @@ export function StudentPlan({ items, summary, catalogPath }: { items: Participat
         </details>}
       </div>
 
-      <aside className="hidden min-w-0 space-y-4 lg:sticky lg:top-6 lg:block">
-        <StudentShelf summary={summary} pick={pick} />
-      </aside>
     </div>
   </div>
 }

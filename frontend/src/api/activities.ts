@@ -94,11 +94,6 @@ export interface PortfolioAction {
 }
 export interface PortfolioCounts { active: number; suggested: number; confirmed: number; waiting_mentor: number; waiting_student: number; overdue: number }
 export interface PortfolioFocus { text: string; types?: ExperienceKey[]; updated_at: string; updated_by_name: string | null }
-export interface ShelfEntry { participation_id: string; title: string }
-export interface ShelfCell {
-  key: ExperienceKey; label: string; state: 'filled' | 'in_work' | 'empty'
-  achievements: ShelfEntry[]; in_work: ShelfEntry[]; recommended: ShelfEntry[]
-}
 export interface Submission {
   id: string; submitted_at: string; note: string | null; files: Array<{ id: string; name: string }>
   verdict: 'pending' | 'accepted' | 'returned'; review_comment: string | null; reviewer_name: string | null; reviewed_at: string | null
@@ -107,7 +102,6 @@ export interface NextDeadline { participation_id: string; title: string; date: s
 export interface PortfolioSummary {
   focus: PortfolioFocus | null; counts: PortfolioCounts; experience: ExperienceTile[]
   /** Шесть ячеек полки, без «Другое». */
-  shelf?: ShelfCell[]
   next_deadline: NextDeadline | null
   /** Ход ученика: одно самое срочное действие на участие. */
   actions: PortfolioAction[]
@@ -120,13 +114,14 @@ export interface OverviewAction {
   stale: boolean; overdue_days: number; chosen_by_student: boolean
 }
 export type OverviewFilter = 'all' | 'need_me' | 'overdue' | 'no_achievements' | 'no_focus'
-export interface BoardStudent { student_id: string; name: string | null; participation_id: string; step_index: number; step_total: number; due: string | null; overdue_days: number; needs_me: boolean }
+export interface BoardStudent { student_id: string; name: string | null; participation_id: string; step_index: number; step_total: number; step_done: number; step_pending: number; next_title: string | null; due: string | null; overdue_days: number; needs_me: boolean }
+export interface BoardDeclined { activity_id: string; student_id: string; name: string | null; participation_id: string }
 export interface BoardCard { activity_id: string; title: string; experience_type: ExperienceKey; submit_deadline: string | null; students: BoardStudent[] }
 export type BoardStage = 'recommendation' | 'in_work' | 'result_review' | 'achievement'
-export interface ActivityBoardData { columns: Array<{ key: BoardStage; items: BoardCard[] }>; declined: number }
+export interface ActivityBoardData { columns: Array<{ key: BoardStage; items: BoardCard[] }>; declined: number; declined_students: BoardDeclined[] }
 export interface StudentOverviewRow {
   student_id: string; name: string; focus_set: boolean; focus_text?: string | null; focus_types?: ExperienceKey[]; counts: PortfolioCounts
-  shelf?: ShelfCell[]; mentor_action?: OverviewAction | null; student_action?: OverviewAction | null
+  mentor_action?: OverviewAction | null; student_action?: OverviewAction | null
   experience_confirmed: ExperienceKey[]; next_deadline: NextDeadline | null
 }
 export const activitiesApi = {

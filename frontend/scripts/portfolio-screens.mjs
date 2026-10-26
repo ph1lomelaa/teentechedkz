@@ -32,12 +32,14 @@ const ROLES = {
   mentor: {
     email: 'portfolio.preview.mentor@example.test',
     screens: [
-      { name: 'students', path: '/workspace/activities' },
-      { name: 'board', path: '/workspace/activities?layout=board' },
+      { name: 'board', path: '/workspace/activities' },
+      { name: 'students', path: '/workspace/activities?view=students' },
       { name: 'catalog', path: '/workspace/activities?view=catalog' },
       { name: 'review', path: '/workspace/review' },
       { name: 'tasks', path: '/workspace/tasks' },
       { name: 'participation', path: '/workspace/activities/participations/{participation}' },
+      // Карточка ученика с раскрытой активностью: ссылка «← Портфолио» со страницы участия + ?p=.
+      { name: 'student-path', path: '/workspace/activities/participations/{participation}', follow: 'a[href^="/workspace/students/"]', query: 'p={participation}', hash: '#portfolio' },
       { name: 'student-card', path: '/workspace/students', follow: 'a[href^="/workspace/students/"]', hash: '#portfolio' },
       { name: 'pick', path: '/workspace/activities/pick?student={student}&type=internships' },
     ],
@@ -80,7 +82,8 @@ async function open(page, screen) {
   const href = await link.getAttribute('href')
   found.participation ??= href.match(/participations\/([\w-]+)/)?.[1]
   found.student ??= href.match(/\/workspace\/students\/([\w-]+)/)?.[1]
-  await page.goto(`${BASE_URL}${screen.hash ? href.split('#')[0] + screen.hash : href}`)
+  const query = screen.query ? `?${screen.query.replace('{participation}', found.participation)}` : ''
+  await page.goto(`${BASE_URL}${screen.hash ? href.split('#')[0] + query + screen.hash : href + query}`)
   await page.waitForLoadState('networkidle')
   return true
 }

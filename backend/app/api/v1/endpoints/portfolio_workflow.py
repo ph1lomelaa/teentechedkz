@@ -347,7 +347,7 @@ async def students_overview(db: DB, user: CurrentUser, mentor_id: uuid.UUID | No
         mentor_action, student_action = overview_actions(student_items, summary, now)
         rows.append(StudentOverviewRow(student_id=sid, name=name, focus_set=summary.focus is not None, counts=summary.counts,
             focus_text=summary.focus.text[:80] if summary.focus else None, focus_types=summary.focus.types if summary.focus else [],
-            shelf=summary.shelf, mentor_action=mentor_action, student_action=student_action,
+            mentor_action=mentor_action, student_action=student_action,
             experience_confirmed=[t.key for t in summary.experience if t.confirmed], next_deadline=summary.next_deadline))
     keep = {
         'all': lambda r: True,
@@ -414,17 +414,17 @@ async def activity_board(db: DB, user: CurrentUser, q: str = '', experience_type
     grouped = await participation_details_many(db, ids)
     needle = q.strip().lower()
     columns: dict[str, dict] = {stage: {} for stage in BOARD_STAGES}
-    declined = 0
+    declined: list[dict] = []
     today = date.today()
     for items in grouped.values():
         for item in items:
             stage = board_stage(item)
-            if stage is None:
-                declined += 1
-                continue
             if experience_type and item.activity.experience_type != experience_type:
                 continue
             if needle and needle not in item.activity.title.lower() and needle not in (item.student_name or '').lower():
+                continue
+            if stage is None:
+                declined.append({'activity_id': str(item.activity.id), 'student_id': str(item.student_id), 'name': item.student_name, 'participation_id': str(item.id)})
                 continue
             card = columns[stage].setdefault(item.activity.id, {
                 'activity_id': str(item.activity.id), 'title': item.activity.title, 'experience_type': item.activity.experience_type,
@@ -433,8 +433,9 @@ async def activity_board(db: DB, user: CurrentUser, q: str = '', experience_type
             due = nxt.due_date if nxt else item.personal_deadline
             card['students'].append({
                 'student_id': str(item.student_id), 'name': item.student_name, 'participation_id': str(item.id),
-                'step_index': nxt.index if nxt else item.steps.done, 'step_total': item.steps.total, 'due': due,
+                'step_index': nxt.index if nxt else item.steps.done, 'step_total': item.steps.total, 'step_done': item.steps.done,
+                'step_pending': item.steps.pending, 'next_title': nxt.title if nxt else None, 'due': due,
                 'overdue_days': max((today - due).days, 0) if due and nxt and nxt.state == 'overdue' else 0,
                 'needs_me': bool(item.decision == 'selected' and (item.result_review_status == 'pending' or item.steps.pending or not item.steps.total))})
     return {'columns': [{'key': stage, 'items': sorted(cards.values(), key=lambda c: (c['submit_deadline'] or date.max, c['title']))}
-                        for stage, cards in columns.items()], 'declined': declined}
+                        for stage, cards in columns.items()], 'declined': len(declined), 'declined_students': declined}

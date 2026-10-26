@@ -136,9 +136,10 @@ async def detail(task_id: uuid.UUID, db: DB, user: CurrentUser):
 @router.patch('/{task_id}', response_model=TaskFlatOut)
 async def update(task_id: uuid.UUID, body: UpdateInput, db: DB, user: CurrentUser):
     row = await service.get_task(db, task_id, user, edit=True, actionable=True)
-    if row.review_status == TaskReviewStatus.pending:
-        raise HTTPException(409, 'Сначала разберите отправленную работу')
     data = body.model_dump(exclude_unset=True)
+    # Текст и срок шага на проверке поправить можно; правила проверки — только после решения по работе.
+    if row.review_status == TaskReviewStatus.pending and set(data) & {'requires_review', 'requires_evidence'}:
+        raise HTTPException(409, 'Сначала разберите отправленную работу')
     for field, value in data.items():
         if value is None and field != 'due_date':
             raise HTTPException(422, 'Поле не может быть пустым')

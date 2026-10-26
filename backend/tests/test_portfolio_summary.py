@@ -103,20 +103,6 @@ def test_experience_labels_match_frontend_dictionary():
     assert pairs == dict(EXPERIENCE_TYPES)
 
 
-def test_shelf_cells_filled_in_work_and_recommended():
-    data = summarize([
-        item('Курс', status='completed', result='approved', title='Курс Python'),
-        item('Стажировка', summary=steps(2, 1, state='todo'), title='IT-стажировка'),
-        item('Конкурс / олимпиада', decision='suggested', status='not_started', title='Олимпиада'),
-        item('Что-то новое', status='completed', result='approved'),
-    ], None, TODAY)
-    cells = {c.key: c for c in data.shelf}
-    assert len(data.shelf) == 6 and 'other' not in cells
-    assert cells['courses'].state == 'filled' and cells['courses'].achievements[0].title == 'Курс Python'
-    assert cells['internships'].state == 'in_work' and cells['internships'].in_work[0].title == 'IT-стажировка'
-    assert cells['competitions'].state == 'empty' and cells['competitions'].recommended[0].title == 'Олимпиада'
-
-
 def test_decide_by_defaults_ten_days_before_deadline_but_not_before_tomorrow():
     from app.services.activity_board import decide_by
     from types import SimpleNamespace as NS

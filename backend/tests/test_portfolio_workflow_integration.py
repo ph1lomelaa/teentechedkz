@@ -108,6 +108,10 @@ async def run_workflow(monkeypatch):
         await call('POST',f"/learner-tasks/{essay['id']}/start",role='learner')
         await call('POST',f"/learner-tasks/{essay['id']}/complete",role='learner',json={'result_text':'First draft'})
         await call('POST',f"/learner-tasks/{essay['id']}/review",expected=422,json={'action':'return'})
+        # A step under review keeps its text and date editable, but not its review rules.
+        edited=await call('PATCH',f"/learner-tasks/{essay['id']}",json={'due_date':'2030-01-15'})
+        assert edited['due_date']=='2030-01-15'
+        await call('PATCH',f"/learner-tasks/{essay['id']}",json={'requires_review':False},expected=409)
         await call('POST',f"/learner-tasks/{essay['id']}/review",json={'action':'return','comment':'Add examples'})
         await call('POST',f"/learner-tasks/{essay['id']}/complete",role='learner',json={'result_text':'Revised essay'})
         await call('POST',f"/roadmap-tasks/{essay['id']}/review",json={'action':'approve'})
@@ -121,11 +125,13 @@ async def run_workflow(monkeypatch):
         # Overview, board and the menu counter agree on «итог на проверке».
         overview=await call('GET','/activities/staff/students-overview?filter=need_me')
         row=next(r for r in overview if r['student_id']==str(student.id))
-        assert row['mentor_action']['kind']=='review_result' and len(row['shelf'])==6
+        assert row['mentor_action']['kind']=='review_result'
         assert (await call('GET','/activities/staff/results-pending-count'))['count']>=1
         stages=await call('GET','/activities/staff/board')
         review_cards=next(c for c in stages['columns'] if c['key']=='result_review')['items']
-        assert any(s['participation_id']==pid and s['needs_me'] for card in review_cards for s in card['students'])
+        mine=next(s for card in review_cards for s in card['students'] if s['participation_id']==pid)
+        assert mine['needs_me'] and mine['step_done']==2 and mine['next_title'] is None
+        assert stages['declined']==len(stages['declined_students'])
         board=await call('GET','/activities/staff/participations?view=waiting')
         assert any(t['id']==pid and t['column']=='review' for t in board['items'])
         await call('POST',f'/activities/participations/{pid}/result/review',json={'action':'return','comment':'Add the final result'})
