@@ -257,7 +257,7 @@ def test_batch_retains_dry_run_as_reviewable_and_claimable_later(monkeypatch):
 
 def test_batch_retries_transient_external_failure(monkeypatch):
     item = SimpleNamespace(
-        id=uuid4(), student_id=None, notion_snapshot_id=None,
+        id=uuid4(), student_id=None, notion_snapshot_id=None, field_key="phone",
         status=FieldSyncStatus.processing,
     )
     claims = 0
@@ -290,7 +290,7 @@ def test_batch_retries_transient_external_failure(monkeypatch):
 
 def test_batch_marks_changed_live_data_superseded(monkeypatch):
     item = SimpleNamespace(
-        id=uuid4(), student_id=None, notion_snapshot_id=None,
+        id=uuid4(), student_id=None, notion_snapshot_id=None, field_key="phone",
         status=FieldSyncStatus.processing, locked_until=NOW, last_error=None,
         updated_at=NOW,
     )

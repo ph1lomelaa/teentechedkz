@@ -121,7 +121,9 @@ export interface WorkspaceRoadmapTask {
   id: string
   student_id: string
   student_name: string
-  roadmap_id: string
+  roadmap_id: string | null
+  /** Шаг активности Portfolio UP (без roadmap) — открывается в плане участия. */
+  activity_participation_id?: string | null
   stage_name: string
   stage_position: number
   title: string

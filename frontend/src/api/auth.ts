@@ -24,6 +24,7 @@ export interface MyEmails {
   primary: string
   extras: LinkedEmail[]
   max_extras: number
+  google_account?: { linked: boolean; emails: string[] }
 }
 
 export const authApi = {
@@ -94,9 +95,8 @@ export const authApi = {
   /**
    * Привязать свой Google к текущему аккаунту.
    *
-   * Это и есть самообслуживание вместо «забыли пароль?»: почты в системе нет,
-   * слать ссылку некуда, а привязав Google один раз, человек входит кнопкой и
-   * больше не зависит от того, помнит ли он пароль.
+   * Google подтверждает владение адресом. После привязки им можно входить
+   * в этот же аккаунт и получать письма восстановления.
    */
   linkGoogle: async (credential: string): Promise<MyEmails> => {
     const response = await apiClient.post<MyEmails>('/auth/google/link', { credential })

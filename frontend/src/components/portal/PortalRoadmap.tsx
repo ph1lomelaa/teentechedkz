@@ -63,7 +63,7 @@ function plural(n: number, forms: [string, string, string]): string {
 const isFilled = (t: RoadmapTask | FlatTask): boolean =>
   t.status === 'done' || t.review_status === 'pending'
 
-type ClaimTaskLike = { status: ItemStatus; review_status: ReviewStatus; audience: Audience }
+type ClaimTaskLike = { status: ItemStatus; review_status: ReviewStatus; audience: Audience; requires_review?: boolean }
 
 /** Извлечь код ошибки бекенда (X-Error-Code / detail) для честного текста тоста. */
 function claimErrorTitle(error: unknown): string {
@@ -250,15 +250,15 @@ export const ClaimCheckbox: React.FC<{
     return (
       <span
         className={cn(box, 'border-brand bg-brand text-black')}
-        title="Изменить может только ментор"
-        aria-label="Подтверждено ментором"
+        title={task.requires_review === false ? 'Выполнено самостоятельно' : 'Изменить может только ментор'}
+        aria-label={task.requires_review === false ? 'Выполнено самостоятельно' : 'Подтверждено ментором'}
       >
         <span className={cn('relative block', checkSize)}>
           <Check className="absolute -left-[2px] top-0 h-full w-full" strokeWidth={3.4} />
-          <Check
+          {task.requires_review !== false && <Check
             className={cn('absolute left-[2.5px] top-0 h-full w-full', liveConfirmed && 'anim-double-check')}
             strokeWidth={3.4}
-          />
+          />}
         </span>
       </span>
     )
@@ -452,7 +452,7 @@ export const PortalRoadmap: React.FC<{ roadmap: Roadmap }> = ({
     subtaskToggle.mutate({ subtaskId: st.id, is_done: !st.is_done })
 
   return (
-    <div>
+    <div className="roadmap-ui">
       {/* ---- roadmap header card (donor .rm-card) ---- */}
       <RoadmapHeaderCard roadmap={roadmap} className="mb-5" />
 

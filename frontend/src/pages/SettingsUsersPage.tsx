@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/primitives/table'
 import { toast } from '@/hooks/use-toast'
 import { PageHeader, StatCard } from '@/components/ui'
+import { AccountAccessCard } from '@/components/auth/AccountAccessCard'
 
 const ROLE_FILTER_OPTIONS: Array<UserRole | 'all'> = ['all', 'student', 'mentor', 'mzk_manager', 'academic_head', 'admin']
 const ROLE_FILTER_LABELS: Record<UserRole | 'all', string> = {
@@ -524,6 +525,7 @@ export const SettingsUsersPage: React.FC = () => {
   const [linksExportOpen, setLinksExportOpen] = useState(false)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [googleFilter, setGoogleFilter] = useState<'all' | 'confirmed' | 'pending'>('all')
 
   const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['users', 'all'],
@@ -543,13 +545,15 @@ export const SettingsUsersPage: React.FC = () => {
         if (roleFilter !== 'all' && user.role !== roleFilter) return false
         if (statusFilter === 'active' && !user.is_active) return false
         if (statusFilter === 'inactive' && user.is_active) return false
+        if (googleFilter === 'confirmed' && !user.google_account?.linked) return false
+        if (googleFilter === 'pending' && user.google_account?.linked) return false
         return true
       })
       .sort((first, second) => {
         const roleOrder = USER_ROLE_ORDER[first.role] - USER_ROLE_ORDER[second.role]
         return roleOrder || first.name.localeCompare(second.name, 'ru')
       })
-  }, [users, roleFilter, statusFilter])
+  }, [users, roleFilter, statusFilter, googleFilter])
 
   const toggleActiveMutation = useMutation({
     mutationFn: (user: User) =>
@@ -659,6 +663,14 @@ export const SettingsUsersPage: React.FC = () => {
         </div>
       )}
 
+      <AccountAccessCard colorPrefix="p" className="mb-8 max-w-2xl" />
+      {!isLoading && !isError && (
+        <p className="mb-4 text-sm text-p-muted">
+          Google подтверждён у {users.filter((u) => u.is_active && u.google_account?.linked).length} из {users.filter((u) => u.is_active).length} активных пользователей.
+          Каждый пользователь подтверждает свою почту кнопкой Google в профиле.
+        </p>
+      )}
+
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           colorPrefix="p"
@@ -713,6 +725,14 @@ export const SettingsUsersPage: React.FC = () => {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Select value={googleFilter} onValueChange={(value) => setGoogleFilter(value as typeof googleFilter)}>
+            <SelectTrigger className="h-9 w-52 text-sm" aria-label="Привязка Google"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Google: все</SelectItem>
+              <SelectItem value="confirmed">Google подтверждён</SelectItem>
+              <SelectItem value="pending">Google: подтвердить</SelectItem>
+            </SelectContent>
+          </Select>
           {(['student', 'mentor', 'mzk_manager'] as const).map((role) => (
             <Button
               key={role}
@@ -748,6 +768,7 @@ export const SettingsUsersPage: React.FC = () => {
             <TableRow className="border-p-line hover:bg-transparent">
               <TableHead>Имя</TableHead>
               <TableHead>Email</TableHead>
+              <TableHead>Google</TableHead>
               <TableHead>Роль</TableHead>
               <TableHead>Специализация</TableHead>
               <TableHead>Telegram</TableHead>
@@ -760,7 +781,7 @@ export const SettingsUsersPage: React.FC = () => {
             {isError ? (
               /* Строкой, а не карточкой: карточка внутри tbody сломала бы таблицу. */
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center" role="alert">
+                <TableCell colSpan={9} className="py-8 text-center" role="alert">
                   <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
                   <p className="mt-1 text-sm text-p-muted">
                     {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
@@ -772,13 +793,13 @@ export const SettingsUsersPage: React.FC = () => {
               </TableRow>
             ) : isLoading ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={9} className="text-center py-8 text-p-muted">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-p-muted">
+                <TableCell colSpan={9} className="text-center py-8 text-p-muted">
                   Нет пользователей по выбранным фильтрам
                   {statusFilter === 'active' && pendingCount > 0 && (
                     <>
@@ -799,6 +820,11 @@ export const SettingsUsersPage: React.FC = () => {
                 <TableRow key={user.id} className="border-p-line hover:bg-p-bg">
                   <TableCell className="font-medium text-p-text">{user.name}</TableCell>
                   <TableCell className="text-p-muted">{user.email}</TableCell>
+                  <TableCell>
+                    {user.google_account?.linked ? (
+                      <div><span className="text-xs font-semibold text-p-good-text">Подтверждён</span><p className="mt-1 break-all text-xs text-p-muted">{user.google_account.emails.join(', ')}</p></div>
+                    ) : <span className="text-xs text-p-muted">Подтвердить в профиле</span>}
+                  </TableCell>
                   <TableCell>
                     <span className="text-[11px] px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-pill font-medium uppercase tracking-wide">
                       {ROLE_LABELS[user.role]}

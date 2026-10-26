@@ -13,8 +13,25 @@ export interface Activity {
   intake_count?: number
   /** Чего не хватает записи (только для сотрудников). */
   review_issues?: string[]
+  /** Тип опыта для портфолио: выбранный явно или выведенный сервером из kind. */
+  experience_type?: ExperienceKey
+  /** Тип выбран явно, а не угадан по kind. */
+  experience_explicit?: boolean
+  /** Итог подтверждается только с файлом. */
+  result_requires_file?: boolean
 }
-export type ActivityInput = Omit<Activity, 'id' | 'created_at' | 'next_intake' | 'intake_count' | 'review_issues'>
+export type ActivityInput = Omit<Activity, 'id' | 'created_at' | 'next_intake' | 'intake_count' | 'review_issues' | 'experience_type' | 'experience_explicit'> & { experience_type: ExperienceKey | null }
+/** Типовой шаг активности: срок задаётся «за N дней до дедлайна организатора». */
+export interface TemplateStep {
+  title: string; description: string; expected_result: string
+  priority: 'required' | 'recommended' | 'optional'
+  requires_review: boolean; requires_evidence: boolean
+  days_before_deadline: number | null; subtasks: string[]
+  /** Для постоянного набора: через N дней после добавления в план. */
+  days_after_start?: number | null
+}
+export type IntakeInput = Omit<Intake, 'id' | 'activity_id'>
+export interface DuplicateMatch { id: string; title: string; publication: Activity['publication']; reason: 'title' | 'source_url' }
 export interface Intake {
   id: string; activity_id: string; label: string
   mode: 'fixed' | 'rolling' | 'self_paced' | 'unknown'; deadline: string | null
@@ -24,7 +41,7 @@ export interface Intake {
 export interface StepsSummary {
   segment_states?: Array<'done' | 'pending' | 'todo'>
   total: number; done: number; pending: number; returned: number; overdue: number
-  next: { id: string; title: string; due_date: string | null; state: 'returned' | 'overdue' | 'todo' | 'pending'; submitted_at?: string | null } | null
+  next: { id: string; title: string; due_date: string | null; state: 'returned' | 'overdue' | 'todo' | 'pending'; submitted_at?: string | null; index?: number; requires_review?: boolean; review_comment?: string | null; reviewed_at?: string | null } | null
 }
 export interface Participation {
   id: string; student_id: string; intake_id: string; goal: string | null
@@ -34,12 +51,23 @@ export interface Participation {
   student_name?: string | null; selection_source?: 'student' | 'staff' | 'unknown'
   selected_by_id?: string | null; selected_by_name?: string | null
   recommendation_note?: string | null; personal_deadline?: string | null
+  /** До какой даты решить по рекомендации. */
+  decide_by?: string | null
   created_at?: string
   activity: Activity; intake: Intake
   steps?: StepsSummary
+  result_documents_count?: number
+  certificates_count?: number
+  result_text?: string | null
+  result_review_status?: 'none' | 'pending' | 'approved' | 'returned'
+  result_review_comment?: string | null
+  result_submitted_at?: string | null
+  result_reviewed_at?: string | null
+  decline_reason?: string | null
+
 }
 export type BoardColumn = 'suggested' | 'planning' | 'in_work' | 'review' | 'done' | 'closed'
-export type BoardView = 'all' | 'waiting' | 'due_soon' | 'closed'
+export type BoardView = 'all' | 'waiting' | 'due_soon' | 'closed' | 'planning' | 'review' | 'in_work' | 'done'
 export interface BoardItem extends Participation {
   column: BoardColumn; due: string | null; due_soon: boolean; needs_reminder: boolean
 }
@@ -51,7 +79,71 @@ export interface RecommendInput {
   intake_id: string; decision: 'suggested' | 'selected'
   recommendation_note?: string | null; personal_deadline?: string | null
 }
+export type ExperienceKey = 'competitions' | 'research' | 'programs' | 'courses' | 'internships' | 'social' | 'other'
+export interface ExperienceTile { key: ExperienceKey; label: string; confirmed: number; active: number }
+export type PortfolioActionKind = 'fix_step' | 'fix_result' | 'do_step' | 'submit_result' | 'decide' | 'step_waiting' | 'result_waiting' | 'plan_waiting'
+export interface PortfolioAction {
+  kind: PortfolioActionKind; owner: 'student' | 'mentor'
+  participation_id: string; activity_title: string; student_id: string; student_name: string | null
+  step_id: string | null; step_title: string | null; due_date: string | null; overdue: boolean
+  overdue_days?: number; experience_type?: ExperienceKey | null
+  /** Комментарий ментора к правкам. */
+  comment?: string | null; comment_by?: string | null; comment_at?: string | null
+  /** Рекомендация: причина, решить до, подача у организатора. */
+  reason?: string | null; decide_by?: string | null; submit_deadline?: string | null
+}
+export interface PortfolioCounts { active: number; suggested: number; confirmed: number; waiting_mentor: number; waiting_student: number; overdue: number }
+export interface PortfolioFocus { text: string; types?: ExperienceKey[]; updated_at: string; updated_by_name: string | null }
+export interface Submission {
+  id: string; submitted_at: string; note: string | null; files: Array<{ id: string; name: string }>
+  verdict: 'pending' | 'accepted' | 'returned'; review_comment: string | null; reviewer_name: string | null; reviewed_at: string | null
+}
+export interface NextDeadline { participation_id: string; title: string; date: string }
+export interface PortfolioSummary {
+  focus: PortfolioFocus | null; counts: PortfolioCounts; experience: ExperienceTile[]
+  /** Шесть ячеек полки, без «Другое». */
+  next_deadline: NextDeadline | null
+  /** Ход ученика: одно самое срочное действие на участие. */
+  actions: PortfolioAction[]
+  /** Всё, что ждёт ментора. */
+  mentor_actions: PortfolioAction[]
+}
+export interface OverviewAction {
+  kind: 'review_step' | 'review_result' | 'make_plan' | 'fix' | 'overdue' | 'next' | 'decide' | string
+  label: string; participation_id: string; activity_id?: string | null; task_id: string | null; due: string | null; since: string | null
+  stale: boolean; overdue_days: number; chosen_by_student: boolean
+}
+export type OverviewFilter = 'all' | 'need_me' | 'overdue' | 'no_achievements' | 'no_focus'
+export interface BoardStudent { student_id: string; name: string | null; participation_id: string; step_index: number; step_total: number; step_done: number; step_pending: number; next_title: string | null; due: string | null; overdue_days: number; needs_me: boolean }
+export interface BoardDeclined { activity_id: string; student_id: string; name: string | null; participation_id: string }
+export interface BoardCard { activity_id: string; title: string; experience_type: ExperienceKey; submit_deadline: string | null; students: BoardStudent[] }
+export type BoardStage = 'recommendation' | 'in_work' | 'result_review' | 'achievement'
+export interface ActivityBoardData { columns: Array<{ key: BoardStage; items: BoardCard[] }>; declined: number; declined_students: BoardDeclined[] }
+export interface StudentOverviewRow {
+  student_id: string; name: string; focus_set: boolean; focus_text?: string | null; focus_types?: ExperienceKey[]; counts: PortfolioCounts
+  mentor_action?: OverviewAction | null; student_action?: OverviewAction | null
+  experience_confirmed: ExperienceKey[]; next_deadline: NextDeadline | null
+}
 export const activitiesApi = {
+  createFull: async (body: { activity: ActivityInput; intake: IntakeInput | null; steps: TemplateStep[] }) => (await apiClient.post<Activity>('/activities/full', body)).data,
+  template: async (id: string) => (await apiClient.get<TemplateStep[]>(`/activities/${id}/step-template`)).data,
+  saveTemplate: async (id: string, steps: TemplateStep[]) => (await apiClient.put<TemplateStep[]>(`/activities/${id}/step-template`, { steps })).data,
+  duplicates: async (params: { title: string; source_url: string; exclude?: string }) => (await apiClient.get<DuplicateMatch[]>('/activities/staff/duplicates', { params })).data,
+  duplicate: async (id: string) => (await apiClient.post<Activity>(`/activities/${id}/duplicate`)).data,
+  nextSeason: async (id: string, intakeId: string) => (await apiClient.post<Intake>(`/activities/${id}/intakes/${intakeId}/next-season`)).data,
+  summary: async (studentId?: string) => (await apiClient.get<PortfolioSummary>(studentId ? `/activities/students/${studentId}/portfolio-summary` : '/activities/my/portfolio-summary')).data,
+  setFocus: async (studentId: string, text: string, types: ExperienceKey[] = []) => (await apiClient.put<PortfolioFocus | null>(`/activities/students/${studentId}/portfolio-focus`, { text, types })).data,
+  studentsOverview: async (params: { mentor_id?: string; q?: string; filter?: OverviewFilter }) => (await apiClient.get<StudentOverviewRow[]>('/activities/staff/students-overview', { params })).data,
+  board: async (params: { mentor_id?: string; q?: string; experience_type?: string }) => (await apiClient.get<ActivityBoardData>('/activities/staff/board', { params })).data,
+  resultsPendingCount: async () => (await apiClient.get<{ count: number }>('/activities/staff/results-pending-count')).data.count,
+  participation: async (id: string) => (await apiClient.get<Participation>(`/activities/participations/${id}`)).data,
+  assign: async (body: { intake_id: string; request_key: string; decision: 'suggested' | 'selected'; recommendation_note: string | null; decide_by?: string | null; recipients: Array<{ student_id: string; personal_deadline: string | null; steps: import('./learnerTasks').StepInput[] }> }) =>
+    (await apiClient.post<{ results: Array<{ student_id: string; status: 'created' | 'existing' | 'error'; participation_id?: string; message?: string }> }>('/activities/assignments', body)).data,
+  submitResult: async (id: string, text: string) => apiClient.post(`/activities/participations/${id}/result`, { text }),
+  reviewResult: async (id: string, action: 'approve' | 'return', comment: string) => apiClient.post(`/activities/participations/${id}/result/review`, { action, comment }),
+  reorderSteps: async (id: string, task_ids: string[]) => apiClient.put(`/activities/participations/${id}/step-order`, { task_ids }),
+  resume: async (id: string) => apiClient.post(`/activities/participations/${id}/resume`),
+
   list: async () => {
     const all: Activity[] = []
     for (let offset = 0; ; offset += 100) {
@@ -62,6 +154,7 @@ export const activitiesApi = {
   },
   overview: async (params: Record<string, string | number>) => (await apiClient.get<BoardResponse>('/activities/staff/participations', { params })).data,
   /** Ученики, которым сотрудник может рекомендовать (только свои — для ментора). */
+  staffMentors: async () => (await apiClient.get<Array<{ id: string; name: string }>>('/activities/staff/mentors')).data,
   staffStudents: async () => (await apiClient.get<Array<{ id: string; name: string }>>('/activities/staff/students')).data,
   get: async (id: string) => (await apiClient.get<Activity>(`/activities/${id}`)).data,
   recommend: async (studentId: string, body: RecommendInput) => (await apiClient.post<Participation>(`/activities/students/${studentId}/participations`, body)).data,
@@ -75,8 +168,10 @@ export const activitiesApi = {
   intakes: async (id: string) => (await apiClient.get<Intake[]>(`/activities/${id}/intakes`)).data,
   plan: async (studentId?: string) => (await apiClient.get<Participation[]>(studentId ? `/activities/students/${studentId}/participations` : '/activities/my/participations')).data,
   tasks: async (id: string) => (await apiClient.get<import('./roadmap').RoadmapTask[]>(`/activities/participations/${id}/tasks`)).data,
+  /** История отправок по шагам: { task_id: [новые сверху] }. */
+  submissions: async (id: string) => (await apiClient.get<Record<string, Submission[]>>(`/activities/participations/${id}/submissions`)).data,
   mentors: async (id: string) => (await apiClient.get<Array<{ id: string; name: string }>>(`/activities/participations/${id}/mentors`)).data,
-  editPlan: async (id: string, body: { goal?: string | null; decision?: string; mentor_id?: string | null; status?: string; recommendation_note?: string | null; personal_deadline?: string | null }, own: boolean) =>
+  editPlan: async (id: string, body: { goal?: string | null; decision?: string; mentor_id?: string | null; status?: string; recommendation_note?: string | null; personal_deadline?: string | null; decline_reason?: string | null }, own: boolean) =>
     (await apiClient.patch(own ? `/activities/my/participations/${id}` : `/activities/participations/${id}`, body)).data,
   linkTask: async (id: string, taskId: string) => (await apiClient.post(`/activities/participations/${id}/tasks`, { task_id: taskId })).data,
   select: async (intakeId: string, studentId?: string, decision: 'suggested' | 'selected' = 'suggested') => (await apiClient.post(studentId ? `/activities/students/${studentId}/participations` : '/activities/my/participations', { intake_id: intakeId, ...(studentId ? { decision } : {}) })).data,

@@ -1,7 +1,7 @@
 """Shared activity catalogue and individual participation; dates belong to intakes."""
 import uuid
 from datetime import date, datetime, timezone
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -24,6 +24,10 @@ class Activity(Base):
     # Когда команда последний раз сверяла условия с сайтом организатора. Пусто —
     # не сверяли; ученику так и пишем, а не подставляем дату создания.
     conditions_checked_at: Mapped[date | None] = mapped_column(Date)
+    # Тип опыта, выбранный явно. Пусто — выводим из kind (app/services/experience.py).
+    experience_type: Mapped[str | None] = mapped_column(String(20))
+    # Итог можно подтвердить только с файлом (сертификат, диплом).
+    result_requires_file: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class ActivityIntake(Base):
@@ -64,3 +68,42 @@ class StudentActivity(Base):
     # Личный срок ученика. Дедлайн организатора живёт в наборе и сюда не копируется.
     personal_deadline: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    result_text: Mapped[str | None] = mapped_column(Text)
+    result_review_status: Mapped[str] = mapped_column(String(20), default='none', server_default='none')
+    result_review_comment: Mapped[str | None] = mapped_column(Text)
+    result_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'))
+    decline_reason: Mapped[str | None] = mapped_column(Text)
+    # До какой даты ученику решить по рекомендации; пусто — за 10 дней до подачи.
+    decide_by: Mapped[date | None] = mapped_column(Date)
+
+class PortfolioFocus(Base):
+    """Что ментор советует усилить в портфолио ученика — одна короткая запись на ученика."""
+    __tablename__ = 'portfolio_focus'
+    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('students.id', ondelete='CASCADE'), primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'))
+    # Ячейки полки, которые ментор просит усилить.
+    types: Mapped[list] = mapped_column(JSON, default=list, server_default='[]')
+
+
+class ActivityStepTemplate(Base):
+    """Типовой шаг активности. При выдаче ученику копируется в его личный план;
+    дальнейшие правки шаблона на выданные планы не влияют."""
+    __tablename__ = 'activity_step_templates'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('activities.id', ondelete='CASCADE'), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(Text, default='')
+    expected_result: Mapped[str] = mapped_column(Text, default='')
+    priority: Mapped[str] = mapped_column(String(20), default='required')
+    requires_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    requires_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    # За сколько дней до дедлайна организатора. Пусто — срок не задаётся.
+    days_before_deadline: Mapped[int | None] = mapped_column(Integer)
+    days_after_start: Mapped[int | None] = mapped_column(Integer)
+    subtasks: Mapped[list] = mapped_column(JSON, default=list)

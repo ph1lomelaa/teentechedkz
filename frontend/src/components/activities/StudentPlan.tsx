@@ -1,193 +1,135 @@
-import type { ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowUpRight, Check, ChevronDown, Clock, Hourglass, MessageCircle, Trophy } from 'lucide-react'
-import { activitiesApi, type Participation } from '@/api/activities'
-import type { RoadmapTask } from '@/api/roadmap'
-import { AppButton } from '@/components/ui'
+import { Link } from 'react-router-dom'
+import { ArrowUpRight, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import type { Participation, PortfolioSummary } from '@/api/activities'
 import { cn } from '@/lib/utils'
-import { formatDeadline } from '@/lib/roadmapDeadline'
-import { studentDueText } from '@/lib/studentDeadline'
-import { intakeWhen, pickNextAction, planGroup } from '@/lib/activityUi'
-import { DirectionBadge, Eyebrow, ProgressSegments } from './ActivityParts'
-import { useAddToPlan, useDecline } from './useStudentActivities'
+import { PARTICIPATION_STAGE, STEP_STATUS, formatDay, formatDue, type StatusTone } from '@/lib/portfolio/dictionary'
+import { nearestDue, planGroup } from '@/lib/activityUi'
+import { ProgressSegments } from './ActivityParts'
+import { PortfolioFiles } from './PortfolioFiles'
+import { StatusTag } from './StatusTag'
+import { NowList, PanelTitle } from './PortfolioParts'
 
-const CHAT_PATH = '/portal/chat'
-
-function NextStepCard({ items, catalogPath }: { items: Participation[]; catalogPath: string }) {
-  const navigate = useNavigate()
-  const action = pickNextAction(items)
-  let title: string
-  let detail: string
-  let buttons: ReactNode = null
-  let tone: 'accent' | 'calm' = 'accent'
-  if (action.kind === 'step') {
-    const { step, item } = action
-    title = step.title
-    detail = step.state === 'returned'
-      ? `${item.activity.title} · ментор вернул на правки — посмотрите комментарий`
-      : `${item.activity.title} · ${studentDueText({ due_date: step.due_date }, false)}`
-    buttons = <>
-      <AppButton onClick={() => navigate(`/portal/tasks?task_id=${step.id}`)}>{step.state === 'returned' ? 'Исправить и отправить' : 'Отправить работу'}</AppButton>
-      <Link to={CHAT_PATH} className="inline-flex items-center gap-2 rounded-ctl border border-ds-line px-5 py-3 text-sm font-bold text-ds-ink transition hover:border-ds-muted2"><MessageCircle className="h-4 w-4" aria-hidden />Задать вопрос</Link>
-    </>
-  } else if (action.kind === 'waiting') {
-    tone = 'calm'
-    title = 'Работа отправлена, ждём ответ ментора'
-    detail = `«${action.item.steps?.next?.title}» · ${action.item.activity.title}. Ментор проверит и ответит в плане.`
-  } else if (action.kind === 'plan') {
-    tone = 'calm'
-    title = 'Ментор составляет план'
-    detail = `Шаги по активности «${action.item.activity.title}» появятся здесь.`
-  } else {
-    tone = 'calm'
-    title = items.length ? 'Новых шагов нет' : 'План начинается с интереса'
-    detail = items.length ? 'Можно подобрать следующую активность.' : 'Выберите активность в каталоге — здесь соберётся ваш личный план.'
-    buttons = <Link to={catalogPath} className="inline-flex items-center gap-2 text-sm font-bold underline underline-offset-4">Открыть каталог <ArrowUpRight className="h-4 w-4" aria-hidden /></Link>
-  }
-  return <section aria-labelledby="activity-next-step" className={cn('rounded-card border p-5 sm:p-6', tone === 'accent' ? 'border-ds-accent-dim bg-ds-accent/[0.07]' : 'border-ds-line bg-ds-panel')}>
-    <p id="activity-next-step" className={cn('text-2xs font-bold uppercase tracking-caps', tone === 'accent' ? 'text-ds-accentText' : 'text-ds-muted')}>Следующий шаг</p>
-    <h2 className="mt-2 break-words text-xl font-bold leading-snug sm:text-2xl">{title}</h2>
-    <p className="mt-2 text-sm text-ds-muted">{detail}</p>
-    {buttons && <div className="mt-5 flex flex-wrap items-center gap-3">{buttons}</div>}
-  </section>
+/** Чип по следующему шагу; шаг на проверке не делает всё участие «на проверке». */
+function rowState(item: Participation): { label: string; tone: StatusTone } | null {
+  if (item.result_review_status === 'pending') return PARTICIPATION_STAGE.result_review
+  const next = item.steps?.next
+  if (!item.steps?.total) return { label: 'Нужен план', tone: 'neutral' }
+  if (!next) return { label: 'Пора отправить итог', tone: 'neutral' }
+  if (next.state === 'returned') return STEP_STATUS.returned
+  if (next.state === 'pending') return STEP_STATUS.pending
+  return null
 }
 
-type StepView = 'done' | 'current' | 'pending' | 'returned' | 'future'
-
-function stepView(task: RoadmapTask, currentId: string | undefined): StepView {
-  if (task.status === 'done') return 'done'
-  if (task.review_status === 'pending') return 'pending'
-  if (task.review_status === 'returned') return 'returned'
-  return task.id === currentId ? 'current' : 'future'
-}
-
-const STEP_ICON: Record<StepView, ReactNode> = {
-  done: <Check className="h-3.5 w-3.5" aria-hidden />,
-  pending: <Hourglass className="h-3.5 w-3.5" aria-hidden />,
-  returned: <span aria-hidden className="text-xs font-black">!</span>,
-  current: <span aria-hidden className="h-2 w-2 rounded-full bg-current" />,
-  future: null,
-}
-const STEP_DOT: Record<StepView, string> = {
-  done: 'bg-ds-good/15 text-ds-good',
-  pending: 'bg-ds-info/15 text-ds-info',
-  returned: 'bg-ds-danger/15 text-ds-danger',
-  current: 'bg-ds-accent text-black',
-  future: 'border border-ds-line',
-}
-
-function StepList({ item }: { item: Participation }) {
-  const tasks = useQuery({ queryKey: ['activities', 'tasks', item.id], queryFn: () => activitiesApi.tasks(item.id) })
-  if (tasks.isLoading) return <div className="mt-4 h-16 animate-pulse rounded-panel bg-ds-panel2" />
-  if (tasks.isError) return <button type="button" className="mt-4 text-sm underline" onClick={() => tasks.refetch()}>Не удалось загрузить шаги · повторить</button>
-  const currentId = item.steps?.next?.state === 'pending' ? undefined : item.steps?.next?.id
-  return <ol className="mt-4 space-y-2.5">
-    {tasks.data?.map((task) => {
-      const view = stepView(task, currentId)
-      const note = view === 'done' ? 'выполнено'
-        : view === 'pending' ? 'на проверке'
-        : view === 'returned' ? 'нужны правки'
-        : task.due_date ? `до ${formatDeadline(task.due_date)}` : ''
-      return <li key={task.id} className="flex items-start gap-3 text-sm">
-        <span className={cn('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full', STEP_DOT[view])}>{STEP_ICON[view]}</span>
-        <span className={cn('min-w-0 flex-1 break-words', view === 'done' && 'text-ds-muted line-through decoration-ds-muted2', view === 'current' && 'font-semibold', view === 'future' && 'text-ds-muted')}>{task.title}</span>
-        {note && <span className={cn('shrink-0 text-xs', view === 'returned' ? 'text-ds-danger' : view === 'pending' ? 'text-ds-info' : 'text-ds-muted')}>{note}</span>}
-      </li>
-    })}
-  </ol>
-}
-
-function ActiveCard({ item, onOpen }: { item: Participation; onOpen: (item: Participation) => void }) {
+/** «Шаг 2 из 3: Эссе, 26 окт.» или «Шаг 1 на проверке». */
+function rowLine(item: Participation): { text: string; overdue: string | null } {
   const steps = item.steps
-  return <article className="flex min-w-0 flex-col rounded-card border border-ds-line bg-ds-panel p-5">
-    <div className="flex items-start justify-between gap-3">
-      <DirectionBadge direction={item.activity.direction} kind={item.activity.kind} className="min-w-0" />
-      {steps?.total ? <span className="shrink-0 text-sm font-bold">{steps.done} из {steps.total}</span> : null}
-    </div>
-    <h3 title={item.activity.title} className="mt-3 line-clamp-2 break-words text-lg font-bold leading-snug">{item.activity.title}</h3>
-    {item.personal_deadline && <p className="mt-2 text-xs text-ds-muted">Личный срок: {formatDeadline(item.personal_deadline)}</p>}
-    {steps?.total
-      ? <><ProgressSegments steps={steps} className="mt-3" /><StepList item={item} /></>
-      : <p className="mt-3 flex items-center gap-2 text-sm text-ds-muted"><Clock className="h-4 w-4 shrink-0" aria-hidden />Ментор составляет план — шаги появятся здесь.</p>}
-    <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-5">
-      <p className="min-w-0 truncate text-xs text-ds-muted">{item.mentor_name ? `Ментор: ${item.mentor_name}` : 'Ментора назначит команда'}</p>
-      <button type="button" onClick={() => onOpen(item)} className="text-sm font-bold underline underline-offset-4 hover:text-ds-accentText">Шаги и цель</button>
-    </div>
-  </article>
+  const next = steps?.next
+  if (!steps?.total) return { text: 'Ментор готовит шаги', overdue: null }
+  if (!next) return { text: '', overdue: null }
+  if (next.state === 'pending') return { text: `Шаг ${next.index || steps.done + 1} на проверке`, overdue: null }
+  const date = next.due_date ? `, ${formatDay(next.due_date)}` : ''
+  const lead = steps.pending ? `Шаг ${steps.done + 1} на проверке` : `Шаг ${next.index || steps.done + 1} из ${steps.total}: ${next.title}${date}`
+  const late = next.state === 'overdue' && next.due_date ? formatDue(next.due_date) : null
+  return { text: lead, overdue: late }
 }
 
-function SuggestedCard({ item, onDetails }: { item: Participation; onDetails: (item: Participation) => void }) {
-  const add = useAddToPlan()
-  const decline = useDecline()
-  const busy = add.isPending || decline.isPending
-  return <article className="flex min-w-0 flex-col rounded-card border border-ds-line bg-ds-panel p-5">
-    <DirectionBadge direction={item.activity.direction} kind={item.activity.kind} />
-    <h3 title={item.activity.title} className="mt-3 line-clamp-2 break-words text-base font-bold leading-snug">{item.activity.title}</h3>
-    <p className="mt-1 text-xs text-ds-muted">{[item.selected_by_name && `от ${item.selected_by_name}`, intakeWhen(item.intake)].filter(Boolean).join(' · ')}</p>
-    {item.personal_deadline && <p className="mt-2 text-xs text-ds-muted">Личный срок: {formatDeadline(item.personal_deadline)}</p>}
-    {item.recommendation_note && <p className="mt-3 border-l-2 border-ds-accent-dim pl-3 text-sm italic">«{item.recommendation_note}»</p>}
-    <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
-      <AppButton size="sm" variant="subtle" disabled={busy} onClick={() => add.mutate({ intakeId: item.intake_id, existing: item })}>Добавить в план</AppButton>
-      <AppButton size="sm" variant="subtle" disabled={busy} onClick={() => decline.mutate(item)}>Не интересно</AppButton>
-      <button type="button" onClick={() => onDetails(item)} className="px-1 text-sm font-semibold underline underline-offset-4">Подробнее</button>
-    </div>
-  </article>
+/** Строка участия: тип, название, сегменты (шаги + итог), чип и следующий шаг. */
+export function ActivityRow({ item, base }: { item: Participation; base: '/portal' | '/workspace' }) {
+  const state = rowState(item)
+  const line = rowLine(item)
+  return <li>
+    <Link to={`${base}/activities/participations/${item.id}`} className="group flex items-center gap-4 px-4 py-4 transition hover:bg-ds-panel2 sm:px-5">
+      <div className="min-w-0 flex-1 space-y-2">
+        <p className="break-words font-bold leading-snug">{item.activity.title}</p>
+        <div className="flex max-w-xs items-center gap-1">
+          <ProgressSegments steps={item.steps} className="flex-1" />
+          {!!item.steps?.total && <span aria-hidden title="Итог" className={cn('h-1.5 w-6 rounded-full border border-dashed', item.result_review_status === 'pending' ? 'border-ds-info bg-ds-info/40' : 'border-ds-muted2')} />}
+        </div>
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ds-muted">
+          {state && <StatusTag tone={state.tone}>{state.label}</StatusTag>}
+          <span className="min-w-0 break-words">{line.text}</span>
+          {line.overdue && <span className="font-semibold text-ds-danger">{line.overdue}</span>}
+        </p>
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-ds-muted transition group-hover:translate-x-0.5" aria-hidden />
+    </Link>
+  </li>
 }
 
-function ResultCard({ item }: { item: Participation }) {
-  return <article className="flex min-w-0 items-start gap-3 rounded-card border border-ds-line bg-ds-panel p-4">
-    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-ctl bg-ds-good/15 text-ds-good"><Trophy className="h-4 w-4" aria-hidden /></span>
-    <div className="min-w-0">
-      <h3 className="break-words text-sm font-bold">{item.activity.title}</h3>
-      <p className="mt-0.5 text-xs text-ds-muted">Результат подтверждён ментором{item.steps?.total ? ` · ${item.steps.done} из ${item.steps.total} шагов` : ''}</p>
+/** Достижение строкой: название, «тип · дата · итог», справа файл или «+ Файл». */
+function AchievementRow({ item }: { item: Participation }) {
+  const meta = [item.result_reviewed_at ? formatDay(item.result_reviewed_at) : null, item.result_text].filter(Boolean).join(' · ')
+  return <li className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+    <Trophy className="h-4 w-4 shrink-0 text-ds-good" aria-hidden />
+    <Link to={`/portal/activities/participations/${item.id}`} className="min-w-0 flex-1 basis-48">
+      <span className="block break-words text-sm font-bold hover:underline">{item.activity.title}</span>
+      <span className="block truncate text-xs text-ds-muted" title={meta}>{meta}</span>
+    </Link>
+    <div className="shrink-0">
+      {item.result_documents_count
+        ? <PortfolioFiles target={{ participation_id: item.id }} result editable={false} />
+        : <Link to={`/portal/activities/participations/${item.id}#result`} className="inline-flex items-center gap-1 rounded-ctl border border-ds-line px-3 py-1.5 text-xs font-bold hover:border-ds-muted2">+ Файл</Link>}
     </div>
-  </article>
+  </li>
 }
 
-function Group({ id, title, count, hint, children }: { id: string; title: string; count?: number; hint?: string; children: ReactNode }) {
-  return <section aria-labelledby={id} className="space-y-3">
-    <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <h2 id={id} className="text-base font-bold">{title}{count !== undefined && <span className="font-semibold text-ds-muted"> · {count}</span>}</h2>
-      {hint && <p className="text-xs text-ds-muted">{hint}</p>}
-    </div>
-    {children}
-  </section>
+function Achievements({ results }: { results: Participation[] }) {
+  return results.length
+    ? <ul className="divide-y divide-ds-line overflow-hidden rounded-card border border-ds-line bg-ds-panel">{results.map((item) => <AchievementRow key={item.id} item={item} />)}</ul>
+    : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Здесь появятся участия, итог которых подтвердил ментор.</p>
 }
 
-/** План ученика: одно следующее действие сверху, ниже — участия по группам. */
-export function StudentPlan({ items, catalogPath, onOpen, onDetails }: {
-  items: Participation[]; catalogPath: string; onOpen: (item: Participation) => void; onDetails: (item: Participation) => void
-}) {
-  const by = (group: ReturnType<typeof planGroup>) => items.filter((item) => planGroup(item) === group)
-  const active = by('active'), suggested = by('decide'), results = by('results'), closed = by('closed')
-  return <div className="space-y-8">
-    <NextStepCard items={items} catalogPath={catalogPath} />
-    {active.length > 0 && <Group id="plan-active" title="В работе" count={active.length}>
-      <div className="grid gap-4 lg:grid-cols-2">{active.map((item) => <ActiveCard key={item.id} item={item} onOpen={onOpen} />)}</div>
-    </Group>}
-    {suggested.length > 0 && <Group id="plan-suggested" title="Предложено ментором" count={suggested.length} hint="Решите, участвуете ли вы">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{suggested.map((item) => <SuggestedCard key={item.id} item={item} onDetails={onDetails} />)}</div>
-    </Group>}
-    <Group id="plan-results" title="Мои результаты" count={results.length || undefined}>
-      {results.length
-        ? <div className="grid gap-3 md:grid-cols-2">{results.map((item) => <ResultCard key={item.id} item={item} />)}</div>
-        : <div className="rounded-card border border-dashed border-ds-line px-5 py-6 text-center">
-            <Eyebrow>Полка пока пустая</Eyebrow>
-            <p className="mx-auto mt-2 max-w-md text-sm text-ds-muted">Здесь соберутся активности, результат которых подтвердил ментор: дипломы, проекты, сертификаты — всё, что пойдёт в портфолио.</p>
-          </div>}
-    </Group>
-    {closed.length > 0 && <details className="group rounded-card border border-ds-line bg-ds-panel px-5 py-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-bold">
-        <span>Не участвую <span className="font-semibold text-ds-muted">· {closed.length}</span></span>
-        <ChevronDown className="h-4 w-4 text-ds-muted transition group-open:rotate-180" aria-hidden />
-      </summary>
-      <ul className="mt-3 space-y-2">
-        {closed.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ds-line pt-2 text-sm">
-          <span className="min-w-0 break-words">{item.activity.title}</span>
-          <button type="button" className="text-xs font-semibold text-ds-muted underline underline-offset-4 hover:text-ds-ink" onClick={() => onDetails(item)}>Открыть</button>
-        </li>)}
-      </ul>
-    </details>}
+/** Портфолио ученика: «Сейчас», участия, достижения. На телефоне достижения свёрнуты. */
+export function StudentPlan({ items, summary, catalogPath }: { items: Participation[]; summary: PortfolioSummary; catalogPath: string }) {
+  const active = items.filter((item) => planGroup(item) === 'active')
+    .sort((a, b) => (nearestDue(a) ?? '9999').localeCompare(nearestDue(b) ?? '9999'))
+  const results = items.filter((item) => planGroup(item) === 'results')
+  const closed = items.filter((item) => planGroup(item) === 'closed')
+  return <div className="space-y-6">
+    <div className="max-w-3xl">
+      <div className="min-w-0 space-y-8">
+        <section aria-labelledby="portfolio-now" className="space-y-3">
+          <PanelTitle id="portfolio-now">Сейчас</PanelTitle>
+          <NowList actions={summary.actions} viewer="student" plan={items} empty={items.length
+            ? <>Новых дел нет. <Link to={catalogPath} className="font-semibold text-ds-ink underline underline-offset-4">Подобрать активность</Link></>
+            : <>Портфолио начинается с первой активности. <Link to={catalogPath} className="font-semibold text-ds-ink underline underline-offset-4">Открыть каталог</Link></>} />
+        </section>
+
+        <section aria-labelledby="portfolio-active" className="space-y-3">
+          <PanelTitle id="portfolio-active" hint={<Link to={catalogPath} className="inline-flex items-center gap-1 font-semibold underline underline-offset-4 hover:text-ds-ink">Каталог <ArrowUpRight className="h-3.5 w-3.5" aria-hidden /></Link>}>
+            Участия{active.length > 0 && <span className="font-semibold text-ds-muted"> · {active.length}</span>}
+          </PanelTitle>
+          {active.length
+            ? <ul className="divide-y divide-ds-line overflow-hidden rounded-card border border-ds-line bg-ds-panel">{active.map((item) => <ActivityRow key={item.id} item={item} base="/portal" />)}</ul>
+            : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted">Сейчас участий в работе нет.</p>}
+        </section>
+
+        <section aria-labelledby="portfolio-results" className="hidden space-y-3 lg:block">
+          <PanelTitle id="portfolio-results">Достижения{results.length > 0 && <span className="font-semibold text-ds-muted"> · {results.length}</span>}</PanelTitle>
+          <Achievements results={results} />
+        </section>
+        <details className="group rounded-card border border-ds-line bg-ds-panel px-5 py-4 lg:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-bold">
+            <span>Достижения <span className="font-semibold text-ds-muted">· {results.length}</span></span>
+            <ChevronDown className="h-4 w-4 text-ds-muted transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="mt-3"><Achievements results={results} /></div>
+        </details>
+
+        {closed.length > 0 && <details className="group rounded-card border border-ds-line bg-ds-panel px-5 py-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-bold">
+            <span>Не участвую <span className="font-semibold text-ds-muted">· {closed.length}</span></span>
+            <ChevronDown className="h-4 w-4 text-ds-muted transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="mt-3 space-y-2">
+            {closed.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ds-line pt-2 text-sm">
+              <span className="min-w-0 break-words">{item.activity.title}</span>
+              <Link className="text-xs font-semibold text-ds-muted underline underline-offset-4 hover:text-ds-ink" to={`/portal/activities/participations/${item.id}`}>Открыть</Link>
+            </li>)}
+          </ul>
+        </details>}
+      </div>
+
+    </div>
   </div>
 }

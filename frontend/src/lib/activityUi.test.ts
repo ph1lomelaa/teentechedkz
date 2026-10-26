@@ -5,6 +5,7 @@ import css from '@/index.css?raw'
 import {
   boardContext, cleanDirection, dateSummary, directionCounts, directionTone, intakeCost, intakeLabel, intakeWhen,
   matchesCatalogFilter, nearestActivityIntake, pickNextAction, planGroup, progressSegments,
+  actionCopy, participationPath, nearestDue, stepsFromTemplate, publishIssues, TEMPLATE_PRESETS,
 } from './activityUi'
 
 const base = { id: 'p', decision: 'selected', status: 'in_progress', activity: { title: 'A' }, intake: { label: '2026' } }
@@ -20,7 +21,7 @@ describe('подписи', () => {
   })
   it('не выдумывает сроки и стоимость', () => {
     expect(intakeWhen(null)).toBe('Сроки уточняются')
-    expect(intakeWhen({ deadline: null, mode: 'rolling', dates_text: null })).toBe('Набор открыт постоянно')
+    expect(intakeWhen({ deadline: null, mode: 'rolling', dates_text: null })).toBe('Принимают постоянно')
     expect(intakeCost({ cost_state: 'unknown', cost_text: null })).toBe('Стоимость уточняется')
     expect(intakeCost({ cost_state: 'paid', cost_text: null })).toBe('Платно')
   })
@@ -32,6 +33,12 @@ describe('план', () => {
     expect(planGroup({ decision: 'selected', status: 'completed' })).toBe('results')
     expect(planGroup({ decision: 'not_interested', status: 'not_started' })).toBe('closed')
     expect(planGroup({ decision: 'selected', status: 'cancelled' })).toBe('closed')
+  })
+  it('после шагов предлагает итог, а после отправки — ожидание ментора', () => {
+    const ready = p({ steps: { ...steps(null), done: 3 }, result_review_status: 'none' })
+    expect(pickNextAction([ready]).kind).toBe('result')
+    expect(pickNextAction([{ ...ready, result_review_status: 'returned' }]).kind).toBe('result')
+    expect(pickNextAction([{ ...ready, result_review_status: 'pending' }]).kind).toBe('result_waiting')
   })
   it('сначала правки, потом просрочка, потом ближайший шаг', () => {
     const items = [
@@ -86,15 +93,16 @@ describe('сроки', () => {
   it('честные состояния без выдуманных дат', () => {
     expect(dateSummary({ next_intake: null, intake_count: 0 }).short).toBe('Дата неизвестна')
     expect(dateSummary({ next_intake: null, intake_count: 2 }).short).toBe('Набор закрыт')
-    expect(dateSummary({ next_intake: intake({ mode: 'rolling' }) as never, intake_count: 1 }).short).toBe('Rolling')
-    expect(dateSummary({ next_intake: intake({ mode: 'self_paced' }) as never, intake_count: 1 }).short).toBe('Круглый год')
+    expect(dateSummary({ next_intake: intake({ mode: 'rolling' }) as never, intake_count: 1 }).short).toBe('Принимают постоянно')
+    expect(dateSummary({ next_intake: intake({ mode: 'self_paced' }) as never, intake_count: 1 }).short).toBe('В своём темпе')
     expect(dateSummary({ next_intake: intake({ mode: 'fixed', deadline: '2030-10-15' }) as never, intake_count: 1 }).short).toMatch(/^до 15 окт/)
   })
-  it('фильтр «Проверить» — только черновики, которым не хватает данных', () => {
+  it('фильтр «Нужно дополнить» — записи без нужных данных, кроме архива', () => {
     const a = (publication: string, review_issues: string[]) => ({ publication, review_issues }) as never
     expect(matchesCatalogFilter(a('draft', ['Нет ссылки организатора']), 'review')).toBe(true)
     expect(matchesCatalogFilter(a('draft', []), 'review')).toBe(false)
-    expect(matchesCatalogFilter(a('published', ['Нет описания']), 'review')).toBe(false)
+    expect(matchesCatalogFilter(a('published', ['Нет описания']), 'review')).toBe(true)
+    expect(matchesCatalogFilter(a('archived', ['Нет описания']), 'review')).toBe(false)
     expect(matchesCatalogFilter(a('archived', []), 'all')).toBe(false)
   })
 })
@@ -103,10 +111,10 @@ describe('доска', () => {
   const item = (over: Record<string, unknown>) => ({ ...base, created_at: '2026-10-02T10:00:00Z', due: null, steps: steps(null, 0), ...over }) as unknown as BoardItem
   const today = new Date(2026, 9, 3)
   it('строка контекста по колонке', () => {
-    expect(boardContext(item({ column: 'suggested' }), today)).toBe('отправлено вчера')
+    expect(boardContext(item({ column: 'suggested' }), today)).toBe('рекомендовано вчера')
     expect(boardContext(item({ column: 'planning' }), today)).toBe('шагов ещё нет')
     expect(boardContext(item({ column: 'in_work', due: '2026-10-15', steps: { ...steps({ state: 'todo' }), done: 2, total: 3 } }), today)).toMatch(/^2 из 3 · срок 15 окт/)
-    expect(boardContext(item({ column: 'review', steps: { ...steps({ state: 'pending', submitted_at: '2026-10-02T09:00:00Z' }), pending: 1 } }), today)).toBe('работа отправлена · вчера')
+    expect(boardContext(item({ column: 'review', steps: { ...steps({ state: 'pending', submitted_at: '2026-10-02T09:00:00Z' }), pending: 1 } }), today)).toBe('шаг на проверке · вчера')
   })
   it('сегменты прогресса только по обязательным шагам', () => {
     expect(progressSegments({ total: 3, done: 1, pending: 1, returned: 0, overdue: 0, next: null })).toEqual(['done', 'pending', 'todo'])
@@ -142,4 +150,49 @@ it('полная карточка выбирает тот же ближайши�
   expect(nearestActivityIntake([unknown, rolling], '2030-10-01')?.id).toBe('rolling')
   expect(nearestActivityIntake([unknown, rolling, fixed], '2030-10-01')?.id).toBe('fixed')
   expect(nearestActivityIntake([closed], '2030-10-01')).toBeNull()
+})
+
+describe('портфолио: тексты «Сейчас»', () => {
+  const base = { owner: 'student' as const, participation_id: 'p1', activity_title: 'Хакатон', student_id: 's1', student_name: 'Алина', step_id: 't1', step_title: 'Эссе', due_date: '2030-10-20', overdue: false }
+  const today = new Date(2030, 9, 10)
+  it('одно и то же действие ученик и ментор читают со своей стороны', () => {
+    const waiting = { ...base, kind: 'step_waiting' as const, owner: 'mentor' as const }
+    expect(actionCopy(waiting, 'student', today)).toMatchObject({ title: 'Шаг на проверке', cta: null, tone: 'calm' })
+    expect(actionCopy(waiting, 'staff', today)).toMatchObject({ title: 'Проверить шаг «Эссе»', cta: 'Проверить' })
+  })
+  it('правки и просрочка — срочные, срок пишется словами', () => {
+    expect(actionCopy({ ...base, kind: 'fix_step' }, 'student', today).tone).toBe('urgent')
+    const overdue = actionCopy({ ...base, kind: 'do_step', overdue: true, due_date: '2030-10-05' }, 'student', today)
+    expect(overdue.tone).toBe('urgent')
+    expect(overdue.detail).toMatch(/срок прошёл/)
+  })
+  it('ссылка ведёт к шагу или к итогу', () => {
+    expect(participationPath('/portal', { participation_id: 'p1', step_id: 't1', kind: 'fix_step' })).toBe('/portal/activities/participations/p1#step-t1')
+    expect(participationPath('/workspace', { participation_id: 'p1', step_id: null, kind: 'result_waiting' })).toBe('/workspace/activities/participations/p1#result')
+  })
+  it('ближайший срок — минимальный из личного, организатора и шага', () => {
+    expect(nearestDue({ personal_deadline: '2030-11-01', intake: { deadline: '2030-12-01' } as Participation['intake'], steps: { next: { due_date: '2030-10-15' } } as Participation['steps'] })).toBe('2030-10-15')
+    expect(nearestDue({ personal_deadline: null, intake: { deadline: null } as Participation['intake'], steps: undefined })).toBeNull()
+  })
+})
+
+describe('конструктор активности', () => {
+  const t = (days: number | null) => ({ title: 'Шаг', description: '', expected_result: '', priority: 'required' as const, requires_review: false, requires_evidence: false, days_before_deadline: days, subtasks: [] })
+  it('срок шага считается от дедлайна, прошлое сдвигается на сегодня', () => {
+    expect(stepsFromTemplate([t(10), t(null), t(90)], '2030-03-01', '2030-01-15').map((s) => s.due_date)).toEqual(['2030-02-19', null, '2030-01-15'])
+    expect(stepsFromTemplate([t(10)], null, '2030-01-15')[0].due_date).toBeNull()
+  })
+  it('до публикации не хватает того же, что проверяет сервер', () => {
+    expect(publishIssues({ source_url: null, description: '' }, [])).toEqual(['Ссылка организатора', 'Описание', 'Сроки набора'])
+    expect(publishIssues({ source_url: 'https://x.org', description: 'Есть' }, [{ mode: 'fixed', deadline: '2030-01-01', cost_state: 'free' }])).toEqual([])
+    expect(publishIssues({ source_url: 'https://x.org', description: 'Есть' }, [{ mode: 'rolling', deadline: null, cost_state: 'unknown' }])).toEqual(['Стоимость'])
+  })
+  it('для каждого типа опыта есть заготовка шагов', () => {
+    for (const steps of Object.values(TEMPLATE_PRESETS)) expect(steps.length).toBeGreaterThan(0)
+  })
+})
+
+it('без дедлайна сроки шагов считаются от даты добавления в план', () => {
+  const steps = stepsFromTemplate([{ title: 'Записаться', description: '', expected_result: '', priority: 'required', requires_review: false, requires_evidence: false, days_before_deadline: null, days_after_start: 7, subtasks: [] }], null, '2026-10-01')
+  expect(steps[0].due_date).toBe('2026-10-08')
 })

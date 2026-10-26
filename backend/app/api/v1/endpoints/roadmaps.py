@@ -29,6 +29,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.services.activity_tasks import validate_activity_task
+from app.services import learner_tasks as learner_service
 from app.services import background_jobs
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import ensure_assignment_exists, primary_mentor_id, require_student_access
@@ -305,7 +306,7 @@ async def assign_template(template_id: uuid.UUID, body: AssignRequest, current_u
         for tt in ts.tasks:
             due = _deadline_from_offset(today, tt.due_offset_days)
             task = RoadmapTask(
-                stage_id=stage.id, roadmap_id=roadmap.id,
+                student_id=body.student_id, stage_id=stage.id, roadmap_id=roadmap.id,
                 source_notion_page_id=tt.source_notion_page_id,
                 title=tt.title, description=tt.description,
                 expected_result=tt.expected_result,
@@ -382,10 +383,7 @@ async def get_my_roadmap(current_user: CurrentUser, db: Annotated[AsyncSession, 
 @router.get("/students/{student_id}/tasks", response_model=list[TaskFlatOut])
 async def get_student_tasks(student_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     await _assert_view(db, student_id, current_user)
-    return _flatten_tasks(
-        await _active_roadmaps(db, student_id),
-        for_student=current_user.role == UserRole.student,
-    )
+    return await learner_service.student_tasks(db, student_id, for_student=current_user.role == UserRole.student)
 
 
 @router.get("/portal/tasks", response_model=list[TaskFlatOut])
@@ -394,7 +392,7 @@ async def get_my_tasks(current_user: CurrentUser, db: Annotated[AsyncSession, De
     sid = await _my_student_id(db, current_user)
     if not sid:
         raise HTTPException(status_code=404, detail="К аккаунту не привязана карточка студента")
-    return _flatten_tasks(await _active_roadmaps(db, sid), for_student=True)
+    return await learner_service.student_tasks(db, sid, for_student=True)
 
 
 # ==========================================================================
@@ -425,6 +423,9 @@ async def _student_claim_context(
     task = res.scalar_one_or_none()
     if not task or task.deleted_at is not None:
         raise _NOT_FOUND
+    if not task.roadmap_id:
+        _, _, participation = await learner_service.task_context(db, task, current_user, actionable=True)
+        return sid, task, participation.mentor_id if participation else None
     rm = await db.execute(
         select(Roadmap.student_id, Roadmap.status, Roadmap.mentor_id).where(Roadmap.id == task.roadmap_id)
     )
@@ -451,6 +452,9 @@ async def _student_claim_context(
 
 async def _claim_payload(db: AsyncSession, roadmap_id: uuid.UUID, task_id: uuid.UUID) -> TaskClaimOut:
     """Обогащённый ответ заявки: задача + прогресс roadmap — портал реагирует без рефетча."""
+    if roadmap_id is None:
+        task = (await db.execute(learner_service.task_query().where(RoadmapTask.id == task_id))).scalar_one()
+        return TaskClaimOut(task=await learner_service.flat_task(db, task), progress=ClaimProgressOut(done=int(task.status == RoadmapItemStatus.done), pending=int(task.review_status == TaskReviewStatus.pending), total=1), stage_claimed=False)
     roadmap = await _load_roadmap(db, roadmap_id)
     done = pending = total = 0
     the_stage = the_task = None
@@ -483,6 +487,11 @@ _TASK_KEY = "[task:{}]"  # идентичность задачи в body нот�
 async def claim_task_complete(task_id: uuid.UUID, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """T1: студент отмечает задачу выполненной — заявка на ревью ментора."""
     sid, task, mentor_id = await _student_claim_context(db, task_id, current_user)
+    if not task.roadmap_id or not task.requires_review or task.requires_evidence:
+        await learner_service.complete(db, task, current_user)
+        return await _claim_payload(db, task.roadmap_id, task.id)
+    if task.activity_participation_id:
+        await learner_service.task_context(db, task, current_user, actionable=True)
     if task.status == RoadmapItemStatus.done:
         raise _ALREADY_DONE
     if task.review_status == TaskReviewStatus.pending:
@@ -566,7 +575,7 @@ async def unclaim_task_complete(task_id: uuid.UUID, current_user: CurrentUser, d
     return await _claim_payload(db, task.roadmap_id, task.id)
 
 
-@router.post("/roadmap-tasks/{task_id}/review", response_model=RoadmapOut)
+@router.post("/roadmap-tasks/{task_id}/review", response_model=RoadmapOut | TaskFlatOut)
 async def review_task(task_id: uuid.UUID, body: TaskReviewIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     """T3/T4: ментор подтверждает заявку или возвращает с комментарием."""
     if body.action not in ("approve", "return"):
@@ -577,8 +586,13 @@ async def review_task(task_id: uuid.UUID, body: TaskReviewIn, current_user: Curr
     task = res.scalar_one_or_none()
     if not task or task.deleted_at is not None:
         raise _NOT_FOUND
+    if not task.roadmap_id:
+        await learner_service.review(db, task, current_user, body.action, body.comment)
+        return await learner_service.flat_task(db, task)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
+    if task.activity_participation_id:
+        await learner_service.task_context(db, task, current_user, edit=True, actionable=True)
     if task.review_status != TaskReviewStatus.pending:
         raise _ALREADY_REVIEWED
     comment = (body.comment or "").strip()
@@ -690,7 +704,7 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
     ).scalar_one_or_none()
     task = RoadmapTask(
         activity_participation_id=body.activity_participation_id,
-        stage_id=stage.id, roadmap_id=stage.roadmap_id, title=body.title,
+        student_id=student_id, stage_id=stage.id, roadmap_id=stage.roadmap_id, title=body.title,
         description=body.description,
         expected_result=body.expected_result,
         needs_document=body.needs_document,
@@ -704,13 +718,33 @@ async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated
     return await _load_roadmap(db, stage.roadmap_id)
 
 
-@router.patch("/roadmap-tasks/{task_id}", response_model=RoadmapOut)
+@router.patch("/roadmap-tasks/{task_id}", response_model=RoadmapOut | TaskFlatOut)
 async def update_task(task_id: uuid.UUID, body: TaskUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     # Staff-only: студент заявляет выполнение через /portal/tasks/{id}/complete,
     # это отдельный контракт без единого записываемого поля.
     task = await db.get(RoadmapTask, task_id)
     if not task or task.deleted_at is not None:
         raise _NOT_FOUND
+    if not task.roadmap_id:
+        await learner_service.task_context(db, task, current_user, edit=True, actionable=True)
+        data = body.model_dump(exclude_unset=True)
+        # Шаг Portfolio UP с проверкой закрывается только решением по отправке ученика.
+        if (task.activity_participation_id and task.requires_review and data.get('status') == RoadmapItemStatus.done
+                and task.review_status != TaskReviewStatus.pending):
+            raise HTTPException(409, 'Шаг закрывается через проверку')
+        if task.review_status == TaskReviewStatus.pending and data.get('status') == RoadmapItemStatus.done:
+            await learner_service.review(db, task, current_user, 'approve', None)
+        else:
+            for field, value in data.items():
+                if value is None and field not in ('due_date', 'questionnaire_url'): raise HTTPException(422, 'Поле не может быть пустым')
+                old = getattr(task, field)
+                setattr(task, field, value)
+                await log_change(db, 'roadmap_task', task.id, field, old, value, str(current_user.id), source='workspace')
+            if 'status' in data:
+                task.review_status = TaskReviewStatus.none
+            await db.commit()
+        loaded = (await db.execute(learner_service.task_query().where(RoadmapTask.id == task.id))).scalar_one()
+        return await learner_service.flat_task(db, loaded)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     await _assert_staff(db, student_id, current_user)
     data = body.model_dump(exclude_unset=True)
@@ -794,8 +828,7 @@ async def delete_task(task_id: uuid.UUID, current_user: CurrentUser, db: Annotat
     task = await db.get(RoadmapTask, task_id)
     if not task or task.deleted_at is not None:
         raise _NOT_FOUND
-    student_id = await _student_of_roadmap(db, task.roadmap_id)
-    await _assert_staff(db, student_id, current_user)
+    await learner_service.task_context(db, task, current_user, edit=True, actionable=True)
     task.deleted_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -811,22 +844,24 @@ async def restore_task(task_id: uuid.UUID, current_user: CurrentUser, db: Annota
     return await _load_roadmap(db, task.roadmap_id)
 
 
-@router.post("/roadmap-tasks/{task_id}/subtasks", response_model=RoadmapOut, status_code=201)
+@router.post("/roadmap-tasks/{task_id}/subtasks", response_model=RoadmapOut | TaskFlatOut, status_code=201)
 async def create_subtask(task_id: uuid.UUID, body: SubtaskCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     task = await db.get(RoadmapTask, task_id)
     if not task or task.deleted_at is not None:
         raise _NOT_FOUND
-    student_id = await _student_of_roadmap(db, task.roadmap_id)
-    await _assert_staff(db, student_id, current_user)
+    await learner_service.task_context(db, task, current_user, edit=True, actionable=True)
     last_position = (
         await db.execute(select(RoadmapSubtask.position).where(RoadmapSubtask.task_id == task.id).order_by(RoadmapSubtask.position.desc()).limit(1))
     ).scalar_one_or_none()
     db.add(RoadmapSubtask(task_id=task.id, title=body.title, due_date=body.due_date, position=(last_position or 0) + 1))
     await db.commit()
+    if not task.roadmap_id:
+        loaded = (await db.execute(learner_service.task_query().where(RoadmapTask.id == task.id))).scalar_one()
+        return await learner_service.flat_task(db, loaded)
     return await _load_roadmap(db, task.roadmap_id)
 
 
-@router.patch("/roadmap-subtasks/{subtask_id}", response_model=RoadmapOut)
+@router.patch("/roadmap-subtasks/{subtask_id}", response_model=RoadmapOut | TaskFlatOut)
 async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     sub = await db.get(RoadmapSubtask, subtask_id)
     if not sub or getattr(sub, "deleted_at", None) is not None:
@@ -834,6 +869,15 @@ async def update_subtask(subtask_id: uuid.UUID, body: SubtaskUpdate, current_use
     task = await db.get(RoadmapTask, sub.task_id)
     if not task or getattr(task, "deleted_at", None) is not None:
         raise _NOT_FOUND
+    if not task.roadmap_id:
+        await learner_service.task_context(db, task, current_user, edit=current_user.role != UserRole.student, actionable=True)
+        data = body.model_dump(exclude_unset=True)
+        if current_user.role == UserRole.student and set(data) - {'is_done'}: raise _FORBIDDEN
+        if task.status == RoadmapItemStatus.done or task.review_status == TaskReviewStatus.pending: raise HTTPException(409, 'Шаг уже выполнен или отправлен')
+        for field, value in data.items(): setattr(sub, field, value)
+        await db.commit()
+        loaded = (await db.execute(learner_service.task_query().where(RoadmapTask.id == task.id))).scalar_one()
+        return await learner_service.flat_task(db, loaded)
     student_id = await _student_of_roadmap(db, task.roadmap_id)
     data = body.model_dump(exclude_unset=True)
     if current_user.role == UserRole.student:
@@ -951,7 +995,7 @@ async def _get_template_or_404(db: AsyncSession, template_id: uuid.UUID) -> Road
 
 def _flat_task_out(stage: Stage, task: RoadmapTask) -> TaskFlatOut:
     return TaskFlatOut(
-        id=task.id, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
+        id=task.id, student_id=task.student_id, requires_review=task.requires_review, requires_evidence=task.requires_evidence, result_text=task.result_text, stage_id=task.stage_id, roadmap_id=task.roadmap_id,
         activity_participation_id=task.activity_participation_id,
         stage_name=stage.name, stage_position=stage.position,
         title=task.title, description=task.description,

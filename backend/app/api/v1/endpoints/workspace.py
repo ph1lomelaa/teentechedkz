@@ -28,6 +28,8 @@ from app.services.pending_insights import needs_review_condition
 from app.models.pending_insight import InsightStatus, PendingInsight
 from app.models.questionnaire import Questionnaire, QuestionnaireStatus
 from app.core.country_flags_data import flag_for
+from app.models.activity import StudentActivity
+from app.services import learner_tasks as learner_service
 from app.models.roadmap import Roadmap, RoadmapStatus, RoadmapItemStatus, Stage, RoadmapTask
 from app.models.mentor_task_penalty import MentorTaskPenalty
 from app.models.student import Student
@@ -1027,13 +1029,15 @@ async def workspace_roadmap_tasks(
     seen: set[uuid.UUID] = set()
     items: list[dict] = []
     for roadmap in result.scalars().all():
-        if roadmap.student_id in seen:
-            continue  # keep only the latest active roadmap per student
         seen.add(roadmap.student_id)
         for stage in roadmap.stages:
             for task in stage.tasks:
                 if task.deleted_at is not None:
                     continue
+                if task.activity_participation_id:
+                    participation = await db.get(StudentActivity, task.activity_participation_id)
+                    if not participation or participation.decision != 'selected' or participation.status == 'cancelled':
+                        continue
                 is_done = task.status == RoadmapItemStatus.done
                 if status == "open" and is_done:
                     continue
@@ -1068,6 +1072,16 @@ async def workspace_roadmap_tasks(
                         "review_comment": task.review_comment,
                     }
                 )
+    standalone = (await db.execute(learner_service.task_query().outerjoin(StudentActivity, RoadmapTask.activity_participation_id == StudentActivity.id).where(
+        RoadmapTask.student_id.in_(student_ids), RoadmapTask.roadmap_id.is_(None), RoadmapTask.deleted_at.is_(None),
+        or_(RoadmapTask.activity_participation_id.is_(None), and_(StudentActivity.decision == 'selected', StudentActivity.status != 'cancelled'))))).scalars().all()
+    for task in standalone:
+        is_done = task.status == RoadmapItemStatus.done
+        if (status == 'open' and is_done) or (status == 'done' and not is_done): continue
+        if review_status and task.review_status.value not in review_status.split(','): continue
+        flat = await learner_service.flat_task(db, task)
+        items.append({**flat.model_dump(mode='json'), 'student_id': str(task.student_id), 'student_name': name_by_id.get(task.student_id, 'Студент'),
+            'has_questionnaire': False, 'subtasks_total': len(flat.subtasks), 'subtasks_done': sum(s.is_done for s in flat.subtasks)})
     items.sort(key=lambda it: (it["status"] == "done", it["due_date"] or "9999-12-31", it["student_name"]))
     return {"items": items, "total": len(items)}
 

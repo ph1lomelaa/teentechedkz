@@ -1617,3 +1617,13 @@ html[data-crm-theme='light'],
   border-radius: 999px;
   white-space: nowrap;
 }
+
+/* Горизонтальные ряды вкладок и фильтров: прокрутка жестом, без полосы. */
+.scroll-row {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.scroll-row::-webkit-scrollbar {
+  display: none;
+}

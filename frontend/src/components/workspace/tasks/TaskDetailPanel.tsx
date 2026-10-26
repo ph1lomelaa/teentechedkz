@@ -1,4 +1,7 @@
-import React, { useMemo, useState } from 'react'
+import { learnerTasksApi } from '@/api/learnerTasks'
+import { PortfolioFiles } from '@/components/activities/PortfolioFiles'
+import { LearnerStep } from '@/components/activities/LearnerStep'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,7 +13,7 @@ import { overdueDaysOf, sortSubtasksByDeadline } from '@/lib/roadmapDeadline'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { ActionCell, type RowActions } from './TaskQueue'
-import { STATUS_LABEL, formatDue, relativeDue, type WorkItem } from './workItems'
+import { STATUS_LABEL, formatDue, relativeDue, workContext, type WorkItem } from './workItems'
 
 const SECTION = 'border-t border-w-line px-5 py-4'
 const LABEL = 'mb-2 text-xs font-bold text-w-muted'
@@ -132,18 +135,15 @@ export const TaskDetailPanel: React.FC<{
   const queryClient = useQueryClient()
   const isRoadmap = item.kind === 'roadmap'
 
-  const { data: roadmaps, isLoading } = useQuery({
-    queryKey: ['student-roadmaps', item.studentId],
-    queryFn: () => roadmapApi.studentRoadmaps(item.studentId!),
-    enabled: isRoadmap && Boolean(item.studentId),
+  const { data: task, isLoading, error: taskError, refetch: refetchTask } = useQuery({
+    queryKey: ['learner-task', item.id],
+    queryFn: () => learnerTasksApi.get(item.id),
+    enabled: isRoadmap,
   })
-  const task = useMemo(
-    () => roadmaps?.flatMap((rm) => rm.stages.flatMap((stage) => stage.tasks)).find((t) => t.id === item.id),
-    [roadmaps, item.id],
-  )
 
   const changed = () => {
     queryClient.invalidateQueries({ queryKey: ['student-roadmaps', item.studentId] })
+    queryClient.invalidateQueries({ queryKey: ['learner-task', item.id] })
     onChanged()
   }
 
@@ -169,7 +169,7 @@ export const TaskDetailPanel: React.FC<{
             <div className="min-w-0">
               <DialogPrimitive.Title className="text-lg font-black leading-snug">{item.title}</DialogPrimitive.Title>
               <p className="mt-1 text-xs text-w-muted">
-                {item.kind === 'roadmap' ? `Roadmap · ${item.context}` : item.context}
+                {workContext(item)}
               </p>
             </div>
             <DialogPrimitive.Close
@@ -221,7 +221,7 @@ export const TaskDetailPanel: React.FC<{
           {isRoadmap && (
             <>
               {isLoading && <p className={cn(SECTION, 'text-xs text-w-muted')}>Загружаем подробности…</p>}
-              {task && (task.description || task.expected_result) && (
+              {task?.stage_id && (task.description || task.expected_result) && (
                 <div className={SECTION}>
                   {task.description && (
                     <>
@@ -237,12 +237,14 @@ export const TaskDetailPanel: React.FC<{
                   )}
                 </div>
               )}
-              {task && (
+              {task?.stage_id && (
                 <div className={SECTION}>
                   <p className={LABEL}>Подзадачи</p>
                   <Subtasks task={task} onChanged={changed} />
                 </div>
               )}
+              {task && <div className={SECTION}>{task.stage_id ? <><p className={LABEL}>Подтверждения и результат</p>{task.result_text && <p className="mb-3 whitespace-pre-wrap text-sm">{task.result_text}</p>}<PortfolioFiles target={{ task_id: task.id }} editable={task.status !== 'done' && task.review_status !== 'pending'} /></> : <LearnerStep task={task} defaultOpen />}</div>}
+              {taskError && <div className={SECTION}><p className="text-sm text-w-danger">{getErrorMessage(taskError)}</p><button onClick={() => refetchTask()} className="mt-2 text-sm underline">Повторить</button></div>}
               {task?.review_comment && (
                 <div className={SECTION}>
                   <p className={LABEL}>Комментарий проверки</p>

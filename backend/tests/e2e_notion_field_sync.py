@@ -79,7 +79,8 @@ async def bootstrap():
     await engine.dispose()
 
 asyncio.run(bootstrap())
-for args in [("stamp", "118"), ("upgrade", "head")]:
+# Проверяется ровно переход 118 -> 119; миграции после него схема из моделей уже содержит.
+for args in [("stamp", "118"), ("upgrade", "119"), ("stamp", "head")]:
     subprocess.run([sys.executable, "-m", "alembic", *args], cwd=ROOT / "backend", check=True)
 print("PASS migration 118 -> 119", flush=True)
 

@@ -1,3 +1,4 @@
+import { useAuth } from '@/contexts/AuthContext'
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,6 +33,7 @@ export const ApplicationsSection: React.FC<{
   basePath?: string
 }> = ({ mode, studentId, basePath = '/portal/universities' }) => {
   const queryClient = useQueryClient()
+  const { can } = useAuth()
   // id заявки, для которой открыт выбор вуза
   const [linking, setLinking] = useState<string | null>(null)
   // null — диалог закрыт; undefined — создание; заявка — редактирование
@@ -45,7 +47,7 @@ export const ApplicationsSection: React.FC<{
     enabled: mode === 'self' || Boolean(studentId),
   })
 
-  const canManage = mode === 'staff' && Boolean(studentId)
+  const canManage = mode === 'staff' && Boolean(studentId) && can('applications', 'manage')
 
   // Доступы к порталам: по ним карточка показывает «нет доступов», а бэкенд
   // без них не даёт отметить оффер (services/admission_guard.py).

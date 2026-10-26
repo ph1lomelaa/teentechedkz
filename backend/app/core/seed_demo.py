@@ -178,6 +178,7 @@ async def _build_roadmap(db: AsyncSession, student: Student, mentor: User) -> Ro
         for task_position, (title, priority, status) in enumerate(tasks):
             db.add(
                 RoadmapTask(
+                    student_id=roadmap.student_id,
                     stage_id=stage.id,
                     roadmap_id=roadmap.id,
                     title=title,

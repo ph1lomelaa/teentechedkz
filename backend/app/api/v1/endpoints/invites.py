@@ -62,7 +62,7 @@ async def accept(
     if len(body.password) < 8:
         raise HTTPException(status_code=422, detail="Пароль должен быть минимум 8 символов")
 
-    invite = await resolve_valid_invite(db, raw_token=token)
+    invite = await resolve_valid_invite(db, raw_token=token, for_update=True)
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -102,7 +102,7 @@ async def accept_by_code(
     if len(body.password) < 8:
         raise HTTPException(status_code=422, detail="Пароль должен быть минимум 8 символов")
 
-    invite = await resolve_valid_invite(db, raw_code=code)
+    invite = await resolve_valid_invite(db, raw_code=code, for_update=True)
     if not invite:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,

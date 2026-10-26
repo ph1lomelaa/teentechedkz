@@ -1621,6 +1621,7 @@ async def get_student(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    require_access(current_user, "students", Action.view)
     query = (
         select(Student)
         .where(Student.id == student_id)
@@ -1630,6 +1631,8 @@ async def get_student(
             selectinload(Student.contracts).selectinload(Contract.mzk_manager),
         )
     )
+    if current_user.role == UserRole.student:
+        query = query.where(Student.user_id == current_user.id)
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
         query = query.where(Student.is_archived == False)  # noqa: E712
     result = await db.execute(

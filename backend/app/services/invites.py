@@ -87,7 +87,8 @@ def is_invite_usable(invite: StudentInvite, now: datetime | None = None) -> bool
 
 
 async def resolve_valid_invite(
-    db: AsyncSession, raw_token: str | None = None, raw_code: str | None = None, now: datetime | None = None
+    db: AsyncSession, raw_token: str | None = None, raw_code: str | None = None, now: datetime | None = None,
+    *, for_update: bool = False,
 ) -> StudentInvite | None:
     """Return the invite iff token/code exists, is unused and not expired.
     Pass raw_token (URL-based) or raw_code (user-typed activation code).
@@ -95,19 +96,19 @@ async def resolve_valid_invite(
     now = now or datetime.now(timezone.utc)
 
     if raw_token:
-        result = await db.execute(
-            select(StudentInvite).where(StudentInvite.token_hash == _hash_token(raw_token))
-        )
+        statement = select(StudentInvite).where(StudentInvite.token_hash == _hash_token(raw_token))
         lookup_method = f"token (len={len(raw_token)})"
     elif raw_code:
-        result = await db.execute(
-            select(StudentInvite).where(StudentInvite.code_hash == _hash_code(raw_code))
-        )
+        statement = select(StudentInvite).where(StudentInvite.code_hash == _hash_code(raw_code))
         lookup_method = f"code={raw_code.upper()}"
     else:
         logger.error("resolve_valid_invite: neither token nor code provided")
         return None
 
+    # Serialize acceptance so two simultaneous requests cannot both use a link.
+    if for_update:
+        statement = statement.with_for_update()
+    result = await db.execute(statement)
     invite = result.scalar_one_or_none()
     if not invite:
         logger.info("Invite rejected: %s not found (possibly superseded or typo).", lookup_method)

@@ -30,7 +30,7 @@ export function detectMeetingPlatform(url: string): MeetingPlatform | null {
   }
   if (host === 'meet.google.com') {
     const code = path.replace(/^\/+|\/+$/g, '')
-    return code && !code.includes('/') ? 'google_meet' : null
+    return code && !code.includes('/') && !['new', 'landing', 'about'].includes(code.toLowerCase()) ? 'google_meet' : null
   }
   if (host === 'teams.microsoft.com' || host === 'teams.live.com') return 'teams'
   return null
@@ -136,7 +136,7 @@ export function botStatusView(input: {
         description: 'Обычно это 1–2 минуты. Пришлём уведомление, когда конспект будет готов, — страницу можно закрыть.',
       }
     case 'done':
-      return { tone: 'good', title: 'Конспект готов', description: 'Проверьте черновик и примените изменения к профилю студента.' }
+      return { tone: 'good', title: 'Конспект готов', description: 'Проверьте черновик, одобрите конспект и нажмите «Опубликовать», чтобы его увидел ученик.' }
     case 'failed':
       return {
         tone: 'danger',

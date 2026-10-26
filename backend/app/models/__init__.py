@@ -18,7 +18,7 @@ from .confidential_note import ConfidentialNote
 from .student_task import StudentTask
 from .task_evidence import TaskEvidence
 from .payment import Payment
-from .document import Document
+from .document import Document, PortfolioDocumentLink
 from .communication_log import CommunicationLog
 from .pending_insight import PendingInsight
 from .status_history import StatusHistory
@@ -43,7 +43,7 @@ from .notion_field_sync import NotionFieldSync, FieldSyncDirection, FieldSyncSta
 from .ai_analysis_run import AiAnalysisRun
 from .roadmap import (
     RoadmapTemplate, TemplateStage, TemplateTask, TemplateSubtask,
-    Roadmap, Stage, RoadmapTask, RoadmapSubtask,
+    Roadmap, Stage, RoadmapTask, RoadmapSubtask, TaskSubmission,
     TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus,
 )
 from .meeting import Meeting, MeetingStatus
@@ -98,7 +98,7 @@ __all__ = [
     "NotionSnapshot", "NotionMatchStatus", "NotionFieldSync", "FieldSyncDirection", "FieldSyncStatus",
     "AiAnalysisRun",
     "RoadmapTemplate", "TemplateStage", "TemplateTask", "TemplateSubtask",
-    "Roadmap", "Stage", "RoadmapTask", "RoadmapSubtask",
+    "Roadmap", "Stage", "RoadmapTask", "RoadmapSubtask", "TaskSubmission",
     "TaskPriority", "TaskAudience", "RoadmapItemStatus", "RoadmapStatus",
     "Meeting", "MeetingStatus", "MeetingTelegramDelivery",
     "University", "UniversityCredential", "StudentUniversity",
@@ -125,5 +125,5 @@ __all__ = [
     "Activity", "ActivityIntake", "StudentActivity",
 ]
 
-from .activity import Activity, ActivityIntake, StudentActivity
+from .activity import Activity, ActivityIntake, StudentActivity, PortfolioFocus, ActivityStepTemplate
 from .notion_person_link import NotionPersonLink

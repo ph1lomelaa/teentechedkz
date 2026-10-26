@@ -37,6 +37,7 @@ import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { usersApi, notificationsApi } from '@/api/index'
+import { activitiesApi } from '@/api/activities'
 import { workspaceApi } from '@/api/workspace'
 import { useWsEvent } from '@/lib/ws'
 import { useCheckinSystemNotifications } from '@/hooks/useCheckinSystemNotifications'
@@ -127,7 +128,7 @@ function getNavGroups(
     {
       group: 'ПЛАНИРОВАНИЕ',
       items: [
-        { label: 'Активности', path: '/workspace/activities', icon: <GraduationCap className="h-4 w-4" />, permission: ['portfolio', 'manage'] },
+        { label: 'Portfolio UP', path: '/workspace/activities', icon: <GraduationCap className="h-4 w-4" />, permission: ['portfolio', 'manage'] },
         { label: 'Roadmap', path: '/workspace/roadmap', icon: <Map className="h-4 w-4" />, permission: ['roadmaps', 'view'] },
         { label: 'Задачи', path: '/workspace/tasks', icon: <CheckSquare className="h-4 w-4" />, permission: ['tasks', 'view'] },
         { label: 'Мои задачи', path: '/workspace/my-tasks', icon: <ListTodo className="h-4 w-4" />, permission: ['tasks', 'view'] },
@@ -244,7 +245,14 @@ export const WorkspaceLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const queryClient = useQueryClient()
   const { data: reviewCount = 0 } = useQuery({
     queryKey: ['workspace', 'review-count'],
-    queryFn: async () => (await workspaceApi.roadmapTasks({ review_status: 'pending' })).total,
+    // Шаги Roadmap и Portfolio UP на проверке плюс итоги участий — одна очередь.
+    queryFn: async () => {
+      const [steps, results] = await Promise.all([
+        workspaceApi.roadmapTasks({ review_status: 'pending' }),
+        activitiesApi.resultsPendingCount().catch(() => 0),
+      ])
+      return steps.total + results
+    },
     refetchInterval: 60_000,
     enabled: !!user,
   })

@@ -218,6 +218,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    if payload.get("av", 0) != (getattr(user, "auth_version", 0) or 0):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия завершена. Войдите снова.")
 
     # Отключённый после того, как уже был активен, — жёсткий отказ, тот же,
     # что был до появления экрана ожидания. Проверяется раньше мягкого гейта

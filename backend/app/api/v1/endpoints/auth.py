@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.services.google_account_status import google_accounts_by_user
 from app.schemas.auth import ClientErrorReport
 from app.core.security import (
     hash_password,
@@ -294,7 +295,7 @@ async def login_with_google(
         actor=user,
         target_user_id=user.id,
         request=request,
-        meta={"method": "google", "temp_password_settled": temp_password_settled},
+        meta={"method": "google", "google_email": identity.email, "temp_password_settled": temp_password_settled},
     )
     await db.commit()
     await rate_limit.reset(bucket="login_email", subject=identity.email)
@@ -314,7 +315,7 @@ async def login_with_google(
 # require_access здесь не нужен (ср. student_access.py, где админ правит чужой).
 
 
-def _email_entries_payload(user: User, extras: list[UserEmail]) -> dict:
+def _email_entries_payload(user: User, extras: list[UserEmail], google_account: dict | None = None) -> dict:
     return {
         "primary": user.email,
         "extras": [
@@ -322,7 +323,14 @@ def _email_entries_payload(user: User, extras: list[UserEmail]) -> dict:
             for ue in extras
         ],
         "max_extras": MAX_EXTRA_EMAILS,
+        "google_account": google_account or {"linked": False, "emails": []},
     }
+
+
+async def _my_emails_payload(db: AsyncSession, user: User) -> dict:
+    extras = await list_extra_emails(db, user.id)
+    accounts = await google_accounts_by_user(db, [user], extras=extras)
+    return _email_entries_payload(user, extras, accounts[user.id])
 
 
 @router.get("/me/emails")
@@ -330,7 +338,7 @@ async def list_my_emails(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+    return await _my_emails_payload(db, current_user)
 
 
 @router.post("/google/link")
@@ -361,26 +369,22 @@ async def link_google_account(
         )
 
     email = norm(identity.email)
-    if email == norm(current_user.email):
-        # Уже основной адрес — входить через Google можно прямо сейчас.
-        return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
-
     extras = await list_extra_emails(db, current_user.id)
-    if any(norm(ue.email) == email for ue in extras):
-        return _email_entries_payload(current_user, extras)
-
-    if await email_in_use(db, email):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Этот адрес уже привязан к другому аккаунту.",
-        )
-    if len(extras) >= MAX_EXTRA_EMAILS:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Можно привязать только один дополнительный адрес — отвяжите старый.",
-        )
-
-    db.add(UserEmail(user_id=current_user.id, email=email, is_verified=True))
+    own_extra = next((ue for ue in extras if norm(ue.email) == email), None)
+    if email != norm(current_user.email) and own_extra is None:
+        if await email_in_use(db, email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Этот адрес уже привязан к другому аккаунту.",
+            )
+        if len(extras) >= MAX_EXTRA_EMAILS:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Можно привязать только один дополнительный адрес — отвяжите старый.",
+            )
+        db.add(UserEmail(user_id=current_user.id, email=email, is_verified=True))
+    elif own_extra is not None:
+        own_extra.is_verified = True
     # Привязка добавляет способ войти в аккаунт — это ровно то, что аудит обязан
     # видеть. `google_linked` заведён в AuditAction заранее, как раз под это.
     record_audit(
@@ -392,7 +396,7 @@ async def link_google_account(
         meta={"email": email},
     )
     await db.commit()
-    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+    return await _my_emails_payload(db, current_user)
 
 
 @router.delete("/me/emails/{email_id}")
@@ -418,7 +422,7 @@ async def unlink_my_email(
         meta={"email": removed},
     )
     await db.commit()
-    return _email_entries_payload(current_user, await list_extra_emails(db, current_user.id))
+    return await _my_emails_payload(db, current_user)
 
 
 @router.post("/refresh")
@@ -483,7 +487,8 @@ async def refresh(
     db.add(new_rt)
     await db.commit()
 
-    new_access = create_access_token({"sub": str(user.id), "role": user.role.value})
+    new_access = create_access_token({"sub": str(user.id), "role": user.role.value,
+                                      "av": getattr(user, "auth_version", 0) or 0})
     _set_refresh_cookie(response, new_refresh_raw)
 
     return {

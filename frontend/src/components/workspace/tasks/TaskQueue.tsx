@@ -7,6 +7,7 @@ import {
   formatDue,
   isClosed,
   relativeDue,
+  workContext,
   type SortDir,
   type SortKey,
   type WorkItem,
@@ -95,6 +96,13 @@ export const ActionCell: React.FC<{ item: WorkItem; actions: RowActions }> = ({ 
   const busy = actions.busyKey === item.key
 
   if (item.kind === 'roadmap') {
+    // Шаг Portfolio UP закрывает ученик или проверка, а не галочка ментора в обход неё.
+    const step = item.roadmap?.activity_participation_id
+    if (step) {
+      return item.status === 'review'
+        ? <Link className={BTN_PRIMARY} to={`/workspace/review?item=${item.roadmap!.id}`}>Проверить</Link>
+        : <Link className={BTN} to={`/workspace/activities/participations/${step}#step-${item.roadmap!.id}`}>Открыть</Link>
+    }
     if (item.status === 'review') {
       return (
         <>
@@ -172,7 +180,7 @@ const Row: React.FC<{ item: WorkItem; actions: RowActions; hideStudent?: boolean
           {item.title}
         </button>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-w-muted">
-          <span>{item.kind === 'roadmap' ? `Roadmap · ${item.context}` : item.context}</span>
+          <span>{workContext(item)}</span>
           {roadmap && roadmap.subtasks_total > 0 && (
             <span className="tabular-nums">подзадач {roadmap.subtasks_done}/{roadmap.subtasks_total}</span>
           )}

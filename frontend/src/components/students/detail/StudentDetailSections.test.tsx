@@ -6,8 +6,9 @@ import { StudentDetailSections, AccordionItem, AccordionTrigger, AccordionConten
 
 afterEach(cleanup)
 function Address() { const loc = useLocation(); return <output data-testid="address">{loc.search}{loc.hash}</output> }
-function Card({ available = ['roadmap', 'tasks', 'notes', 'documents', 'profile', 'team', 'checks'] }: { available?: string[] }) {
-  return <><Address /><StudentDetailSections available={available}>
+function Card({ available = ['roadmap', 'tasks', 'notes', 'documents', 'profile', 'team', 'checks'], hashAliases }: { available?: string[]; hashAliases?: Record<string, string> }) {
+  return <><Address /><StudentDetailSections available={available} hashAliases={hashAliases}>
+    <AccordionItem value="confidential"><AccordionTrigger>Закрытые</AccordionTrigger><AccordionContent>Закрытые заметки</AccordionContent></AccordionItem>
     <AccordionItem value="roadmap"><AccordionTrigger>Моя карта</AccordionTrigger><AccordionContent>Этапы карты</AccordionContent></AccordionItem>
     <AccordionItem value="tasks"><AccordionTrigger>Работа</AccordionTrigger><AccordionContent><input aria-label="Черновик задачи" defaultValue="" /></AccordionContent></AccordionItem>
     <AccordionItem value="documents"><AccordionTrigger>Файлы ученика</AccordionTrigger><AccordionContent><input aria-label="Файл ученика" type="file" /></AccordionContent></AccordionItem>
@@ -20,6 +21,14 @@ function Card({ available = ['roadmap', 'tasks', 'notes', 'documents', 'profile'
 }
 function mount(url = '/students/s1', available?: string[]) { render(<MemoryRouter initialEntries={[url]}><Card available={available} /></MemoryRouter>) }
 describe('student detail navigation', () => {
+  it('keeps old workspace links: #notes opens private notes, meeting notes live under #meeting-notes', () => {
+    const aliases = { notes: 'confidential', 'meeting-notes': 'notes' }
+    render(<MemoryRouter initialEntries={['/workspace/students/s1#notes']}><Card available={['roadmap', 'tasks', 'notes', 'confidential']} hashAliases={aliases} /></MemoryRouter>)
+    expect(screen.getByText('Закрытые заметки')).toBeVisible()
+    fireEvent.click(screen.getByRole('tab', { name: 'Конспекты' }))
+    expect(screen.getByText('Записи встреч')).toBeVisible()
+    expect(screen.getByTestId('address')).toHaveTextContent('#meeting-notes')
+  })
   it('opens Roadmap first and keeps profile secondary', () => {
     mount()
     expect(screen.getByRole('tab', { name: 'Roadmap' }).getAttribute('aria-selected')).toBe('true')

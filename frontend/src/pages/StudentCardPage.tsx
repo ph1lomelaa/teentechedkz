@@ -30,6 +30,7 @@ import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsS
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
 import { invalidateFinances, invalidateStudent, invalidateDocuments, studentKeys } from '@/lib/queryKeys'
 import { QueryError } from '@/components/shared/QueryState'
+import { pluralRu } from '@/lib/contextDraft'
 import { studentsApi } from '@/api/students'
 import {
   guardiansApi,
@@ -120,6 +121,7 @@ import {
 } from '@/components/ui/primitives/table'
 import { downloadBlob, formatDate, formatCurrency, formatFileSize } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
+import { NotionSyncPreflight } from '@/components/students/detail/NotionSyncPreflight'
 import { StudentDetailSections } from '@/components/students/detail/StudentDetailSections'
 import { StudentPipelineStatusBadge } from '@/components/students/StudentPipelineStatusBadge'
 
@@ -568,6 +570,8 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
   client_remaining_date: { field: 'client_remaining_date', label: 'Остаток (дата)' },
 }
 
+const WORKSPACE_HASH_ALIASES = { notes: 'confidential', 'meeting-notes': 'notes' }
+
 export const StudentCardPage: React.FC = () => {
   const params = useParams<{ id: string; studentId: string }>()
   const id = params.id ?? params.studentId
@@ -949,6 +953,7 @@ export const StudentCardPage: React.FC = () => {
     }
   }
 
+  const pendingTelegramChanges = student?.pending_insights?.filter((item) => item.status === 'pending').length ?? 0
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1188,7 +1193,8 @@ export const StudentCardPage: React.FC = () => {
         </div>}
       </div>}
 
-      <StudentDetailSections key={id} available={[
+      {/* Старые ссылки кабинета вели #notes в закрытые заметки; конспекты там живут под #meeting-notes. */}
+      <StudentDetailSections key={id} hashAliases={inWorkspace ? WORKSPACE_HASH_ALIASES : undefined} available={[
         ...(can('roadmaps', 'view') || can('roadmaps', 'edit') ? ['roadmap'] : []),
         ...(can('meetings', 'manage') ? ['meetings'] : []),
         ...(can('applications', 'view') ? ['applications'] : []),
@@ -1496,6 +1502,7 @@ export const StudentCardPage: React.FC = () => {
           <AccordionItem value="intake"><AccordionTrigger>Сверки</AccordionTrigger><AccordionContent><p className="text-sm text-p-muted">Связанных анкет и записи Notion пока нет. Данные профиля доступны во вкладке «О студенте».</p></AccordionContent></AccordionItem>
         )}
 
+        {can('notion', 'manage') && <AccordionItem value="notion"><AccordionTrigger>Обмен данными</AccordionTrigger><AccordionContent><NotionSyncPreflight studentId={student.id} /></AccordionContent></AccordionItem>}
 
         {/* 0. Portal access (staff cockpit for the student's cabinet) */}
 
@@ -1788,14 +1795,17 @@ export const StudentCardPage: React.FC = () => {
           <AccordionTrigger className="text-base font-semibold">
             <span className="flex flex-wrap items-center gap-2">
               Portfolio UP
-              <ResponsibilityBadge studentId={id!} area="portfolio" />
             </span>
           </AccordionTrigger>
           <AccordionContent>
             <div className="mb-6">
-              <div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-bold">Личный план активностей</h3><Link className="text-sm underline" to={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`}>Подобрать активность</Link></div>
-              <ActivityPlan studentId={student.id} catalogPath={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`} />
+                            <ActivityPlan studentId={student.id} catalogPath={`${inWorkspace ? '/workspace/activities' : '/activities'}?student_id=${student.id}&view=catalog`} />
             </div>
+            {/* Поля из Notion — только для просмотра истории (см. память notion-view-only);
+                живое портфолио — выше, в плане активностей. */}
+            <details className="group rounded-card border border-p-line px-4 py-3">
+            <summary className="cursor-pointer list-none text-sm font-semibold text-p-muted">Данные из Notion <span className="font-normal">· VPP, статус, звонки</span></summary>
+            <div className="mt-3">
             {portfolio ? (
               <div className="space-y-3">
                 <InfoRow label="Группа VPP" value={portfolio.vpp_group} />
@@ -1887,8 +1897,10 @@ export const StudentCardPage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-p-muted py-2">Portfolio UP не настроено</p>
+              <p className="text-sm text-p-muted py-2">В Notion данных нет</p>
             )}
+            </div>
+            </details>
           </AccordionContent>
         </AccordionItem>
 
@@ -1993,6 +2005,18 @@ export const StudentCardPage: React.FC = () => {
             </AccordionTrigger>
             <AccordionContent>
               <div className="space-y-5">
+                {/* AI вытаскивает из переписки изменения профиля, но разбираются они в
+                    «На подтверждение». Без этой строки ментор видел счётчик сигналов и
+                    не находил сами изменения во вкладке Telegram. */}
+                {pendingTelegramChanges > 0 && (
+                  <Link
+                    to={`${inWorkspace ? '/workspace/status' : '/status-inbox'}?student=${student.id}`}
+                    className="flex items-center justify-between gap-3 rounded-card border border-p-line bg-p-panel2 px-4 py-3 text-sm font-bold text-p-text transition hover:bg-p-bg"
+                  >
+                    <span>{pendingTelegramChanges} {pluralRu(pendingTelegramChanges, 'изменение из переписки ждёт', 'изменения из переписки ждут', 'изменений из переписки ждут')} подтверждения</span>
+                    <span className="shrink-0 underline">Разобрать →</span>
+                  </Link>
+                )}
                 <TelegramGroupManager
                   studentId={student.id}
                   studentName={student.full_name}

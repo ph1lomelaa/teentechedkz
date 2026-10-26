@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
 import { mentorAssignmentsApi, tasksApi, usersApi } from '@/api'
 import { roadmapApi, type Priority } from '@/api/roadmap'
+import { learnerTasksApi } from '@/api/learnerTasks'
 import { AppButton, AppInput, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { Label } from '@/components/ui/primitives/label'
@@ -80,6 +80,8 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
   // «Студенту»
   const [stageId, setStageId] = useState('')
+  const [requiresReview, setRequiresReview] = useState(true)
+  const [requiresEvidence, setRequiresEvidence] = useState(false)
   const [showMore, setShowMore] = useState(false)
   const [description, setDescription] = useState('')
   const [expectedResult, setExpectedResult] = useState('')
@@ -114,11 +116,8 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
     [activeRoadmaps],
   )
 
-  // Этап по умолчанию — первый незавершённый. Сбрасывается при смене студента.
-  useEffect(() => {
-    const preferred = stageOptions.find((stage) => !stage.done) ?? stageOptions[0]
-    setStageId(preferred?.id ?? '')
-  }, [stageOptions])
+  useEffect(() => { setStageId('') }, [student?.id])
+
 
   // ---- исполнители: нужны только рассылке, остальным список не грузим ----
   const { data: staff = [] } = useQuery({
@@ -172,12 +171,15 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
   // Передаём снимок формы в mutate: кнопка может уже показать выбранный этап,
   // пока observer мутации ещё держит callback предыдущего рендера.
-  const studentTaskPayload: Parameters<typeof roadmapApi.createTask>[0] = {
-    stage_id: stageId,
+  const studentTaskPayload: Parameters<typeof learnerTasksApi.create>[0] = {
+    student_id: student?.id ?? '',
+    stage_id: stageId || null,
     activity_participation_id: activityParticipationId,
     title: title.trim(),
     description: description.trim() || undefined,
     expected_result: expectedResult.trim() || undefined,
+    requires_review: requiresReview,
+    requires_evidence: requiresEvidence,
     needs_document: needsDocument,
     needs_zoom: needsZoom,
     priority,
@@ -188,8 +190,8 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   const mutation = useMutation({
     mutationFn: async (studentPayload?: typeof studentTaskPayload) => {
       if (kind === 'student') {
-        if (!studentPayload?.stage_id) throw new Error('Выберите этап roadmap')
-        await roadmapApi.createTask(studentPayload)
+        if (!studentPayload?.student_id) throw new Error('Выберите ученика')
+        await learnerTasksApi.create(studentPayload)
         return { created_count: 1, skipped: [] as Array<{ reason: string }> }
       }
       if (canBulk) {
@@ -223,7 +225,7 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   })
 
   const hasTitle = Boolean(title.trim())
-  const studentReady = kind === 'student' ? Boolean(student) && Boolean(stageId) : canGeneral || Boolean(student)
+  const studentReady = kind === 'student' ? Boolean(student) : canGeneral || Boolean(student)
   const staffReady = kind === 'student' || !canBulk || mode !== 'pick' || picked.length > 0
   const canSubmit = hasTitle && studentReady && staffReady
 
@@ -264,18 +266,7 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
               {kind === 'student' ? 'Кому' : 'Студент'}
             </FieldLabel>
             {activityParticipationId ? <p className="text-sm">Задача для ученика из выбранного участия</p> : <StudentField colorPrefix={colorPrefix} value={student} onChange={setStudent} autoFocus={!defaultStudent} />}
-            {noRoadmap && (
-              <p className={cn('mt-2 rounded-ctl border px-3 py-2.5 text-xs leading-5', t.borderLine, t.panel2, t.muted)}>
-                У студента нет активного roadmap, поэтому задача не появится в его кабинете.{' '}
-                <Link to={`/workspace/students/${student!.id}#roadmap`} className={cn('font-bold underline', t.accentText)} onClick={onClose}>
-                  Назначить roadmap
-                </Link>
-                {!activityParticipationId && <> {' · '}
-                <button type="button" onClick={() => setKind('staff')} className={cn('font-bold underline', t.accentText)}>
-                  Поставить как поручение сотруднику
-                </button></>}
-              </p>
-            )}
+            {noRoadmap && <p className={cn('mt-2 text-xs leading-5', t.muted)}>Задача появится в кабинете ученика. Roadmap можно назначить позже.</p>}
           </div>
 
           <div>
@@ -298,7 +289,7 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                 <DueField colorPrefix={colorPrefix} value={dueDate} onChange={setDueDate} />
               </div>
 
-              {stageOptions.length > 1 && (
+              {stageOptions.length > 0 && (
                 <div>
                   <FieldLabel tone={t.ink}>Этап roadmap</FieldLabel>
                   <select
@@ -307,6 +298,7 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                     aria-label="Этап roadmap"
                     className={cn('h-11 w-full rounded-ctl border px-3 text-sm font-bold outline-none focus:border-current', t.borderLine, t.panel2, t.ink)}
                   >
+                    <option value="">Самостоятельная задача</option>
                     {stageOptions.map((stage) => (
                       <option key={stage.id} value={stage.id}>{stage.label}{stage.done ? ' (завершён)' : ''}</option>
                     ))}
@@ -355,6 +347,8 @@ export const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                       >
                         {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
+                      <label className={cn('flex items-center gap-2 text-sm', t.ink)}><input type="checkbox" checked={requiresReview} onChange={e => setRequiresReview(e.target.checked)} />Проверка ментора</label>
+                      <label className={cn('flex items-center gap-2 text-sm', t.ink)}><input type="checkbox" checked={requiresEvidence} onChange={e => setRequiresEvidence(e.target.checked)} />Обязательный файл</label>
                       <label className={cn('flex items-center gap-2 text-sm', t.ink)}>
                         <input type="checkbox" checked={needsDocument} onChange={(event) => setNeedsDocument(event.target.checked)} className="h-4 w-4" />
                         Нужен документ

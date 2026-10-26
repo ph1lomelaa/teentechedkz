@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -31,6 +31,8 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Incremented when all sessions are revoked. Legacy JWTs are version 0.
+    auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # Специализация ментора: «ментор по УП», «по стране», «профориентолог».
     # Значения — из MentorRole (mentor_assignment.py), справочник один на всю
     # систему, второго не заводим.

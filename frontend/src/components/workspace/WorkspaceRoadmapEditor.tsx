@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, GripVertical, Pencil, Plus, Video, X } from 'lucide-react'
 import {
@@ -28,6 +28,7 @@ import { ToastAction } from '@/components/ui/primitives/toast'
 import { withViewTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { DeadlineField } from '@/components/shared/DeadlineField'
+import { InlineField } from '@/components/shared/InlineField'
 import { overdueDaysOf } from '@/lib/roadmapDeadline'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -56,9 +57,10 @@ function taskCounts(roadmap: Roadmap) {
 export const WorkspaceRoadmapEditor: React.FC<{
   roadmap: Roadmap
   canManage?: boolean
+  /** Kept for callers from main; the roadmap styling now applies everywhere. */
   studentCard?: boolean
   onChanged: (updated: Roadmap) => void
-}> = ({ roadmap, canManage = true, onChanged, studentCard = false }) => {
+}> = ({ roadmap, canManage = true, onChanged }) => {
   const { theme } = useTheme()
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
   const queryClient = useQueryClient()
@@ -278,7 +280,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
 
   return (
     <>
-    <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>
+    <div className={cn('roadmap-ui transition-opacity', busy && 'pointer-events-none opacity-60')}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-xs font-bold text-w-muted">
           Прогресс · {done}/{total} задач
@@ -419,7 +421,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       />
     )}
     <Dialog open={Boolean(uncheckTask)} onOpenChange={(o) => !o && setUncheckTask(null)}>
-      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Снять отметку о выполнении</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -445,7 +447,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(returnTask)} onOpenChange={(o) => !o && setReturnTask(null)}>
-      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Вернуть задачу студенту</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -475,7 +477,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(newTaskStage)} onOpenChange={(o) => !o && setNewTaskStage(null)}>
-      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая задача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -521,7 +523,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(editTask)} onOpenChange={(o) => !o && setEditTask(null)}>
-      <DialogContent data-theme={theme} className={cn('portal max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent data-theme={theme} className="portal roadmap-ui max-h-[90dvh] overflow-y-auto border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Изменить задачу</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -578,7 +580,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     {/* Подзадача и удаление — свои диалоги вместо window.prompt/confirm:
         системные окна игнорируют тему платформы и выпадают из вёрстки. */}
     <Dialog open={Boolean(subtaskParent)} onOpenChange={(o) => !o && setSubtaskParent(null)}>
-      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Новая подзадача</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -627,7 +629,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
     </Dialog>
 
     <Dialog open={Boolean(deleteTask)} onOpenChange={(o) => !o && setDeleteTask(null)}>
-      <DialogContent className={cn('portal border-w-line bg-w-panel text-w-ink', studentCard && 'roadmap-ui')}>
+      <DialogContent className="portal roadmap-ui border-w-line bg-w-panel text-w-ink">
         <DialogHeader>
           <DialogTitle className="font-display font-black text-w-ink">Удалить задачу?</DialogTitle>
           <DialogDescription className="text-w-muted">
@@ -661,6 +663,7 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
     onClick={onClick}
     disabled={disabled}
     title="Сменить статус этапа"
+    data-roadmap-badge={status === 'planned' ? undefined : status}
     className={cn(
       'absolute left-0 top-1.5 grid h-[21px] w-[21px] place-items-center rounded-full border-2 transition active:scale-[0.98]',
       status === 'done' && 'border-w-good bg-w-good text-black',
@@ -678,26 +681,6 @@ const StageNode: React.FC<{ status: ItemStatus; onClick: () => void; disabled?: 
     )}
   </button>
 )
-
-const InlineField: React.FC<{ value: string; canEdit: boolean; onSave: (value: string) => void; label: string; className?: string; multiline?: boolean; required?: boolean; emptyLabel?: string }> = ({ value, canEdit, onSave, label, className, multiline, required, emptyLabel }) => {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const input = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
-  const skipBlur = useRef(false)
-  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
-  useEffect(() => { if (editing) { skipBlur.current = false; input.current?.select() } }, [editing])
-  useEffect(() => { if (editing && input.current instanceof HTMLTextAreaElement) { input.current.style.height = 'auto'; input.current.style.height = `${input.current.scrollHeight}px` } }, [draft, editing])
-  const save = () => {
-    if (skipBlur.current) { skipBlur.current = false; return }
-    const next = draft.trim()
-    setEditing(false)
-    if (next !== value && (!required || next)) onSave(next)
-  }
-  if (!canEdit && !value) return null
-  if (!editing) return canEdit ? <button type="button" onClick={() => setEditing(true)} className={cn('max-w-full whitespace-pre-wrap text-left hover:underline focus-visible:outline-2 focus-visible:outline-w-accent', className)} aria-label={`Изменить: ${label}`}>{value || emptyLabel}</button> : <span className={cn('whitespace-pre-wrap', className)}>{value}</span>
-  const common = { ref: input, value: draft, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value), onBlur: save, onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (event.key === 'Escape') { skipBlur.current = true; setEditing(false); setDraft(value) } else if (event.key === 'Enter' && (!multiline || event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); skipBlur.current = true } }, 'aria-label': label, className: 'w-full rounded-ctl border border-w-accentDim bg-w-panel px-2 py-1 text-sm text-w-ink outline-none focus:border-w-accent' }
-  return multiline ? <textarea {...common} rows={Math.max(2, draft.split('\n').length)} /> : <input {...common} />
-}
 
 const TaskCard: React.FC<{
   task: RoadmapTask
@@ -770,7 +753,7 @@ const TaskCard: React.FC<{
               <Pill colorPrefix="w" tone="accent">ждёт проверки</Pill>
             )}
             {task.review_status === 'returned' && (
-              <Pill colorPrefix="w" tone="neutral" className="bg-w-danger/15 text-w-danger">возвращена</Pill>
+              <Pill colorPrefix="w" tone="danger">возвращена</Pill>
             )}
             {task.review_status === 'pending' && canManage && (
               <>

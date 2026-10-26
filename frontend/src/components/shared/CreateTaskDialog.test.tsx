@@ -46,6 +46,7 @@ vi.mock('@/api/roadmap', () => ({
     createTask: (...a: unknown[]) => createRoadmapTask(...a),
   },
 }))
+vi.mock('@/api/learnerTasks', () => ({ learnerTasksApi: { create: (...a: unknown[]) => createRoadmapTask(...a) } }))
 vi.mock('@/api/students', () => ({ studentsApi: { list: (...a: unknown[]) => studentsList(...a) } }))
 
 const { CreateTaskDialog } = await import('./CreateTaskDialog')
@@ -96,7 +97,7 @@ describe('задача студенту', () => {
     expect(screen.getByRole('button', { name: 'Поставить студенту' })).toBeDisabled()
   })
 
-  it('ставит шаг roadmap в первый незавершённый этап активного roadmap, со сроком', async () => {
+  it('ставит самостоятельную задачу ученику со сроком, не выбирая этап автоматически', async () => {
     createRoadmapTask.mockResolvedValue({})
     const { onCreated } = open()
     await pickStudent()
@@ -112,7 +113,7 @@ describe('задача студенту', () => {
     expect(studentRoadmaps).toHaveBeenCalledWith('s1')
     expect(createRoadmapTask).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage_id: 'st-open',
+        student_id: 's1', stage_id: null,
         title: 'Загрузить скан паспорта',
         audience: 'applicant',
         due_date: toDateKey(tomorrow),
@@ -135,20 +136,20 @@ describe('задача студенту', () => {
     expect(screen.queryByLabelText('Дата срока')).toBeNull()
   })
 
-  it('без активного roadmap объясняет почему и не даёт отправить', async () => {
+  it('без активного roadmap позволяет поставить задачу ученику', async () => {
     studentRoadmaps.mockResolvedValue([])
     open()
     await pickStudent()
     fireEvent.change(title(), { target: { value: 'Что-то' } })
-    expect(await screen.findByText(/нет активного roadmap/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Поставить студенту' })).toBeDisabled()
+    expect(await screen.findByText(/Roadmap можно назначить позже/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Поставить студенту' })).toBeEnabled()
   })
 
-  it('«Поставить как поручение сотруднику» переключает на второй режим', async () => {
+  it('вкладка «Сотруднику» переключает на поручение', async () => {
     studentRoadmaps.mockResolvedValue([])
     open()
     await pickStudent()
-    fireEvent.click(await screen.findByRole('button', { name: 'Поставить как поручение сотруднику' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Сотруднику' }))
     expect(screen.getByRole('tab', { name: 'Сотруднику' })).toHaveAttribute('aria-selected', 'true')
   })
 

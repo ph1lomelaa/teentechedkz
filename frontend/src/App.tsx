@@ -1,3 +1,4 @@
+import { ParticipationDetailPage } from './pages/ParticipationDetailPage'
 import { StudentCardErrorBoundary } from '@/components/students/StudentCardErrorBoundary'
 import { reportClientRuntimeError } from '@/lib/clientRuntimeErrors'
 import React from 'react'
@@ -61,6 +62,7 @@ const StudentsDistributionPage = lazyRoute(() => import('@/pages/StudentsDistrib
 const StudentCardPage = lazyRoute(() => import('@/pages/StudentCardPage').then((m) => ({ default: m.StudentCardPage })))
 const PortalActivityDetailPage = lazyRoute(() => import('@/pages/portal/PortalActivityDetailPage').then(m => ({ default: m.PortalActivityDetailPage })))
 const ActivitiesPage = lazyRoute(() => import('@/pages/ActivitiesPage').then((m) => ({ default: m.ActivitiesPage })))
+const ActivityPickPage = lazyRoute(() => import('@/pages/workspace/ActivityPickPage').then((m) => ({ default: m.ActivityPickPage })))
 const NotesPage = lazyRoute(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
 const NoteSessionPage = lazyRoute(() => import('@/pages/NoteSessionPage').then((m) => ({ default: m.NoteSessionPage })))
 const NoteDetailPage = lazyRoute(() => import('@/pages/NoteDetailPage').then((m) => ({ default: m.NoteDetailPage })))
@@ -216,6 +218,9 @@ export function isRecoverableAppError(error: Error): boolean {
 /** Ключ одноразовой попытки: страховка от петли перезагрузок, если новая
  * сборка или DOM действительно не могут восстановиться. */
 const RELOAD_GUARD = 'tte:runtime-recovery-reloaded'
+// The loaded module URL changes with the production build hash. One automatic
+// recovery per build avoids a reload loop when an extension repeatedly changes
+// the DOM after the first ten seconds, while allowing recovery after a deploy.
 const RELOAD_GUARD_VALUE = import.meta.url
 
 /**
@@ -565,6 +570,7 @@ function AppRoutes() {
 
       <Route path="/activities" element={<ProtectedRoute permission={['portfolio', 'manage']}><AppLayout><ActivitiesPage /></AppLayout></ProtectedRoute>} />
       <Route path="/portal/activities/:activityId" element={<StudentRoute><PortalActivityDetailPage /></StudentRoute>} />
+      <Route path="/portal/activities/participations/:participationId" element={<StudentRoute><ParticipationDetailPage /></StudentRoute>} />
       <Route path="/portal/activities" element={<StudentRoute><ActivitiesPage /></StudentRoute>} />
 
       <Route
@@ -952,6 +958,8 @@ function AppRoutes() {
 
       <Route element={<WorkspaceShell />}>
       <Route path="/workspace/activities" element={<WorkspaceRoute permission={['portfolio', 'manage']}><ActivitiesPage /></WorkspaceRoute>} />
+      <Route path="/workspace/activities/participations/:participationId" element={<WorkspaceRoute permission={['portfolio', 'manage']}><ParticipationDetailPage /></WorkspaceRoute>} />
+      <Route path="/workspace/activities/pick" element={<WorkspaceRoute permission={['portfolio', 'manage']}><ActivityPickPage /></WorkspaceRoute>} />
       {/* Staff/mentor workspace — donor-style mentor cabinet backed by CRM data */}
       <Route path="/workspace" element={<WorkspaceRoute><WorkspaceDashboardPage /></WorkspaceRoute>} />
       <Route path="/workspace/students" element={<WorkspaceRoute><WorkspaceStudentsPage /></WorkspaceRoute>} />

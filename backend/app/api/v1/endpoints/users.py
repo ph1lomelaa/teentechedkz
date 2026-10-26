@@ -21,6 +21,7 @@ from app.services.agreements import audience_for_role
 from app.services.assignment_candidates import candidates_query
 from app.services.audit import record_audit
 from app.services.user_deletion import describe_blockers, user_blockers
+from app.services.google_account_status import google_accounts_by_user
 from app.services.excel_export import export_login_links
 from app.services.invites import issue_invite, invite_url
 from app.services.passwords import gen_password
@@ -124,7 +125,9 @@ async def list_users(
     result = await db.execute(query.order_by(User.name))
     users = result.scalars().all()
     agreement_statuses = await _agreement_status_by_user(db, users)
-    return [_user_to_dict(u, agreement_status=agreement_statuses.get(u.id)) for u in users]
+    google_accounts = await google_accounts_by_user(db, users)
+    return [{**_user_to_dict(u, agreement_status=agreement_statuses.get(u.id)),
+             "google_account": google_accounts[u.id]} for u in users]
 
 
 @router.get("/assignable")

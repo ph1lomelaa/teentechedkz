@@ -106,6 +106,9 @@ export const BotRecordPanel: React.FC<{
           <CreateGoogleMeetLink className={ink} />
           <span>— скопируйте ссылку встречи и вставьте сюда.</span>
         </div>
+        {platform === 'google_meet' && (
+          <p className={cn('mt-2 text-sm', muted)}>Откройте встречу и впустите участника «TeenTechEd». После звонка проверьте конспект и опубликуйте его ученику.</p>
+        )}
         {typed && !platform && (
           <div className={cn('mt-2 flex flex-wrap items-center justify-between gap-3 rounded-panel border p-3 text-sm', inWorkspace ? 'border-w-danger/50 bg-w-danger/10 text-w-danger' : 'border-red-300 bg-red-50 text-red-800')}>
             <span>Поддерживаются ссылки Zoom, Google Meet и Microsoft Teams.</span>
@@ -117,8 +120,8 @@ export const BotRecordPanel: React.FC<{
         <div className={cn('rounded-panel border p-4 text-sm', inWorkspace ? 'border-w-accentDim/60 bg-w-accent/10 text-w-ink' : 'border-amber-300 bg-amber-50 text-p-text')}>
           <p className="font-semibold">В Zoom бот пока не заходит</p>
           <p className={cn('mt-1', muted)}>
-            Zoom пускает ботов во встречи других аккаунтов только после проверки нашего приложения — она ещё идёт.
-            Проведите встречу в Google Meet: создайте её, отправьте ссылку ученику и вставьте сюда.
+            Запись ботом в Zoom сейчас отключена. Проведите встречу в Google Meet:
+            создайте её, отправьте ссылку ученику и вставьте сюда.
           </p>
           <Button asChild size="sm" className="mt-3">
             <a href={GOOGLE_MEET_NEW_URL} target="_blank" rel="noopener noreferrer">Создать Google Meet</a>
@@ -130,6 +133,13 @@ export const BotRecordPanel: React.FC<{
         <div className={cn('rounded-panel border p-3 text-sm', panel, muted)}>
           В Zoom бот заходит только во встречи корпоративного аккаунта TeenTechEd. Создавайте встречу из рабочей учётки
           Zoom — из личной бот не пустят.
+        </div>
+      )}
+
+      {platform === 'zoom' && zoomStatus?.zoom_mode === 'obf' && zoomStatus.connected && (
+        <div className={cn('rounded-panel border p-3 text-sm', panel, muted)}>
+          Можно вставить ссылку встречи другого организатора. Сначала войдите в неё через подключённый здесь
+          аккаунт Zoom, затем отправьте бота. Организатор должен впустить TeenTechEd и при запросе разрешить запись.
         </div>
       )}
 

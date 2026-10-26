@@ -15,14 +15,18 @@ export interface RoadmapSubtask {
 }
 
 // Заявка студента о выполнении — ось, ортогональная status.
-// status='done' всегда означает «подтверждено ментором».
+// status='done' — принято ментором или выполнено самостоятельно при requires_review=false.
 export type ReviewStatus = 'none' | 'pending' | 'approved' | 'returned'
 
 export interface RoadmapTask {
   activity_participation_id?: string | null
   id: string
-  stage_id: string
-  roadmap_id: string
+  student_id?: string
+  requires_review?: boolean
+  requires_evidence?: boolean
+  result_text?: string | null
+  stage_id: string | null
+  roadmap_id: string | null
   title: string
   description: string
   expected_result: string
@@ -221,8 +225,12 @@ export interface NotionRoadmapImportJob {
 export interface FlatTask {
   activity_participation_id?: string | null
   id: string
-  stage_id: string
-  roadmap_id: string
+  student_id?: string
+  requires_review?: boolean
+  requires_evidence?: boolean
+  result_text?: string | null
+  stage_id: string | null
+  roadmap_id: string | null
   stage_name: string
   stage_position: number
   title: string

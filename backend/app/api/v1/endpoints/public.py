@@ -162,6 +162,8 @@ async def join(
     # Уже работающий аккаунт: повторный проход по ссылке — это просто вход.
     # Второго User и второй заявки быть не должно.
     if user is not None and user.is_active:
+        record_audit(db, action=AuditAction.google_linked, actor=user,
+                     target_user_id=user.id, request=request, meta={"email": identity.email})
         temp_password_settled = settle_temp_password_on_google_login(user)
         mark_logged_in(user)
         session = await issue_session(db, response, user)
@@ -197,6 +199,8 @@ async def join(
         db.add(user)
         await db.flush()
 
+    record_audit(db, action=AuditAction.google_linked, actor=user,
+                 target_user_id=user.id, request=request, meta={"email": identity.email})
     req = (
         await db.execute(select(AccessRequest).where(AccessRequest.user_id == user.id))
     ).scalar_one_or_none()

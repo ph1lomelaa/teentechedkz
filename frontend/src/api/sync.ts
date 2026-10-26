@@ -150,8 +150,9 @@ export const syncApi = {
     const res = await apiClient.get<NotionFieldReport>('/sync/notion-field-report', { params: { student_id: studentId } })
     return res.data
   },
-  applyNotionFieldReport: async (revision: string, choices: NotionFieldChoice[] = [], studentIds?: string[]) => {
-    const res = await apiClient.post<{ queued: number; review: number; dry_run: boolean }>('/sync/notion-field-report/apply', { revision, choices, student_ids: studentIds })
+  /** `studentId` scopes the report itself (the revision must come from the same scoped report). */
+  applyNotionFieldReport: async (revision: string, choices: NotionFieldChoice[] = [], studentIds?: string[], studentId?: string) => {
+    const res = await apiClient.post<{ queued: number; review: number; dry_run: boolean }>('/sync/notion-field-report/apply', { revision, choices, student_ids: studentIds, student_id: studentId })
     return res.data
   },
   run: async () => {
