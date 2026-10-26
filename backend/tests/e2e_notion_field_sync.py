@@ -305,6 +305,24 @@ async def main():
         await runtime.process_outbox_batch(db, dry_run=False)
         assert len(writes) == count and live[n5.notion_page_id]["Degree"] == "Улучшение портфолио"
         print("PASS degree note in Notion is kept and not reported", flush=True)
+        # A write held back by the contract (not KZT) resumes once the contract is fixed.
+        s6, c6, n6 = await seed(db)
+        c6.currency = "USD"
+        await db.commit()
+        await notion_sync._reconcile_baselines(db, [n6])
+        await db.commit()
+        await runtime.process_outbox_batch(db, dry_run=False)
+        await db.refresh(c6)
+        held = (await db.execute(select(NotionFieldSync).where(NotionFieldSync.student_id == s6.id, NotionFieldSync.field_key == "client_fee"))).scalars().one()
+        assert held.status is FieldSyncStatus.conflict and c6.amount == Decimal("100"), (held.status, held.last_error, c6.amount)
+        c6.currency = "KZT"
+        await db.commit()
+        await notion_sync._reconcile_baselines(db, [n6])
+        await db.commit()
+        await runtime.process_outbox_batch(db, dry_run=False)
+        await db.refresh(c6)
+        assert c6.amount == Decimal("200"), c6.amount
+        print("PASS contract-blocked write resumes after the contract is fixed", flush=True)
     await engine.dispose()
 
 with patch.object(settings, "NOTION_API_KEY", "fake"), patch.object(settings, "NOTION_DATABASE_ID", "fake"), \

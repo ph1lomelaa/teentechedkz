@@ -25,6 +25,7 @@ from app.models.notion_snapshot import NotionMatchStatus
 from app.models.student import DegreeLevel
 from app.models.contract import Contract, PipelineStatus
 from app.services import notion_write
+from app.services.notion_field_sync_outbox import KZT_CONTRACT_REQUIRED, SINGLE_CONTRACT_REQUIRED
 
 
 class RuntimeDisposition(str, Enum):
@@ -309,9 +310,9 @@ async def process_profile_field(
         return RuntimeResult(RuntimeDisposition.superseded, field, "Linked CRM student changed or is missing")
 
     if field in CONTRACT_FIELD_ATTR and field != "pipeline_status" and contract is None:
-        return RuntimeResult(RuntimeDisposition.conflict, field, "A single verified contract is required for this field")
+        return RuntimeResult(RuntimeDisposition.conflict, field, SINGLE_CONTRACT_REQUIRED)
     if field in MONEY_FIELDS and getattr(contract, "currency", None) != "KZT":
-        return RuntimeResult(RuntimeDisposition.conflict, field, "Financial synchronization requires a KZT contract")
+        return RuntimeResult(RuntimeDisposition.conflict, field, KZT_CONTRACT_REQUIRED)
     expected_contract = getattr(item, "expected_contract_id", None)
     if expected_contract is not None and (contract is None or contract.id != expected_contract):
         return RuntimeResult(RuntimeDisposition.superseded, field, "The reviewed contract was replaced or removed")
