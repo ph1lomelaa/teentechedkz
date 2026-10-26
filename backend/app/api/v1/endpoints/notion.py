@@ -50,6 +50,27 @@ PIPELINE_COLUMNS = (
 )
 
 
+def _pipeline_display_name(snapshot: NotionSnapshot, linked_names: dict[uuid.UUID, str]) -> str:
+    """Resolve a readable title without modifying the Notion mirror or its links."""
+    def usable(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        return value if value and value.casefold() not in {"=", "-", "—", "без имени"} else None
+
+    linked_name = linked_names.get(snapshot.student_id) if snapshot.status == NotionMatchStatus.linked else None
+    for value in (
+        snapshot.full_name,
+        (snapshot.normalized_data or {}).get("full_name"),
+        (snapshot.raw_properties or {}).get("е"),
+        linked_name,
+    ):
+        name = usable(value)
+        if name:
+            return name
+    return "Без имени"
+
+
 @router.get("/pipeline-table")
 async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser,
                          source_only: bool = False):
@@ -57,9 +78,11 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
     require_access(current_user, "notion", Action.manage)
     snapshots = list((await db.execute(select(NotionSnapshot).order_by(NotionSnapshot.full_name))).scalars())
     suggested_ids = {s.suggested_student_id for s in snapshots if s.suggested_student_id}
-    suggested_names = dict((await db.execute(
-        select(Student.id, Student.full_name).where(Student.id.in_(suggested_ids))
-    )).all()) if suggested_ids else {}
+    linked_ids = {s.student_id for s in snapshots if s.status == NotionMatchStatus.linked and s.student_id}
+    name_ids = suggested_ids | linked_ids
+    student_names = dict((await db.execute(
+        select(Student.id, Student.full_name).where(Student.id.in_(name_ids))
+    )).all()) if name_ids else {}
     # Ответственные нужны и «чистому» виду Обзора: source_only отключает только
     # строки «только CRM», а распределение по ученикам должно оставаться видно.
     responsibles = {}
@@ -81,11 +104,11 @@ async def pipeline_table(db: Annotated[AsyncSession, Depends(get_db)], current_u
         "notion_page_id": s.notion_page_id, "notion_url": s.notion_url,
         "student_id": str(s.student_id) if s.status == NotionMatchStatus.linked and s.student_id else None,
         "suggested_student_id": str(s.suggested_student_id) if s.suggested_student_id else None,
-        "suggested_student_name": suggested_names.get(s.suggested_student_id),
+        "suggested_student_name": student_names.get(s.suggested_student_id),
         "suggested_confidence": s.suggested_confidence,
         "source": "notion", "link_status": s.status.value,
         "responsibles": responsibles.get(s.student_id, []),
-        "values": {**(s.raw_properties or {}), "Статус CRM": (
+        "values": {**(s.raw_properties or {}), "е": _pipeline_display_name(s, student_names), "Статус CRM": (
             _PIPELINE_RU.get(crm_status_by_student[s.student_id].pipeline_status.value,
                              crm_status_by_student[s.student_id].pipeline_status.value)
             if s.student_id in crm_status_by_student and crm_status_by_student[s.student_id].pipeline_status else None)},

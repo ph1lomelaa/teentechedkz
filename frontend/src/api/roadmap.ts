@@ -82,6 +82,7 @@ export interface Roadmap {
 
 // ---- templates ----
 export interface TemplateListItem {
+  locally_edited?: boolean
   id: string
   name: string
   country_name: string | null
@@ -124,6 +125,8 @@ export interface TemplateStage {
   tasks: TemplateTask[]
 }
 export interface RoadmapTemplate {
+  locally_edited: boolean
+  revision: number
   id: string
   name: string
   country_name: string | null
@@ -171,6 +174,11 @@ export interface TemplateCreateInput {
   source_notion_title?: string | null
   source_notion_last_edited_at?: string | null
   stages?: StageInput[]
+}
+
+export interface TemplateSaveInput extends TemplateCreateInput {
+  stages: StageInput[]
+  revision: number
 }
 
 export interface NotionRoadmapImportRequest {
@@ -334,6 +342,8 @@ export const roadmapApi = {
     data<RoadmapTemplate>(apiClient.post('/roadmap-templates', body)),
   updateTemplate: (id: string, body: Partial<TemplateCreateInput>) =>
     data<RoadmapTemplate>(apiClient.patch(`/roadmap-templates/${id}`, body)),
+  saveTemplate: (id: string, body: TemplateSaveInput) =>
+    data<RoadmapTemplate>(apiClient.put(`/roadmap-templates/${id}`, body)),
   deleteTemplate: (id: string) => apiClient.delete(`/roadmap-templates/${id}`),
   putStructure: (id: string, stages: StageInput[]) =>
     data<RoadmapTemplate>(apiClient.put(`/roadmap-templates/${id}/structure`, { stages })),

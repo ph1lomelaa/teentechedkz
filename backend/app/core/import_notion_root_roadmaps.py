@@ -524,15 +524,15 @@ async def upsert_template(
     dry_run: bool,
 ) -> str:
     name = candidate.key.track or f"{candidate.key.country} {'UG' if candidate.key.degree == 'bachelors' else 'Graduate'}"
-    if dry_run:
-        return "planned"
-
-    country = await _ensure_country(db, candidate.key.country)
-
     res = await db.execute(
-        select(RoadmapTemplate).where(RoadmapTemplate.source_notion_db_id == candidate.id)
+        select(RoadmapTemplate).where(RoadmapTemplate.source_notion_db_id == candidate.id).with_for_update()
     )
     tpl = res.scalar_one_or_none()
+    if tpl is not None and tpl.locally_edited:
+        return "skipped_local_edits"
+    if dry_run:
+        return "planned"
+    country = await _ensure_country(db, candidate.key.country)
     action = "updated" if tpl else "created"
     old_task_ids: set[str] = set()
     old_subtask_ids: set[str] = set()
@@ -562,6 +562,8 @@ async def upsert_template(
             await db.delete(old_stage)
         await db.flush()
 
+    if action == "updated":
+        tpl.revision += 1
     tpl.name = name
     tpl.country_name = candidate.key.country
     tpl.country_ref_id = country.id if country else None
