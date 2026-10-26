@@ -256,6 +256,74 @@ async def main():
         c = await runtime.process_outbox_batch(db, dry_run=False)
         assert c["superseded"] and len(writes) == count, c
         print("PASS cached link cannot target a detached Notion page", flush=True)
+        # A phone shared by several Notion pages (a manager's or parent's number)
+        # never identifies a student and never overwrites either side.
+        from migration.transformers.normalize import normalize_phone
+        s4, _c4, n4 = await seed(db)
+        shared = normalize_phone("+7 700 151 6218")
+        s4.phone = "+77010000001"
+        n4.phone_normalized = shared
+        n4.normalized_data = {**n4.normalized_data, "phone": "+77001516218"}
+        n4.synced_baseline = {}
+        live[n4.notion_page_id]["Номер тел"] = "+77001516218"
+        db.add(NotionSnapshot(notion_page_id=uuid4().hex, status=NotionMatchStatus.new, raw_properties={},
+            normalized_data={"full_name": "Another Person", "phone": "+77001516218"}, phone_normalized=shared, synced_baseline={}))
+        await db.commit()
+        report = await build_report(db, student_id=s4.id)
+        phone = next(f for f in report["rows"][0]["fields"] if f["field_key"] == "phone")
+        assert not phone["eligible"] and phone["reason"] == runtime.SHARED_PHONE_REASON, phone
+        await notion_sync._reconcile_baselines(db, [n4])
+        await db.commit()
+        queued = (await db.execute(select(NotionFieldSync).where(NotionFieldSync.student_id == s4.id, NotionFieldSync.field_key == "phone"))).scalars().all()
+        assert not queued, [q.status for q in queued]
+        s4.phone = "+77010000002"
+        await db.flush()
+        await notion_sync.enqueue_crm_field_edits(db, s4, {"phone": "+77010000001"})
+        await db.commit()
+        count = len(writes)
+        c = await runtime.process_outbox_batch(db, dry_run=False)
+        assert c["conflict"] and len(writes) == count and live[n4.notion_page_id]["Номер тел"] == "+77001516218", c
+        await db.refresh(s4)
+        assert s4.phone == "+77010000002"
+        print("PASS shared Notion phone is neither matched nor synchronized", flush=True)
+        # A note in the degree column («Улучшение портфолио») is not a degree:
+        # it is never overwritten, never imported and not reported as a discrepancy.
+        s5, _c5, n5 = await seed(db)
+        n5.normalized_data = {**n5.normalized_data, "degree_raw": "Улучшение портфолио"}
+        live[n5.notion_page_id]["Degree"] = "Улучшение портфолио"
+        s5.degree_level = DegreeLevel.masters
+        await db.flush()
+        await notion_sync.enqueue_crm_field_edits(db, s5, {"degree_level": "undergraduate"})
+        await db.commit()
+        report = await build_report(db, student_id=s5.id)
+        assert "degree_level" not in {f["field_key"] for f in report["rows"][0]["fields"]}
+        await notion_sync._reconcile_baselines(db, [n5])
+        await db.commit()
+        open_items = (await db.execute(select(NotionFieldSync).where(NotionFieldSync.student_id == s5.id,
+            NotionFieldSync.field_key == "degree_level", NotionFieldSync.status != FieldSyncStatus.superseded))).scalars().all()
+        assert not open_items, [i.status for i in open_items]
+        count = len(writes)
+        await runtime.process_outbox_batch(db, dry_run=False)
+        assert len(writes) == count and live[n5.notion_page_id]["Degree"] == "Улучшение портфолио"
+        print("PASS degree note in Notion is kept and not reported", flush=True)
+        # A write held back by the contract (not KZT) resumes once the contract is fixed.
+        s6, c6, n6 = await seed(db)
+        c6.currency = "USD"
+        await db.commit()
+        await notion_sync._reconcile_baselines(db, [n6])
+        await db.commit()
+        await runtime.process_outbox_batch(db, dry_run=False)
+        await db.refresh(c6)
+        held = (await db.execute(select(NotionFieldSync).where(NotionFieldSync.student_id == s6.id, NotionFieldSync.field_key == "client_fee"))).scalars().one()
+        assert held.status is FieldSyncStatus.conflict and c6.amount == Decimal("100"), (held.status, held.last_error, c6.amount)
+        c6.currency = "KZT"
+        await db.commit()
+        await notion_sync._reconcile_baselines(db, [n6])
+        await db.commit()
+        await runtime.process_outbox_batch(db, dry_run=False)
+        await db.refresh(c6)
+        assert c6.amount == Decimal("200"), c6.amount
+        print("PASS contract-blocked write resumes after the contract is fixed", flush=True)
     await engine.dispose()
 
 with patch.object(settings, "NOTION_API_KEY", "fake"), patch.object(settings, "NOTION_DATABASE_ID", "fake"), \

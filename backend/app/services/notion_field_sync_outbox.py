@@ -24,6 +24,13 @@ from app.models.notion_field_sync import (
 from app.services.notion_field_sync_policy import FieldDecision, FieldSide, ReconciliationResult
 
 
+# Причины, по которым исполнитель отложил запись из-за договора. Когда договор
+# исправят (один договор, валюта KZT), та же операция должна пойти снова.
+SINGLE_CONTRACT_REQUIRED = "A single verified contract is required for this field"
+KZT_CONTRACT_REQUIRED = "Financial synchronization requires a KZT contract"
+CONTRACT_BLOCKERS = frozenset({SINGLE_CONTRACT_REQUIRED, KZT_CONTRACT_REQUIRED})
+
+
 def _intent_for_result(result: ReconciliationResult[Any]) -> tuple[FieldSyncDirection, FieldSyncStatus]:
     if result.decision is FieldDecision.CONFLICT and result.winner is None:
         return FieldSyncDirection.conflict, FieldSyncStatus.conflict
@@ -145,7 +152,10 @@ async def enqueue_reconciliation(
         raise RuntimeError("outbox row conflicted but could not be reloaded")
     # A once-superseded state can recur. Revalidate it rather than silently
     # dropping a legitimate new change because its state hash was seen before.
+    blocked_by_contract = (existing.status is FieldSyncStatus.conflict and existing.last_error in CONTRACT_BLOCKERS
+                           and status is FieldSyncStatus.pending)
     if (existing.status in (FieldSyncStatus.superseded, FieldSyncStatus.failed, FieldSyncStatus.succeeded)
+            or blocked_by_contract
             or existing.direction != direction or existing.decision != result.decision.value):
         existing.status = status
         existing.direction = direction
@@ -168,14 +178,14 @@ async def enqueue_reconciliation(
     return existing
 
 
-async def retire_resolved(session, *, snapshot_id, field_key):
+async def retire_resolved(session, *, snapshot_id, field_key, reason="Both sources now agree"):
     """Keep old comparisons out of the open queue once the sources agree."""
     await session.execute(update(NotionFieldSync).where(
         NotionFieldSync.notion_snapshot_id == snapshot_id,
         NotionFieldSync.field_key == field_key,
         NotionFieldSync.status.in_([FieldSyncStatus.pending, FieldSyncStatus.dry_run, FieldSyncStatus.conflict, FieldSyncStatus.failed]),
     ).values(status=FieldSyncStatus.superseded, locked_until=None,
-             updated_at=datetime.now(timezone.utc), last_error="Both sources now agree"))
+             updated_at=datetime.now(timezone.utc), last_error=reason))
 
 
 async def claim_next(

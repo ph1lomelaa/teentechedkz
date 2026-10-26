@@ -16,7 +16,7 @@ from app.models.notion_snapshot import NotionMatchStatus
 from app.models.status_history import StatusHistory
 from app.models.notion_field_sync import NotionFieldSync, FieldSyncStatus
 from app.services import notion_write
-from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY, _crm_raw, snapshot_phone_raw, phone_requires_review
+from app.services.notion_field_sync_runtime import _resolve_notion_property, _crm_to_notion_payload, _SNAPSHOT_VALUE_KEY, _crm_raw, snapshot_phone_raw, phone_requires_review, load_shared_phones, SHARED_PHONE_REASON, degree_is_note
 from app.core.config import settings
 from app.services.notion_sync import EDITABLE_FIELDS, editable_canon
 from app.services.notion_field_sync_policy import reconcile_shared_field
@@ -59,7 +59,7 @@ def describe_field(field, *, crm, notion, baseline, has_baseline, contract_count
 async def load_context(db, snapshots, *, include_contract=True):
     ids = {s.student_id for s in snapshots if s.student_id}
     if not ids:
-        return {"students": {}, "contracts": {}, "duplicates": set(), "manual": {}}
+        return {"students": {}, "contracts": {}, "duplicates": set(), "manual": {}, "shared_phones": set()}
     students = {s.id: s for s in (await db.execute(select(Student).where(Student.id.in_(ids)))).scalars().all()}
     contracts = {}
     if include_contract:
@@ -90,7 +90,8 @@ async def load_context(db, snapshots, *, include_contract=True):
     for item in queued:
         if item.source_revision.startswith(("manual-resolution:", "crm-edit:")):
             intents.setdefault((item.notion_snapshot_id, item.field_key), item)
-    return {"students": students, "contracts": contracts, "duplicates": duplicates, "manual": manual, "intents": intents}
+    return {"students": students, "contracts": contracts, "duplicates": duplicates, "manual": manual, "intents": intents,
+            "shared_phones": await load_shared_phones(db)}
 
 
 def manual_fields_for(context, student, contract, canon):
@@ -142,9 +143,13 @@ async def build_report(db, *, student_id=None, allowed_ids=None, include_contrac
             if field in CONTRACT_FIELD_ATTR and not include_contract:
                 continue
             notion, crm = values[field]
+            if field == "degree_level" and degree_is_note((snapshot.normalized_data or {}).get("degree_raw")):
+                continue  # заметка вместо ступени — не расхождение, поле не синхронизируется
             raw_notion = snapshot_phone_raw(snapshot) if field == "phone" else (snapshot.normalized_data or {}).get(_SNAPSHOT_VALUE_KEY[field])
             invalid_notion = raw_notion not in (None, "") and canonical_profile_value(field, raw_notion) is None
             field_blocked = blocked or ("Значение Notion не распознано; нужна проверка" if invalid_notion else None)
+            if field == "phone" and snapshot.phone_normalized in context.get("shared_phones", set()):
+                field_blocked = field_blocked or SHARED_PHONE_REASON
             description = describe_field(field, crm=crm, notion=notion, baseline=baseline.get(field),
                 has_baseline=field in baseline, contract_count=len(agreements),
                 contract_currency=contract.currency if contract else None,
