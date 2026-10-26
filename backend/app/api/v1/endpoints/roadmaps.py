@@ -47,7 +47,7 @@ from app.models.roadmap import (
     RoadmapItemStatus, TaskAudience, TaskReviewStatus,
 )
 from app.schemas.roadmap import (
-    TemplateCreate, TemplateMetaUpdate, StructureIn, AssignRequest,
+    TemplateCreate, TemplateMetaUpdate, TemplateSave, StructureIn, AssignRequest,
     TemplateOut, TemplateListItem, RoadmapOut, TaskFlatOut, RoadmapSubtaskOut,
     TaskCreate, TaskUpdate, SubtaskCreate, SubtaskUpdate, StageUpdate,
     TaskReviewIn, TaskClaimOut, ClaimProgressOut,
@@ -135,7 +135,7 @@ async def list_templates(current_user: CurrentUser, db: Annotated[AsyncSession, 
     for t in res.scalars().all():
         task_count = sum(len(s.tasks) for s in t.stages)
         items.append(TemplateListItem(
-            id=t.id, name=t.name, country_name=t.country_name, degree=t.degree,
+            id=t.id, name=t.name, country_name=t.country_name, degree=t.degree, locally_edited=t.locally_edited,
             year=t.year, stage_count=len(t.stages), task_count=task_count,
             source_notion_db_id=t.source_notion_db_id,
             source_notion_title=t.source_notion_title,
@@ -242,7 +242,10 @@ async def get_template(template_id: uuid.UUID, current_user: CurrentUser, db: An
 @router.patch("/roadmap-templates/{template_id}", response_model=TemplateOut)
 async def update_template(template_id: uuid.UUID, body: TemplateMetaUpdate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     require_access(current_user, "roadmap_templates", Action.manage)
+    await _lock_template(db, template_id)
     tpl = await _get_template_or_404(db, template_id)
+    tpl.locally_edited = True
+    tpl.revision += 1
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(tpl, field, value)
     await db.commit()
@@ -262,12 +265,35 @@ async def delete_template(template_id: uuid.UUID, current_user: CurrentUser, db:
 @router.put("/roadmap-templates/{template_id}/structure", response_model=TemplateOut)
 async def put_structure(template_id: uuid.UUID, body: StructureIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     require_access(current_user, "roadmap_templates", Action.manage)
+    await _lock_template(db, template_id)
     tpl = await _get_template_or_404(db, template_id)
+    tpl.locally_edited = True
+    tpl.revision += 1
     for s in list(tpl.stages):
         await db.delete(s)
     await db.flush()
     tpl.stages = []
     _apply_template_structure(tpl, body.stages)
+    await db.commit()
+    return await _get_template_or_404(db, template_id)
+
+
+@router.put("/roadmap-templates/{template_id}", response_model=TemplateOut)
+async def save_template(template_id: uuid.UUID, body: TemplateSave, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    require_access(current_user, "roadmap_templates", Action.manage)
+    await _lock_template(db, template_id)
+    tpl = await _get_template_or_404(db, template_id)
+    if tpl.revision != body.revision:
+        raise HTTPException(status_code=409, detail="Шаблон уже изменён. Откройте его заново перед сохранением.")
+    for field, value in body.model_dump(exclude={"stages", "revision"}).items():
+        setattr(tpl, field, value)
+    for stage in list(tpl.stages):
+        await db.delete(stage)
+    await db.flush()
+    tpl.stages = []
+    _apply_template_structure(tpl, body.stages)
+    tpl.locally_edited = True
+    tpl.revision += 1
     await db.commit()
     return await _get_template_or_404(db, template_id)
 
@@ -981,6 +1007,12 @@ def _apply_template_structure(tpl: RoadmapTemplate, stages: list) -> None:
             ]
             stage.tasks.append(task)
         tpl.stages.append(stage)
+
+
+async def _lock_template(db: AsyncSession, template_id: uuid.UUID) -> None:
+    result = await db.execute(select(RoadmapTemplate.id).where(RoadmapTemplate.id == template_id).with_for_update())
+    if result.scalar_one_or_none() is None:
+        raise _NOT_FOUND
 
 
 async def _get_template_or_404(db: AsyncSession, template_id: uuid.UUID) -> RoadmapTemplate:

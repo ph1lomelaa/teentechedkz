@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from app.models.roadmap import TaskPriority, TaskAudience, RoadmapItemStatus, RoadmapStatus
 from app.services.task_urgency import NO_URGENCY_STATUSES, overdue_days, task_urgency
@@ -12,14 +13,18 @@ _cfg = ConfigDict(from_attributes=True, use_enum_values=True)
 
 
 # ---------- Template: input (nested structure) ----------
+TemplateTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+StageName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
+
+
 class SubtaskIn(BaseModel):
-    title: str
+    title: TemplateTitle
     due_offset_days: int | None = Field(default=None, ge=0)
     source_notion_page_id: str | None = None
 
 
 class TaskIn(BaseModel):
-    title: str
+    title: TemplateTitle
     description: str = ""
     expected_result: str = ""
     needs_document: bool = False
@@ -28,18 +33,18 @@ class TaskIn(BaseModel):
     source_notion_page_id: str | None = None
     priority: TaskPriority = TaskPriority.required
     audience: TaskAudience = TaskAudience.applicant
-    due_offset_days: int | None = None
+    due_offset_days: int | None = Field(default=None, ge=0)
     subtasks: list[SubtaskIn] = []
 
 
 class StageIn(BaseModel):
-    name: str
+    name: StageName
     description: str = ""
     tasks: list[TaskIn] = []
 
 
 class TemplateCreate(BaseModel):
-    name: str
+    name: StageName
     country_name: str | None = None
     degree: str = "bachelors"
     year: int
@@ -60,6 +65,27 @@ class TemplateMetaUpdate(BaseModel):
 
 class StructureIn(BaseModel):
     stages: list[StageIn]
+
+
+class TemplateSave(BaseModel):
+    name: StageName
+    country_name: str | None = Field(default=None, max_length=200)
+    degree: str = Field(default="bachelors", min_length=1, max_length=40)
+    year: int = Field(ge=2000, le=2200)
+    description: str = ""
+    stages: list[StageIn]
+    revision: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def unique_sources(self):
+        for items in (
+            [task for stage in self.stages for task in stage.tasks],
+            [sub for stage in self.stages for task in stage.tasks for sub in task.subtasks],
+        ):
+            ids = [item.source_notion_page_id for item in items if item.source_notion_page_id]
+            if len(ids) != len(set(ids)):
+                raise ValueError("Повторяющиеся ссылки на задачи Notion")
+        return self
 
 
 class AssignRequest(BaseModel):
@@ -116,11 +142,14 @@ class TemplateOut(BaseModel):
     source_notion_title: str | None = None
     source_notion_last_edited_at: datetime | None = None
     created_at: datetime
+    locally_edited: bool = False
+    revision: int = 1
     stages: list[TemplateStageOut] = []
 
 
 class TemplateListItem(BaseModel):
     model_config = _cfg
+    locally_edited: bool = False
     id: uuid.UUID
     name: str
     country_name: str | None = None

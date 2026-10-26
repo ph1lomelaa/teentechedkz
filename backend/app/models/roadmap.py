@@ -78,6 +78,9 @@ class RoadmapTemplate(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
+    locally_edited: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
     stages: Mapped[list["TemplateStage"]] = relationship(
         back_populates="template", cascade="all, delete-orphan", order_by="TemplateStage.position"
     )

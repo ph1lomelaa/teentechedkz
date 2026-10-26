@@ -1,12 +1,10 @@
 import React, { useState } from 'react'
+import { TemplateEditor } from '@/components/roadmap/TemplateEditor'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
   Trash2,
-  ChevronLeft,
   ChevronRight,
-  Save,
-  X,
   RefreshCw,
   Search,
   UploadCloud,
@@ -17,38 +15,17 @@ import { Button } from '@/components/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog'
 import { Input } from '@/components/ui/primitives/input'
 import { useToast } from '@/hooks/use-toast'
-import {
-  roadmapApi,
-  RoadmapTemplate,
-  StageInput,
-  TaskInput,
-  Priority,
-} from '@/api/roadmap'
+import { roadmapApi } from '@/api/roadmap'
 import { questionnairesApi } from '@/api/questionnaires'
 import { PageHeader } from '@/components/ui'
 import { useImportJobs } from '@/contexts/ImportJobsContext'
 import { useAuth } from '@/contexts/AuthContext'
 
-const PRIORITIES: { value: Priority; label: string }[] = [
+const PRIORITIES = [
   { value: 'required', label: 'Обязательно' },
   { value: 'recommended', label: 'Желательно' },
   { value: 'optional', label: 'По желанию' },
 ]
-
-function toStageInputs(tpl: RoadmapTemplate): StageInput[] {
-  return tpl.stages.map((s) => ({
-    name: s.name,
-    description: s.description,
-    tasks: s.tasks.map((t) => ({
-      title: t.title,
-      description: t.description,
-      priority: t.priority,
-      audience: t.audience,
-      due_offset_days: t.due_offset_days,
-      subtasks: t.subtasks.map((st) => ({ title: st.title, due_offset_days: st.due_offset_days })),
-    })),
-  }))
-}
 
 function renderProgressPercent(current: number, total: number): number {
   if (total <= 0) return 0
@@ -177,7 +154,7 @@ export const TemplatesPage: React.FC = () => {
           <div>
             <h2 className="text-sm font-semibold text-p-text">Импорт из Notion</h2>
             <p className="mt-1 text-xs leading-relaxed text-p-muted">
-              Берёт корневые roadmap-шаблоны из Notion, обновляет существующие по source id и не назначает их студентам автоматически. Анкеты из связанных форм Notion подтягиваются тем же импортом.
+              Берёт корневые roadmap-шаблоны из Notion, обновляет существующие по source id и не назначает их студентам автоматически. Шаблоны, изменённые в CRM, пропускаются. Анкеты из связанных форм Notion подтягиваются тем же импортом.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
@@ -266,6 +243,7 @@ export const TemplatesPage: React.FC = () => {
                   <ImportStat label="Задач" value={importJob.result.tasks} />
                   <ImportStat label="Подзадач" value={importJob.result.subtasks} />
                 </div>
+                {importJob.result.templates.filter(t => t.action === 'skipped_local_edits').length > 0 && <p className="mt-3 text-xs text-p-muted">Пропущено шаблонов с правками CRM: {importJob.result.templates.filter(t => t.action === 'skipped_local_edits').length}</p>}
                 {importJob.result.questionnaires && (
                   <div className="mt-3 rounded-panel border border-border bg-card p-3 text-xs text-p-muted">
                     Анкеты: найдено ссылок{' '}
@@ -363,6 +341,7 @@ export const TemplatesPage: React.FC = () => {
                     .join(' · ')}{' '}
                   · {t.stage_count} этапов · {t.task_count} задач
                   {t.source_notion_db_id && <span> · Notion</span>}
+                  {t.locally_edited && <span> · Изменён в CRM</span>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -518,187 +497,5 @@ const TemplatePreview: React.FC<{ templateId: string | null; onClose: () => void
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-const TemplateEditor: React.FC<{ templateId: string; onBack: () => void }> = ({ templateId, onBack }) => {
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-  const [stages, setStages] = useState<StageInput[]>([])
-  const [loaded, setLoaded] = useState(false)
-
-  const { data: tpl } = useQuery({
-    queryKey: ['roadmap-template', templateId],
-    queryFn: () => roadmapApi.getTemplate(templateId),
-  })
-  React.useEffect(() => {
-    if (tpl && !loaded) {
-      setStages(toStageInputs(tpl))
-      setLoaded(true)
-    }
-  }, [tpl, loaded])
-
-  const saveMutation = useMutation({
-    mutationFn: () => roadmapApi.putStructure(templateId, stages),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['roadmap-templates'] })
-      queryClient.invalidateQueries({ queryKey: ['roadmap-template', templateId] })
-      toast({ title: 'Структура сохранена' })
-    },
-    onError: () => toast({ title: 'Не удалось сохранить', variant: 'destructive' }),
-  })
-
-  const update = (fn: (draft: StageInput[]) => void) => {
-    setStages((prev) => {
-      const next = JSON.parse(JSON.stringify(prev)) as StageInput[]
-      fn(next)
-      return next
-    })
-  }
-
-  const addStage = () => {
-    const name = window.prompt('Название этапа')?.trim()
-    if (name) update((d) => d.push({ name, description: '', tasks: [] }))
-  }
-  const addTask = (si: number) => {
-    const title = window.prompt('Название задачи')?.trim()
-    if (title) update((d) => d[si].tasks!.push({ title, priority: 'required', audience: 'applicant', subtasks: [] }))
-  }
-  const addSubtask = (si: number, ti: number) => {
-    const title = window.prompt('Название подзадачи')?.trim()
-    if (!title) return
-    const rawOffset = window.prompt('Срок через сколько дней после назначения roadmap? Оставьте пустым, если срока нет.', '')
-    const normalizedOffset = rawOffset?.trim() || ''
-    const dueOffsetDays = normalizedOffset ? Number(normalizedOffset) : null
-    if (dueOffsetDays !== null && (!/^\d+$/.test(normalizedOffset) || !Number.isSafeInteger(dueOffsetDays))) {
-      toast({ title: 'Срок должен быть целым числом дней от 0', variant: 'destructive' })
-      return
-    }
-    update((d) => d[si].tasks![ti].subtasks!.push({ title, due_offset_days: dueOffsetDays }))
-  }
-
-  return (
-    <div className="mx-auto w-full">
-      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-p-muted hover:text-black mb-4">
-        <ChevronLeft className="w-4 h-4" /> К списку шаблонов
-      </button>
-      <PageHeader
-        eyebrow="Редактор шаблона"
-        title={tpl?.name || 'Шаблон Roadmap'}
-        action={(
-          <Button size="sm" className="h-9 px-4 text-xs" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-          <Save className="w-3.5 h-3.5 mr-2" /> Сохранить структуру
-          </Button>
-        )}
-      />
-
-      <div className="space-y-4">
-        {stages.map((s, si) => (
-          <div key={si} className="border border-p-line rounded-panel p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-brand text-brand-ink grid place-items-center text-xs font-bold shrink-0">
-                {si + 1}
-              </span>
-              <span className="text-sm font-semibold text-p-text flex-1">{s.name}</span>
-              <button
-                onClick={() => update((d) => d.splice(si, 1))}
-                className="text-gray-300 hover:text-red-500"
-                aria-label="Удалить этап"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 pl-8">
-              {(s.tasks || []).map((t: TaskInput, ti) => (
-                <div key={ti} className="border border-p-line rounded-panel p-2.5 bg-p-bg/50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-p-text flex-1">{t.title}</span>
-                    <select
-                      value={t.priority}
-                      onChange={(e) => update((d) => (d[si].tasks![ti].priority = e.target.value as Priority))}
-                      className="h-7 px-2 text-xs border border-p-line rounded-ctl bg-white"
-                    >
-                      {PRIORITIES.map((p) => (
-                        <option key={p.value} value={p.value}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => update((d) => d[si].tasks!.splice(ti, 1))}
-                      className="text-gray-300 hover:text-red-500"
-                      aria-label="Удалить задачу"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  {(t.subtasks || []).length > 0 && (
-                    <div className="mt-2 pl-3 space-y-1">
-                      {t.subtasks!.map((st, sti) => (
-                        <div key={sti} className="flex items-center gap-2 text-xs text-p-muted">
-                          <span className="flex-1">
-                            — {st.title}
-                          </span>
-                          <label className="inline-flex items-center gap-1 text-p-muted2">
-                            через
-                            <input
-                              type="number"
-                              min={0}
-                              step={1}
-                              value={st.due_offset_days ?? ''}
-                              onChange={(event) => update((draft) => {
-                                const value = event.target.value
-                                if (value === '') {
-                                  draft[si].tasks![ti].subtasks![sti].due_offset_days = null
-                                  return
-                                }
-                                const parsed = Number(value)
-                                if (/^\d+$/.test(value) && Number.isSafeInteger(parsed)) {
-                                  draft[si].tasks![ti].subtasks![sti].due_offset_days = parsed
-                                }
-                              })}
-                              className="h-7 w-16 rounded-ctl border border-p-line bg-white px-2 text-xs text-p-text"
-                              aria-label={`Срок подзадачи «${st.title}» в днях после назначения`}
-                            />
-                            дн.
-                          </label>
-                          <button
-                            onClick={() => update((d) => d[si].tasks![ti].subtasks!.splice(sti, 1))}
-                            className="text-gray-300 hover:text-red-500"
-                            aria-label="Удалить подзадачу"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => addSubtask(si, ti)}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-p-muted hover:text-black"
-                  >
-                    <Plus className="w-3 h-3" /> подзадача
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => addTask(si)}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-p-muted hover:text-black py-1"
-              >
-                <Plus className="w-3.5 h-3.5" /> задача
-              </button>
-            </div>
-          </div>
-        ))}
-
-        <button
-          onClick={addStage}
-          className="w-full border border-dashed border-p-line rounded-ctl py-3 text-sm text-p-muted hover:text-black hover:border-gray-400 inline-flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Добавить этап
-        </button>
-      </div>
-    </div>
   )
 }
