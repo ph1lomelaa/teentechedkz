@@ -18,6 +18,7 @@ import { notesApi } from '@/api/notes'
 import { integrationsApi } from '@/api/integrations'
 import { BotRecordPanel } from '@/components/notes/BotRecordPanel'
 import { BotSessionView } from '@/components/notes/BotSessionView'
+import { UploadRecordPanel } from '@/components/notes/UploadRecordPanel'
 import { UploadStatusView } from '@/components/notes/UploadStatusView'
 import { isBotActive } from '@/lib/meetingBotUi'
 import { Button } from '@/components/ui/primitives/button'
@@ -81,6 +82,7 @@ export const NoteSessionPage: React.FC = () => {
   )
   const sessionId = id ?? ''
 
+  const [recordingSource, setRecordingSource] = useState<'meeting' | 'drive' | 'file'>('meeting')
   const [transcripts, setTranscripts] = useState<NoteTranscript[]>([])
   const [interimText, setInterimText] = useState('')
   const [interimSpeaker, setInterimSpeaker] = useState<string | null>(null)
@@ -127,6 +129,9 @@ export const NoteSessionPage: React.FC = () => {
     // Пока бот в звонке — статус и текст обновляются сами.
     refetchInterval: (query) => (isBotActive(query.state.data?.bot_status) ? 3_000 : false),
   })
+  useEffect(() => {
+    if (session?.note_id) { try { sessionStorage.removeItem(`drive-recording:${sessionId}`) } catch { /* optional draft */ } }
+  }, [session?.note_id, sessionId])
   const { data: zoomStatus, refetch: refetchZoomStatus } = useQuery({
     queryKey: ['integrations', 'zoom-status'],
     queryFn: integrationsApi.zoomStatus,
@@ -647,6 +652,7 @@ export const NoteSessionPage: React.FC = () => {
           inWorkspace={inWorkspace}
           onDelete={() => void handleDeleteSession()}
           deleting={deleting}
+          onUploaded={() => void refetch()}
         />
       ) : (
       <>
@@ -690,15 +696,18 @@ export const NoteSessionPage: React.FC = () => {
             <CardTitle className={cn(cardTitleClass, 'text-xl')}>Записать встречу</CardTitle>
             <CardDescription className={cardDescriptionClass}>
               {botAvailable
-                ? 'Вставьте ссылку на Google Meet — бот подключится и начнёт транскрипцию.'
+                ? 'Подключите бота к встрече или создайте конспект из готовой записи.'
                 : 'Запись встречи по ссылке.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
+            <div className="flex flex-wrap gap-2" aria-label="Источник записи">
+              {([['meeting', 'Встреча по ссылке'], ['drive', 'Из Google Drive'], ['file', 'Загрузить запись']] as const).map(([value, label]) => <Button key={value} variant={recordingSource === value ? 'default' : 'outline'} aria-pressed={recordingSource === value} onClick={() => setRecordingSource(value)}>{label}</Button>)}
+            </div>
             {session.student_name && (
               <p className={cn('text-sm', mutedClass)}>Встреча со студентом · <span className={cn('font-semibold', titleClass)}>{session.student_name}</span></p>
             )}
-            {botAvailable ? (
+            <div hidden={recordingSource !== 'meeting'}>{botAvailable ? (
               <BotRecordPanel
                 session={session}
                 inWorkspace={inWorkspace}
@@ -707,8 +716,9 @@ export const NoteSessionPage: React.FC = () => {
                 onSent={() => void refetch()}
               />
             ) : (
-              <p className={mutedClass}>Подключение бота пока недоступно.</p>
-            )}
+              <p className={mutedClass}>Подключение бота пока недоступно. Можно импортировать готовую запись.</p>
+            )}</div>
+            <div hidden={recordingSource === 'meeting'}><UploadRecordPanel session={session} inWorkspace={inWorkspace} source={recordingSource === 'drive' ? 'drive' : 'file'} onUploaded={() => void refetch()} /></div>
           </CardContent>
         </Card>
       ) : (

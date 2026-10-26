@@ -39,7 +39,7 @@ from app.services.notify import notify, push_notification, push_ws, was_sent
 logger = logging.getLogger(__name__)
 
 # Бот ещё в работе — сессию показываем в плашке «идёт запись».
-ACTIVE_BOT_STATUSES = {"joining", "waiting_room", "waiting_permission", "recording", "paused", "processing"}
+ACTIVE_BOT_STATUSES = {"downloading", "transcribing", "joining", "waiting_room", "waiting_permission", "recording", "paused", "processing"}
 # Бот уже был во встрече и выпал — текст до обрыва собираем в конспект с пометкой.
 CUT_SHORT_REASONS = {
     "process_terminated",

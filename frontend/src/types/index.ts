@@ -594,6 +594,8 @@ export interface NoteSession {
 }
 
 export type MeetingBotStatus =
+  | 'downloading'
+  | 'transcribing'
   | 'joining'
   | 'waiting_room'
   | 'waiting_permission'

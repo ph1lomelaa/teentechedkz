@@ -38,6 +38,8 @@ export function detectMeetingPlatform(url: string): MeetingPlatform | null {
 
 /** Бот ещё в работе — показываем плашку «идёт запись». */
 export const ACTIVE_BOT_STATUSES: MeetingBotStatus[] = [
+  'downloading',
+  'transcribing',
   'joining',
   'waiting_room',
   'waiting_permission',

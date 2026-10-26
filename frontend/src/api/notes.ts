@@ -115,6 +115,10 @@ export const notesApi = {
     })
     return response.data
   },
+  importDrive: async (sessionId: string, url: string, language: NoteSessionLanguage): Promise<NoteSession> => {
+    const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/import-drive`, { url, language })
+    return response.data
+  },
   retranscribe: async (sessionId: string): Promise<NoteSession> => {
     const response = await apiClient.post<NoteSession>(`/note-sessions/${sessionId}/retranscribe`)
     return response.data
