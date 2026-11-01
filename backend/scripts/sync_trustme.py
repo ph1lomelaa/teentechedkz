@@ -55,7 +55,7 @@ async def run(args):
     report = json.loads(path.read_text()) if args.resume and path.exists() else {
         "created_at": datetime.now(timezone.utc).isoformat(), "read_only": True, "students": []}
     mode = "local_only" if getattr(args, "local_only", False) else "trustme_search"
-    if report.get("mode", "trustme_search") != mode:
+    if args.resume and path.exists() and report.get("mode", "trustme_search") != mode:
         raise ValueError("Используйте отдельный файл для локального отчёта и живого поиска")
     report["mode"] = mode
     done = {row["student_id"] for row in report["students"]}
