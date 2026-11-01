@@ -1576,6 +1576,9 @@ html[data-crm-theme='light'],
 /* Embed the existing workspace Roadmap card without an extra card or header. */
 .student-detail-section--unframed { border: 0; border-radius: 0; overflow: visible; background: transparent; }
 .student-detail-card .student-detail-section--unframed > .student-detail-section-body { padding: 0; }
+/* The acts section shares the same left edge for its heading and contents. */
+[data-student-section='acts'].student-detail-section--unframed > .student-detail-section-heading { padding: 0 0 1rem; margin-bottom: 1rem; }
+
 
 /* Roadmap uses the body typeface for Latin and Cyrillic alike. Keep these
    presentation rules scoped, including dialogs rendered through a portal. */

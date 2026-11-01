@@ -32,9 +32,22 @@ function recoverGlobalRuntimeError(reason: unknown) {
 window.addEventListener('error', (event) => recoverGlobalRuntimeError(event.error ?? event.message))
 window.addEventListener('unhandledrejection', (event) => recoverGlobalRuntimeError(event.reason))
 
+function renderApp() {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <>
     <TestDbBanner />
     <App />
   </>
 )
+
+}
+// Explicit local-only mode for reviewing the real student card with sample contracts.
+const actsPreview = import.meta.env.DEV && import.meta.env.VITE_LOCAL_API_PORT === '8099'
+  && ['127.0.0.1', 'localhost'].includes(location.hostname)
+  && new URLSearchParams(location.search).get('actsPreview') === '1'
+if (actsPreview) {
+  import('./dev/actsPreviewFixtures').then(({ installActsPreview }) => {
+    installActsPreview('Асель Демо', 'Айгуль Демо')
+    renderApp()
+  })
+} else renderApp()

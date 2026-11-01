@@ -12,6 +12,7 @@ export interface ActLine {
 export interface ActInput {
   contract_link_id: string; supersedes_id: string | null; template: ActTemplate
   student_name: string; customer_name: string; customer_id: string; student_id_number: string
+  customer_email?: string
   executor_name: string; executor_representative: string; executor_basis: string; executor_requisites: string
   contract_number: string; contract_date: string; act_date: string; city: string
   period_start: string; period_end: string; calls_count: number | null
@@ -25,17 +26,22 @@ export interface ActRecord {
   supersedes_id: string | null; snapshot: ActInput; mail: ActMail[]
   author_name?: string | null
 }
-export interface ActContract { id: string; name: string; number: string | null; status: number; short_url: string; financial_contract_id?: string | null; signers: { name: string | null; is_company: boolean; signed: boolean }[] }
+export interface ActContract { legal_number?: string | null; contract_date?: string | null; id: string; name: string; number: string | null; status: number; short_url: string; financial_contract_id?: string | null; signers: { name: string | null; is_company: boolean; signed: boolean }[] }
 export interface ActContext {
   unassigned_contracts?: ActContract[]
   financial_contracts?: { id: string; label: string }[]
   student_name: string; completed_meetings: number | null; mail_configured: boolean
   recipient_suggestions: string[]
-  contracts: { id: string; name: string; number: string | null; status: number; short_url: string; financial_contract_id?: string | null;
-    signers: { name: string | null; is_company: boolean; signed: boolean }[] }[]
+  contracts: ActContract[]
   acts: ActRecord[]
 }
 export interface ContractInspection {
+  status: number
+  fields: Partial<Record<keyof ActInput, string>>
+  sources: Record<string, { kind: string; page: number | null; excerpt: string }>
+  conflicts: Record<string, { value: string; page: number | null; kind: string }[]>
+  missing: string[]
+  service_hints: Partial<Record<ActTemplate, { page: number; reference: string; confirmed_price: { amount: string; currency: ActInput['currency']; page: number } | null }>>
   pages: { page: number; text: string }[]; suggested_contract_number: string | null
   signers: { name: string | null; is_company: boolean; signed: boolean }[]
 }
@@ -60,7 +66,9 @@ export const actsApi = {
   context: async (sid: string, period?: { period_start: string; period_end: string }) =>
     (await api.get<ActContext>(`/acts/students/${sid}`, { params: period })).data,
   contractPdf: (sid: string, id: string) => blobRequest(api.get(`/acts/students/${sid}/contracts/${id}/pdf`, { responseType: 'blob' })),
-  inspect: async (sid: string, id: string) => (await api.post<ContractInspection>(`/acts/students/${sid}/contracts/${id}/inspect`)).data,
+  checkContract: async (sid: string, id: string) => (await api.post<{ status: number; checked_at: string }>(`/acts/students/${sid}/contracts/${id}/status`)).data,
+  inspect: async (sid: string, id: string, refresh = false) => (await api.post<ContractInspection>(`/acts/students/${sid}/contracts/${id}/inspect`, null, { params: { refresh } })).data,
+  saveProfile: async (sid: string, id: string, fields: Record<string, string>) => (await api.patch(`/acts/students/${sid}/contracts/${id}/profile`, { fields })).data,
   preview: (sid: string, input: ActInput) => blobRequest(api.post(`/acts/students/${sid}/preview`, input, { responseType: 'blob' })),
   create: async (sid: string, input: ActInput) => (await api.post<ActRecord>(`/acts/students/${sid}`, input)).data,
   update: async (id: string, input: ActInput) => (await api.put<ActRecord>(`/acts/${id}`, input)).data,

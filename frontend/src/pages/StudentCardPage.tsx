@@ -1,5 +1,4 @@
 import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
-import { StudentTrustMePanel } from '@/components/students/StudentTrustMePanel'
 import { StudentActsPanel } from '@/components/students/StudentActsPanel'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
@@ -1673,15 +1672,6 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {/* 4. Finances */}
-        {can('contracts', 'view') && (
-          <AccordionItem value="trustme" className="border border-p-line rounded-card px-4">
-            <AccordionTrigger className="text-base font-semibold">Договоры TrustMe</AccordionTrigger>
-            <AccordionContent>
-              <StudentTrustMePanel key={student.id} studentId={student.id} studentName={student.full_name} canManage={canEditContract} />
-            </AccordionContent>
-          </AccordionItem>
-        )}
-
         {can('finances', 'view') && contract && (
           <AccordionItem value="finances" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
@@ -2390,7 +2380,7 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {can('acts', 'view') && <AccordionItem value="acts" unframed>
-          <AccordionTrigger>Акты</AccordionTrigger>
+          <AccordionTrigger>Договоры и акты</AccordionTrigger>
           <AccordionContent><StudentActsPanel key={student.id} studentId={student.id} /></AccordionContent>
         </AccordionItem>}
       </StudentDetailSections>

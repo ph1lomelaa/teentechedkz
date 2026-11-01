@@ -18,12 +18,12 @@ export const DETAIL_GROUPS = [
   { id: 'notes', label: 'Конспекты', icon: BookText, sections: [{ id: 'notes', label: 'Конспекты' }] },
   { id: 'communication', label: 'Общение', icon: MessageCircle, sections: [{ id: 'chat', label: 'Чат' }, { id: 'telegram', label: 'Telegram' }] },
   { id: 'about', label: 'О студенте', icon: UserRound, sections: [{ id: 'profile', label: 'Профиль' }, { id: 'team', label: 'Команда и услуги' }, { id: 'payments', label: 'Договор и оплаты' }, { id: 'checks', label: 'Сверки' }, { id: 'portal-access', label: 'Доступ' }, { id: 'timeline', label: 'История' }] },
-  { id: 'acts', label: 'Акты', icon: FileText, sections: [{ id: 'acts', label: 'Акты' }] },
+  { id: 'acts', label: 'Договоры и акты', icon: FileText, sections: [{ id: 'acts', label: 'Договоры и акты' }] },
 ] as const
 
 const SECTION_GROUP: Record<string, string> = {
   responsibles: 'team', responsibilities: 'team', services: 'team',
-  contract: 'payments', finances: 'payments', trustme: 'payments', intake: 'checks', notion: 'checks',
+  contract: 'payments', finances: 'payments', trustme: 'acts', intake: 'checks', notion: 'checks',
   'notion-sync': 'checks', 'student-notes': 'confidential',
   card: 'profile', overview: 'profile', crm: 'profile', programs: 'team', guardians: 'profile',
   activities: 'portfolio', access: 'portal-access',

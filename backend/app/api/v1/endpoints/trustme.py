@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.permissions import Action, require_access
 from app.models.student import Student
+from app.models.guardian import Guardian
 from app.models.contract import Contract
 from app.models.service_act import ServiceAct
 from app.models.mentor_assignment import MentorAssignment
@@ -106,7 +107,9 @@ def _candidate(row: dict) -> dict:
 
 
 def _link_dict(link: TrustMeContractLink) -> dict:
-    return {"id": str(link.id), "short_url": link.short_url, "name": link.name,
+    from app.services.contract_profile import cached_profile
+    fields = (cached_profile(link) or {}).get("fields", {})
+    return {"legal_number": fields.get("contract_number"), "contract_date": fields.get("contract_date"), "id": str(link.id), "short_url": link.short_url, "name": link.name,
             "number": link.number, "status": link.status, "signers": link.signers,
             "financial_contract_id": str(link.financial_contract_id) if getattr(link, "financial_contract_id", None) else None,
             "created_at": link.contract_created_at, "linked_at": link.linked_at.isoformat()}
@@ -126,10 +129,12 @@ async def search_contracts(student_id: uuid.UUID, body: SearchRequest, db: Db, c
     student = await _student(db, student_id, current_user, manage=True)
     if any(len(x) > 500 for x in body.aliases):
         raise HTTPException(422, "Вариант имени не должен превышать 500 символов")
+    guardians = (await db.execute(select(Guardian.full_name).where(Guardian.student_id == student_id))).scalars().all()
+    aliases = tuple(dict.fromkeys([*body.aliases, *[name for name in guardians if name]]))[:6]
     try:
         async with _client() as client:
             result = await client.search(body.query.strip() or student.full_name,
-                                         tuple(body.aliases), max_pages=2)
+                                         aliases, max_pages=2)
         return {"candidates": [_candidate(x) for x in result.candidates],
                 "queries": result.queries, "truncated": result.truncated}
     except TrustMeError as error:

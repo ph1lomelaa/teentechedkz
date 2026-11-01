@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import smtplib
 import uuid
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pypdf import PdfReader
+from pydantic import BaseModel, Field, field_validator, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +29,10 @@ from app.models.service_act import ActMailAttempt, ServiceAct
 from app.models.student import Student
 from app.models.trustme_contract import TrustMeContractLink
 from app.models.user import User, UserRole
-from app.schemas.service_act import ActInput, ActMailInput, ActMailResolution
+from app.schemas.service_act import ActInput, ActDraftInput, ActMailInput, ActMailResolution
 from app.services import mailer
 from app.services.act_pdf import render_act
+from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS
 from app.services.minio_service import minio_delete, minio_download, minio_upload
 from app.services.trustme import TrustMeError
 
@@ -90,7 +93,7 @@ def _mail_dict(row):
 def _act_dict(row, *, snapshot=True):
     result = {"id": str(row.id), "status": row.status, "file_name": row.file_name,
               "student_name": row.snapshot["student_name"], "template": row.snapshot["template"],
-              "act_date": row.snapshot["act_date"], "created_at": row.created_at.isoformat(),
+              "act_date": row.snapshot.get("act_date") or "", "created_at": row.created_at.isoformat(),
               "shared": row.shared_at is not None, "supersedes_id": str(row.supersedes_id) if row.supersedes_id else None}
     result["created_by"] = str(row.created_by) if getattr(row, "created_by", None) else None
     if snapshot:
@@ -211,7 +214,7 @@ async def student_acts(student_id: uuid.UUID, db: Db, current_user: CurrentUser,
         "mail_configured": mailer.is_configured(),
         "recipient_suggestions": list(dict.fromkeys([g.email for g in guardians if g.email] + ([portal_user.email] if portal_user else []))),
         "contracts": [{"id": str(c.id), "name": c.name, "number": c.number, "status": c.status,
-                       "short_url": c.short_url, "signers": c.signers, "financial_contract_id": str(c.financial_contract_id) if c.financial_contract_id else None} for c in links],
+                       "short_url": c.short_url, "signers": c.signers, "legal_number": (cached_profile(c) or {}).get("fields", {}).get("contract_number"), "contract_date": (cached_profile(c) or {}).get("fields", {}).get("contract_date"), "financial_contract_id": str(c.financial_contract_id) if c.financial_contract_id else None} for c in links],
         "acts": [{**_act_dict(a), "author_name": authors.get(a.created_by),
                   "mail": [_mail_dict(m) for m in attempts if m.act_id == a.id]} for a in acts]}
 
@@ -237,32 +240,118 @@ def _extract_pages(content):
     return [{"page": i+1, "text": (page.extract_text() or "")[:6000]} for i, page in enumerate(reader.pages)]
 
 
-@router.post("/students/{student_id}/contracts/{link_id}/inspect")
-async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
-    await _student(db, student_id, current_user, manage=True)
+async def _refresh_contract(db, link):
+    async with _client() as client:
+        if client.company_id != link.company_id:
+            raise HTTPException(409, "Договор относится к другой компании")
+        info = await client.contract(link.short_url)
+    status = info.get("contract_status")
+    if not isinstance(status, int) or isinstance(status, bool):
+        raise TrustMeError("TrustMe не вернул актуальный статус договора")
+    link.status = status
+    link.signers = _signers(info.get("doc_parties") or [], "requisites")
+    link.profile_checked_at = datetime.now(timezone.utc)
+    return info
+
+
+@router.post("/students/{student_id}/contracts/{link_id}/status")
+async def check_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
+    await _student(db, student_id, current_user)
     link = await _link(db, student_id, link_id)
     try:
-        async with _client() as client:
-            if client.company_id != link.company_id:
-                raise HTTPException(409, "Договор относится к другой компании")
-            info = await client.contract(link.short_url)
-            content = await client.pdf(link.short_url)
-        pages = await asyncio.to_thread(_extract_pages, content)
+        await _refresh_contract(db, link)
+    except TrustMeError as error:
+        raise _upstream(error) from None
+    await db.commit()
+    return {"status": link.status, "checked_at": link.profile_checked_at.isoformat()}
+
+
+@router.post("/students/{student_id}/contracts/{link_id}/inspect")
+async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser,
+                           refresh: bool = False):
+    await _student(db, student_id, current_user, manage=True)
+    link = await _link(db, student_id, link_id)
+    previous = cached_profile(link)
+    pages = []
+    try:
+        info = await _refresh_contract(db, link)
+        if previous and not refresh:
+            profile = previous
+        else:
+            async with _client() as client:
+                if client.company_id != link.company_id:
+                    raise HTTPException(409, "Договор относится к другой компании")
+                content = await client.pdf(link.short_url)
+            pages = await asyncio.to_thread(_extract_pages, content)
+            profile = extract_profile(pages, info, content)
+            # Explicit staff corrections survive a later extraction refresh.
+            for key, source in (previous or {}).get("sources", {}).items():
+                if source.get("kind") == "manual" and key in previous.get("fields", {}):
+                    profile["fields"][key] = previous["fields"][key]
+                    profile["sources"][key] = source
+                    profile["conflicts"].pop(key, None)
+            profile["missing"] = [key for key in profile["missing"] if not profile["fields"].get(key)]
+            store_profile(link, profile)
     except TrustMeError as error:
         raise _upstream(error) from None
     except Exception as error:
-        if isinstance(error, HTTPException):
-            raise
-        raise HTTPException(422, "Не удалось прочитать текст PDF; откройте договор и заполните поля вручную") from None
-    first = pages[0]["text"] if pages else ""
-    number = re.search(r"(?:ДОГОВОР|Договор)[^№\n]{0,150}№\s*([^\s,;]{1,50})", first)
-    return {"pages": pages, "suggested_contract_number": number.group(1) if number else None,
-            "signers": _signers(info.get("doc_parties") or [], "requisites"),
-            "requires_verification": True}
+        if isinstance(error, HTTPException): raise
+        raise HTTPException(422, "Не удалось прочитать PDF. Откройте договор и дополните недостающие данные.") from None
+    await db.commit()
+    return {**profile, "pages": pages, "status": link.status,
+            "suggested_contract_number": profile["fields"].get("contract_number"),
+            "signers": link.signers, "requires_verification": True}
+
+
+class ContractRequisitesPatch(BaseModel):
+    fields: dict[str, str] = Field(max_length=12)
+
+    @field_validator("fields")
+    @classmethod
+    def valid_fields(cls, values):
+        from datetime import date as Date
+        from pydantic import TypeAdapter, EmailStr
+        if set(values) - set(FIELDS):
+            raise ValueError("Неизвестное поле реквизитов")
+        result = {}
+        for key,value in values.items():
+            value = value.strip()
+            maximum = 1500 if key == "executor_requisites" else 500 if key == "executor_name" else 300
+            if len(value) > maximum: raise ValueError("Поле реквизитов слишком длинное")
+            if key == "contract_date" and value: Date.fromisoformat(value)
+            if key == "customer_email" and value: TypeAdapter(EmailStr).validate_python(value)
+            result[key] = value
+        return result
+
+
+@router.patch("/students/{student_id}/contracts/{link_id}/profile")
+async def save_contract_profile(student_id: uuid.UUID, link_id: uuid.UUID, body: ContractRequisitesPatch,
+                                db: Db, current_user: CurrentUser):
+    await _student(db, student_id, current_user, manage=True)
+    link = await _link(db, student_id, link_id)
+    profile = cached_profile(link)
+    if profile is None:
+        profile = {"parser_version": 1, "fields": {}, "sources": {}, "conflicts": {}, "service_hints": {}, "missing": [], "reviewed": False}
+    changed = []
+    for key,value in body.fields.items():
+        if profile["fields"].get(key, "") != value:
+            profile["fields"][key] = value
+            profile["sources"][key] = {"kind": "manual", "page": None, "excerpt": "Дополнено сотрудником"}
+            profile["conflicts"].pop(key, None)
+            changed.append(key)
+    profile["missing"] = [key for key in profile.get("missing", []) if not profile["fields"].get(key)]
+    store_profile(link, profile)
+    if changed:
+        await log_change(db, "student", student_id, "contract_requisites_updated", None,
+                         ", ".join(changed), str(current_user.id))
+    await db.commit()
+    return {"saved": True}
 
 
 async def _validate_input(db, sid, data):
     link = await _link(db, sid, data.contract_link_id)
+    if link.status != 3:
+        raise HTTPException(409, "Новые акты можно создавать только по подписанному действующему договору")
     if data.supersedes_id:
         previous = await db.get(ServiceAct, data.supersedes_id)
         if previous is None or previous.student_id != sid or previous.status != "ready":
@@ -279,7 +368,7 @@ async def preview(student_id: uuid.UUID, body: ActInput, db: Db, current_user: C
 
 
 @router.post("/students/{student_id}", status_code=201)
-async def create_draft(student_id: uuid.UUID, body: ActInput, db: Db, current_user: CurrentUser):
+async def create_draft(student_id: uuid.UUID, body: ActDraftInput, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user, manage=True)
     await _validate_input(db, student_id, body)
     act = ServiceAct(student_id=student_id, contract_link_id=body.contract_link_id,
@@ -292,7 +381,7 @@ async def create_draft(student_id: uuid.UUID, body: ActInput, db: Db, current_us
 
 
 @router.put("/{act_id}")
-async def update_draft(act_id: uuid.UUID, body: ActInput, db: Db, current_user: CurrentUser):
+async def update_draft(act_id: uuid.UUID, body: ActDraftInput, db: Db, current_user: CurrentUser):
     act = await _act(db, act_id, current_user, manage=True, lock=True)
     if act.status != "draft":
         raise HTTPException(409, "Готовый PDF неизменяем; создайте новую версию")
@@ -310,7 +399,10 @@ async def generate(act_id: uuid.UUID, db: Db, current_user: CurrentUser):
     act = await _act(db, act_id, current_user, manage=True, lock=True)
     if act.status == "ready":
         return _act_dict(act)
-    data = ActInput.model_validate(act.snapshot)
+    try:
+        data = ActInput.model_validate(act.snapshot)
+    except ValidationError:
+        raise HTTPException(422, "Дополните недостающие реквизиты, период и выполненные услуги перед созданием PDF") from None
     try:
         data.require_verified()
     except ValueError as error:

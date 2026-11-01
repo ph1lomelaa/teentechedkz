@@ -26,7 +26,7 @@ export function TestDbBanner() {
       role="status"
       className="pointer-events-none fixed inset-x-0 top-0 z-[200] flex h-4 items-center justify-center bg-brand text-[10px] font-black uppercase leading-none tracking-[0.2em] text-black"
     >
-      Тестовая база · порт {import.meta.env.VITE_LOCAL_API_PORT}
+      Тестовая база · порт {import.meta.env.VITE_LOCAL_API_PORT}{import.meta.env.DEV && new URLSearchParams(location.search).get('actsPreview') === '1' ? ' · Демонстрационные договоры и PDF' : ''}
     </div>
   )
 }
