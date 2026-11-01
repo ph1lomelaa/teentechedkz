@@ -64,6 +64,15 @@ describe('Act preparation and access', () => {
     expect(actsApi.create).not.toHaveBeenCalled()
   })
 
+  it('allows a complete draft to be verified manually if PDF extraction is unavailable', async () => {
+    vi.mocked(actsApi.inspect).mockRejectedValue(new Error('PDF extraction unavailable'))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Дополнить черновик' }))
+    await screen.findByRole('button', { name: 'Повторить чтение договора' })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Проверены реквизиты/ }))
+    expect(screen.getByRole('button', { name: 'Создать PDF' })).not.toBeDisabled()
+  })
+
   it('resets verification after editing and leaves optional calls empty', async () => {
     mount(); fireEvent.click(await screen.findByRole('button', { name: 'Дополнить черновик' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Создать PDF' })).toBeDisabled());
@@ -81,7 +90,7 @@ describe('Act preparation and access', () => {
     mount()
     fireEvent.click(await screen.findByRole('button', { name: 'Скачать как…' }))
     fireEvent.change(screen.getByLabelText('Название файла'), { target: { value: 'Акт IELTS — октябрь' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Скачать', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: /^Скачать$/ }))
     await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(blob, 'Акт IELTS — октябрь.pdf'))
     expect(screen.getByText('Исходное имя.pdf')).toBeInTheDocument()
     expect(actsApi.update).not.toHaveBeenCalled()

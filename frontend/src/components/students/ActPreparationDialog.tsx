@@ -95,7 +95,6 @@ export function ActPreparationDialog({ studentId, studentName, contract, templat
   const stageOptions = template === 'stages' ? stages : catalog ? [catalog] : []
   const creationReason = !active ? 'Нужен подписанный действующий договор'
     : profile.isFetching ? 'Читаем данные договора'
-    : profile.error ? 'Повторите чтение договора'
     : !complete ? 'Дополните реквизиты, период и выполненные услуги'
     : !form.verified ? 'Подтвердите проверку реквизитов и выполнение услуг' : ''
   const busy = save.isPending
@@ -111,7 +110,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, templat
       <DialogHeader><DialogTitle className="text-left">{catalog?.title || ACT_TEMPLATES[template]}</DialogTitle><DialogDescription className="truncate text-left">{studentName} · {documentTitle(contract.name)}</DialogDescription></DialogHeader>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-p-muted">{initial?.status === 'ready' ? 'Новая версия · исходный PDF сохранится' : 'Подготовка акта'}</span>
-        <div className="flex flex-wrap gap-2"><AppButton colorPrefix="p" variant="subtle" size="sm" disabled={busy || !active || profile.isPending || refreshProfile.isPending} onClick={() => save.mutate(false)}>Сохранить черновик</AppButton><AppButton colorPrefix="p" size="sm" className={neutralDisabled} title={creationReason || undefined} disabled={busy || !active || !complete || !form.verified || profile.isFetching || refreshProfile.isPending || !!profile.error || (template === 'final' && !form.full_completion_confirmed)} onClick={() => save.mutate(true)}>{busy ? save.variables ? 'Создаём PDF…' : 'Сохраняем…' : 'Создать PDF'}</AppButton></div>
+        <div className="flex flex-wrap gap-2"><AppButton colorPrefix="p" variant="subtle" size="sm" disabled={busy || !active || profile.isPending || refreshProfile.isPending} onClick={() => save.mutate(false)}>Сохранить черновик</AppButton><AppButton colorPrefix="p" size="sm" className={neutralDisabled} title={creationReason || undefined} disabled={busy || !active || !complete || !form.verified || profile.isFetching || refreshProfile.isPending || (template === 'final' && !form.full_completion_confirmed)} onClick={() => save.mutate(true)}>{busy ? save.variables ? 'Создаём PDF…' : 'Сохраняем…' : 'Создать PDF'}</AppButton></div>
       </div>
       {creationReason && <p className="mt-2 text-xs text-p-muted">{creationReason}</p>}
     </div>
@@ -121,7 +120,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, templat
         <fieldset disabled={busy} className="min-w-0 space-y-6 disabled:opacity-60">
           {profile.isPending && <p role="status" className="rounded-lg bg-p-bg p-3 text-sm text-p-muted">Заполняем реквизиты из договора…</p>}
           {!active && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Договор отозван или не подписан. Создание нового акта недоступно.</p>}
-          {error && <div role="alert" className="rounded-lg border border-red-200 p-3 text-sm text-red-700">{getErrorMessage(error, 'Не удалось выполнить действие')}{profile.error && <button className="ml-2 underline" onClick={() => profile.refetch()}>Повторить чтение договора</button>}</div>}
+          {error && <div role="alert" className="rounded-lg border border-red-200 p-3 text-sm text-red-700">{getErrorMessage(error, 'Не удалось выполнить действие')}{profile.error && <span className="mt-2 block text-xs">Можно повторить чтение или заполнить реквизиты вручную по PDF.</span>}{profile.error && <button className="ml-2 underline" onClick={() => profile.refetch()}>Повторить чтение договора</button>}</div>}
           {message && <p role="status" className="text-sm text-p-muted">{message}</p>}
           {!!missingInputs.length && !profile.isPending && !detailsOpen && <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/30 p-4"><h3 className="flex items-center gap-2 text-sm font-semibold"><AlertCircle size={16} />Дополните реквизиты</h3><p className="text-xs text-p-muted">Эти данные не удалось однозначно получить. Они сохранятся для следующих актов.</p><div className="grid gap-4 sm:grid-cols-2">{requisites(true)}</div></section>}
           <details open={detailsOpen} onToggle={e => setDetailsOpen(e.currentTarget.open)} className="border-b border-p-line">
