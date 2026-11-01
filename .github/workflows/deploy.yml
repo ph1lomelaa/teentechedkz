@@ -127,6 +127,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tte:tte@127.0.0.1:5432/tte_finance_check_ci
         run: |
           PGPASSWORD=tte psql -h localhost -U tte -d postgres -c 'CREATE DATABASE tte_finance_check_ci;'
+          PGPASSWORD=tte psql -h localhost -U tte -d tte_finance_check_ci -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS pg_trgm;'
           (cd backend && python -m app.core.bootstrap_db)
           python backend/tests/e2e_finance_notion_sync.py
           python -m pytest backend/tests/test_finance_desk.py backend/tests/test_finance_documents.py backend/tests/test_finance_mail.py -q
