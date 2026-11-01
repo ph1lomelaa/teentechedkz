@@ -1627,3 +1627,32 @@ html[data-crm-theme='light'],
 .scroll-row::-webkit-scrollbar {
   display: none;
 }
+
+/* Раздел «Финансы»: только светлая тема (решение 01.11.2026, ТЗ бухгалтера).
+   Базовые цвета — токены платформы (--p-*), здесь только то, чего у неё нет:
+   мягкие фоны статусов и серая строка заголовков таблиц. */
+.fin {
+  --fin-bg: #F6F6F3;
+  --fin-head: #FAFAF8;
+  --fin-line-soft: #EFEEEA;
+  --fin-text-3: #6B6F76;
+  --fin-ok: #157A3B;
+  --fin-ok-bg: #E8F6EE;
+  --fin-warn: #8F5500;
+  --fin-warn-bg: #FFF3D1;
+  --fin-bad: #B42318;
+  --fin-bad-bg: #FDEEEC;
+  --fin-neutral-bg: #EFEEEA;
+  font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
+  font-variant-numeric: tabular-nums;
+  /* Крупнее обычного CRM: разделом работает человек, которому мелкий текст мешает. */
+  font-size: 15px;
+}
+/* Один шрифт на весь раздел: глобальные правила CRM дают заголовкам Archivo. */
+.fin :where(h1, h2, h3, h4, p, span, div, td, th, button, input, select, label, dd, dt) {
+  font-family: inherit;
+}
+
+/* Счётчик активного пункта меню: жёлтая цифра на чёрном внутри жёлтой плашки.
+   Перебивает правило «всё внутри жёлтой ссылки — чёрное» (выше, !important). */
+.crm-shell aside a .nav-badge-inverse { color: #FFD400 !important; }

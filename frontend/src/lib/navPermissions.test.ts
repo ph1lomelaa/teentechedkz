@@ -244,3 +244,24 @@ describe('дубли разделов между оболочками', () => {
     }
   })
 })
+
+describe('меню финансиста', () => {
+  const paths = (role: string, can: (r: string, a: string) => boolean) =>
+    filterNavByPermission(getNavGroups(role), can).flatMap((group) => group.items.map((item) => item.path))
+
+  it('финансист видит только финансовые разделы', () => {
+    const allowed = new Set(['finance_desk:view', 'mentor_rewards:view', 'finances:view'])
+    const items = paths('finance_manager', (r, a) => allowed.has(`${r}:${a}`))
+    expect(items).toContain('/finance')
+    expect(items).toContain('/finance/review')
+    expect(items.some((p) => p.startsWith('/students'))).toBe(false)
+    // Сводка дублирует «Договоры», выплаты менторам бухгалтер не ведёт.
+    expect(items).not.toContain('/finances')
+    expect(items).not.toContain('/mentor-rewards')
+  })
+
+  it('ментору группа кабинета финансиста не показывается', () => {
+    const items = paths('mentor', (r) => r !== 'finance_desk')
+    expect(items.some((p) => p.startsWith('/finance/') || p === '/finance')).toBe(false)
+  })
+})

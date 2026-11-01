@@ -110,6 +110,10 @@ async def update_contract(
             changed_values[key] = old
             if key not in ("pipeline_status", "client_fee"):
                 await log_change(db, "contract", contract.id, attr, old, new, str(current_user.id))
+            # Бухгалтер узнаёт о правке денег в карточке так же, как о правке в Notion.
+            from app.services import finance_desk
+            await finance_desk.record_change(db, student=student, contract=contract, field=key, old=old, new=new,
+                                             source="platform", actor=current_user)
     await db.flush()
     if changed_values:
         from app.services.notion_sync import enqueue_crm_field_edits

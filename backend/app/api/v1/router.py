@@ -8,11 +8,14 @@ from app.api.v1.endpoints import (
     student_access,
     invites,
     contracts,
+    trustme,
+    acts,
     contract_addenda,
     applications,
     services,
     guardians,
     payments,
+    finance,
     permissions,
     responsibilities,
     documents,
@@ -72,11 +75,14 @@ api_router.include_router(students.router)
 api_router.include_router(student_access.router)
 api_router.include_router(invites.router)
 api_router.include_router(contracts.router)
+api_router.include_router(trustme.router)
+api_router.include_router(acts.router)
 api_router.include_router(contract_addenda.router)
 api_router.include_router(applications.router)
 api_router.include_router(services.router)
 api_router.include_router(guardians.router)
 api_router.include_router(payments.router)
+api_router.include_router(finance.router)
 api_router.include_router(permissions.router)
 api_router.include_router(responsibilities.router)
 api_router.include_router(documents.router)

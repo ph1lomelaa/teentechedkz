@@ -88,11 +88,14 @@ def flatten_properties(props: dict) -> dict[str, Any]:
     return flat
 
 
-def fetch_all_pages(api_key: str | None = None, database_id: str | None = None) -> list[dict]:
+def fetch_all_pages(api_key: str | None = None, database_id: str | None = None,
+                    edited_since: str | None = None) -> list[dict]:
     """Все страницы data source с пагинацией. Бросает RuntimeError при ошибке API.
 
     ``database_id`` оставлен в сигнатуре для обратной совместимости с env и
     вызывающим кодом; фактически это Notion ``data_source_id``.
+    ``edited_since`` (ISO-время) — только страницы, изменённые с этого момента:
+    так быстрый проход синка забирает одну-две страницы вместо всего пайплайна.
     """
     api_key = api_key or os.getenv("NOTION_API_KEY", "")
     database_id = database_id or os.getenv("NOTION_DATABASE_ID", "")
@@ -102,6 +105,8 @@ def fetch_all_pages(api_key: str | None = None, database_id: str | None = None) 
     records: list[dict] = []
     url = f"https://api.notion.com/v1/data_sources/{database_id}/query"
     payload: dict = {"page_size": 100}
+    if edited_since:
+        payload["filter"] = {"timestamp": "last_edited_time", "last_edited_time": {"on_or_after": edited_since}}
 
     while True:
         resp = requests.post(url, headers=_data_source_headers(api_key), json=payload, timeout=30)

@@ -100,3 +100,13 @@ async def send_mail(*, to: list[str], subject: str, text: str, html: str | None 
         return
     messages = [build_message(to=addr, subject=subject, text=text, html=html) for addr in recipients]
     await asyncio.to_thread(_send_sync, messages)
+
+
+async def send_pdf(*, to: str, subject: str, text: str, content: bytes, filename: str) -> str:
+    """Send a previously saved PDF; callers retain the attempt before sending."""
+    if not is_configured():
+        raise MailNotConfigured("Почта не настроена")
+    message = build_message(to=to, subject=subject, text=text)
+    message.add_attachment(content, maintype="application", subtype="pdf", filename=filename)
+    await asyncio.to_thread(_send_sync, [message])
+    return str(message["Message-ID"])

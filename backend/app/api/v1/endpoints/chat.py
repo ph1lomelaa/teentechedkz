@@ -642,8 +642,15 @@ async def list_notifications(current_user: CurrentUser, db: Annotated[AsyncSessi
          "is_read": n.is_read, "priority": n.priority, "created_at": n.created_at.isoformat()}
         for n in res.scalars().all()
     ]
-    unread = sum(1 for i in items if not i["is_read"])
-    return {"items": items, "unread": unread}
+    unread = (await db.execute(
+        select(func.count()).select_from(Notification)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
+    )).scalar_one()
+    # Этот роут подключён раньше notifications.router и перехватывает
+    # GET /notifications целиком. Кабинет читает items/unread, а колокольчик
+    # CRM — data/unread_count (формат notifications.py); без второй пары полей
+    # колокольчик в CRM всегда был пустым.
+    return {"items": items, "unread": unread, "data": items, "total": len(items), "unread_count": unread}
 
 
 @router.post("/notifications/read-all", status_code=204)

@@ -382,6 +382,12 @@ async def on_startup(ctx: dict) -> None:
         from app.services.meeting_telegram import meeting_telegram_loop
         tasks.append(asyncio.create_task(meeting_telegram_loop()))
 
+    # Правки денег — бухгалтеру: колокольчик, браузер, Telegram и письмо.
+    # Не зависит от настроек Notion: правки в самой платформе тоже здесь.
+    from app.services.finance_desk import finance_notify_loop
+    tasks.append(asyncio.create_task(finance_notify_loop()))
+    logger.info("Finance notify loop started")
+
     if settings.ENABLE_PAYMENT_NOTIFICATIONS:
         from app.services.payment_notifier import payment_notifier_loop
         tasks.append(asyncio.create_task(payment_notifier_loop()))

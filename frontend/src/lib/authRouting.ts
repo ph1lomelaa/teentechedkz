@@ -24,6 +24,10 @@ export function getDefaultPath(role: UserRole): string {
       // Менеджер остаётся в кабинете: «Мой день» собирает его просрочки,
       // горящий SLA и встречи, и у него это всё есть с первого дня.
       return '/workspace/my-day'
+    case 'finance_manager':
+      // День финансиста начинается с оплат на сегодня, а не с базы учеников:
+      // карточки ему не открыты.
+      return '/finance'
     case 'student':
       return '/portal'
     default:

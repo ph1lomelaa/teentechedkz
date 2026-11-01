@@ -480,8 +480,12 @@ async def finance_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    """Суммы всех денежных колонок Notion по живому пайплайну (кроме скрытых записей)."""
-    require_access(current_user, "notion", Action.manage)
+    """Суммы всех денежных колонок Notion по живому пайплайну (кроме скрытых записей).
+
+    Право — finances:view, а не notion:manage: это чтение денег для «Сводки по
+    договорам», а notion:manage открывает ещё и привязку страниц. Сотрудники
+    имеют оба права, так что для них ничего не изменилось; добавился финансист."""
+    require_access(current_user, "finances", Action.view)
 
     result = await db.execute(
         select(NotionSnapshot).where(NotionSnapshot.status != NotionMatchStatus.ignored)
@@ -1292,6 +1296,10 @@ async def apply_field(
             db.add(contract)
             await db.flush()
 
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR
+    money_attr = CONTRACT_FIELD_ATTR.get(field) if contract is not None else None
+    old_money = getattr(contract, money_attr) if money_attr else None
+
     def dec(v) -> Decimal | None:
         return Decimal(str(v)) if v is not None else None
 
@@ -1355,6 +1363,12 @@ async def apply_field(
     else:
         raise HTTPException(status_code=400, detail=f"Поле не переносится из Notion: {field}")
 
+    if money_attr:
+        # Значение из Notion перенесли вручную — бухгалтер узнаёт так же, как о синке.
+        from app.services import finance_desk
+        await finance_desk.record_change(db, student=student, contract=contract, field=field,
+                                         old=old_money, new=getattr(contract, money_attr),
+                                         source="notion", actor=current_user)
     _record_baseline(snapshot, field, student, contract)
     await db.commit()
     return {"ok": True, "field": field}

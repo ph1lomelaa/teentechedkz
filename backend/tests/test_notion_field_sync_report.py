@@ -50,16 +50,22 @@ def test_notion_changes_update_the_contract_and_audit_not_the_student(monkeypatc
     student = SimpleNamespace(id=uuid4())
     contract = SimpleNamespace(id=uuid4(), currency="KZT", **{runtime.CONTRACT_FIELD_ATTR[field]: old})
     snapshot = SimpleNamespace(notion_page_id='page', status=NotionMatchStatus.linked, student_id=student.id, normalized_data={}, synced_baseline={})
-    item = SimpleNamespace(field_key=field, notion_page_id='page', student_id=student.id, direction=FieldSyncDirection.notion_to_crm, crm_value=runtime.canonical_profile_value(field,old), notion_value=runtime.canonical_profile_value(field,new))
+    item = SimpleNamespace(id=uuid4(), field_key=field, notion_page_id='page', student_id=student.id, direction=FieldSyncDirection.notion_to_crm, crm_value=runtime.canonical_profile_value(field,old), notion_value=runtime.canonical_profile_value(field,new))
     monkeypatch.setattr(runtime.notion_write,'get_schema',lambda: {})
     monkeypatch.setattr(runtime,'_resolve_notion_property',lambda *a,**k: ('property',ptype))
     monkeypatch.setattr(runtime.notion_write,'read_value',lambda *a: new)
     audit=AsyncMock();monkeypatch.setattr(runtime,'log_change',audit)
+    recorder=AsyncMock();monkeypatch.setattr(runtime.finance_desk,'record_notion_change',recorder)
     result=asyncio.run(runtime.process_profile_field(SimpleNamespace(flush=AsyncMock()),item,student=student,snapshot=snapshot,contract=contract,dry_run=False))
     assert result.disposition is runtime.RuntimeDisposition.applied
     assert getattr(contract,runtime.CONTRACT_FIELD_ATTR[field]) == expected
     assert not hasattr(student,field)
     assert audit.await_args.args[1:3] == ('contract',contract.id)
+    # Финансист узнаёт о каждой правке договора из Notion; что из этого попадёт
+    # в журнал, решает finance_desk.should_record.
+    # Ключ источника — id элемента очереди: повтор упавшего прохода не даст дубля.
+    assert recorder.await_args.kwargs == {'student': student, 'contract': contract, 'field': field, 'old': old,
+                                          'new': expected, 'source_ref': f'field-sync:{item.id}'}
     assert snapshot.synced_baseline[field] == runtime.canonical_profile_value(field,new)
 
 

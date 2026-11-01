@@ -121,6 +121,16 @@ jobs:
           PGPASSWORD=tte psql -h localhost -U tte -d postgres -c 'CREATE DATABASE notion_test;'
           python backend/tests/e2e_notion_field_sync.py
 
+      - name: Finance synchronization and documents against disposable PostgreSQL
+        env:
+          FINANCE_TEST_DATABASE_URL: postgresql+asyncpg://tte:tte@127.0.0.1:5432/tte_finance_check_ci
+          DATABASE_URL: postgresql+asyncpg://tte:tte@127.0.0.1:5432/tte_finance_check_ci
+        run: |
+          PGPASSWORD=tte psql -h localhost -U tte -d postgres -c 'CREATE DATABASE tte_finance_check_ci;'
+          (cd backend && python -m app.core.bootstrap_db)
+          python backend/tests/e2e_finance_notion_sync.py
+          python -m pytest backend/tests/test_finance_desk.py backend/tests/test_finance_documents.py backend/tests/test_finance_mail.py -q
+
       - name: Live E2E (auth + role access matrix + telegram)
         working-directory: backend
         env:
@@ -192,8 +202,11 @@ jobs:
           script_stop: true
           script: |
             cd "${{ secrets.DEPLOY_PATH }}"
+            previous_sha=$(git rev-parse HEAD)
             git fetch origin main
             git checkout --detach "${{ github.sha }}"
+            echo "Previous revision: ${previous_sha}"
+            docker compose -f docker-compose.prod.yml build backend worker frontend
             # Бэкап БД ПЕРЕД накатом миграций: миграции идут в command: бэкенда при
             # старте, откатить их без дампа нельзя. Не валим деплой, если бэкап
             # не удался на самом первом запуске (контейнеров ещё нет) — но на
@@ -204,7 +217,8 @@ jobs:
               echo "Первый запуск: рабочей БД ещё нет, pre-deploy backup пропущен."
             fi
             bash scripts/preserve-frontend-assets.sh
-            if ! docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180; then
+            docker compose -f docker-compose.prod.yml stop worker
+            if ! docker compose -f docker-compose.prod.yml up -d --no-deps --wait --wait-timeout 180 backend frontend; then
               echo "=== Production compose status ==="
               docker compose -f docker-compose.prod.yml ps -a
               echo "=== Backend logs ==="
@@ -215,6 +229,7 @@ jobs:
               docker inspect --format='{{json .State.Health}}' tte_backend_prod || true
               exit 1
             fi
+            docker compose -f docker-compose.prod.yml up -d --no-deps worker
             # `up -d` означает лишь «процесс запущен». Проверяем и внутренние
             # loopback-порты, и реальный публичный маршрут через Caddy.
             curl --fail --silent --show-error http://127.0.0.1:8000/health
