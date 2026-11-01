@@ -30,6 +30,8 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const [choosing, setChoosing] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [editor, setEditor] = useState<{ initial: ActRecord | null; template: ActTemplate } | null>(null)
+  const [downloadAs, setDownloadAs] = useState<ActRecord | null>(null)
+  const [downloadName, setDownloadName] = useState('')
   const [mailAct, setMailAct] = useState<ActRecord | null>(null)
   const [documentPreview, setDocumentPreview] = useState<string | null>(null)
   const [resolution, setResolution] = useState<{ act: string; attempt: string } | null>(null)
@@ -45,9 +47,9 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const currentStatus = status.data?.status ?? current?.status
   const canCreate = manage && !!current && currentStatus === 3 && !status.isPending && !status.error
   const refresh = () => { for (const key of [['acts', studentId], ['acts-registry'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
-  const action = useMutation({ mutationFn: async ({ type, act }: { type: string; act: ActRecord }) => {
+  const action = useMutation({ mutationFn: async ({ type, act, fileName }: { type: string; act: ActRecord; fileName?: string }) => {
     if (type === 'share') { await actsApi.share(act.id); refresh() }
-    else downloadBlob(await actsApi.pdf(act.id), act.file_name || 'Акт.pdf')
+    else downloadBlob(await actsApi.pdf(act.id), fileName || act.file_name || 'Акт.pdf')
   }, retry: false })
   const pdf = useMutation({ mutationFn: async ({ id, view = false }: { id: string; view?: boolean }) => {
     const blob = await actsApi.contractPdf(studentId, id)
@@ -69,6 +71,7 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
     <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-p-bg text-p-text"><FileText size={21} /></span><div className="min-w-0 flex-1"><p className="break-words text-base font-semibold leading-snug text-p-text">{act.file_name || `${ACT_TEMPLATES[act.template]} · ${act.student_name || data.student_name}`}</p><p className="mt-1.5 text-sm text-p-muted">{displayDate(act.snapshot.period_start)} — {displayDate(act.snapshot.period_end)}{act.author_name ? ` · ${act.author_name}` : ''}{act.supersedes_id ? ' · Новая версия' : ''}</p></div><span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium ${act.status === 'draft' ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>{act.status === 'draft' ? 'Черновик' : 'PDF готов'}</span></div>
     <div className="flex flex-wrap items-center gap-2 sm:pl-[52px]">
       {act.status === 'ready' && <AppButton colorPrefix="p" variant="subtle" size="sm" className={`!text-p-text ${neutralDisabled}`} disabled={action.isPending} onClick={() => action.mutate({ type: 'download', act })}><Download size={14} />Скачать акт</AppButton>}
+      {act.status === 'ready' && <button className={`${documentLink} !text-p-text`} onClick={() => { action.reset(); setDownloadAs(act); setDownloadName((act.file_name || 'Акт.pdf').replace(/\.pdf$/i, '')) }}>Скачать как…</button>}
       {manage && canCreate && act.snapshot.contract_link_id === current?.id && <AppButton colorPrefix="p" variant="subtle" size="sm" className="!text-p-text" onClick={() => setEditor({ initial: act, template: act.template })}>{act.status === 'draft' ? 'Дополнить черновик' : 'Новая версия'}</AppButton>}
       {manage && act.status === 'ready' && !act.shared && <AppButton colorPrefix="p" variant="subtle" size="sm" className={`!text-p-text ${neutralDisabled}`} disabled={action.isPending} onClick={() => action.mutate({ type: 'share', act })}>Открыть студенту</AppButton>}
       {act.shared && <span className="text-xs font-medium text-emerald-700">Доступен студенту</span>}
@@ -105,6 +108,12 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
     {error && <p role="alert" className="rounded-lg border border-red-200 p-3 text-sm text-red-700">{getErrorMessage(error, 'Не удалось выполнить действие')}</p>}
     {editor && current && <ActPreparationDialog studentId={studentId} studentName={data.student_name} contract={current} template={editor.template} initial={editor.initial} onClose={() => setEditor(null)} onSaved={refresh} />}
     {documentPreview && <Dialog open onOpenChange={open => { if (!open) setDocumentPreview(null) }}><DialogContent className="!max-w-5xl"><DialogHeader><DialogTitle>Договор студента</DialogTitle><DialogDescription>PDF из TrustMe</DialogDescription></DialogHeader><iframe title="Договор TrustMe PDF" src={documentPreview} className="h-[72dvh] w-full rounded-lg border border-p-line" /></DialogContent></Dialog>}
+    {downloadAs && <Dialog open onOpenChange={open => { if (!open && !action.isPending) setDownloadAs(null) }}><DialogContent><DialogHeader><DialogTitle>Скачать под другим именем</DialogTitle><DialogDescription>Название в истории и в отправляемых письмах сохранится.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={async e => {
+      e.preventDefault()
+      const name = downloadName.trim().replace(/\.pdf$/i, '')
+      if (!name || /[\x00-\x1f\x7f/\\:*?"<>|]/.test(name) || action.isPending) return
+      try { await action.mutateAsync({ type: 'download', act: downloadAs, fileName: `${name}.pdf` }); setDownloadAs(null) } catch { /* Mutation error is displayed below. */ }
+    }}><label className="block text-sm font-medium">Название файла<div className="mt-2 flex items-center gap-2"><input aria-label="Название файла" autoFocus className={`${input} !mt-0 min-w-0 flex-1`} required maxLength={180} value={downloadName} onChange={e => setDownloadName(e.target.value)} /><span className="text-sm text-p-muted">.pdf</span></div></label>{/[\x00-\x1f\x7f/\\:*?"<>|]/.test(downloadName) && <p className="text-xs text-red-700">Уберите служебные символы из названия файла.</p>}<div className="flex justify-end gap-3"><button className={documentLink} type="button" disabled={action.isPending} onClick={() => setDownloadAs(null)}>Отмена</button><AppButton colorPrefix="p" variant="subtle" size="sm" type="submit" disabled={action.isPending || !downloadName.trim().replace(/\.pdf$/i, '') || /[\x00-\x1f\x7f/\\:*?"<>|]/.test(downloadName)}>{action.isPending ? 'Скачиваем…' : 'Скачать'}</AppButton></div>{action.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(action.error, 'Не удалось скачать PDF')}</p>}</form></DialogContent></Dialog>}
     {mailAct && <ActMailDialog act={mailAct} recipients={data.recipient_suggestions} onClose={() => setMailAct(null)} onSent={refresh} />}
     {resolution && <Dialog open onOpenChange={open => { if (!open && !resolve.isPending) setResolution(null) }}><DialogContent><DialogHeader><DialogTitle>Уточнить результат отправки</DialogTitle><DialogDescription>Сначала проверьте корпоративный ящик. Повтор разрешается только после подтверждения, что письмо не отправлено.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!resolve.isPending) resolve.mutate() }}><label className="block text-sm">Результат проверки<select className={input} value={resolutionOutcome} onChange={e => setResolutionOutcome(e.target.value)}><option value="sent">Письмо отправлено</option><option value="not_sent">Письмо не отправлено</option></select></label><label className="block text-sm">Как проверили<textarea className={input} minLength={10} maxLength={1000} required value={resolutionNote} onChange={e => setResolutionNote(e.target.value)} /></label><AppButton colorPrefix="p" variant="subtle" type="submit" disabled={resolve.isPending}>Сохранить результат</AppButton>{resolve.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(resolve.error)}</p>}</form></DialogContent></Dialog>}
   </div>

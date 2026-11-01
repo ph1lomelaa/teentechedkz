@@ -3,8 +3,11 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StudentActsPanel } from './StudentActsPanel'
+import { downloadBlob } from '@/lib/utils'
 import { trustmeApi } from '@/api/trustme'
 import { actsApi, type ActContext, type ActRecord } from '@/api/acts'
+
+vi.mock('@/lib/utils', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/utils')>(), downloadBlob: vi.fn() }))
 
 const access = vi.hoisted(() => ({ manage: true }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ can: (_: string, action: string) => action === 'view' || access.manage }) }))
@@ -69,6 +72,19 @@ describe('Act preparation and access', () => {
     fireEvent.change(screen.getByLabelText(/Фамилия и имя студента по договору/), { target: { value: 'Тест Нұрай' } })
     expect(screen.getByRole('checkbox', { name: /Проверены реквизиты/ })).not.toBeChecked()
     expect(screen.getByLabelText('Количество звонков / встреч, необязательно')).toHaveValue(null)
+  })
+
+  it('downloads a ready PDF under a chosen name without changing the shared record', async () => {
+    vi.mocked(actsApi.context).mockResolvedValue({ ...context, acts: [{ ...draft, status: 'ready', file_name: 'Исходное имя.pdf' }] })
+    const blob = new Blob(['pdf'], { type: 'application/pdf' })
+    vi.mocked(actsApi.pdf).mockResolvedValue(blob)
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Скачать как…' }))
+    fireEvent.change(screen.getByLabelText('Название файла'), { target: { value: 'Акт IELTS — октябрь' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Скачать', exact: true }))
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(blob, 'Акт IELTS — октябрь.pdf'))
+    expect(screen.getByText('Исходное имя.pdf')).toBeInTheDocument()
+    expect(actsApi.update).not.toHaveBeenCalled()
   })
 
   it('disables email until corporate SMTP is configured and retains the saved PDF', async () => {
