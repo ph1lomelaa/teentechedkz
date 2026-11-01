@@ -57,8 +57,8 @@ async def _student(db: AsyncSession, student_id: uuid.UUID, user, *, manage=Fals
 def _client():
     try:
         return TrustMeClient.from_settings()
-    except ValueError:
-        raise HTTPException(503, "Настройте TRUSTME_LOGIN и TRUSTME_PASSWORD на сервере",
+    except ValueError as error:
+        raise HTTPException(503, str(error),
                             headers={"X-Error-Code": "TRUSTME_NOT_CONFIGURED"}) from None
 
 

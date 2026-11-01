@@ -14,7 +14,8 @@ from typing import Any
 
 import httpx
 
-BASE_URL = "https://test.trustme.kz"
+BASE_URL = "https://trustme.kz"
+_ALLOWED_BASE_URLS = frozenset({BASE_URL, "https://test.trustme.kz"})
 _SHORT_URL = re.compile(r"[A-Za-z0-9_-]{6,64}\Z")
 _KAZAKH = str.maketrans("әғқңөұүһіё", "агкноуухие")
 
@@ -84,15 +85,19 @@ class SearchResults:
 class TrustMeClient:
     def __init__(self, token: str = "", company_id: str = "", *,
                  login: str = "", password: str = "",
-                 transport: httpx.AsyncBaseTransport | None = None):
+                 transport: httpx.AsyncBaseTransport | None = None,
+                 base_url: str = BASE_URL):
         if not token and not (login and password):
             raise ValueError("Настройте TRUSTME_LOGIN и TRUSTME_PASSWORD")
+        base_url = base_url.rstrip("/")
+        if base_url not in _ALLOWED_BASE_URLS:
+            raise ValueError("TRUSTME_BASE_URL должен указывать на основной или тестовый кабинет TrustMe")
         self.company_id = company_id
         self._login = login
         self._password = password
         self._auth_lock = asyncio.Lock()
         self._http = httpx.AsyncClient(
-            base_url=BASE_URL, timeout=30, follow_redirects=False,
+            base_url=base_url, timeout=30, follow_redirects=False,
             headers={"Origin": "https://trustme.kz"},
             transport=transport,
         )
@@ -105,7 +110,8 @@ class TrustMeClient:
 
         return cls(login=settings.TRUSTME_LOGIN,
                    password=settings.TRUSTME_PASSWORD.get_secret_value(),
-                   company_id=settings.TRUSTME_COMPANY_ID, transport=transport)
+                   company_id=settings.TRUSTME_COMPANY_ID, transport=transport,
+                   base_url=settings.TRUSTME_BASE_URL)
 
     async def __aenter__(self) -> TrustMeClient:
         try:
