@@ -164,10 +164,9 @@ async def record_change(
     едет в транзакции самой правки, а уведомление и письмо собирает
     notify_pending / email_pending — одно на договор.
 
-    Правки самого бухгалтера не пишем: о своих действиях ей сообщать незачем.
+    Все правки сохраняются для аудита. Собственные события исключаются
+    отдельно для каждого получателя при доставке.
     """
-    if actor is not None and actor.role == UserRole.finance_manager:
-        return None
     if not should_record(field, old, new):
         return None
     if source_ref is not None:
@@ -338,16 +337,19 @@ async def notify_pending(db: AsyncSession) -> Outbox:
     recipients = await finance_recipients(db)
     now = datetime.now(timezone.utc)
     for group in groups:
-        body = "\n".join(group.lines)
-        authors = {e.actor_id for e in group.events}
         for user in recipients:
-            if user.id in authors:
+            # Data invalidation also reaches the author; the bell does not.
+            out.recipients.add(user.id)
+            visible_events = [e for e in group.events if e.actor_id != user.id]
+            if not visible_events:
                 continue
-            out.notifications.append(notify(db, user.id, kind="finance_change", title=group.title, body=body,
-                                            link=group.link, priority="high"))
+            visible = ChangeGroup(group.student_id, group.contract_id, group.student_name, visible_events, group.actors)
+            body = "\n".join(visible.lines)
+            out.notifications.append(notify(db, user.id, kind="finance_change", title=visible.title, body=body,
+                                            link=visible.link, priority="high"))
             out.recipients.add(user.id)
             if user.telegram_id:
-                out.telegram.append((user.telegram_id, f"Финансы · {group.title}\n{body}"))
+                out.telegram.append((user.telegram_id, f"Финансы · {visible.title}\n{body}"))
         if group.contract_id:
             out.contract_ids.add(group.contract_id)
         for e in group.events:
@@ -361,13 +363,14 @@ async def flush_notifications(db: AsyncSession) -> int:
     commit и без гарантий: колокольчик и журнал уже записаны."""
     out = await notify_pending(db)
     await db.commit()
-    if out.notifications:
+    if out.notifications or out.recipients:
         from app.services.notify import push_notification, push_ws
 
         for note in out.notifications:
             await push_notification(note)
-        await push_ws(list(out.recipients), "finance.changed",
-                      {"contract_ids": [str(c) for c in out.contract_ids]})
+        if out.recipients:
+            await push_ws(list(out.recipients), "finance.changed",
+                          {"contract_ids": [str(c) for c in out.contract_ids]})
     if out.telegram:
         from app.services.telegram_bot import send_notification
 

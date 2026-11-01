@@ -48,20 +48,33 @@ async def scenario():
         contract = Contract(student_id=student.id, currency='KZT'); db.add(contract); await db.flush()
         for field, actor in (('client_fee', user.id), ('client_remaining', other.id)):
             db.add(FinanceChangeEvent(student_id=student.id, contract_id=contract.id, field=field,
-                actor_id=actor, source='platform', old_value='100', new_value='200', notified_at=datetime.now(timezone.utc)))
+                actor_id=actor, source='platform', old_value='100', new_value='200'))
         await db.commit()
     with patch('app.services.finance_desk.finance_recipients', return_value=[user]):
         async with sessions() as db:
+            from app.services.finance_desk import notify_pending
+            out = await notify_pending(db)
+            ours = [n for n in out.notifications if n.user_id == user.id and n.link == f'/finance/contracts/{contract.id}']
+            assert len(ours) == 1
+            assert 'Остаток клиента' in ours[0].body and 'Сумма договора' not in ours[0].body
+            await db.commit()
             await finance_mail.enqueue(db)
+            db.add(FinanceChangeEvent(student_id=student.id, contract_id=contract.id,
+                field='client_fee', actor_id=user.id, source='platform', old_value='200', new_value='300'))
+            await db.commit()
+            own_only = await notify_pending(db)
+            assert own_only.notifications == [], 'No bell for the author'
+            assert own_only.recipients == {user.id}, 'Author still receives data invalidation for other tabs'
+            await db.commit()
         async with sessions() as db:
             await finance_mail.enqueue(db)
-            rows = (await db.execute(select(FinanceMailDelivery).where(FinanceMailDelivery.recipient_id == user.id))).scalars().all()
+            rows = (await db.execute(select(FinanceMailDelivery).where(FinanceMailDelivery.recipient_id == user.id, FinanceMailDelivery.contract_id == contract.id))).scalars().all()
             assert len(rows) == 1
             row = rows[0]; delivery_id = row.id
             assert 'Остаток клиента' in row.body and 'Сумма договора' not in row.body
     calls = []
     async def timeout(**kwargs):
-        if kwargs['to'] != [user.email]: return
+        if kwargs['to'] != [user.email] or suffix not in kwargs['subject']: return
         async with sessions() as probe:
             row = await probe.get(FinanceMailDelivery, delivery_id)
             assert row.status == 'sending' and row.attempts == 1
@@ -89,7 +102,8 @@ async def scenario():
         await db.commit()
     accepted = []
     async def accept(**kwargs):
-        accepted.append(kwargs)
+        if kwargs['to'] == [user.email] and suffix in kwargs['subject']:
+            accepted.append(kwargs)
     async with sessions() as db:
         real_commit = db.commit
         commits = [0]
