@@ -23,11 +23,15 @@ from app.core.permissions import Action, RULES, Scope, allows, scope_for
 from app.models.user import UserRole
 
 ALL_ROLES = (
-    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.finance_manager,
+    UserRole.mentor, UserRole.student,
 )
 
 # (ресурс, действие) -> роли, которым доступ открыт. Всё, чего здесь нет, закрыто.
 EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
+    ("acts", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
+    ("acts", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("acts_mail", Action.manage): ("admin", "mzk_manager", "academic_head"),
     ("student_work_status", Action.edit): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("agreements", Action.manage): ("admin",),
     ("agreements", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
@@ -53,7 +57,8 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("contract_addenda", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # Решение 30.08.2026: смотреть договор может весь персонал, править —
     # только управление. Раньше одно право отвечало за оба вопроса.
-    ("contracts", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    # 01.11.2026: финансист видит договоры, правит только график платежей.
+    ("contracts", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
     ("contracts", Action.manage): ("admin", "mzk_manager", "academic_head"),
     # Решение 30.08.2026: справочник правит только управление.
     ("countries", Action.edit): ("admin", "mzk_manager", "academic_head"),
@@ -67,9 +72,12 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("documents", Action.view): ("admin", "mzk_manager", "academic_head", "mentor", "student"),
     ("emergency_contacts", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("export", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
-    ("finances", Action.manage): ("admin", "mzk_manager", "academic_head"),
+    ("finances", Action.manage): ("admin", "mzk_manager", "academic_head", "finance_manager"),
     # review: ментор видит финансы целиком — решение продукта
-    ("finances", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("finances", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
+    # 01.11.2026: кабинет финансиста — смотрит управление, ведут финансист и админ.
+    ("finance_desk", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager"),
+    ("finance_desk", Action.manage): ("admin", "finance_manager"),
     # review: ПДн родителей, включая ИИН, а имя функции обещало admin+МЗК
     ("guardians", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("knowledge", Action.manage): ("admin",),
@@ -79,7 +87,7 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     # review: имя функции обещало admin+МЗК
     ("mentor_assignments", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("mentor_rewards", Action.manage): ("admin", "mzk_manager", "academic_head"),
-    ("mentor_rewards", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("mentor_rewards", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
     ("mzk_quality", Action.manage): ("admin",),
     # 30.08.2026: ментор убран. Он и не проходил — `resolve_score_scope` отдавал
     # ему 403 с самого начала; правило обещало доступ, которого в коде нет.
@@ -101,7 +109,7 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("refund_approval", Action.manage): ("admin",),
     ("refund_cases", Action.manage): ("admin", "mzk_manager", "academic_head"),
     ("reward_rules", Action.manage): ("admin",),
-    ("reward_rules", Action.view): ("admin", "mzk_manager", "academic_head", "mentor"),
+    ("reward_rules", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
     ("roadmap_templates", Action.create): ("admin",),
     # review: константа названа TEMPLATE_ADMIN, но включает ментора
     ("roadmap_templates", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),

@@ -10,7 +10,7 @@ import asyncio
 import logging
 import sys
 import uuid
-from datetime import datetime, timezone, date as date_cls
+from datetime import datetime, timedelta, timezone, date as date_cls
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import NotionSnapshot, NotionMatchStatus, Student, Contract
-from app.services import background_jobs
+from app.services import background_jobs, finance_desk
 
 # migration/ монтируется в контейнер как /app/migration — переиспользуем читалку
 sys.path.insert(0, "/app") if "/app" not in sys.path else None
@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 _sync_lock = asyncio.Lock()
 
 _STATUS_KIND = "notion_sync_status"
+# Курсор быстрого прохода: с какого момента забирать изменённые страницы.
+_QUICK_KIND = "notion_quick_sync"
+# Notion округляет last_edited_time до минуты — берём с запасом, повторно
+# прочитанные страницы отсеет сравнение содержимого.
+_QUICK_OVERLAP = timedelta(minutes=2)
 
 
 async def last_run() -> dict:
@@ -338,10 +343,32 @@ def _page_left_source(page_id: str) -> bool:
     return source not in parent_ids
 
 
-async def run_sync(db: AsyncSession) -> dict:
-    """Полный проход: чтение Notion → upsert снапшотов → матчинг непривязанных."""
+async def _quick_cursor() -> datetime | None:
+    job = await background_jobs.get_status(_QUICK_KIND)
+    cursor = _parse_iso(((job.result or {}).get("counters") or {}).get("cursor")) if job else None
+    if cursor is None:
+        last = await background_jobs.get_status(_STATUS_KIND)
+        cursor = last.finished_at if last and last.status == "done" else None
+    return cursor
+
+
+async def run_sync(db: AsyncSession, *, quick: bool = False) -> dict:
+    """Проход синка: чтение Notion → upsert снапшотов → матчинг непривязанных.
+
+    quick=True — только страницы, изменённые с прошлого прохода (раз в минуту),
+    чтобы правка денег доходила до бухгалтера сразу. Пропавшие страницы такой
+    проход не ищет — для этого нужен весь список, это делает полный проход.
+    """
     if not is_configured():
         raise RuntimeError("Notion не настроен — задай NOTION_API_KEY и NOTION_DATABASE_ID в .env")
+    edited_since = None
+    if quick:
+        cursor = await _quick_cursor()
+        if cursor is None:
+            quick = False  # ещё ни одного полного прохода — начинаем с него
+        else:
+            edited_since = (cursor - _QUICK_OVERLAP).isoformat()
+    started_at = datetime.now(timezone.utc)
 
     async with _sync_lock:
         from migration.sources.notion import fetch_all_pages, transform_notion_records
@@ -355,7 +382,7 @@ async def run_sync(db: AsyncSession) -> dict:
 
         def _fetch() -> list[dict]:
             """Блокирующий requests — уводим в thread pool."""
-            pages = fetch_all_pages(settings.NOTION_API_KEY, settings.NOTION_DATABASE_ID)
+            pages = fetch_all_pages(settings.NOTION_API_KEY, settings.NOTION_DATABASE_ID, edited_since=edited_since)
             return transform_notion_records(pages)
 
         try:
@@ -371,7 +398,7 @@ async def run_sync(db: AsyncSession) -> dict:
             # treated as complete; a percentage threshold could miss a few
             # silently truncated rows.
             incoming_ids = {row["notion_page_id"] for row in rows}
-            missing_ids = set(existing) - incoming_ids
+            missing_ids = set() if quick else set(existing) - incoming_ids
             removed = 0
             if missing_ids:
                 # Каждую пропавшую страницу спрашиваем у Notion напрямую.
@@ -453,10 +480,13 @@ async def run_sync(db: AsyncSession) -> dict:
                 # Строка в Notion не менялась — не переписываем JSONB зря
                 # (иначе каждый цикл — UPDATE всей таблицы и WAL-мусор).
                 # Матчинг для непривязанных всё равно освежаем: база студентов растёт.
+                # Сравниваем и содержимое: Notion округляет время правки до
+                # минуты, и вторая правка в ту же минуту иначе терялась бы.
                 if (
                     snapshot is not None
                     and incoming_edited is not None
                     and snapshot.notion_last_edited_at == incoming_edited
+                    and (snapshot.normalized_data or {}) == row
                 ):
                     unchanged += 1
                     if snapshot.status == NotionMatchStatus.new and apply_match(snapshot, row):
@@ -482,6 +512,13 @@ async def run_sync(db: AsyncSession) -> dict:
                 snapshot.full_name = (row.get("full_name") or "")[:500] or None
                 snapshot.phone_normalized = normalize_phone(row.get("phone", "")) or None
                 snapshot.raw_properties = raw_properties
+                if snapshot.status == NotionMatchStatus.linked and snapshot.student_id:
+                    # Денежные поля, которых нет в синке полей, финансист видит
+                    # только через это сравнение: в договор они не переносятся.
+                    await finance_desk.record_snapshot_changes(
+                        db, snapshot=snapshot, old_row=dict(snapshot.normalized_data or {}),
+                        new_row=row, edited_at=incoming_edited,
+                    )
                 snapshot.normalized_data = row
                 snapshot.notion_last_edited_at = incoming_edited
                 snapshot.synced_at = now
@@ -508,6 +545,10 @@ async def run_sync(db: AsyncSession) -> dict:
                     dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN,
                 )
 
+            # Уведомления финансисту — после того, как правки этого прохода
+            # записаны: одно на договор, сколько бы полей ни поменялось.
+            await finance_desk.flush_notifications(db)
+
             # Creating/deleting students, assignments and accounts remains
             # separate from verified synchronization of mapped fields.
 
@@ -522,11 +563,15 @@ async def run_sync(db: AsyncSession) -> dict:
                 "removed": removed,
                 "field_sync": field_sync_counters,
             }
-            await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
+            # Курсор быстрого прохода двигаем после любого удачного прохода.
+            await background_jobs.upsert_status(_QUICK_KIND, ok=True, error=None,
+                                                counters={**counters, "cursor": started_at.isoformat()})
+            if not quick:
+                await background_jobs.upsert_status(_STATUS_KIND, ok=True, error=None, counters=counters)
             logger.info(f"Notion sync done: {counters}")
             return counters
         except Exception as e:
-            await background_jobs.upsert_status(_STATUS_KIND, ok=False, error=str(e), counters=None)
+            await background_jobs.upsert_status(_QUICK_KIND if quick else _STATUS_KIND, ok=False, error=str(e), counters=None)
             raise
 
 
@@ -544,17 +589,22 @@ async def sync_loop() -> None:
     from app.core.database import AsyncSessionLocal
 
     interval = max(60, settings.NOTION_SYNC_INTERVAL_SECONDS)
-    logger.info(f"Notion sync loop started (every {interval}s)")
+    quick_every = max(30, settings.NOTION_QUICK_SYNC_SECONDS)
+    logger.info(f"Notion sync loop started (full every {interval}s, changes every {quick_every}s)")
+    last_full: float | None = None
     while True:
+        full = last_full is None or (asyncio.get_event_loop().time() - last_full) >= interval
         try:
             async with AsyncSessionLocal() as db:
-                await run_sync(db)
+                await run_sync(db, quick=not full)
+            if full:
+                last_full = asyncio.get_event_loop().time()
         except asyncio.CancelledError:
             logger.info("Notion sync loop cancelled")
             return
         except Exception as e:
-            logger.error(f"Notion sync failed: {e}")
-        await asyncio.sleep(interval)
+            logger.error(f"Notion sync failed ({'full' if full else 'quick'}): {e}")
+        await asyncio.sleep(quick_every)
 
 
 async def enqueue_crm_field_edits(db: AsyncSession, student: Student, old_values: dict, *, contract_id=None) -> dict:
@@ -628,6 +678,7 @@ async def field_sync_loop() -> None:
             if settings.ENABLE_NOTION_FIELD_SYNC:
                 async with AsyncSessionLocal() as db:
                     await process_outbox_batch(db, limit=50, dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN)
+                    await finance_desk.flush_notifications(db)
         except asyncio.CancelledError:
             raise
         except Exception:

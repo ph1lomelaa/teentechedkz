@@ -24,7 +24,7 @@ from app.models.notion_field_sync import FieldSyncDirection, FieldSyncStatus, No
 from app.models.notion_snapshot import NotionMatchStatus
 from app.models.student import DegreeLevel
 from app.models.contract import Contract, PipelineStatus
-from app.services import notion_write
+from app.services import finance_desk, notion_write
 from app.services.notion_field_sync_outbox import KZT_CONTRACT_REQUIRED, SINGLE_CONTRACT_REQUIRED
 
 
@@ -435,6 +435,12 @@ async def process_profile_field(
             "notion_sync",
         )
         await session.flush()
+        # Деньги и даты оплаты финансист должен узнать сразу: сам синк молча
+        # переписывает договор, а график платежей двигает человек.
+        await finance_desk.record_notion_change(
+            session, student=student, contract=contract, field=field, old=old_crm, new=new_crm,
+            source_ref=f"field-sync:{item.id}",
+        )
         actual_notion_after = current_notion_raw
 
     # Only after read/write/readback (or the staged CRM update + flush) agree do

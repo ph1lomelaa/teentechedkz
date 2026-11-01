@@ -65,7 +65,10 @@ export const ShellSwitcher: React.FC<{
   // Обе оболочки доступны только сотрудникам. Студент сюда не попадает вовсе,
   // но проверка страхует от ссылки, которая вернёт 403.
   const canSwitch = user?.role === 'admin' || user?.role === 'mzk_manager' || user?.role === 'academic_head' || user?.role === 'mentor'
-  const currentShell = SHELLS.find((s) => s.id === current) ?? SHELLS[0]
+  const shell = SHELLS.find((s) => s.id === current) ?? SHELLS[0]
+  // У финансиста одна оболочка — свой кабинет: «Общая база» и ссылка на
+  // /dashboard ему не подходят, туда его не пускают.
+  const currentShell = user?.role === 'finance_manager' ? { ...shell, label: 'Финансы', to: '/finance' } : shell
 
   const brand = (
     <>

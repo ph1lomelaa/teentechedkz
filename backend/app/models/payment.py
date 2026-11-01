@@ -19,6 +19,13 @@ class PaymentStatus(str, enum.Enum):
     to_be_paid = "to_be_paid"
 
 
+class PaymentMethod(str, enum.Enum):
+    kaspi = "kaspi"
+    bank = "bank"
+    cash = "cash"
+    other = "other"
+
+
 class Payment(Base):
     __tablename__ = "payments"
 
@@ -32,6 +39,12 @@ class Payment(Base):
     mentor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Строка графика, которую закрывает этот платёж. Платежи, внесённые до
+    # графика (старый раздел «Финансы»), остаются без неё.
+    schedule_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("payment_schedule_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    method: Mapped[PaymentMethod | None] = mapped_column(SAEnum(PaymentMethod, name="payment_method"), nullable=True)
 
     contract: Mapped["Contract"] = relationship(back_populates="payments")
     mentor: Mapped["User | None"] = relationship(foreign_keys=[mentor_id])

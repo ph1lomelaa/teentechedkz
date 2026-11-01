@@ -42,7 +42,7 @@ def resolve_mentor_scope(*, viewer_role, viewer_id, requested_mentor_id: str | N
 
     Возвращает UUID для фильтра либо None; бросает 403.
     """
-    if viewer_role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head):
+    if viewer_role in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.finance_manager):
         return _parse_mentor_id(requested_mentor_id)
 
     if viewer_role == UserRole.mentor:

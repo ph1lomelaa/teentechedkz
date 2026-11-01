@@ -49,6 +49,7 @@ def setup_case(field="full_name", direction=FieldSyncDirection.crm_to_notion):
         synced_baseline={"unrelated": "keep"},
     )
     item = SimpleNamespace(
+        id=uuid4(),
         field_key=field,
         direction=direction,
         notion_page_id=page_id,
@@ -337,9 +338,12 @@ def test_work_status_round_trip_uses_live_notion_options(monkeypatch, direction)
         state['value'] = payload['Статус выплат']['select']['name']; state['writes'] += 1
     monkeypatch.setattr(runtime.notion_write, 'update_page', write)
     audit = AsyncMock(); monkeypatch.setattr(runtime, 'log_change', audit)
+    recorder = AsyncMock(); monkeypatch.setattr(runtime.finance_desk, 'record_notion_change', recorder)
     result = asyncio.run(runtime.process_profile_field(FakeSession(), item, student=student, snapshot=snapshot, contract=contract, dry_run=False))
     assert result.disposition is runtime.RuntimeDisposition.applied
     assert contract.pipeline_status is PipelineStatus.completed_admitted
+    # Смена статуса из Notion попадает в журнал бухгалтера, из CRM — нет.
+    assert recorder.await_count == (1 if direction is FieldSyncDirection.notion_to_crm else 0)
     assert snapshot.synced_baseline['pipeline_status'] == 'completed_admitted'
     assert state['writes'] == (1 if direction is FieldSyncDirection.crm_to_notion else 0)
     if direction is FieldSyncDirection.notion_to_crm:

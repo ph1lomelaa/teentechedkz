@@ -33,7 +33,8 @@ from app.core.permissions import Action, allows
 from app.models.user import User, UserRole
 
 ALL_ROLES = (
-    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor, UserRole.student,
+    UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.finance_manager,
+    UserRole.mentor, UserRole.student,
 )
 
 

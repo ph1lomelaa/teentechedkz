@@ -88,6 +88,9 @@ MANAGERS = frozenset({UserRole.admin, UserRole.mzk_manager, UserRole.academic_he
 ADMIN = frozenset({UserRole.admin})
 STAFF_AND_OWNER = STAFF | {UserRole.student}
 OWNER = frozenset({UserRole.student})
+# Финансист — отдельная ветка: деньги видит целиком, а карточки учеников, чаты
+# и задачи ему не нужны, поэтому в STAFF он не входит.
+FINANCE = frozenset({UserRole.finance_manager})
 
 
 @dataclass(frozen=True)
@@ -243,15 +246,23 @@ RULES: tuple[Rule, ...] = (
          )),
 
     # ---------------------------------------------------------------- финансы
-    Rule("finances", _V, STAFF,
+    Rule("finances", _V, STAFF | FINANCE,
          review="Ментор видит финансы целиком — решение продукта, зафиксировано в payments.py:28"),
-    Rule("finances", _M, MANAGERS),
+    Rule("finances", _M, MANAGERS | FINANCE),
+    # Кабинет финансиста (01.11.2026): график платежей, отметки об оплате,
+    # должники, журнал изменений из Notion. Смотрит управление, ведёт финансист.
+    Rule("finance_desk", _V, MANAGERS | FINANCE),
+    Rule("finance_desk", _M, ADMIN | FINANCE),
 
     # Решение 30.08.2026: раздел «Договор» ментор видит (он ведёт ученика и
     # должен знать условия), а суммы и даты правит только управление. До этого
     # одно право отвечало за оба вопроса, и API пускал ментора на правку.
-    Rule("contracts", _V, STAFF),
+    Rule("contracts", _V, STAFF | FINANCE),
     Rule("contracts", _M, MANAGERS),
+    Rule("acts", _V, STAFF | FINANCE, scope={UserRole.mentor: Scope.assigned},
+         extra_rules=("Менторы видят договоры и акты только своих активных назначений; студент получает только опубликованные PDF через портал — acts.py:58, acts.py:414.",)),
+    Rule("acts", _M, MANAGERS),
+    Rule("acts_mail", _M, MANAGERS),
     Rule("contract_addenda", _V, STAFF_AND_OWNER,
          extra_rules=("Студент видит только свои допсоглашения — contract_addenda.py:76",)),
     Rule("contract_addenda", _M, MANAGERS,
@@ -398,7 +409,7 @@ RULES: tuple[Rule, ...] = (
     Rule("complaints", _M, MANAGERS, basis="п. 1.3.4"),
 
     # ---------------------------------------------------------------- мотивация
-    Rule("mentor_rewards", _V, STAFF, basis="п.7.1",
+    Rule("mentor_rewards", _V, STAFF | FINANCE, basis="п.7.1",
          scope={UserRole.mentor: Scope.own},
          extra_rules=(
              "Ментор оспаривает только своё взыскание и только 2 рабочих дня "
@@ -421,7 +432,8 @@ RULES: tuple[Rule, ...] = (
              "Самооценка и повторные оценки недействительны (п.7.8) — mzk_quality.py:288",
          )),
     Rule("mzk_quality", _M, ADMIN, basis="п.7.8"),
-    Rule("reward_rules", _V, STAFF),
+    # 01.11.2026: финансист видит ставки на странице вознаграждений, правит — admin.
+    Rule("reward_rules", _V, STAFF | FINANCE),
     Rule("reward_rules", _M, ADMIN),
 
     # ---------------------------------------------------------------- справочники

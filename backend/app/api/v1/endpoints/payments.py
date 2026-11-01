@@ -89,6 +89,11 @@ async def create_payment(
         except Exception:  # noqa: BLE001 — уведомление не должно ронять запись платежа
             logger.exception("Не удалось создать уведомление о выплате ментору")
 
+    # Оплата клиента, внесённая здесь, а не в «Финансах», — в журнал бухгалтера.
+    if pstatus == PaymentStatus.paid:
+        from app.services import finance_desk
+        await finance_desk.record_payment_change(db, payment=p, actor=current_user, created=True)
+
     await db.commit()
     await db.refresh(p)
     return _payment_to_dict(p)
@@ -107,6 +112,8 @@ async def update_payment(
     if not p:
         raise HTTPException(status_code=404, detail="Платёж не найден")
 
+    old_amount = p.amount
+    old_status = p.status
     if "amount" in body:
         p.amount = Decimal(str(body["amount"]))
     if "status" in body:
@@ -118,6 +125,12 @@ async def update_payment(
         p.paid_at = date.fromisoformat(body["paid_at"]) if body["paid_at"] else None
     if "note" in body:
         p.note = body["note"]
+
+    from app.services import finance_desk
+    if p.status == PaymentStatus.paid and old_status != PaymentStatus.paid:
+        await finance_desk.record_payment_change(db, payment=p, actor=current_user, created=True)
+    elif p.status == PaymentStatus.paid and p.amount != old_amount:
+        await finance_desk.record_payment_change(db, payment=p, actor=current_user, old_amount=old_amount)
 
     await db.commit()
     await db.refresh(p)

@@ -134,6 +134,22 @@ const CountriesPage = lazyRoute(() =>
 const FinancesPage = lazyRoute(() =>
   import('@/pages/FinancesPage').then((m) => ({ default: m.FinancesPage }))
 )
+const ActsPage = lazyRoute(() => import('@/pages/ActsPage').then((m) => ({ default: m.ActsPage })))
+const FinanceTodayPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceTodayPage').then((m) => ({ default: m.FinanceTodayPage }))
+)
+const FinancePaymentsPage = lazyRoute(() =>
+  import('@/pages/finance/FinancePaymentsPage').then((m) => ({ default: m.FinancePaymentsPage }))
+)
+const FinanceContractsPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceContractsPage').then((m) => ({ default: m.FinanceContractsPage }))
+)
+const FinanceContractPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceContractPage').then((m) => ({ default: m.FinanceContractPage }))
+)
+const FinanceReviewPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceReviewPage').then((m) => ({ default: m.FinanceReviewPage }))
+)
 const SettingsUsersPage = lazyRoute(() =>
   import('@/pages/SettingsUsersPage').then((m) => ({ default: m.SettingsUsersPage }))
 )
@@ -658,6 +674,74 @@ function AppRoutes() {
         }
       />
 
+      {/* Раздел «Финансы»: смотрит управление, ведут финансист и админ (finance_desk). */}
+      <Route
+        path="/finance"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceTodayPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/payments"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinancePaymentsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/contracts"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceContractsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/contracts/:contractId"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceContractPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/review"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceReviewPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      {/* Адреса первой версии кабинета ведут на новые разделы: ссылки в
+          уведомлениях и закладках продолжают работать. */}
+      <Route path="/finance/calendar" element={<Navigate to="/finance/payments?tab=calendar" replace />} />
+      <Route path="/finance/debtors" element={<Navigate to="/finance/payments?tab=overdue" replace />} />
+      <Route path="/finance/incoming" element={<Navigate to="/finance/payments?tab=received" replace />} />
+      <Route path="/finance/changes" element={<Navigate to="/finance/review" replace />} />
+
       {/* Роль, а не право: правила `statistics` в реестре нет. */}
       <Route
         path="/statistics"
@@ -937,6 +1021,7 @@ function AppRoutes() {
 
       {/* Student portal (cabinet) */}
       <Route path="/portal" element={<StudentRoute><PortalHomePage /></StudentRoute>} />
+      <Route path="/acts" element={<ProtectedRoute permission={['acts', 'view']}><AppLayout><React.Suspense fallback={<div className="p-6">Загрузка…</div>}><ActsPage /></React.Suspense></AppLayout></ProtectedRoute>} />
       <Route path="/portal/roadmap" element={<StudentRoute><PortalRoadmapPage /></StudentRoute>} />
       <Route path="/portal/tasks" element={<StudentRoute><PortalTasksPage /></StudentRoute>} />
       <Route path="/portal/meetings" element={<StudentRoute><PortalMeetingsPage /></StudentRoute>} />
@@ -975,6 +1060,7 @@ function AppRoutes() {
       <Route path="/workspace/meetings/session/:id" element={<WorkspaceRoute><NoteSessionPage /></WorkspaceRoute>} />
       <Route path="/workspace/meetings/notes/:id" element={<WorkspaceRoute><NoteDetailPage /></WorkspaceRoute>} />
       <Route path="/workspace/documents" element={<WorkspaceRoute><WorkspaceDocumentsPage /></WorkspaceRoute>} />
+      <Route path="/workspace/acts" element={<WorkspaceRoute permission={['acts', 'view']}><ActsPage /></WorkspaceRoute>} />
       <Route path="/workspace/telegram" element={<Navigate to="/workspace/chat?channel=telegram" replace />} />
       <Route path="/workspace/notes" element={<WorkspaceRoute><WorkspaceNotesPage /></WorkspaceRoute>} />
       <Route path="/workspace/chat" element={<WorkspaceRoute><WorkspaceChatPage /></WorkspaceRoute>} />

@@ -33,3 +33,5 @@ sentry-sdk[fastapi]==2.19.2
 prometheus-fastapi-instrumentator==7.0.0
 # QR для Telegram-ссылок. Без [pil]: рисуем SVG, Pillow не нужен.
 qrcode==7.4.2
+reportlab==5.1.0
+pypdf==6.21.4

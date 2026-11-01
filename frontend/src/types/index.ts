@@ -1,6 +1,6 @@
 import { notionTagClass } from '@/lib/notionColors'
 
-export type UserRole = 'admin' | 'mzk_manager' | 'academic_head' | 'mentor' | 'student'
+export type UserRole = 'admin' | 'mzk_manager' | 'academic_head' | 'finance_manager' | 'mentor' | 'student'
 export type NoteVisibility = 'admin_only' | 'admin_and_mzk' | 'all_mentors'
 
 export type PipelineStatus =
@@ -1159,6 +1159,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Администратор',
   mzk_manager: 'МЗК',
   academic_head: 'Академический руководитель',
+  finance_manager: 'Финансист',
   mentor: 'Ментор',
   student: 'Студент',
 }

@@ -18,6 +18,7 @@ from .confidential_note import ConfidentialNote
 from .student_task import StudentTask
 from .task_evidence import TaskEvidence
 from .payment import Payment
+from .finance import PaymentScheduleItem, ScheduleKind, FinanceChangeEvent, FinanceChangeStatus
 from .document import Document, PortfolioDocumentLink
 from .communication_log import CommunicationLog
 from .pending_insight import PendingInsight
@@ -83,6 +84,7 @@ __all__ = [
     "StudentResponsibility", "ResponsibilityArea", "PermissionOverride",
     "CountryReference", "ConfidentialNote", "StudentTask", "TaskEvidence",
     "Payment", "Document", "CommunicationLog",
+    "PaymentScheduleItem", "ScheduleKind", "FinanceChangeEvent", "FinanceChangeStatus",
     "PendingInsight", "StatusHistory", "SyncStatus",
     "StudentNote", "StudentNoteStatus",
     "NoteSession", "NoteSessionStatus", "MeetingBotEvent", "NoteTranscript",
@@ -127,3 +129,6 @@ __all__ = [
 
 from .activity import Activity, ActivityIntake, StudentActivity, PortfolioFocus, ActivityStepTemplate
 from .notion_person_link import NotionPersonLink
+from .trustme_contract import TrustMeContractLink
+from .service_act import ServiceAct, ActMailAttempt
+from .finance_mail import FinanceMailDelivery, FinanceMailEvent

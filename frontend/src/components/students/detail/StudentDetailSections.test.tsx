@@ -17,10 +17,21 @@ function Card({ available = ['roadmap', 'tasks', 'notes', 'documents', 'profile'
     <AccordionItem value="notion"><AccordionTrigger>Notion</AccordionTrigger><AccordionContent>Сравнение</AccordionContent></AccordionItem>
     <AccordionItem value="responsibles"><AccordionTrigger>Специалисты</AccordionTrigger><AccordionContent>Менторы</AccordionContent></AccordionItem>
     <AccordionItem value="services"><AccordionTrigger>Услуги</AccordionTrigger><AccordionContent>Программы</AccordionContent></AccordionItem>
+    <AccordionItem value="trustme"><AccordionTrigger>TrustMe</AccordionTrigger><AccordionContent>Договоры TrustMe ученика</AccordionContent></AccordionItem>
   </StudentDetailSections></>
 }
 function mount(url = '/students/s1', available?: string[]) { render(<MemoryRouter initialEntries={[url]}><Card available={available} /></MemoryRouter>) }
 describe('student detail navigation', () => {
+  it('places acts last in both staff card entry points', () => {
+    mount('/workspace/students/s1#acts', ['roadmap', 'profile', 'acts'])
+    expect(screen.getAllByRole('tab').at(-1)).toHaveTextContent('Акты')
+    expect(screen.getByRole('tab', { name: 'Акты' })).toHaveAttribute('aria-selected', 'true')
+  })
+  it('shows TrustMe in contract details even without a local finance contract', () => {
+    mount('/students/s1#trustme', ['profile', 'payments'])
+    expect(screen.getByText('Договоры TrustMe ученика')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Договор и оплаты' })).toHaveAttribute('aria-current', 'page')
+  })
   it('keeps old workspace links: #notes opens private notes, meeting notes live under #meeting-notes', () => {
     const aliases = { notes: 'confidential', 'meeting-notes': 'notes' }
     render(<MemoryRouter initialEntries={['/workspace/students/s1#notes']}><Card available={['roadmap', 'tasks', 'notes', 'confidential']} hashAliases={aliases} /></MemoryRouter>)

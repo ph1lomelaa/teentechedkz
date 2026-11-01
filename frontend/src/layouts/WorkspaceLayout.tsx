@@ -143,6 +143,7 @@ function getNavGroups(
       group: 'МАТЕРИАЛЫ',
       items: [
         { label: 'Документы', path: '/workspace/documents', icon: <FileText className="h-4 w-4" />, permission: ['documents', 'view'] },
+        { label: 'Договоры и акты', path: '/workspace/acts', icon: <FileText className="h-4 w-4" />, permission: ['acts', 'view'] },
         { label: 'Университеты', path: '/workspace/universities', icon: <GraduationCap className="h-4 w-4" />, permission: ['universities', 'view'] },
         { label: 'Страны', path: '/workspace/countries', icon: <Globe className="h-4 w-4" />, permission: ['countries', 'view'] },
         { label: 'Регламенты', path: '/workspace/agreements', icon: <ScrollText className="h-4 w-4" />, permission: ['agreements', 'view'] },

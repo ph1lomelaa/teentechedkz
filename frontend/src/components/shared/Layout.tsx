@@ -27,15 +27,21 @@ import {
   Award,
   ShieldCheck,
   UserPlus,
+  CalendarDays,
+  Wallet,
+  FileText,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useWsEvent } from '@/lib/ws'
 import { accessRequestsApi } from '@/api/accessRequests'
+import { financeApi, financeKeys } from '@/api/finance'
 import { useAuth } from '@/contexts/AuthContext'
 import { filterNavByPermission, type NavPermission } from '@/lib/navPermissions'
 import { useTheme } from '@/contexts/ThemeContext'
 import { NotificationsBell } from '@/components/shared/NotificationsBell'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { ShellSwitcher } from '@/components/shared/ShellSwitcher'
+import { FinanceHeaderSearch } from '@/components/finance/HeaderSearch'
 import { cn } from '@/lib/utils'
 import { useScrollRestoration } from '@/lib/use-scroll-restoration'
 
@@ -57,7 +63,19 @@ interface NavItem {
    * массовой регистрации она наполняется, пока админ смотрит в другой раздел,
    * и без числа в меню он про неё просто не вспомнит.
    */
-  badge?: 'access_requests'
+  badge?: NavBadge
+  /** Подсвечивать только на самом адресе: «Обзор» финансов — `/finance`, и без
+   * этого он горел бы на каждом подразделе `/finance/...`. */
+  exact?: boolean
+}
+
+type NavBadge = 'access_requests' | 'finance_due_today' | 'finance_overdue' | 'finance_review'
+
+const BADGE_LABELS: Record<NavBadge, (n: number) => string> = {
+  access_requests: (n) => `${n} ждут одобрения`,
+  finance_due_today: (n) => `Срок сегодня: ${n}`,
+  finance_overdue: (n) => `Просрочено: ${n}`,
+  finance_review: (n) => `Требует проверки: ${n}`,
 }
 
 interface NavGroup {
@@ -88,6 +106,7 @@ const baseNavGroups: NavGroup[] = [
     items: [
       { label: 'Portfolio UP', path: '/activities', icon: <Award className="w-4 h-4" />, permission: ['portfolio', 'manage'] },
       { label: 'Конспекты', path: '/notes', icon: <BookText className="w-4 h-4" />, permission: ['notes', 'manage'] },
+      { label: 'Договоры и акты', path: '/acts', icon: <FileText className="w-4 h-4" />, permission: ['acts', 'view'] },
       { label: 'Чаты', path: '/telegram-inbox', icon: <MessageCircle className="w-4 h-4" />, permission: ['telegram_chats', 'view'] },
       { label: 'На подтверждение', path: '/status-inbox', icon: <ListChecks className="w-4 h-4" />, permission: ['status_history', 'view'] },
       { label: 'Обращения', path: '/complaints', icon: <MessageSquareWarning className="w-4 h-4" />, permission: ['complaints', 'view'] },
@@ -108,6 +127,28 @@ const baseNavGroups: NavGroup[] = [
       { label: 'Шаблоны дорожных карт', path: '/roadmap-templates', icon: <Route className="w-4 h-4" />, permission: ['roadmap_templates', 'manage'] },
     ],
   },
+]
+
+// Кабинет финансиста. Право finance_desk:view есть у управления и финансиста —
+// ментор группу не увидит.
+const FINANCE_ITEMS: NavItem[] = [
+  { label: 'Сегодня', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_due_today' },
+  { label: 'Платежи', path: '/finance/payments', icon: <Wallet className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_overdue' },
+  { label: 'Договоры', path: '/finance/contracts', icon: <FileText className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
+  // Счётчик — непроверенные правки из Notion + оплаты без чека + расхождения.
+  // «финансов» — потому что в кабинете уже есть «Проверка» (задач), а одно
+  // имя на два экрана запрещено (navPermissions.test.ts).
+  { label: 'Проверка финансов', path: '/finance/review', icon: <ListChecks className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_review' },
+]
+
+// У финансиста своё меню: карточки учеников, чаты и задачи ему закрыты,
+// поэтому общие группы CRM он не получает вовсе.
+const FINANCE_ROLE_GROUPS: NavGroup[] = [
+  { group: 'ДОКУМЕНТЫ', items: [{ label: 'Договоры и акты', path: '/acts', icon: <FileText className="w-4 h-4" />, permission: ['acts', 'view'] }] },
+  // «Вознаграждение менторам» и «Сводка по договорам» убраны из меню
+  // бухгалтера 01.11.2026: сводка дублирует «Договоры» и «Платежи», выплаты
+  // менторам бухгалтер не ведёт. Страницы остаются у админа и МЗК.
+  { group: 'ФИНАНСЫ', items: FINANCE_ITEMS },
 ]
 
 const ADMIN_ONLY_ITEMS: NavItem[] = [
@@ -157,11 +198,13 @@ const MENTOR_DUPLICATE_PATHS = new Set(['/status-inbox', '/complaints'])
 // Экспортируется ради теста на дубли разделов: состав меню — это поведение,
 // и проверять его регуляркой по исходнику было бы слабее, чем вызовом.
 export function getNavGroups(role: string): NavGroup[] {
+  if (role === 'finance_manager') return FINANCE_ROLE_GROUPS
   if (role !== 'admin' && role !== 'mzk_manager' && role !== 'academic_head' && role !== 'mentor') return []
   const isStaff = role === 'admin' || role === 'mzk_manager' || role === 'academic_head'
   const withoutDuplicates = (items: NavItem[]) =>
     role === 'mentor' ? items.filter((item) => !MENTOR_DUPLICATE_PATHS.has(item.path)) : items
-  return baseNavGroups.map((group) => ({ ...group, items: withoutDuplicates(group.items) })).map((group) => {
+  const groups = [...baseNavGroups.slice(0, -1), { group: 'ФИНАНСЫ', items: FINANCE_ITEMS }, baseNavGroups[baseNavGroups.length - 1]]
+  return groups.map((group) => ({ ...group, items: withoutDuplicates(group.items) })).map((group) => {
     if (group.group !== 'АДМИНИСТРАЦИЯ') return group
     return {
       ...group,
@@ -188,6 +231,10 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/countries': 'Справочник стран',
     '/statistics': 'Статистика',
     '/finances': 'Финансы',
+    '/finance': 'Сегодня',
+    '/finance/payments': 'Платежи',
+    '/finance/contracts': 'Договоры',
+    '/finance/review': 'Проверка финансов',
     '/settings/users': 'Пользователи',
     '/settings/access-requests': 'Заявки на доступ',
     '/settings/permissions': 'Права доступа',
@@ -224,6 +271,27 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { theme } = useTheme()
+  // Раздел «Финансы» — строго светлый, без переключателя (ТЗ бухгалтера).
+  // У финансиста весь интерфейс — этот раздел; у остальных — только /finance*.
+  const isFinance = user?.role === 'finance_manager' || location.pathname === '/finance' || location.pathname.startsWith('/finance/')
+  const shellTheme = isFinance ? 'light' : theme
+  // Правка денег (из Notion или в платформе) — страницы раздела обновляются
+  // сразу, не дожидаясь минутного опроса.
+  const queryClient = useQueryClient()
+  useWsEvent('finance.changed', () => {
+    if (isFinance) queryClient.invalidateQueries({ queryKey: financeKeys.all })
+  })
+  useEffect(() => {
+    if (!isFinance) return
+    // Окна Radix рисуются вне оболочки и смотрят на атрибут <html>.
+    const root = document.documentElement
+    root.dataset.crmTheme = 'light'
+    root.dataset.theme = 'light'
+    return () => {
+      root.dataset.crmTheme = theme
+      root.dataset.theme = theme
+    }
+  }, [isFinance, theme])
   // main здесь — собственный скролл-контейнер, поэтому прокрутку приходится
   // восстанавливать руками: см. use-scroll-restoration.
   const mainRef = useRef<HTMLElement>(null)
@@ -243,8 +311,19 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     refetchInterval: 60_000,
     retry: false,
   })
-  const badgeCounts: Record<string, number> = {
+  const showsFinance = navGroups.some((g) => g.items.some((i) => i.badge?.startsWith('finance_')))
+  const { data: financeCounters } = useQuery({
+    queryKey: financeKeys.counters(),
+    queryFn: financeApi.counters,
+    enabled: showsFinance,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  const badgeCounts: Record<NavBadge, number> = {
     access_requests: accessRequestCount?.total ?? 0,
+    finance_due_today: financeCounters?.due_today ?? 0,
+    finance_overdue: financeCounters?.overdue ?? 0,
+    finance_review: financeCounters?.review ?? 0,
   }
   const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
 
@@ -264,7 +343,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [mobileOpen])
 
   return (
-    <div data-theme={theme} className="crm-shell flex h-[100dvh] min-w-0 overflow-hidden">
+    <div data-theme={shellTheme} className="crm-shell flex h-[100dvh] min-w-0 overflow-hidden">
       {/* Backdrop для мобильного меню */}
       {mobileOpen && (
         <div
@@ -310,7 +389,8 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                 {group.items.map((item) => {
                   const isActive =
                     location.pathname === item.path ||
-                    (item.path !== '/' && location.pathname.startsWith(item.path))
+                    // Со слэшем: иначе «/finance» горел бы и на «/finances».
+                    (!item.exact && item.path !== '/' && location.pathname.startsWith(`${item.path}/`))
                   return (
                     <Link
                       key={item.path}
@@ -330,11 +410,14 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                         <span
                           className={cn(
                             'ml-auto shrink-0 rounded-pill px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
-                            isActive ? 'bg-black/15 text-black' : 'bg-brand text-black',
+                            // У активного пункта (жёлтая плашка) счётчик наоборот —
+                            // чёрный с жёлтой цифрой; цвет держит nav-badge-inverse
+                            // в index.css: общее правило красит всё на жёлтом в чёрный.
+                            isActive ? 'nav-badge-inverse bg-black' : 'bg-brand text-black',
                           )}
                           // Цвет не единственный носитель смысла: число рядом
                           // с пунктом читается и без него.
-                          aria-label={`${badgeCounts[item.badge]} ждут одобрения`}
+                          aria-label={BADGE_LABELS[item.badge](badgeCounts[item.badge])}
                         >
                           {badgeCounts[item.badge]}
                         </span>
@@ -368,23 +451,27 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-caps min-w-0">
-            <span className="crm-muted-secondary hidden sm:inline">TeenTechEd</span>
-            {breadcrumb && (
-              <>
-                <span className="crm-muted-secondary hidden sm:inline">/</span>
-                <span className="font-medium truncate">{breadcrumb}</span>
-              </>
-            )}
-          </div>
+          {isFinance ? (
+            <FinanceHeaderSearch />
+          ) : (
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-caps min-w-0">
+              <span className="crm-muted-secondary hidden sm:inline">TeenTechEd</span>
+              {breadcrumb && (
+                <>
+                  <span className="crm-muted-secondary hidden sm:inline">/</span>
+                  <span className="font-medium truncate">{breadcrumb}</span>
+                </>
+              )}
+            </div>
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <ThemeToggle />
-            <NotificationsBell />
+            {!isFinance && <ThemeToggle />}
+            <NotificationsBell countTone={isFinance ? 'danger' : 'brand'} />
           </div>
         </header>
         {/* Content */}
-        <main ref={mainRef} className="app-main relative flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6">
-          <div className={`mx-auto w-full ${['/students', '/students/distribution', '/dashboard'].includes(location.pathname) ? 'max-w-[1680px]' : 'max-w-[1180px]'}`}>
+        <main ref={mainRef} className={cn('app-main relative flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 md:p-6', isFinance && 'fin bg-[var(--fin-bg)] md:p-8')}>
+          <div className={`mx-auto w-full ${['/students', '/students/distribution', '/dashboard'].includes(location.pathname) || isFinance ? 'max-w-[1440px]' : 'max-w-[1180px]'}`}>
             <React.Suspense
               fallback={(
                 <div className="flex min-h-[50vh] items-center justify-center text-sm crm-muted">

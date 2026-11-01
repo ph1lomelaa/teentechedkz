@@ -17,6 +17,7 @@ from app.models.notification import Notification
 from app.models.notion_snapshot import NotionSnapshot, NotionMatchStatus
 from app.models.student import Student
 from app.models.user import User
+from app.services import finance_desk
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +277,9 @@ async def payment_notifier_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 await check_upcoming_payments(db)
+            async with AsyncSessionLocal() as db:
+                if await finance_desk.notify_due_today(db, date.today()):
+                    await db.commit()
         except Exception as e:
             logger.error(f"Payment notifier job failed: {e}", exc_info=True)
 

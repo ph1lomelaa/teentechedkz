@@ -158,8 +158,9 @@ This is the part that encodes the company's written rules:
   exists (exact phone match against a free card). Staff approvals are a separate,
   explicit action with named confirmation, because nothing about a staff request
   can be verified automatically.
-- **Account recovery without email.** The system sends no email at all. Recovery
-  is Google sign-in: a person links their Google account once and can always get
+- **Account recovery without a mandatory email.** Email (SMTP, see docs/SETUP.md) is
+  optional: password-reset links, act PDFs and finance alerts use it when configured.
+  The default recovery is Google sign-in: a person links their Google account once and can always get
   back in. The fallback is a generated temporary password, shown once to an admin,
   which forces a change on first login and revokes existing sessions.
 

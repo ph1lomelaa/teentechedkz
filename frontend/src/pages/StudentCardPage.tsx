@@ -1,4 +1,6 @@
 import { StudentProcessEditor } from '@/components/students/StudentProcessEditor'
+import { StudentTrustMePanel } from '@/components/students/StudentTrustMePanel'
+import { StudentActsPanel } from '@/components/students/StudentActsPanel'
 import { ActivityPlan } from '@/components/activities/ActivityPlan'
 import { StudentMeetingNotes } from '@/components/notes/StudentMeetingNotes'
 import React, { useState } from 'react'
@@ -1208,10 +1210,11 @@ export const StudentCardPage: React.FC = () => {
         ...(can('confidential_notes', 'manage') ? ['confidential'] : []),
         ...(can('chat', 'manage') ? ['chat'] : []),
         ...(can('telegram_chats', 'view') ? ['telegram'] : []),
-        ...(contract && (can('contracts', 'view') || can('finances', 'view')) ? ['payments'] : []),
+        ...(can('contracts', 'view') || (contract && can('finances', 'view')) ? ['payments'] : []),
         ...(can('sync', 'manage') || can('notion', 'manage') ? ['checks'] : []),
         ...(can('student_access', 'manage') ? ['portal-access'] : []),
         ...(can('students', 'view') ? ['timeline'] : []),
+        ...(can('acts', 'view') ? ['acts'] : []),
       ]}>
         {/* Команда: МЗК и менторы по специализациям (IELTS, виза, профориентация).
             Кто чем занимается ПО ПРЕДМЕТУ. Участки работы — в блоке ниже. */}
@@ -1670,6 +1673,15 @@ export const StudentCardPage: React.FC = () => {
         )}
 
         {/* 4. Finances */}
+        {can('contracts', 'view') && (
+          <AccordionItem value="trustme" className="border border-p-line rounded-card px-4">
+            <AccordionTrigger className="text-base font-semibold">Договоры TrustMe</AccordionTrigger>
+            <AccordionContent>
+              <StudentTrustMePanel key={student.id} studentId={student.id} studentName={student.full_name} canManage={canEditContract} />
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
         {can('finances', 'view') && contract && (
           <AccordionItem value="finances" className="border border-p-line rounded-card px-4">
             <AccordionTrigger className="text-base font-semibold">
@@ -2377,6 +2389,10 @@ export const StudentCardPage: React.FC = () => {
           </AccordionItem>
         )}
 
+        {can('acts', 'view') && <AccordionItem value="acts" unframed>
+          <AccordionTrigger>Акты</AccordionTrigger>
+          <AccordionContent><StudentActsPanel key={student.id} studentId={student.id} /></AccordionContent>
+        </AccordionItem>}
       </StudentDetailSections>
 
       {can('students', 'delete') && location.hash === '#profile' && (

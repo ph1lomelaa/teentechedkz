@@ -53,7 +53,7 @@ export const RESOURCE_GROUPS: ResourceGroup[] = [
     title: 'Деньги и договоры',
     hint: 'Оплаты, договоры, вознаграждение менторов',
     resources: [
-      'finances', 'contracts', 'contract_addenda', 'refund_cases',
+      'finances', 'finance_desk', 'contracts', 'acts', 'acts_mail', 'contract_addenda', 'refund_cases',
       'refund_approval', 'mentor_rewards', 'reward_rules',
     ],
   },
@@ -119,7 +119,10 @@ export const RESOURCE_LABELS: Record<string, string> = {
 
   // Деньги и договоры
   finances: 'Финансы и оплаты',
+  finance_desk: 'Кабинет финансиста: график платежей и оплаты',
   contracts: 'Договоры',
+  acts: 'Акты оказанных услуг',
+  acts_mail: 'Отправка актов по почте',
   contract_addenda: 'Дополнительные соглашения',
   refund_cases: 'Возвратные кейсы',
   refund_approval: 'Утверждение возврата денег',

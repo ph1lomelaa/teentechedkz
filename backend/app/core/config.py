@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import UUID
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Read the repo-root .env regardless of the process CWD. This file lives at
@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # Encryption
     PGCRYPTO_KEY: str = "change-me-in-production-min-32-chars"
 
+    # TrustMe cabinet integration (server-side credentials only).
+    TRUSTME_LOGIN: str = ""
+    TRUSTME_PASSWORD: SecretStr = SecretStr("")
+    # Optional when the account has exactly one company.
+    TRUSTME_COMPANY_ID: str = ""
+
     # MinIO
     MINIO_ENDPOINT: str = "minio:9000"
     MINIO_ACCESS_KEY: str = "minioadmin"
@@ -83,6 +89,9 @@ class Settings(BaseSettings):
     NOTION_API_KEY: str = ""
     NOTION_DATABASE_ID: str = ""
     NOTION_SYNC_INTERVAL_SECONDS: int = 3600
+    # Быстрый проход: только страницы, изменённые с прошлого раза. Нужен, чтобы
+    # правка денег в Notion доходила до бухгалтера за 1–2 минуты, а не за час.
+    NOTION_QUICK_SYNC_SECONDS: int = 60
     # Enable only after a production dry run and a checked backup.
     ENABLE_NOTION_PIPELINE_APPLY: bool = False
     # Verified profile/work-status synchronization; enable after production dry-run.
@@ -217,6 +226,9 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""
     SMTP_FROM_NAME: str = "TeenTechEd"
     SMTP_REPLY_TO: str = ""
+    # Письмо бухгалтеру о каждой правке денег (одно на договор). Шлётся, только
+    # если почта настроена (SMTP_HOST и SMTP_FROM).
+    FINANCE_EMAIL_NOTIFICATIONS: bool = False
     # Сколько живёт ссылка из письма «Забыли пароль?».
     PASSWORD_RESET_TTL_HOURS: int = 2
 

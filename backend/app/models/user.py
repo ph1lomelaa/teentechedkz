@@ -14,6 +14,9 @@ class UserRole(str, enum.Enum):
     # их данные и отметки, одобряет заявки на доступ. Права как у МЗК плюс
     # одобрение заявок; в оценке качества МЗК и назначениях на ученика не участвует.
     academic_head = "academic_head"
+    # Финансист: график платежей клиентов, отметки об оплате, должники и
+    # изменения сумм/дат из Notion. Карточки учеников, чаты и задачи не видит.
+    finance_manager = "finance_manager"
     mentor = "mentor"
     student = "student"  # client-facing portal account, linked to a students record
 
