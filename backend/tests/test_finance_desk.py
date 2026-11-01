@@ -227,11 +227,11 @@ async def run(sent):
                 FinanceChangeEvent.student_id == other_id, FinanceChangeEvent.source == 'platform'))).scalars().all()
             assert sorted(e.field for e in platform) == ['client_remaining', 'payment_added']
             assert {e.actor_id for e in platform} == {ids['mzk_manager']}
-            # Правка самого бухгалтера в журнал не идёт.
+            # Правка бухгалтера сохраняется в журнале, но не попадает в его уведомление.
             fin = await db.get(User, ids['finance_manager'])
             assert await finance_desk.record_change(
                 db, student=await db.get(Student, other_id), contract=await db.get(Contract, other_contract_id),
-                field='client_fee', old=1, new=2, source='platform', actor=fin) is None
+                field='client_fee', old=1, new=2, source='platform', actor=fin) is not None
             # Ученик «ждёт», пока очередь синка не опустеет — уберём её.
             for q in (await db.execute(select(NotionFieldSync).where(NotionFieldSync.student_id == other_id))).scalars():
                 await db.delete(q)
@@ -241,6 +241,8 @@ async def run(sent):
                 Notification.kind == 'finance_change', Notification.title.contains(f'Тимур Очередь {suffix}')))).scalars().all()
             assert {n.user_id for n in notes} == {ids['finance_manager']}, 'Автору правки (МЗК) не шлём'
             assert any('в платформе' in n.title for n in notes)
+            assert all(fin.name not in n.body for n in notes), 'Собственную правку исключаем отдельно'
+            assert any('Остаток клиента' in n.body for n in notes), 'Чужая правка в смешанной сводке сохраняется'
 
         # ------------------------------------------------ письма
         import app.services.mailer as mailer_module
