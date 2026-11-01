@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,5 +22,7 @@ class TrustMeContractLink(Base):
     status: Mapped[int] = mapped_column(Integer)
     signers: Mapped[list] = mapped_column(JSON, default=list)
     contract_created_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    profile_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    profile_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     linked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

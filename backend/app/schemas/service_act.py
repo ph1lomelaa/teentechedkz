@@ -11,7 +11,7 @@ class ActLine(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     name: str = Field(min_length=3, max_length=300)
     result: str = Field(min_length=3, max_length=2000)
-    evidence: str = Field(min_length=3, max_length=1500)
+    evidence: str = Field(default="", max_length=1500)
     contract_source: str = Field(min_length=2, max_length=300)
     quantity: Decimal = Field(default=Decimal("1"), gt=0, le=100000, max_digits=10, decimal_places=2)
     unit: str = Field(default="услуга", min_length=1, max_length=50)
@@ -31,6 +31,7 @@ class ActInput(BaseModel):
     customer_name: str = Field(min_length=3, max_length=300)
     customer_id: str = Field(default="", max_length=30)
     student_id_number: str = Field(default="", max_length=30)
+    customer_email: str = Field(default="", max_length=255)
     executor_name: str = Field(min_length=3, max_length=500)
     executor_representative: str = Field(min_length=3, max_length=300)
     executor_basis: str = Field(min_length=3, max_length=300)
@@ -47,6 +48,14 @@ class ActInput(BaseModel):
     lines: list[ActLine] = Field(min_length=1, max_length=30)
     verified: bool = False
     full_completion_confirmed: bool = False
+
+    @field_validator("customer_email")
+    @classmethod
+    def valid_email(cls, value):
+        if value:
+            from pydantic import TypeAdapter
+            return str(TypeAdapter(EmailStr).validate_python(value))
+        return value
 
     @field_validator("student_name")
     @classmethod
@@ -99,3 +108,39 @@ class ActMailInput(BaseModel):
 class ActMailResolution(BaseModel):
     outcome: Literal["sent", "not_sent"]
     note: str = Field(min_length=10, max_length=1000)
+
+
+class ActDraftLine(ActLine):
+    name: str = Field(default="", max_length=300)
+    result: str = Field(default="", max_length=2000)
+    contract_source: str = Field(default="", max_length=300)
+
+
+class ActDraftInput(ActInput):
+    """Incomplete work is saveable; strict ActInput is required for PDF creation."""
+    student_name: str = Field(default="", max_length=300)
+    customer_name: str = Field(default="", max_length=300)
+    executor_name: str = Field(default="", max_length=500)
+    executor_representative: str = Field(default="", max_length=300)
+    executor_basis: str = Field(default="", max_length=300)
+    contract_number: str = Field(default="", max_length=100)
+    contract_date: date | None = None
+    act_date: date | None = None
+    period_start: date | None = None
+    period_end: date | None = None
+    city: str = Field(default="", max_length=100)
+    lines: list[ActDraftLine] = Field(default_factory=list, max_length=30)
+
+    @field_validator("student_name")
+    @classmethod
+    def full_name(cls, value):
+        return value
+
+    @field_validator("contract_date", "act_date", "period_start", "period_end", mode="before")
+    @classmethod
+    def empty_dates(cls, value):
+        return value or None
+
+    @model_validator(mode="after")
+    def check_dates_and_prices(self):
+        return self

@@ -24,13 +24,13 @@ function mount(url = '/students/s1', available?: string[]) { render(<MemoryRoute
 describe('student detail navigation', () => {
   it('places acts last in both staff card entry points', () => {
     mount('/workspace/students/s1#acts', ['roadmap', 'profile', 'acts'])
-    expect(screen.getAllByRole('tab').at(-1)).toHaveTextContent('Акты')
-    expect(screen.getByRole('tab', { name: 'Акты' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab').at(-1)).toHaveTextContent('Договоры и акты')
+    expect(screen.getByRole('tab', { name: 'Договоры и акты' })).toHaveAttribute('aria-selected', 'true')
   })
-  it('shows TrustMe in contract details even without a local finance contract', () => {
-    mount('/students/s1#trustme', ['profile', 'payments'])
+  it('routes old TrustMe links to the unified acts section', () => {
+    mount('/students/s1#trustme', ['profile', 'payments', 'acts'])
     expect(screen.getByText('Договоры TrustMe ученика')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Договор и оплаты' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('tab', { name: 'Договоры и акты' })).toHaveAttribute('aria-selected', 'true')
   })
   it('keeps old workspace links: #notes opens private notes, meeting notes live under #meeting-notes', () => {
     const aliases = { notes: 'confidential', 'meeting-notes': 'notes' }
