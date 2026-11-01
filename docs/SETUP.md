@@ -464,3 +464,10 @@ docker compose -f monitoring/docker-compose.monitoring.yml up -d
 Ошибки рендера карточки изолированы от кабинета и сессии. Их категории и имена
 компонентов доступны в логах backend по `CLIENT_RUNTIME_ERROR`; сообщения
 исключений, данные форм, email, URL с параметрами и ID ученика не отправляются.
+
+
+### Релиз финансов, TrustMe и актов (01.11.2026)
+
+Полная инструкция: `backend/scripts/README_release_finance.md`. Письма об изменениях финансов по умолчанию выключены (`FINANCE_EMAIL_NOTIFICATIONS=false`). После настройки SMTP и проверки внутреннего адреса включить флаг явно и пересоздать backend и worker. Личный Gmail поддерживается через пароль приложения; `SMTP_FROM` должен соответствовать настроенному отправителю. Роль `finance_manager` назначается администратором позднее и не выдаётся миграциями автоматически.
+
+Workflow обновляет только backend/worker/frontend и не пересоздаёт PostgreSQL/Redis/MinIO. Перед миграциями сохраняется дамп и останавливается прежний worker. Несопоставленные документы TrustMe не привязываются автоматически. Без внешних учётных данных доступен отчёт `python -m scripts.sync_trustme --local-only --limit 1000 --output /tmp/trustme-local-report.json`.
