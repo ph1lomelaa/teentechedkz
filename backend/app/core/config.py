@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     PGCRYPTO_KEY: str = "change-me-in-production-min-32-chars"
 
     # TrustMe cabinet integration (server-side credentials only).
+    TRUSTME_BASE_URL: str = "https://trustme.kz"
     TRUSTME_LOGIN: str = ""
     TRUSTME_PASSWORD: SecretStr = SecretStr("")
     # Optional when the account has exactly one company.

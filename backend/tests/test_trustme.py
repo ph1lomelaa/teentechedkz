@@ -203,3 +203,25 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProductionEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_production_is_default_and_test_environment_is_explicit(self):
+        from app.services.trustme import TrustMeClient
+        async with TrustMeClient(token='test-token', company_id='company') as client:
+            self.assertEqual(client._http.base_url.host, 'trustme.kz')
+        async with TrustMeClient(token='test-token', company_id='company', base_url='https://test.trustme.kz/') as client:
+            self.assertEqual(client._http.base_url.host, 'test.trustme.kz')
+
+    async def test_configuration_is_used_and_other_origins_are_rejected(self):
+        from unittest.mock import patch
+        from app.core.config import settings
+        from app.services.trustme import TrustMeClient
+        from pydantic import SecretStr
+        with patch.object(settings, 'TRUSTME_BASE_URL', 'https://test.trustme.kz'), patch.object(settings, 'TRUSTME_LOGIN', 'test-login'), patch.object(settings, 'TRUSTME_PASSWORD', SecretStr('test-password')):
+            client = TrustMeClient.from_settings()
+            self.assertEqual(client._http.base_url.host, 'test.trustme.kz')
+            await client._http.aclose()
+        for url in ('http://trustme.kz', 'https://evil.example', 'https://trustme.kz.evil.example', 'https://trustme.kz/api'):
+            with self.assertRaises(ValueError):
+                TrustMeClient(token='test-token', company_id='company', base_url=url)
