@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 import json
 import re
 import smtplib
@@ -184,6 +185,41 @@ async def registry(db: Db, current_user: CurrentUser, q: str = Query("", max_len
         "contracts_count": sum(c.student_id == s.id for c in contracts),
         "acts_count": sum(a.student_id == s.id and a.status == "ready" for a in acts),
         "drafts_count": sum(a.student_id == s.id and a.status == "draft" for a in acts)} for s in students]}
+
+
+@router.get("/table")
+async def acts_table(db: Db, current_user: CurrentUser):
+    """Таблица «Договоры и акты»: все видимые студенты сразу — поиск, фильтры и
+    сортировка на клиенте, как в «Пайплайне». Ментор видит только своих."""
+    require_access(current_user, "acts", Action.view)
+    from app.services.act_coverage import SERVICE_COLUMNS, SERVICE_LABELS, coverage
+    from app.services.student_work_status import load_work_statuses
+    stmt = select(Student).where(Student.is_archived.is_(False))
+    if current_user.role == UserRole.mentor:
+        stmt = stmt.where(Student.id.in_(_assignment(current_user)))
+    students = (await db.execute(stmt.order_by(Student.full_name, Student.id))).scalars().all()
+    ids = [s.id for s in students]
+    covered = await coverage(db, ids)
+    statuses = await load_work_statuses(db, ids)
+    people = defaultdict(list)
+    for sid, mentor_id, name, role in (await db.execute(select(MentorAssignment.student_id, MentorAssignment.mentor_id, User.name, MentorAssignment.role)
+            .join(User, User.id == MentorAssignment.mentor_id).where(MentorAssignment.student_id.in_(ids),
+            MentorAssignment.is_active.is_(True), MentorAssignment.assignment_status == "active"))).all():
+        people[sid].append({"id": str(mentor_id), "name": name, "role": getattr(role, "value", role)})
+    mzk = {}
+    for sid, user_id, name in (await db.execute(select(Contract.student_id, Contract.mzk_manager_id, User.name)
+            .join(User, User.id == Contract.mzk_manager_id).where(Contract.student_id.in_(ids))
+            .order_by(Contract.created_at))).all():
+        mzk[sid] = {"id": str(user_id), "name": name}
+    await db.commit()  # состав услуг старых договоров, посчитанный один раз
+    me = str(current_user.id)
+    return {"columns": [{"key": c, "label": SERVICE_LABELS[c]} for c in SERVICE_COLUMNS], "rows": [{
+        "student_id": str(s.id), "full_name": s.full_name, "phone": s.phone,
+        "status": statuses.get(s.id, {}).get("pipeline_status"),
+        "intake": s.intake_year, "degree": getattr(s.degree_level, "value", s.degree_level),
+        "responsibles": people[s.id], "mzk": mzk.get(s.id),
+        "mine": any(p["id"] == me for p in people[s.id]) or (mzk.get(s.id) or {}).get("id") == me,
+        **covered[s.id]} for s in students]}
 
 
 @router.get("/responsibles")
