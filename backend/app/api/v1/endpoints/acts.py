@@ -34,7 +34,8 @@ from app.services import mailer
 from app.services.act_pdf import render_act
 from app.services.contract_services import validate_service_lines, validate_company_signature
 from app.services.contract_documents import read_pages, signing_date, apply_document_signing_date
-from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS
+from app.services.contract_discovery import same_person
+from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS, EXTRACTOR
 from app.services.minio_service import minio_delete, minio_download, minio_upload
 from app.services.trustme import TrustMeError
 
@@ -281,13 +282,13 @@ async def check_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, curr
 @router.post("/students/{student_id}/contracts/{link_id}/inspect")
 async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser,
                            refresh: bool = False):
-    await _student(db, student_id, current_user, manage=True)
+    student = await _student(db, student_id, current_user, manage=True)
     link = await _link(db, student_id, link_id)
     previous = cached_profile(link)
     pages = []
     try:
         info = await _refresh_contract(db, link)
-        if previous and previous.get('service_policy') == 3 and 'source_pages' in previous and not refresh:
+        if previous and previous.get('service_policy') == 3 and 'source_pages' in previous and previous.get('extractor', 1) >= EXTRACTOR and not refresh:
             profile = previous
         else:
             if getattr(link, "source", None) == "manual":
@@ -316,6 +317,12 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
     except Exception as error:
         if isinstance(error, HTTPException): raise
         raise HTTPException(422, "Не удалось прочитать PDF. Откройте договор и дополните недостающие данные.") from None
+    fields = profile["fields"]
+    if not fields.get("student_name") and fields.get("customer_name") and same_person(fields["customer_name"], student.full_name):
+        # Договор заключён самим студентом: отдельной строки «Абитуриент» нет.
+        fields["student_name"] = fields["customer_name"]
+        profile["sources"]["student_name"] = {**profile["sources"].get("customer_name", {}), "excerpt": "Заказчик — сам студент"}
+        profile["missing"] = [key for key in profile["missing"] if key != "student_name"]
     await db.commit()
     # Сумма для акта — из финансового договора; без явной связи берём его,
     # только если у студента он единственный.
@@ -591,7 +598,9 @@ async def add_service_quote(student_id: uuid.UUID, link_id: uuid.UUID, body: Con
 
 async def _check_work_evidence(db, sid, data, link):
     data.verified_outcomes = []
-    if data.template not in ('applications','offer','admission','final'):
+    # Результат (подача/оффер/зачисление) необязателен: услуги до оффера — это
+    # процесс, а не итог. Если сотрудник отметил заявки, они должны подтвердиться.
+    if data.template not in ('applications','offer','admission','final') or not data.application_ids:
         return
     allowed = [SubmissionStatus.submitted,SubmissionStatus.offer_received,SubmissionStatus.enrolled] if data.template == 'applications' else [SubmissionStatus.offer_received,SubmissionStatus.enrolled] if data.template == 'offer' else [SubmissionStatus.enrolled]
     stmt = select(Application).where(Application.student_id == sid, Application.id.in_(data.application_ids), Application.submission_status.in_(allowed))

@@ -428,13 +428,13 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
     from redis.exceptions import RedisError
     from app.core.config import settings
     from app.core.encryption import encrypt, decrypt
-    from app.services.contract_discovery import name_key, phone_key, phones_in_pages, likely_candidate, match_student
+    from app.services.contract_discovery import name_overlap, phone_key, phones_in_pages, likely_candidate, match_student, same_person
     student = await _student(db, student_id, current_user, manage=True)
     guardian_rows = (await db.execute(select(Guardian).where(Guardian.student_id == student_id))).scalars().all()
     guardians = [g.full_name for g in guardian_rows]
     phones = list(dict.fromkeys([student.phone, *[g.phone for g in guardian_rows]]))
     identity = hashlib.sha256(json.dumps([student.full_name, phones, sorted(guardians)], ensure_ascii=False).encode()).hexdigest()[:20]
-    key = f"contract-discovery:v1:{student_id}:{identity}"
+    key = f"contract-discovery:v2:{student_id}:{identity}"
     token = uuid.uuid4().hex
     async with Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2, socket_timeout=2) as redis:
         try:
@@ -451,20 +451,25 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
             async with asyncio.timeout(85):
                 async with _client() as client:
                     names = list(dict.fromkeys([student.full_name, *guardians]))
-                    # The full recipient and guardian names are tried first, without
-                    # asking staff to pick a search mode or enter spelling variants.
-                    result = await client.search(student.full_name, tuple(guardians)[:6], max_pages=2)
-                    report["partial"] = result.truncated
-                    found = {row['id']: row for row in result.candidates}
-                    import re
+                    # Порядок по надёжности: телефон из карточки, полное ФИО студента и
+                    # родителей, и только если ничего не нашлось — части имени (много шума).
+                    found, by_phone = {}, set()
                     for phone in phones[:3]:
-                        digits = re.sub(r'\D', '', phone or '')
-                        if len(digits) < 10:
+                        if not phone_key(phone):
                             continue
-                        extra = await client.search(digits[-10:], max_pages=2, exact=True)
+                        extra = await client.search(phone_key(phone), max_pages=2, exact=True)
+                        found.update({row['id']: row for row in extra.candidates})
+                        by_phone.update(row['id'] for row in extra.candidates)
+                        report['partial'] = report['partial'] or extra.truncated
+                    for name in names[:7]:
+                        extra = await client.search(name, max_pages=2, exact=True)
                         found.update({row['id']: row for row in extra.candidates})
                         report['partial'] = report['partial'] or extra.truncated
-                    rows = sorted(found.values(), key=lambda row: not likely_candidate(row, names))
+                    if not any(row.get('contractStatus') == 3 for row in found.values()):
+                        extra = await client.search(student.full_name, tuple(guardians)[:6], max_pages=2)
+                        found.update({row['id']: row for row in extra.candidates})
+                        report['partial'] = report['partial'] or extra.truncated
+                    rows = sorted(found.values(), key=lambda row: (row['id'] not in by_phone, not likely_candidate(row, names)))
                     signed = [row for row in rows if row.get('contractStatus') == 3]
                     all_names = (await db.execute(select(Student.full_name))).scalars().all()
                     choices = (await db.execute(select(Contract).where(Contract.student_id == student_id))).scalars().all()
@@ -501,8 +506,10 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                         if outcome == 'unrelated':
                             continue
                         if outcome != 'confirmed':
-                            customer = name_key(profile['fields'].get('customer_name'))
-                            related = (customer and any(customer == name_key(n) for n in names)) or (phones_in_pages(pages) & {phone_key(p) for p in phones})
+                            fields = profile['fields']
+                            related = (row['id'] in by_phone or any(same_person(fields.get('customer_name') or '', n) for n in names)
+                                       or bool(phones_in_pages(pages) & {phone_key(p) for p in phones})
+                                       or name_overlap(fields.get('student_name') or '', student.full_name) >= 2)
                             if likely_candidate(row, names) or related:
                                 report['review'].append({**candidate, 'reason': reason})
                             continue
