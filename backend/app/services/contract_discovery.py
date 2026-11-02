@@ -66,16 +66,19 @@ def same_person(a, b):
     return shortest >= 2 and name_overlap(a, b) == shortest
 
 
-def match_student(student, profile, pages, all_names):
-    """A signer/title alone never proves who receives the service."""
+def match_student(student, profile, pages, all_names, extra_phones=()):
+    """A signer/title alone never proves who receives the service.
+
+    extra_phones — телефоны родителей из карточки: договор за ребёнка подписывает
+    родитель, и в PDF стоит его номер."""
     fields, sources = profile.get('fields', {}), profile.get('sources', {})
     actual, source = fields.get('student_name'), sources.get('student_name', {})
     self_contract = False
     if not actual and fields.get('customer_name') and same_person(fields['customer_name'], student.full_name):
         # Абитуриент не назван отдельно, а заказчик — сам студент.
         actual, source, self_contract = fields['customer_name'], sources.get('customer_name', {}), True
-    phone = phone_key(student.phone)
-    phone_in_pdf = bool(phone) and phone in phones_in_pages(pages)
+    card_phones = {phone_key(p) for p in (student.phone, *extra_phones)} - {''}
+    phone_in_pdf = bool(card_phones & phones_in_pages(pages))
     if not actual:
         return 'review', ('В PDF не найден абитуриент, но телефон из карточки есть в договоре' if phone_in_pdf
                           else 'В PDF не удалось однозначно определить студента')
