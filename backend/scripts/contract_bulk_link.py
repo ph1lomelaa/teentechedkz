@@ -13,11 +13,12 @@ import asyncio
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select  # noqa: E402
-from sqlalchemy.exc import IntegrityError  # noqa: E402
+from sqlalchemy.exc import DBAPIError, IntegrityError  # noqa: E402
 
 from app.api.v1.endpoints.trustme import _candidate, new_document_link  # noqa: E402
 from app.core.audit import log_change  # noqa: E402
@@ -75,7 +76,9 @@ async def signed_contracts(client, known):
 async def main(apply, limit):
     stats, review = Counter(), []
     async with AsyncSessionLocal() as db:
-        students = (await db.execute(select(Student))).scalars().all()
+        # Простые записи, а не объекты сессии: откат после конфликта не должен их сбрасывать.
+        students = [SimpleNamespace(id=sid, full_name=name, phone=phone or '') for sid, name, phone in
+                    (await db.execute(select(Student.id, Student.full_name, Student.phone))).all()]
         all_names = [s.full_name for s in students]
         guardian_phones = defaultdict(list)
         for sid, phone in (await db.execute(select(Guardian.student_id, Guardian.phone))).all():
@@ -113,21 +116,27 @@ async def main(apply, limit):
                 if decision == 'review':
                     review.append(f'  ~ №{candidate["number"] or "—"} «{candidate["name"]}» → '
                                   + ', '.join(f'{initials(s.full_name)} ({str(s.id)[:8]})' for s in found[:3]) + f': {reason}')
+                if n % 20 == 0:
+                    print(f'  … обработано {n} из {len(rows)} · привязано {stats["привязано"]}', flush=True)
                 if decision != 'link' or not apply:
                     continue
-                choices = (await db.execute(select(Contract).where(Contract.student_id == found.id))).scalars().all()
-                link = new_document_link(found.id, client.company_id, info, candidate, profile, pages, choices, None)
+                # Каждая привязка — своя короткая транзакция: карточки открывают
+                # параллельно, и их автопоиск может привязывать тот же договор.
                 try:
-                    async with db.begin_nested():
-                        db.add(link)
-                        await db.flush()
-                        await log_change(db, 'student', found.id, 'contract_auto_linked', None, str(link.id), ACTOR, 'auto')
+                    choices = (await db.execute(select(Contract).where(Contract.student_id == found.id))).scalars().all()
+                    link = new_document_link(found.id, client.company_id, info, candidate, profile, pages, choices, None)
+                    db.add(link)
+                    await db.flush()
+                    await log_change(db, 'student', found.id, 'contract_auto_linked', None, str(link.id), ACTOR, 'auto')
+                    await db.commit()
                     stats['привязано'] += 1
                 except IntegrityError:
+                    await db.rollback()
                     stats['уже привязан параллельно'] += 1
-                if n % 20 == 0:
-                    await db.commit()
-                    print(f'  … обработано {n}', flush=True)
+                except DBAPIError as error:
+                    await db.rollback()
+                    stats['пропущен из-за блокировки БД (запустите ещё раз)'] += 1
+                    print(f'  ! №{candidate["number"] or "—"}: {type(error.orig).__name__ if error.orig else "DBAPIError"}', flush=True)
             await db.commit()
     print('\nНА ПРОВЕРКУ (не привязано):')
     print('\n'.join(review) or '  —')
