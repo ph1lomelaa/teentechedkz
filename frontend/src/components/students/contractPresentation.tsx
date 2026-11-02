@@ -10,8 +10,8 @@ export function contractStatus(status?: number) {
     : status === 0 ? { label: 'Создан', color: 'bg-slate-100 text-slate-600' }
     : { label: 'Статус не определён', color: 'bg-slate-100 text-slate-600' }
 }
-export function ContractStatus({ status }: { status?: number }) {
-  const { label, color } = contractStatus(status)
+export function ContractStatus({ status, source }: { status?: number; source?: string }) {
+  const { label, color } = source === 'manual' ? { label: status === 3 ? 'Подписи проверены' : 'Подписи не проверены', color: status === 3 ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600' } : contractStatus(status)
   return <span className={`inline-flex shrink-0 rounded-md px-2 py-1 text-[11px] font-medium ${color}`}>{label}</span>
 }
 export function nameWords(value: string) {

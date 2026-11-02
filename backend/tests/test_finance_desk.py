@@ -75,11 +75,11 @@ def test_finance_flow(monkeypatch):
     monkeypatch.setattr(finance, 'minio_upload', fake_upload)
     sent = []
 
-    async def fake_telegram(telegram_id, text):
-        sent.append((telegram_id, text))
+    async def no_telegram(telegram_id, text):
+        raise AssertionError('Финансы не должны писать в Telegram')
 
     import app.services.telegram_bot as telegram_bot
-    monkeypatch.setattr(telegram_bot, 'send_notification', fake_telegram)
+    monkeypatch.setattr(telegram_bot, 'send_notification', no_telegram)
     # Доставка в браузер: проверяем, что после уведомлений уходит WS-событие.
     pushed = {'notes': 0, 'events': []}
 
@@ -192,7 +192,7 @@ async def run(sent):
                 direction=FieldSyncDirection.notion_to_crm, status=FieldSyncStatus.pending, decision='apply',
                 source_revision='r', available_at=now, created_at=now, updated_at=now))
             await db.commit()
-            assert await finance_desk.flush_notifications(db) == 1, 'Telegram — одно сообщение на договор'
+            assert await finance_desk.flush_notifications(db) == 1, 'Одно уведомление на договор'
             assert await finance_desk.flush_notifications(db) == 0, 'Повторный проход ничего не шлёт'
 
             notes = (await db.execute(select(Notification).where(
@@ -206,7 +206,6 @@ async def run(sent):
             assert not (await db.execute(select(Notification).where(
                 Notification.kind == 'finance_change', Notification.user_id == ids['admin']))).scalars().all(), \
                 'Админ не получает, пока есть финансист'
-            assert sent and sent[0][0] == f'tg-{suffix}' and 'Остаток клиента' in sent[0][1]
             waiting = (await db.execute(select(FinanceChangeEvent).where(
                 FinanceChangeEvent.student_id == other_id))).scalar_one()
             assert waiting.notified_at is None

@@ -314,7 +314,6 @@ async def _groups(db: AsyncSession, events: list[tuple[FinanceChangeEvent, str]]
 class Outbox:
     """Что отправить после commit: колокольчик уже записан, это доставка."""
     notifications: list = None
-    telegram: list[tuple[str, str]] = None
     recipients: set = None
     contract_ids: set = None
 
@@ -322,7 +321,7 @@ class Outbox:
 async def notify_pending(db: AsyncSession) -> Outbox:
     """Создать уведомления в колокольчике по ещё не разосланным записям.
     Одно на договор, автору правки — не шлём. Без commit."""
-    out = Outbox([], [], set(), set())
+    out = Outbox([], set(), set())
     events = (await db.execute(
         select(FinanceChangeEvent, Student.full_name)
         .join(Student, Student.id == FinanceChangeEvent.student_id)
@@ -348,8 +347,6 @@ async def notify_pending(db: AsyncSession) -> Outbox:
             out.notifications.append(notify(db, user.id, kind="finance_change", title=visible.title, body=body,
                                             link=visible.link, priority="high"))
             out.recipients.add(user.id)
-            if user.telegram_id:
-                out.telegram.append((user.telegram_id, f"Финансы · {visible.title}\n{body}"))
         if group.contract_id:
             out.contract_ids.add(group.contract_id)
         for e in group.events:
@@ -359,8 +356,8 @@ async def notify_pending(db: AsyncSession) -> Outbox:
 
 async def flush_notifications(db: AsyncSession) -> int:
     """notify_pending + commit, затем доставка: WebSocket (колокольчик и
-    страницы раздела обновляются сразу) и копия в Telegram. Доставка — после
-    commit и без гарантий: колокольчик и журнал уже записаны."""
+    страницы раздела обновляются сразу). Доставка — после commit и без
+    гарантий: колокольчик и журнал уже записаны. В Telegram финансы не пишут."""
     out = await notify_pending(db)
     await db.commit()
     if out.notifications or out.recipients:
@@ -371,11 +368,6 @@ async def flush_notifications(db: AsyncSession) -> int:
         if out.recipients:
             await push_ws(list(out.recipients), "finance.changed",
                           {"contract_ids": [str(c) for c in out.contract_ids]})
-    if out.telegram:
-        from app.services.telegram_bot import send_notification
-
-        for telegram_id, text in out.telegram:
-            await send_notification(telegram_id, text)
     return len(out.notifications)
 
 

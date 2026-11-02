@@ -1,7 +1,9 @@
+import { AutomaticContracts } from './AutomaticContracts'
+import { ContractDetailsEditor } from './ContractDetailsEditor'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, ArrowRight, Download, ChevronDown } from 'lucide-react'
-import { ACT_TEMPLATES, actsApi, type ActRecord, type ActTemplate } from '@/api/acts'
+import { FileText, Send, MoreHorizontal, Plus } from 'lucide-react'
+import { ACT_TEMPLATES, actsApi, type ActRecord } from '@/api/acts'
 import { trustmeApi, type TrustMeLink } from '@/api/trustme'
 import { useAuth } from '@/contexts/AuthContext'
 import { AppButton } from '@/components/ui'
@@ -11,7 +13,7 @@ import { downloadBlob } from '@/lib/utils'
 import { StudentTrustMePanel } from './StudentTrustMePanel'
 import { ActPreparationDialog } from './ActPreparationDialog'
 import { ActMailDialog, MAIL_STATUS } from './ActMailDialog'
-import { ACT_CATALOG, displayDate, documentTitle } from './actTemplates'
+import { displayDate, documentTitle } from './actTemplates'
 import { ContractStatus, recordNumber, documentLink, neutralDisabled } from './contractPresentation'
 
 export { MAIL_STATUS } from './ActMailDialog'
@@ -29,32 +31,34 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const manage = can('acts', 'manage')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(false)
-  const [showArchive, setShowArchive] = useState(false)
-  const [editor, setEditor] = useState<{ initial: ActRecord | null; template: ActTemplate } | null>(null)
+  const [editor, setEditor] = useState<{ initial: ActRecord | null } | null>(null)
+  const [fresh, setFresh] = useState<string | null>(null)
+  const [viewError, setViewError] = useState('')
   const [downloadAs, setDownloadAs] = useState<ActRecord | null>(null)
   const [downloadName, setDownloadName] = useState('')
   const [mailAct, setMailAct] = useState<ActRecord | null>(null)
-  const [documentPreview, setDocumentPreview] = useState<string | null>(null)
+  const [documentPreview, setDocumentPreview] = useState<{ url: string; title: string; description: string } | null>(null)
   const [resolution, setResolution] = useState<{ act: string; attempt: string } | null>(null)
   const [resolutionNote, setResolutionNote] = useState('')
+  const [editingContract, setEditingContract] = useState(false)
   const [resolutionOutcome, setResolutionOutcome] = useState('sent')
-  useEffect(() => () => { if (documentPreview) URL.revokeObjectURL(documentPreview) }, [documentPreview])
+  useEffect(() => () => { if (documentPreview) URL.revokeObjectURL(documentPreview.url) }, [documentPreview])
   const context = useQuery({ queryKey: ['acts', studentId, financialContractId], queryFn: () => financialContractId ? actsApi.financialContext(financialContractId) : actsApi.context(studentId), retry: false })
   const data = context.data
   const contracts = data?.contracts || []
   const activeContracts = contracts.filter(c => c.status === 3)
-  const current = contracts.find(c => c.id === selectedId) || (activeContracts.length === 1 ? activeContracts[0] : contracts.length === 1 ? contracts[0] : null)
+  const current = contracts.find(c => c.id === selectedId) || [...activeContracts].sort((a, b) => (b.contract_date || b.signed_date || '').localeCompare(a.contract_date || a.signed_date || ''))[0] || contracts[0] || null
   const status = useQuery({ queryKey: ['act-contract-status', studentId, current?.id], queryFn: () => actsApi.checkContract(studentId, current!.id), enabled: !!current, staleTime: 60000, retry: false })
   const currentStatus = status.data?.status ?? current?.status
   const canCreate = manage && !!current && currentStatus === 3 && !status.isPending && !status.error
-  const refresh = () => { for (const key of [['acts', studentId], ['acts-registry'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
+  const refresh = () => { for (const key of [['act-contract-status', studentId], ['contract-requisites', studentId], ['contract-details', studentId], ['acts', studentId], ['acts-registry'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
   const action = useMutation({ mutationFn: async ({ type, act, fileName }: { type: string; act: ActRecord; fileName?: string }) => {
     if (type === 'share') { await actsApi.share(act.id); refresh() }
     else downloadBlob(await actsApi.pdf(act.id), fileName || act.file_name || 'Акт.pdf')
   }, retry: false })
   const pdf = useMutation({ mutationFn: async ({ id, view = false }: { id: string; view?: boolean }) => {
     const blob = await actsApi.contractPdf(studentId, id)
-    if (view) setDocumentPreview(URL.createObjectURL(blob)); else downloadBlob(blob, `Договор-${data?.student_name || ''}.pdf`)
+    if (view) setDocumentPreview({ url: URL.createObjectURL(blob), title: 'Договор студента', description: 'PDF договора' }); else downloadBlob(blob, `Договор-${data?.student_name || ''}.pdf`)
   }, retry: false })
   const assign = useMutation({ mutationFn: (id: string) => trustmeApi.assignFinancial(studentId, id, financialContractId!), onSuccess: link => { setSelectedId(link.id); refresh() }, retry: false })
   const selectNew = useMutation({ mutationFn: async (link: TrustMeLink) => {
@@ -66,49 +70,73 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   if (context.error || !data) return <div role="alert" className={`${panel} p-5`}><p className="text-sm">{getErrorMessage(context.error, 'Не удалось загрузить документы')}</p><AppButton className="mt-3" colorPrefix="p" variant="subtle" size="sm" onClick={() => context.refetch()}>Повторить</AppButton></div>
   const history = data.acts.filter(a => !current || a.snapshot.contract_link_id === current.id)
   const otherActs = current ? data.acts.filter(a => a.snapshot.contract_link_id !== current.id) : []
-  const archive = contracts.filter(c => c.status !== 3)
   const error = action.error || pdf.error || assign.error || selectNew.error
-  const renderHistory = (records: ActRecord[]) => records.map(act => <article key={act.id} className="space-y-4 border-t border-p-line py-5 first:border-t-0">
-    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-p-bg text-p-text"><FileText size={21} /></span><div className="min-w-0 flex-1"><p className="break-words text-base font-semibold leading-snug text-p-text">{act.file_name || `${ACT_TEMPLATES[act.template]} · ${act.student_name || data.student_name}`}</p><p className="mt-1.5 text-sm text-p-muted">{displayDate(act.snapshot.period_start)} — {displayDate(act.snapshot.period_end)}{act.author_name ? ` · ${act.author_name}` : ''}{act.supersedes_id ? ' · Новая версия' : ''}</p></div><span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium ${act.status === 'draft' ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>{act.status === 'draft' ? 'Черновик' : 'PDF готов'}</span></div>
-    <div className="flex flex-wrap items-center gap-2 sm:pl-[52px]">
-      {act.status === 'ready' && <AppButton colorPrefix="p" variant="subtle" size="sm" className={`!text-p-text ${neutralDisabled}`} disabled={action.isPending} onClick={() => action.mutate({ type: 'download', act })}><Download size={14} />Скачать акт</AppButton>}
-      {act.status === 'ready' && <button className={`${documentLink} !text-p-text`} onClick={() => { action.reset(); setDownloadAs(act); setDownloadName((act.file_name || 'Акт.pdf').replace(/\.pdf$/i, '')) }}>Скачать как…</button>}
-      {manage && canCreate && act.snapshot.contract_link_id === current?.id && <AppButton colorPrefix="p" variant="subtle" size="sm" className="!text-p-text" onClick={() => setEditor({ initial: act, template: act.template })}>{act.status === 'draft' ? 'Дополнить черновик' : 'Новая версия'}</AppButton>}
-      {manage && act.status === 'ready' && !act.shared && <AppButton colorPrefix="p" variant="subtle" size="sm" className={`!text-p-text ${neutralDisabled}`} disabled={action.isPending} onClick={() => action.mutate({ type: 'share', act })}>Открыть студенту</AppButton>}
-      {act.shared && <span className="text-xs font-medium text-emerald-700">Доступен студенту</span>}
-      {manage && can('acts_mail', 'manage') && act.status === 'ready' && <AppButton colorPrefix="p" variant="subtle" size="sm" className={`!text-p-text ${neutralDisabled}`} title={!data.mail_configured ? 'Отправка по почте недоступна' : undefined} disabled={!data.mail_configured || act.mail.some(m => ['sending','unknown'].includes(m.status))} onClick={() => setMailAct(act)}>Отправить по почте</AppButton>}
+  const viewAct = async (act: ActRecord) => {
+    try { setDocumentPreview({ url: URL.createObjectURL(await actsApi.pdf(act.id)), title: act.file_name || 'Акт', description: 'Сохранённый PDF акта' }) }
+    catch (e) { setViewError(getErrorMessage(e, 'Не удалось открыть PDF')) }
+  }
+  const sorted = (records: ActRecord[]) => [...records].sort((a, b) => Number(b.id === fresh) - Number(a.id === fresh))
+  const sentMail = (act: ActRecord) => act.mail.some(m => ['sent','confirmed_sent'].includes(m.status))
+  const closeMenu = (e: { currentTarget: HTMLElement }) => e.currentTarget.closest('details')?.removeAttribute('open')
+  const menuItem = `${documentLink} w-full px-3 !text-p-text`
+  const actionButton = 'w-36 justify-center'
+  const renderHistory = (records: ActRecord[]) => sorted(records).map(act => <article key={act.id} className={`relative flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-p-line py-3 pl-4 pr-12 first:border-t-0 sm:flex-nowrap ${act.id === fresh ? 'bg-p-bg ring-2 ring-inset ring-amber-300' : ''}`}>
+    <span className="hidden h-9 w-9 shrink-0 place-items-center rounded-lg bg-p-bg text-p-text sm:grid"><FileText size={18} /></span>
+    <div className="min-w-0 flex-1 basis-60">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">{act.status === 'ready'
+        ? <button className="min-w-0 break-words text-left text-sm font-semibold leading-snug text-p-text hover:underline" title="Открыть PDF" onClick={() => viewAct(act)}>{act.file_name || ACT_TEMPLATES[act.template]}</button>
+        : <p className="min-w-0 break-words text-sm font-semibold leading-snug text-p-text">{`${ACT_TEMPLATES[act.template]} · ${act.student_name || data.student_name}`}</p>}
+        <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${act.status === 'draft' ? 'bg-amber-50 text-amber-800' : sentMail(act) ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-800'}`}>{act.status === 'draft' ? 'Черновик' : sentMail(act) ? 'Отправлен' : 'Готов'}</span>
+        {act.shared && <span className="text-[11px] font-medium text-emerald-700">Доступен студенту</span>}</div>
+      <p className="mt-0.5 truncate text-xs text-p-muted" title={act.snapshot.lines.map(l => l.name).join(', ')}>{act.snapshot.lines.map(l => l.name).join(', ') || 'Услуги не выбраны'} · {displayDate(act.snapshot.period_start)} — {displayDate(act.snapshot.period_end)}{act.supersedes_id ? ' · Новая версия' : ''}</p>
+      {!!act.mail.length && <ul className="mt-0.5 space-y-0.5 text-xs text-p-muted">{act.mail.map(m => <li key={m.id} className="break-words">{displayDate(m.created_at)} · {m.recipient} · {MAIL_STATUS[m.status] || m.status}{manage && can('acts_mail','manage') && ['sending','unknown'].includes(m.status) && <button className="ml-2 underline" onClick={() => { resolve.reset(); setResolution({ act:act.id, attempt:m.id }); setResolutionNote('') }}>Уточнить результат</button>}</li>)}</ul>}
     </div>
-    {!!act.mail.length && <ul className="space-y-1 text-xs text-p-muted sm:pl-[52px]">{act.mail.map(m => <li key={m.id} className="break-words">{displayDate(m.created_at)} · {m.recipient} · {MAIL_STATUS[m.status] || m.status}{manage && can('acts_mail','manage') && ['sending','unknown'].includes(m.status) && <button className="ml-2 underline" onClick={() => { resolve.reset(); setResolution({ act:act.id, attempt:m.id }); setResolutionNote('') }}>Уточнить результат</button>}</li>)}</ul>}
+    <div className="flex shrink-0 items-center gap-2">
+      {act.status === 'draft' && manage && canCreate && act.snapshot.contract_link_id === current?.id && <AppButton colorPrefix="p" size="sm" className={actionButton} onClick={() => setEditor({ initial: act })}>Продолжить</AppButton>}
+      {manage && can('acts_mail', 'manage') && act.status === 'ready' && <AppButton colorPrefix="p" size="sm" className={`${actionButton} ${neutralDisabled}`} title={!data.mail_configured ? 'Отправка по почте не настроена' : undefined} disabled={!data.mail_configured || act.mail.some(m => ['sending','unknown'].includes(m.status))} onClick={() => setMailAct(act)}><Send size={14} />Отправить</AppButton>}
+      {act.status === 'ready' && <details className="absolute right-2 top-2"><summary aria-label="Другие действия" className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-lg text-p-muted hover:bg-p-bg [&::-webkit-details-marker]:hidden"><MoreHorizontal size={18} /></summary><div className="absolute right-0 z-20 mt-1 flex w-52 flex-col items-start rounded-lg border border-p-line bg-p-panel p-1 shadow-lg">
+        <button className={menuItem} onClick={e => { closeMenu(e); viewAct(act) }}>Посмотреть</button>
+        <button className={menuItem} disabled={action.isPending} onClick={e => { closeMenu(e); action.mutate({ type: 'download', act }) }}>Скачать</button>
+        <button className={menuItem} onClick={e => { closeMenu(e); action.reset(); setDownloadAs(act); setDownloadName((act.file_name || 'Акт.pdf').replace(/\.pdf$/i, '')) }}>Скачать как…</button>
+        {manage && !act.shared && <button className={menuItem} disabled={action.isPending} onClick={e => { closeMenu(e); action.mutate({ type: 'share', act }) }}>Открыть студенту</button>}
+        {manage && canCreate && act.snapshot.contract_link_id === current?.id && <button className={menuItem} onClick={e => { closeMenu(e); setEditor({ initial: act }) }}>Новая версия</button>}
+      </div></details>}
+    </div>
   </article>)
+  const others = contracts.filter(c => c.id !== current?.id)
+  const signer = current ? current.customer_name || current.signers.filter(s => !s.is_company).map(s => s.name).filter(Boolean).join(', ') : ''
+  const createReason = !current ? '' : status.isPending ? 'Проверяем статус договора…' : status.error ? 'Не удалось проверить статус договора' : currentStatus !== 3 ? 'Акт можно создать только по подписанному договору' : ''
   return <div className="min-w-0 space-y-6 text-p-text">
-    {!current && !choosing ? <div className="flex flex-wrap items-center justify-between gap-3 py-2">
-      <p className="text-sm text-p-muted">{activeContracts.length > 1 ? 'Выберите договор студента' : 'Договор не привязан'}</p>
-      {can('contracts','manage') && <AppButton colorPrefix="p" variant="subtle" size="sm" aria-expanded={choosing} onClick={() => setChoosing(true)} disabled={choosing}>Привязать договор</AppButton>}
+    {can('contracts', 'manage') && !financialContractId && <AutomaticContracts studentId={studentId} onChanged={refresh} linkedShortUrls={contracts.map(c => c.short_url)} />}
+    {!current && !choosing ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-p-line p-5">
+      <p className="text-sm text-p-muted">Договор пока не привязан. После привязки здесь можно будет создавать акты.</p>
+      {can('contracts','manage') && <AppButton colorPrefix="p" variant="subtle" size="sm" aria-expanded={choosing} onClick={() => setChoosing(true)} disabled={choosing}>Добавить вручную</AppButton>}
       {!can('contracts','manage') && <p className="text-xs text-p-muted">Договор привяжет сотрудник с правом управления договорами.</p>}
-    </div> : current ? <section className="border-b border-p-line pb-4">
-      <div className="flex flex-wrap items-center gap-2"><h3 className="min-w-0 break-words text-sm font-semibold">{documentTitle(current.name)}</h3><span className="text-xs text-p-muted">{recordNumber(current.legal_number || current.number)}</span><ContractStatus status={currentStatus} /></div>
-      <p className="mt-2 text-xs text-p-muted">{displayDate(current.contract_date)} · Подписант: {current.signers.filter(s => !s.is_company).map(s => s.name).filter(Boolean).join(', ') || 'Не указан'}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1"><button className={documentLink} disabled={pdf.isPending} onClick={() => pdf.mutate({ id: current.id, view: true })}>Открыть PDF</button>{can('contracts','manage') && <button className={documentLink} onClick={() => setChoosing(true)}>Сменить</button>}</div>
-      {status.isPending && <p role="status" className="mt-2 text-xs text-p-muted">Проверяем статус договора…</p>}
+    </div> : current ? <section aria-label="Договор" className="rounded-xl border border-p-line bg-p-panel p-4 sm:p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Договор для актов</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="min-w-0 break-words text-base font-semibold">{recordNumber(current.legal_number || current.number)}</h3><ContractStatus status={currentStatus} source={current.source} /></div>
+      <p className="mt-1 break-words text-sm text-p-text">{documentTitle(current.name)}</p>
+      <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-3"><div><dt className="text-p-muted">Дата договора</dt><dd className="font-medium">{current.contract_date ? displayDate(current.contract_date) : 'не указана'}</dd></div><div><dt className="text-p-muted">Подписан</dt><dd className="font-medium">{(status.data?.signed_date || current.signed_date) ? displayDate(status.data?.signed_date || current.signed_date) : 'дата не указана'}{(status.data?.signed_date_source || current.signed_date_source) === 'manual' ? ' (вручную)' : ''}</dd></div><div><dt className="text-p-muted">Заказчик</dt><dd className="break-words font-medium">{signer || 'Не указан'}</dd></div></dl>
+      {current.source === 'manual' && <p className="mt-2 text-xs text-p-muted">Загружен вручную · {current.status === 3 ? 'подписи подтверждены сотрудником' : 'подписи не подтверждены'}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-p-line pt-2"><button className={`${documentLink} !text-p-text`} disabled={pdf.isPending} onClick={() => pdf.mutate({ id: current.id, view: true })}>Открыть PDF</button>{can('contracts','manage') && <details className="relative ml-auto"><summary aria-label="Действия с договором" className="grid h-9 w-9 cursor-pointer list-none place-items-center rounded-lg text-p-muted hover:bg-p-bg [&::-webkit-details-marker]:hidden"><MoreHorizontal size={18} /></summary><div className="absolute right-0 z-20 mt-1 flex w-52 flex-col items-start rounded-lg border border-p-line bg-p-panel p-1 shadow-lg"><button className={`${documentLink} w-full px-3 !text-p-text`} onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); setEditingContract(!editingContract) }}>Проверить реквизиты</button><button className={`${documentLink} w-full px-3 !text-p-text`} onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); setChoosing(true) }}>Добавить договор</button></div></details>}</div>
+      {!!others.length && <details className="mt-2"><summary className="cursor-pointer py-1 text-xs font-medium text-p-muted">Другие договоры студента · {others.length}</summary><div className="divide-y divide-p-line">{others.map(c => <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{recordNumber(c.legal_number || c.number)} · {documentTitle(c.name)}</p><p className="mt-1 text-xs text-p-muted">{c.source === 'manual' ? 'Загружен вручную' : 'TrustMe'} · Дата договора: {c.contract_date ? displayDate(c.contract_date) : 'не указана'}</p></div><div className="flex items-center gap-3"><ContractStatus status={c.status} source={c.source} /><button className={documentLink} onClick={() => { setSelectedId(c.id); setEditingContract(false); setChoosing(false) }}>Выбрать для актов</button></div></div>)}</div></details>}
+      {editingContract && <ContractDetailsEditor key={current.id} studentId={studentId} contract={{ ...current, created_at: null }} onSaved={refresh} onClose={() => setEditingContract(false)} />}
       {status.error && <p role="alert" className="mt-2 text-xs text-amber-800">Не удалось проверить статус договора. <button className="underline" onClick={() => status.refetch()}>Повторить</button></p>}
-      {!status.isPending && !status.error && currentStatus !== 3 && <p className="mt-2 text-xs text-p-muted">Создание актов недоступно: нужен подписанный действующий договор. История сохранена.</p>}
     </section> : null}
     {choosing && <section aria-label="Выбор договора" className="min-w-0 border-b border-p-line pb-5">
-      <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">{current ? 'Сменить договор' : 'Привязать договор'}</h3><button className={documentLink} onClick={() => setChoosing(false)}>Отмена</button></div>
+      <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">{current ? 'Добавить договор' : 'Привязать договор'}</h3><button className={documentLink} onClick={() => setChoosing(false)}>Отмена</button></div>
       <StudentTrustMePanel studentId={studentId} studentName={data.student_name} canManage={can('contracts','manage')} onSelected={link => selectNew.mutate(link)} onChanged={refresh} />
       {selectNew.error && <p role="alert" className="py-3 text-sm text-red-700">{getErrorMessage(selectNew.error)}</p>}
     </section>}
     {!!data.unassigned_contracts?.length && <details className={panel}><summary className="cursor-pointer p-4 text-sm font-medium">Нужно сопоставить с финансовым договором · {data.unassigned_contracts.length}</summary><div className="divide-y divide-p-line border-t border-p-line">{data.unassigned_contracts.map(c => <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div className="min-w-0"><p className="break-words text-sm">{documentTitle(c.name)}</p><button className="mt-1 text-xs text-p-muted underline" onClick={() => pdf.mutate({ id:c.id,view:true })}>Просмотреть PDF</button></div>{can('contracts','manage') && <AppButton colorPrefix="p" variant="subtle" size="sm" disabled={assign.isPending} onClick={() => assign.mutate(c.id)}>Сопоставить с этим договором</AppButton>}</div>)}</div></details>}
-    {current && !choosing && manage && <section><h3 className="mb-1 text-sm font-semibold">Создать акт по шаблону</h3><p className="mb-3 text-xs text-p-muted">Реквизиты — из договора. Период и выполненные услуги — от вас.</p><div className="divide-y divide-p-line">{ACT_CATALOG.map(t => {
-      const existing = history.filter(a => a.template === t.id)
-      const reason = !canCreate ? status.isPending ? 'Проверяем статус договора' : status.error ? 'Сначала повторите проверку статуса договора' : 'Для создания акта нужен подписанный действующий договор' : ''
-      return <article key={t.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 py-4"><div className="min-w-0 flex-1 basis-48"><h4 className="text-sm font-medium">{t.title}</h4><p className="mt-1 text-xs leading-relaxed text-p-muted">{t.description}</p>{!!existing.length && <p className="mt-1 text-[11px] text-p-muted">Готово: {existing.filter(a => a.status === 'ready').length} · Черновики: {existing.filter(a => a.status === 'draft').length}</p>}</div><div className="max-w-full"><AppButton colorPrefix="p" size="sm" className={neutralDisabled} aria-label={`Создать акт: ${t.title}`} title={reason || undefined} disabled={!canCreate} onClick={() => setEditor({ initial: null, template: t.id })}>Создать акт <ArrowRight size={13} /></AppButton>{reason && <p className="mt-1 max-w-52 text-xs text-p-muted">{reason}</p>}</div></article>
-    })}</div></section>}
-    {!!archive.length && <div><button className="flex items-center gap-2 text-xs text-p-muted" onClick={() => setShowArchive(!showArchive)}><ChevronDown size={14} />{showArchive ? 'Скрыть' : 'Показать'} архив договоров · {archive.length}</button>{showArchive && <div className={`${panel} mt-3 divide-y divide-p-line`}>{archive.map(c => <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="min-w-0 break-words text-sm text-p-muted">{documentTitle(c.name)} · <ContractStatus status={c.status} /></p><button className="text-xs underline" onClick={() => { setSelectedId(c.id); setShowArchive(false) }}>История и PDF</button></div>)}</div>}</div>}
-    {current && !choosing && <section><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">История актов</h3><span className="text-xs text-p-muted">{history.length}</span></div><div className={panel}>{history.length ? renderHistory(history) : <div className="p-5 text-sm text-p-muted">{current ? 'Готовые PDF и сохранённые черновики появятся здесь.' : 'Сначала выберите договор, чтобы подготовить акт.'}</div>}</div>{!!otherActs.length && <details className={`${panel} mt-3`}><summary className="cursor-pointer p-4 text-sm text-p-muted">Акты других договоров · {otherActs.length}</summary>{renderHistory(otherActs)}</details>}</section>}
-    {error && <p role="alert" className="rounded-lg border border-red-200 p-3 text-sm text-red-700">{getErrorMessage(error, 'Не удалось выполнить действие')}</p>}
-    {editor && current && <ActPreparationDialog studentId={studentId} studentName={data.student_name} contract={current} template={editor.template} initial={editor.initial} onClose={() => setEditor(null)} onSaved={refresh} />}
-    {documentPreview && <Dialog open onOpenChange={open => { if (!open) setDocumentPreview(null) }}><DialogContent className="!max-w-5xl"><DialogHeader><DialogTitle>Договор студента</DialogTitle><DialogDescription>PDF из TrustMe</DialogDescription></DialogHeader><iframe title="Договор TrustMe PDF" src={documentPreview} className="h-[72dvh] w-full rounded-lg border border-p-line" /></DialogContent></Dialog>}
+    {current && !choosing && <section>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Акты{history.length ? ` · ${history.length}` : ''}</h3>{manage && <div className="text-right"><AppButton colorPrefix="p" className={neutralDisabled} disabled={!canCreate} title={createReason || undefined} onClick={() => setEditor({ initial: null })}><Plus size={16} />Создать акт</AppButton>{createReason && <p className="mt-1 text-xs text-p-muted">{createReason}</p>}</div>}</div>
+      <div className="rounded-xl border border-p-line bg-p-panel">{history.length ? renderHistory(history) : <div className="p-5 text-sm text-p-muted">{manage ? 'Актов пока нет. Нажмите «Создать акт» и отметьте выполненные услуги — реквизиты подставятся из договора.' : 'Актов пока нет.'}</div>}</div>
+      {!!otherActs.length && <details className={`${panel} mt-3`}><summary className="cursor-pointer p-4 text-sm text-p-muted">Акты других договоров · {otherActs.length}</summary>{renderHistory(otherActs)}</details>}
+    </section>}
+    {(error || viewError) && <p role="alert" className="rounded-lg border border-red-200 p-3 text-sm text-red-700">{viewError || getErrorMessage(error, 'Не удалось выполнить действие')}</p>}
+    {editor && current && <ActPreparationDialog studentId={studentId} studentName={data.student_name} contract={current} initial={editor.initial} previousActs={data.acts} onClose={() => setEditor(null)} onSaved={id => { if (id) setFresh(id); refresh() }} />}
+    {documentPreview && <Dialog open onOpenChange={open => { if (!open) setDocumentPreview(null) }}><DialogContent className="!max-w-5xl"><DialogHeader><DialogTitle>{documentPreview.title}</DialogTitle><DialogDescription>{documentPreview.description}</DialogDescription></DialogHeader><iframe title={documentPreview.title} src={documentPreview.url} className="h-[72dvh] w-full rounded-lg border border-p-line" /></DialogContent></Dialog>}
     {downloadAs && <Dialog open onOpenChange={open => { if (!open && !action.isPending) setDownloadAs(null) }}><DialogContent><DialogHeader><DialogTitle>Скачать под другим именем</DialogTitle><DialogDescription>Название в истории и в отправляемых письмах сохранится.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={async e => {
       e.preventDefault()
       const name = downloadName.trim().replace(/\.pdf$/i, '')

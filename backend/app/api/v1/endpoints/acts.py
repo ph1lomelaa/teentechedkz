@@ -6,22 +6,22 @@ import re
 import smtplib
 import uuid
 from datetime import date, datetime, time, timezone
-from io import BytesIO
 from typing import Annotated, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pypdf import PdfReader
 from pydantic import BaseModel, Field, field_validator, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.endpoints.trustme import _client, _signers, _upstream
+from app.api.v1.endpoints.trustme import _client, _signers, _upstream, _link_dict
 from app.core.audit import log_change
 from app.core.database import get_db
 from app.core.deps import CurrentStudent, CurrentUser
 from app.core.permissions import Action, require_access
+from app.models.application import Application, SubmissionStatus
+from app.models.contract import Contract
 from app.models.guardian import Guardian
 from app.models.meeting import Meeting, MeetingStatus
 from app.models.mentor_assignment import MentorAssignment
@@ -32,6 +32,8 @@ from app.models.user import User, UserRole
 from app.schemas.service_act import ActInput, ActDraftInput, ActMailInput, ActMailResolution
 from app.services import mailer
 from app.services.act_pdf import render_act
+from app.services.contract_services import validate_service_lines, validate_company_signature
+from app.services.contract_documents import read_pages, signing_date, apply_document_signing_date
 from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS
 from app.services.minio_service import minio_delete, minio_download, minio_upload
 from app.services.trustme import TrustMeError
@@ -115,6 +117,10 @@ async def _link(db, sid, link_id):
 
 
 async def _verify_contract(link):
+    if getattr(link, "source", None) == "manual":
+        if link.status != 3 or not link.storage_path:
+            raise HTTPException(409, "Подтвердите наличие подписанного договора")
+        return
     try:
         async with _client() as client:
             data = await client.contract(link.short_url)
@@ -213,8 +219,7 @@ async def student_acts(student_id: uuid.UUID, db: Db, current_user: CurrentUser,
     return {"student_name": student.full_name, "completed_meetings": count,
         "mail_configured": mailer.is_configured(),
         "recipient_suggestions": list(dict.fromkeys([g.email for g in guardians if g.email] + ([portal_user.email] if portal_user else []))),
-        "contracts": [{"id": str(c.id), "name": c.name, "number": c.number, "status": c.status,
-                       "short_url": c.short_url, "signers": c.signers, "legal_number": (cached_profile(c) or {}).get("fields", {}).get("contract_number"), "contract_date": (cached_profile(c) or {}).get("fields", {}).get("contract_date"), "financial_contract_id": str(c.financial_contract_id) if c.financial_contract_id else None} for c in links],
+        "contracts": [_link_dict(c) for c in links],
         "acts": [{**_act_dict(a), "author_name": authors.get(a.created_by),
                   "mail": [_mail_dict(m) for m in attempts if m.act_id == a.id]} for a in acts]}
 
@@ -223,6 +228,10 @@ async def student_acts(student_id: uuid.UUID, db: Db, current_user: CurrentUser,
 async def contract_pdf(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user)
     link = await _link(db, student_id, link_id)
+    if getattr(link, "source", None) == "manual":
+        if not link.storage_path:
+            raise HTTPException(404, "PDF договора не найден")
+        return _pdf_response(await minio_download(link.storage_path), "Договор.pdf", inline=True)
     try:
         async with _client() as client:
             if client.company_id != link.company_id:
@@ -234,13 +243,13 @@ async def contract_pdf(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, curren
 
 
 def _extract_pages(content):
-    reader = PdfReader(BytesIO(content))
-    if reader.is_encrypted or len(reader.pages) > 80:
-        raise ValueError("Для этого PDF требуется ручная проверка")
-    return [{"page": i+1, "text": (page.extract_text() or "")[:6000]} for i, page in enumerate(reader.pages)]
+    return read_pages(content)
 
 
 async def _refresh_contract(db, link):
+    if getattr(link, "source", None) == "manual":
+        link.profile_checked_at = datetime.now(timezone.utc)
+        return {}
     async with _client() as client:
         if client.company_id != link.company_id:
             raise HTTPException(409, "Договор относится к другой компании")
@@ -248,6 +257,9 @@ async def _refresh_contract(db, link):
     status = info.get("contract_status")
     if not isinstance(status, int) or isinstance(status, bool):
         raise TrustMeError("TrustMe не вернул актуальный статус договора")
+    value = signing_date(info)
+    if value:
+        link.signed_date, link.signed_date_source = value, "trustme"
     link.status = status
     link.signers = _signers(info.get("doc_parties") or [], "requisites")
     link.profile_checked_at = datetime.now(timezone.utc)
@@ -263,7 +275,7 @@ async def check_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, curr
     except TrustMeError as error:
         raise _upstream(error) from None
     await db.commit()
-    return {"status": link.status, "checked_at": link.profile_checked_at.isoformat()}
+    return {"status": link.status, "checked_at": link.profile_checked_at.isoformat(), "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None)}
 
 
 @router.post("/students/{student_id}/contracts/{link_id}/inspect")
@@ -275,15 +287,22 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
     pages = []
     try:
         info = await _refresh_contract(db, link)
-        if previous and not refresh:
+        if previous and previous.get('service_policy') == 3 and 'source_pages' in previous and not refresh:
             profile = previous
         else:
-            async with _client() as client:
-                if client.company_id != link.company_id:
-                    raise HTTPException(409, "Договор относится к другой компании")
-                content = await client.pdf(link.short_url)
+            if getattr(link, "source", None) == "manual":
+                content = await minio_download(link.storage_path)
+            else:
+                async with _client() as client:
+                    if client.company_id != link.company_id:
+                        raise HTTPException(409, "Договор относится к другой компании")
+                    content = await client.pdf(link.short_url)
             pages = await asyncio.to_thread(_extract_pages, content)
+            apply_document_signing_date(link, pages)
             profile = extract_profile(pages, info, content)
+            if previous and previous.get('fingerprint') == profile.get('fingerprint'):
+                known = {item['id'] for item in profile['services']}
+                profile['services'].extend(item for item in previous.get('services',[]) if item.get('verbatim_manual') and item['id'] not in known)
             # Explicit staff corrections survive a later extraction refresh.
             for key, source in (previous or {}).get("sources", {}).items():
                 if source.get("kind") == "manual" and key in previous.get("fields", {}):
@@ -298,13 +317,20 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
         if isinstance(error, HTTPException): raise
         raise HTTPException(422, "Не удалось прочитать PDF. Откройте договор и дополните недостающие данные.") from None
     await db.commit()
-    return {**profile, "pages": pages, "status": link.status,
+    # Сумма для акта — из финансового договора; без явной связи берём его,
+    # только если у студента он единственный.
+    finance = (await db.execute(select(Contract).where(Contract.student_id == student_id))).scalars().all()
+    finance = [c for c in finance if c.id == link.financial_contract_id] if link.financial_contract_id else finance if len(finance) == 1 else []
+    amount = finance[0] if finance and finance[0].amount else None
+    return {**{k:v for k,v in profile.items() if k != "source_pages"}, "pages": pages, "status": link.status,
+            "contract_amount": str(amount.amount) if amount else None, "contract_currency": amount.currency if amount else None,
             "suggested_contract_number": profile["fields"].get("contract_number"),
-            "signers": link.signers, "requires_verification": True}
+            "signers": link.signers, "requires_verification": True,
+            "applications": [{"id":str(a.id),"university":a.university,"program":a.program,"status":a.submission_status.value} for a in (await db.execute(select(Application).where(Application.student_id == student_id, Application.contract_id == link.financial_contract_id if link.financial_contract_id else True))).scalars().all()]}
 
 
 class ContractRequisitesPatch(BaseModel):
-    fields: dict[str, str] = Field(max_length=12)
+    fields: dict[str, str] = Field(max_length=13)
 
     @field_validator("fields")
     @classmethod
@@ -362,7 +388,14 @@ async def _validate_input(db, sid, data):
 @router.post("/students/{student_id}/preview")
 async def preview(student_id: uuid.UUID, body: ActInput, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user, manage=True)
-    await _validate_input(db, student_id, body)
+    link = await _validate_input(db, student_id, body)
+    try:
+        validate_service_lines(body, cached_profile(link))
+        validate_company_signature(body, cached_profile(link))
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    await _check_work_evidence(db, student_id, body, link)
+    await _check_duplicate_work(db, student_id, body)
     content = await asyncio.to_thread(render_act, body, draft=True)
     return _pdf_response(content, body.filename(), inline=True)
 
@@ -409,7 +442,15 @@ async def generate(act_id: uuid.UUID, db: Db, current_user: CurrentUser):
         raise HTTPException(422, str(error)) from None
     link = await _validate_input(db, act.student_id, data)
     await _verify_contract(link)
+    try:
+        validate_service_lines(data, cached_profile(link))
+        validate_company_signature(data, cached_profile(link))
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    await _check_work_evidence(db, act.student_id, data, link)
+    await _check_duplicate_work(db, act.student_id, data)
     content = await asyncio.to_thread(render_act, data)
+    act.snapshot = data.model_dump(mode="json")
     path = await minio_upload(content, act.student_id, data.filename(), "application/pdf")
     try:
         act.storage_path, act.file_name, act.status = path, data.filename(), "ready"
@@ -515,3 +556,65 @@ async def portal_pdf(act_id: uuid.UUID, student: CurrentStudent, db: Db):
     if act is None or act.student_id != student.id or act.status != "ready" or not act.shared_at or not act.storage_path:
         raise HTTPException(404, "Акт не найден")
     return _pdf_response(await minio_download(act.storage_path), act.file_name)
+
+
+class ContractQuote(BaseModel):
+    page: int = Field(ge=1, le=80)
+    text: str = Field(min_length=12, max_length=1800)
+    category: Literal['profile','portfolio','ielts','career','applications','offer','admission','other'] = 'other'
+
+
+@router.post('/students/{student_id}/contracts/{link_id}/service-quote')
+async def add_service_quote(student_id: uuid.UUID, link_id: uuid.UUID, body: ContractQuote, db: Db, current_user: CurrentUser):
+    await _student(db, student_id, current_user, manage=True)
+    link = await _link(db, student_id, link_id)
+    profile = cached_profile(link)
+    from app.services.contract_services import normalized
+    import hashlib
+    page = next((p for p in (profile or {}).get('source_pages',[]) if p['page'] == body.page), None)
+    quote = normalized(body.text)
+    if not page or quote not in normalized(page['text']):
+        raise HTTPException(422, 'Цитата не найдена на указанной странице договора. Скопируйте точный текст из PDF')
+    for existing in profile.get('services',[]):
+        if existing['page'] == body.page and (quote in normalized(existing.get('excerpt','')) or quote in normalized(existing['text'])):
+            return existing
+    identity = hashlib.sha256(f"{profile['fingerprint']}:{body.page}:{quote}".encode()).hexdigest()[:24]
+    item = {'id':identity, 'name':'Услуга по договору', 'category':body.category, 'text':quote,
+            'page':body.page, 'reference':f'Договор, стр. {body.page}', 'excerpt':quote, 'verbatim_manual': True}
+    if not any(s['id'] == identity for s in profile.get('services',[])):
+        profile.setdefault('services',[]).append(item)
+        store_profile(link, profile)
+        await log_change(db, 'student', student_id, 'contract_service_quote_added', None, identity, str(current_user.id))
+        await db.commit()
+    return item
+
+
+async def _check_work_evidence(db, sid, data, link):
+    data.verified_outcomes = []
+    if data.template not in ('applications','offer','admission','final'):
+        return
+    allowed = [SubmissionStatus.submitted,SubmissionStatus.offer_received,SubmissionStatus.enrolled] if data.template == 'applications' else [SubmissionStatus.offer_received,SubmissionStatus.enrolled] if data.template == 'offer' else [SubmissionStatus.enrolled]
+    stmt = select(Application).where(Application.student_id == sid, Application.id.in_(data.application_ids), Application.submission_status.in_(allowed))
+    if link.financial_contract_id:
+        stmt = stmt.where(Application.contract_id == link.financial_contract_id)
+    applications = (await db.execute(stmt)).scalars().all()
+    if not applications or len(applications) != len(set(data.application_ids)):
+        raise HTTPException(422, 'Выберите подтверждённый оффер или зачисление из заявок этого студента и договора')
+    for application in applications:
+        if not application.university:
+            raise HTTPException(422, 'Укажите университет в подтверждающей заявке')
+        label = 'Заявка подана' if data.template == 'applications' else 'Оффер получен' if application.submission_status == SubmissionStatus.offer_received else 'Зачисление подтверждено'
+        data.verified_outcomes.append(f"{label}: {application.university or 'университет не указан'}" + (f", {application.program}" if application.program else ''))
+
+
+async def _check_duplicate_work(db, sid, data):
+    ready = (await db.execute(select(ServiceAct).where(ServiceAct.student_id == sid, ServiceAct.contract_link_id == data.contract_link_id, ServiceAct.status == 'ready'))).scalars().all()
+    replaced = {a.supersedes_id for a in ready if a.supersedes_id}
+    selected = {line.contract_service_id for line in data.lines}
+    for previous in ready:
+        if previous.id in replaced or previous.id == data.supersedes_id:
+            continue
+        old = {line.get('contract_service_id') for line in previous.snapshot.get('lines',[]) if line.get('contract_service_id')}
+        if old & selected:
+            raise HTTPException(409, 'Эта работа уже включена в готовый акт. Для исправления создайте новую версию этого акта')
+    data.previous_act_references = [f"Акт от {a.snapshot.get('act_date') or a.created_at.date().isoformat()}" for a in ready if a.id not in replaced and a.id != data.supersedes_id]

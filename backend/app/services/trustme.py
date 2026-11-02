@@ -206,10 +206,10 @@ class TrustMeClient:
         return data
 
     async def search(self, name: str, aliases: tuple[str, ...] = (), *,
-                     max_pages: int = 3) -> SearchResults:
+                     max_pages: int = 3, exact: bool = False) -> SearchResults:
         if not 1 <= max_pages <= 10:
             raise ValueError("max_pages must be between 1 and 10")
-        queries = name_queries(name, aliases)
+        queries = [name.strip()] if exact and name.strip() else name_queries(name, aliases)
         if not queries:
             raise ValueError("Укажите имя или вариант написания")
         found: dict[str, dict[str, Any]] = {}
