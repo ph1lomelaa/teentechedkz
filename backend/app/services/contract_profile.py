@@ -41,8 +41,18 @@ def cached_profile(link):
         return None
 
 
+def services_summary(profile):
+    return [{'id': x['id'], 'category': x.get('category') or 'other', 'name': x.get('name') or ''}
+            for x in (profile or {}).get('services', []) if x.get('id')]
+
+
 def store_profile(link, profile):
     link.profile_encrypted = encrypt(json.dumps(profile, ensure_ascii=False))
+    if hasattr(link, 'services_summary'):
+        link.services_summary = services_summary(profile)
+    # У загруженных вручную договоров номера TrustMe нет — берём номер из текста.
+    if not getattr(link, 'number', None) and (profile or {}).get('fields', {}).get('contract_number'):
+        link.number = profile['fields']['contract_number'][:200]
 
 
 def extract_profile(pages, info, content):

@@ -52,6 +52,15 @@ export interface ContractInspection {
   signers: { name: string | null; is_company: boolean; signed: boolean }[]
 }
 export interface RegistryRow { student_id: string; student_name: string; contracts_count: number; acts_count: number; drafts_count: number }
+export type ActCellState = 'sent' | 'ready' | 'missing' | 'none'
+export interface ActCell { state: ActCellState; act_id?: string; date?: string | null; file_name?: string | null }
+export interface ActsTableRow {
+  student_id: string; full_name: string; phone: string | null; status: string | null; intake: number | null; degree: string | null
+  responsibles: { id: string; name: string; role: string }[]; mzk: { id: string; name: string } | null; mine: boolean
+  contracts: { id: string; number: string | null; name: string; status: number; source?: string; financial_contract_id: string | null }[]
+  services_total: number; services_closed: number; percent: number | null; cells: Record<string, ActCell>
+}
+export interface ActsTable { columns: { key: string; label: string }[]; rows: ActsTableRow[] }
 export interface RegistryFilters { q: string; kind: string; mail_status: string; responsible_id: string; date_from: string; date_to: string; page: number }
 
 async function blobRequest(request: Promise<{ data: Blob }>): Promise<Blob> {
@@ -67,6 +76,7 @@ export const actsApi = {
   registry: async (filters: RegistryFilters) => (await api.get<{ total: number; items: RegistryRow[] }>('/acts/registry', {
     params: Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '')),
   })).data,
+  table: async () => (await api.get<ActsTable>('/acts/table')).data,
   responsibles: async () => (await api.get<{ id: string; name: string }[]>('/acts/responsibles')).data,
   financialContext: async (id: string) => (await api.get<ActContext>(`/finance/contracts/${id}/documents`)).data,
   context: async (sid: string, period?: { period_start: string; period_end: string }) =>

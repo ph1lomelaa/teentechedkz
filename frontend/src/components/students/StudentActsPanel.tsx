@@ -51,7 +51,7 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const status = useQuery({ queryKey: ['act-contract-status', studentId, current?.id], queryFn: () => actsApi.checkContract(studentId, current!.id), enabled: !!current, staleTime: 60000, retry: false })
   const currentStatus = status.data?.status ?? current?.status
   const canCreate = manage && !!current && currentStatus === 3 && !status.isPending && !status.error
-  const refresh = () => { for (const key of [['act-contract-status', studentId], ['contract-requisites', studentId], ['contract-details', studentId], ['acts', studentId], ['acts-registry'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
+  const refresh = () => { for (const key of [['act-contract-status', studentId], ['contract-requisites', studentId], ['contract-details', studentId], ['acts', studentId], ['acts-registry'], ['acts-table'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
   const action = useMutation({ mutationFn: async ({ type, act, fileName }: { type: string; act: ActRecord; fileName?: string }) => {
     if (type === 'share') { await actsApi.share(act.id); refresh() }
     else downloadBlob(await actsApi.pdf(act.id), fileName || act.file_name || 'Акт.pdf')

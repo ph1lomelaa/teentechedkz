@@ -27,6 +27,9 @@ class TrustMeContractLink(Base):
     signed_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     signed_date_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     profile_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Состав услуг договора без персональных данных: [{id, category, name}].
+    # Нужен таблице «Договоры и акты», чтобы не расшифровывать профиль.
+    services_summary: Mapped[list | None] = mapped_column(JSON, nullable=True)
     profile_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     linked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
