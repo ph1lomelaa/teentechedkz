@@ -661,7 +661,9 @@ async def read_all_notifications(current_user: CurrentUser, db: Annotated[AsyncS
     await db.commit()
 
 
-@router.post("/notifications/{notification_id}/read", status_code=204)
+# `:uuid` — иначе POST /notifications/bulk/read попадает сюда со словом
+# «bulk» вместо ID (этот роутер подключён раньше notifications.router).
+@router.post("/notifications/{notification_id:uuid}/read", status_code=204)
 async def read_notification(
     notification_id: uuid.UUID,
     current_user: CurrentUser,

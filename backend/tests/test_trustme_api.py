@@ -40,7 +40,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_student_does_not_contact_trustme(self):
         with patch.object(trustme, '_client') as client:
             with self.assertRaises(HTTPException) as error:
-                await trustme.search_contracts(uuid.uuid4(), trustme.SearchRequest(),
+                await trustme.search_contracts(uuid.uuid4(), trustme.SearchRequest(mode='name'),
                                                 SimpleNamespace(get=AsyncMock(return_value=None)), user())
         self.assertEqual(error.exception.status_code, 404)
         client.assert_not_called()

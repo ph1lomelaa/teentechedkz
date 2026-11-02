@@ -9,17 +9,18 @@ export const MAIL_STATUS: Record<string, string> = { sending: 'Отправка 
 const input = 'mt-1 block w-full rounded-lg border border-p-line bg-p-panel px-3 py-2.5 text-sm'
 export function ActMailDialog({ act, recipients, onClose, onSent }: { act: ActRecord; recipients: string[]; onClose: () => void; onSent: () => void }) {
   const [requestId] = useState(() => crypto.randomUUID())
-  const [recipient, setRecipient] = useState(recipients[0] || '')
+  const contractEmail = act.snapshot.customer_email?.trim() || ''
+  const [recipient, setRecipient] = useState(contractEmail || recipients[0] || '')
   const [subject, setSubject] = useState(`Акт оказанных услуг — ${act.student_name}`)
-  const [body, setBody] = useState(`Здравствуйте!\n\nНаправляем акт оказанных услуг от ${act.act_date}. Документ приложен к письму.\n\nС уважением,\nTeenTechEd`)
+  const [body, setBody] = useState(`Здравствуйте!\n\nХочу искренне поблагодарить вас за доверие и за то, что вы прошли этот путь вместе с нами\nДля нас это было не просто сотрудничество, а важная часть нашей миссии — помогать вам двигаться к вашим целям и мечтам.\n\nВо вложении направляю акты выполненных работ.\n\nТакже нам очень важно ваше мнение — оно помогает нам становиться лучше для вас и других студентов\nБуду признательна, если вы заполните короткие формы:\n\nОбратная связь:\nhttps://forms.gle/KadF6tTVjJr76qke7\n\nРеферальная программа (получайте бонусы за рекомендации):\nhttps://forms.gle/DaMPrhCkkcBFcszC9\n\nИ в качестве благодарности подготовили для вас подарок\n— курс по стажировкам\n— гайды по написанию мотивационных и рекомендательных писем\n— и все необходимые материалы для поступления\n\nДоступ здесь:\nhttps://drive.google.com/drive/folders/1Sq_JclXeuCqebMqkXKYmvQsYgb6bIVhk?usp=sharing\n\nЖелаю вам больших успехов, уверенности в своих шагах и реализации всех ваших планов\nПусть впереди будет еще больше возможностей, сильных решений и счастливых результатов!\n\nС теплом и благодарностью,\nКоманда TeenTechEd`)
   const send = useMutation({ mutationFn: () => actsApi.send(act.id, { request_id: requestId, recipient, subject, body }), onSuccess: onSent, retry: false })
   return <Dialog open onOpenChange={open => { if (!open && !send.isPending) onClose() }}><DialogContent>
     <DialogHeader><DialogTitle>Отправить акт</DialogTitle><DialogDescription className="break-words">Вложение: {act.file_name}</DialogDescription></DialogHeader>
     <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!send.isPending && !send.data) send.mutate() }}>
       <fieldset disabled={send.isPending || !!send.data} className="space-y-4">
-        <label className="block text-sm">Получатель<input className={input} type="email" required value={recipient} list="act-recipients" onChange={e => setRecipient(e.target.value)} /><datalist id="act-recipients">{recipients.map(email => <option key={email}>{email}</option>)}</datalist></label>
+        <label className="block text-sm">Получатель{contractEmail && <span className="ml-2 text-xs text-p-muted">Из договора: {contractEmail}</span>}<input className={input} type="email" required value={recipient} list="act-recipients" onChange={e => setRecipient(e.target.value)} /><datalist id="act-recipients">{recipients.map(email => <option key={email}>{email}</option>)}</datalist></label>
         <label className="block text-sm">Тема<input className={input} required maxLength={300} value={subject} onChange={e => setSubject(e.target.value)} /></label>
-        <label className="block text-sm">Текст письма<textarea className={input} required maxLength={10000} rows={6} value={body} onChange={e => setBody(e.target.value)} /></label>
+        <label className="block text-sm">Текст письма<textarea className={input} required maxLength={10000} rows={15} value={body} onChange={e => setBody(e.target.value)} /></label>
         <div className="flex justify-end"><AppButton colorPrefix="p" variant="subtle" type="submit">{send.isPending ? 'Отправляем…' : 'Отправить с PDF'}</AppButton></div>
       </fieldset>
       {send.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(send.error, 'Не удалось отправить письмо')}</p>}

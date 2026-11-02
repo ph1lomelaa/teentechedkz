@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 from datetime import date
+from app.services.contract_services import extract_services, signature_available
 from app.core.encryption import decrypt, encrypt
 
 VERSION = 1
@@ -44,13 +45,14 @@ def extract_profile(pages, info, content):
     fields, sources, conflicts = {}, {}, {}
     candidates = {}
     normalized = [(p['page'], clean(p['text'])) for p in pages]
+    ocr_pages = {p['page'] for p in pages if p.get('ocr')}
     def add(key, value, page, excerpt='', kind='pdf'):
         value = clean(str(value))
         if not value or '[' in value or len(value) > (1500 if key == 'executor_requisites' else 500): return
         if key.endswith('_name') and key != 'executor_name':
             value = _name(value)
             if not value: return
-        entry = {'value': value, 'page': page, 'kind': kind, 'excerpt': clean(excerpt)[:220]}
+        entry = {'value': value, 'page': page, 'kind': 'ocr' if kind == 'pdf' and page in ocr_pages else kind, 'excerpt': clean(excerpt)[:220]}
         if value.casefold() not in {x['value'].casefold() for x in candidates.get(key, [])}:
             candidates.setdefault(key, []).append(entry)
     first = normalized[0][1] if normalized else ''
@@ -59,7 +61,7 @@ def extract_profile(pages, info, content):
             value = m.group(1)
             if transform: value = transform(value)
             if value: add(key, value, page, m.group(0))
-    match('contract_number', r'ДОГОВОР\s*№\s*([^\s,;]{1,70})', first[:700])
+    match('contract_number', r'(?:ДОГОВОР|ШАРТ|CONTRACT|AGREEMENT)\s*№\s*([^\s,;]{1,70})', first[:700])
     city = re.search(r'\bг\.\s*([^\s,«"\d]{2,80})', first[:500], re.I)
     if city: add('city', city.group(1), 1, city.group(0))
     for m in re.finditer(r'[«"“]?(\d{1,2})[»"”]?\s+(\w+)\s+(20\d{2})', first[:500]):
@@ -67,7 +69,19 @@ def extract_profile(pages, info, content):
         if month:
             try: add('contract_date', date(int(m.group(3)), month, int(m.group(1))).isoformat(), 1, m.group(0))
             except ValueError: pass
-    match('contract_date', r'\b(\d{2}\.\d{2}\.20\d{2})\b', first[:500], transform=lambda s: '.'.join(s.split('.')[::-1]).replace('.', '-'))
+    def numeric_date(value):
+        parts = re.split(r'[./-]', value)
+        try:
+            return (date(*map(int, parts)) if len(parts[0]) == 4 else date(int(parts[2]), int(parts[1]), int(parts[0]))).isoformat()
+        except ValueError:
+            return None
+    match('contract_date', r'\b(\d{1,2}[./]\d{1,2}[./]20\d{2}|20\d{2}-\d{2}-\d{2})\b', first[:500], transform=numeric_date)
+    kazakh_months = dict(zip(('қаңтар','ақпан','наурыз','сәуір','мамыр','маусым','шілде','тамыз','қыркүйек','қазан','қараша','желтоқсан'), range(1,13)))
+    for m in re.finditer(r'(20\d{2})\s*(?:жылғы|жыл|ж\.)?\s*[«\"“]?(\d{1,2})[»\"”]?\s*(\w+)', first[:500], re.I):
+        month = kazakh_months.get(m.group(3).lower())
+        if month:
+            try: add('contract_date', date(int(m.group(1)), month, int(m.group(2))).isoformat(), 1, m.group(0))
+            except ValueError: pass
     match('executor_name', r'(?:Товариществ\w*\s+с\s+ограниченной\s+ответственностью|ТОО|TOO)\s*[«"]([^»"]{2,100})[»"]', first[:1800], transform=lambda s: 'ТОО «'+s+'»')
     match('executor_representative', r'в\s+лице\s+(.{3,200}?),?\s+действующ', first[:2400])
     match('executor_basis', r'на\s+основании\s+(.{3,100}?)(?:,|\s+с\s+одной\s+стороны)', first[:2400])
@@ -130,4 +144,8 @@ def extract_profile(pages, info, content):
     required = ('student_name','customer_name','executor_name','executor_representative','executor_basis','contract_number','contract_date','city')
     return {'parser_version':VERSION, 'fingerprint':hashlib.sha256(content).hexdigest(), 'fields':fields,
             'sources':sources, 'conflicts':conflicts, 'service_hints':hints,
+            'service_policy':3, 'services':extract_services(pages, hashlib.sha256(content).hexdigest()),
+            'source_pages':[{'page':p['page'],'text':clean(p['text'])} for p in pages],
+            'company_signature_available':signature_available(pages, fields),
+            'company_signature_identity':{key:fields.get(key) for key in ('executor_name','executor_representative')},
             'missing':[key for key in required if not fields.get(key)], 'reviewed':False}

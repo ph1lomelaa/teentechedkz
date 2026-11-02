@@ -27,6 +27,7 @@ import asyncio
 import logging
 import smtplib
 import ssl
+import certifi
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
@@ -69,7 +70,7 @@ def build_message(*, to: str, subject: str, text: str, html: str | None = None) 
 def _send_sync(messages: list[EmailMessage]) -> None:
     host, port = settings.SMTP_HOST, settings.SMTP_PORT
     timeout = 20
-    context = ssl.create_default_context()
+    context = ssl.create_default_context(cafile=certifi.where())
     # 465 — SSL с первого байта, остальные порты (587) — STARTTLS.
     # Имя для EHLO задаём сами: иначе smtplib зовёт socket.getfqdn(), который
     # без обратной DNS-записи висит десятки секунд.

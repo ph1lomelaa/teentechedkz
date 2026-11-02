@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 
 class ActLine(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    contract_service_id: str = Field(default="", max_length=64)
+    source_fingerprint: str = Field(default="", max_length=64)
     name: str = Field(min_length=3, max_length=300)
     result: str = Field(min_length=3, max_length=2000)
     evidence: str = Field(default="", max_length=1500)
@@ -26,7 +28,7 @@ class ActInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     contract_link_id: uuid.UUID
     supersedes_id: uuid.UUID | None = None
-    template: Literal["portfolio", "ielts", "profile", "stages", "final"] = "stages"
+    template: Literal["portfolio", "ielts", "profile", "stages", "final", "career", "applications", "offer", "admission"] = "stages"
     student_name: str = Field(min_length=3, max_length=300)
     customer_name: str = Field(min_length=3, max_length=300)
     customer_id: str = Field(default="", max_length=30)
@@ -44,10 +46,17 @@ class ActInput(BaseModel):
     period_end: date
     calls_count: int | None = Field(default=None, ge=0, le=10000)
     include_amount: bool = False
+    # Общая сумма из договора, как в образцах актов: используется, когда у
+    # пунктов договора нет отдельных цен. Сверяет сотрудник (verified).
+    contract_total: Annotated[Decimal, Field(gt=0, le=1000000000, max_digits=12, decimal_places=2)] | None = None
     currency: Literal["KZT", "RUB", "USD", "EUR"] = "KZT"
     lines: list[ActLine] = Field(min_length=1, max_length=30)
     verified: bool = False
     full_completion_confirmed: bool = False
+    company_signature: bool = False
+    application_ids: list[uuid.UUID] = Field(default_factory=list, max_length=30)
+    verified_outcomes: list[str] = Field(default_factory=list, max_length=30)
+    previous_act_references: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("customer_email")
     @classmethod
@@ -70,22 +79,26 @@ class ActInput(BaseModel):
             raise ValueError("Конец периода раньше начала")
         if self.act_date < self.period_end or self.contract_date > self.period_end:
             raise ValueError("Проверьте дату акта, договора и период оказания услуг")
-        if self.include_amount and any(line.unit_price is None for line in self.lines):
-            raise ValueError("Укажите договорную цену каждой услуги либо отключите стоимость")
+        if self.include_amount and self.contract_total is not None and any(line.unit_price is not None for line in self.lines):
+            raise ValueError("Укажите либо общую сумму договора, либо цены услуг")
+        if self.include_amount and self.contract_total is None and any(line.unit_price is None for line in self.lines):
+            raise ValueError("Укажите общую стоимость по договору либо отключите стоимость")
         return self
 
     @property
     def total(self):
+        if self.contract_total is not None:
+            return self.contract_total
         return sum((line.amount for line in self.lines), Decimal("0.00"))
 
     def require_verified(self):
         if not self.verified:
             raise ValueError("Подтвердите реквизиты, состав и фактическое выполнение услуг по договору")
-        if self.template == "final" and not self.full_completion_confirmed:
+        if self.template in ("final", "admission") and not self.full_completion_confirmed:
             raise ValueError("Подтвердите исполнение всего договора для итогового акта")
 
     def filename(self):
-        labels = {"portfolio": "Портфолио", "ielts": "IELTS", "profile": "Оценка профиля", "stages": "Этапы", "final": "Итоговый"}
+        labels = {"portfolio": "Портфолио", "ielts": "IELTS", "profile": "Оценка профиля", "stages": "оказанных услуг", "final": "Итоговый", "career": "Профориентация", "applications": "Подачи", "offer": "Получение оффера", "admission": "Поступление"}
         name = f"{self.student_name} - Акт {labels[self.template]} - {self.act_date.isoformat()}.pdf"
         return re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]', "_", name)
 

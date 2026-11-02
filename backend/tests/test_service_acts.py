@@ -57,6 +57,20 @@ class ActSchemaAndPdfTests(unittest.TestCase):
         raw["include_amount"] = False
         self.assertFalse(ActInput(**raw).include_amount)
 
+    def test_contract_total_is_used_when_services_have_no_prices(self):
+        raw = payload(); raw["lines"][0]["unit_price"] = None; raw["contract_total"] = "1800000"
+        data = ActInput(**raw)
+        self.assertEqual(data.total, Decimal("1800000"))
+        text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(render_act(data))).pages)
+        self.assertIn("1 800 000 (один миллион восемьсот тысяч) тенге", " ".join(text.split()))
+        raw["lines"][0]["unit_price"] = "100"
+        with self.assertRaises(ValidationError):
+            ActInput(**raw)
+
+    def test_mixed_services_act_has_readable_file_name(self):
+        data = ActInput(**{**payload(), "template": "stages"})
+        self.assertIn("Акт оказанных услуг", data.filename())
+
     def test_final_requires_separate_confirmation(self):
         data = ActInput(**{**payload(), "template": "final"})
         with self.assertRaises(ValueError):
@@ -138,7 +152,7 @@ class ActApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_storage_is_cleaned_up_after_database_failure(self):
         row = record(); row.status = 'draft'
         db = SimpleNamespace(commit=AsyncMock(side_effect=RuntimeError('db')), rollback=AsyncMock(), add=MagicMock())
-        with patch.object(acts, '_act', AsyncMock(return_value=row)), patch.object(acts, '_validate_input', AsyncMock(return_value=object())), patch.object(acts, '_verify_contract', AsyncMock()), patch.object(acts, 'minio_upload', AsyncMock(return_value='created.pdf')), patch.object(acts, 'minio_delete', AsyncMock()) as delete:
+        with patch.object(acts, '_act', AsyncMock(return_value=row)), patch.object(acts, '_validate_input', AsyncMock(return_value=object())), patch.object(acts, '_verify_contract', AsyncMock()), patch.object(acts, 'validate_service_lines'), patch.object(acts, 'validate_company_signature'), patch.object(acts, '_check_work_evidence', AsyncMock()), patch.object(acts, '_check_duplicate_work', AsyncMock()), patch.object(acts, 'minio_upload', AsyncMock(return_value='created.pdf')), patch.object(acts, 'minio_delete', AsyncMock()) as delete:
             with self.assertRaises(RuntimeError):
                 await acts.generate(row.id, db, user())
         db.rollback.assert_awaited_once(); delete.assert_awaited_once_with('created.pdf')

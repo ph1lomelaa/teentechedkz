@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.models.user import User
 from app.models.notification import Notification
 from app.services.ws_hub import manager
 
@@ -52,7 +51,7 @@ def _to_dict(n: Notification) -> NotificationResponse:
 @router.get("")
 async def list_notifications(
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(CurrentUser)],
+    user: CurrentUser,
     unread_only: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -86,19 +85,15 @@ async def list_notifications(
     }
 
 
-@router.post("/{notification_id}/read")
+# `:uuid`, чтобы /bulk/read ниже не попадал в этот роут как ID «bulk».
+@router.post("/{notification_id:uuid}/read")
 async def mark_as_read(
-    notification_id: str,
+    notification_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(CurrentUser)],
+    user: CurrentUser,
 ):
     """Mark notification as read."""
-    try:
-        notif_uuid = uuid.UUID(notification_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid notification ID")
-
-    notification = await db.get(Notification, notif_uuid)
+    notification = await db.get(Notification, notification_id)
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
     if notification.user_id != user.id:
@@ -114,7 +109,7 @@ async def mark_as_read(
 async def bulk_mark_as_read(
     body: BulkReadBody,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(CurrentUser)],
+    user: CurrentUser,
 ):
     """Mark multiple notifications as read."""
     try:
@@ -141,7 +136,7 @@ async def bulk_mark_as_read(
 async def delete_notification(
     notification_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(CurrentUser)],
+    user: CurrentUser,
 ):
     """Delete a notification."""
     try:
