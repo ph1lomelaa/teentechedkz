@@ -421,6 +421,21 @@ async def update_details(student_id: uuid.UUID, link_id: uuid.UUID, body: Detail
     return _link_dict(link)
 
 
+def new_document_link(student_id, company_id, info, candidate, profile, pages, choices, linked_by):
+    """Запись о подписанном договоре TrustMe, проверенном по тексту PDF."""
+    dates = {profile['fields'].get('contract_date'), signing_date(info)} - {None}
+    financial = [c for c in choices if c.signed_date and c.signed_date.isoformat() in dates]
+    link = TrustMeContractLink(student_id=student_id, company_id=company_id,
+        external_id=info['id'], short_url=candidate['short_url'], name=info.get('contract_name') or candidate['name'],
+        number=info.get('number_deal'), status=3, source='trustme', financial_contract_id=financial[0].id if len(financial) == 1 else None,
+        signers=_signers(info.get('doc_parties') or [], 'requisites'), contract_created_at=info.get('created_at'),
+        signed_date=signing_date(info), signed_date_source='trustme' if signing_date(info) else None,
+        linked_by=linked_by, profile_checked_at=datetime.now(timezone.utc))
+    apply_document_signing_date(link, pages)
+    store_profile(link, profile)
+    return link
+
+
 @router.post("/{student_id}/auto-link")
 async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: CurrentUser):
     """No global scan: discover only this student's contracts, once per hour."""
@@ -502,7 +517,7 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                             if likely_candidate(row, names):
                                 report['review'].append({**candidate, 'reason': 'Нужно проверить оригинал PDF'})
                             continue
-                        outcome, reason = match_student(student, profile, pages, all_names)
+                        outcome, reason = match_student(student, profile, pages, all_names, phones)
                         if outcome == 'unrelated':
                             continue
                         if outcome != 'confirmed':
@@ -516,17 +531,7 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                         if existing:
                             report['review'].append({**candidate, 'reason': 'Договор уже привязан к другой карточке; нужна проверка существующей связи', 'blocked': True})
                             continue
-                        dates = {profile['fields'].get('contract_date'), signing_date(info)} - {None}
-                        financial_matches = [c for c in choices if c.signed_date and c.signed_date.isoformat() in dates]
-                        financial_id = financial_matches[0].id if len(financial_matches) == 1 else None
-                        link = TrustMeContractLink(student_id=student_id, company_id=client.company_id,
-                            external_id=info['id'], short_url=candidate['short_url'], name=info.get('contract_name') or candidate['name'],
-                            number=info.get('number_deal'), status=3, source='trustme', financial_contract_id=financial_id,
-                            signers=_signers(info.get('doc_parties') or [], 'requisites'), contract_created_at=info.get('created_at'),
-                            signed_date=signing_date(info), signed_date_source='trustme' if signing_date(info) else None,
-                            linked_by=current_user.id, profile_checked_at=datetime.now(timezone.utc))
-                        apply_document_signing_date(link, pages)
-                        store_profile(link, profile)
+                        link = new_document_link(student_id, client.company_id, info, candidate, profile, pages, choices, current_user.id)
                         try:
                             async with db.begin_nested():
                                 db.add(link)
