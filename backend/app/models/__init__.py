@@ -129,6 +129,6 @@ __all__ = [
 
 from .activity import Activity, ActivityIntake, StudentActivity, PortfolioFocus, ActivityStepTemplate
 from .notion_person_link import NotionPersonLink
-from .trustme_contract import TrustMeContractLink
+from .trustme_contract import TrustMeContractLink, TrustMeDocument
 from .service_act import ServiceAct, ActMailAttempt
 from .finance_mail import FinanceMailDelivery, FinanceMailEvent

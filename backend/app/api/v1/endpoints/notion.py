@@ -486,9 +486,12 @@ async def finance_summary(
     договорам», а notion:manage открывает ещё и привязку страниц. Сотрудники
     имеют оба права, так что для них ничего не изменилось; добавился финансист."""
     require_access(current_user, "finances", Action.view)
+    from app.api.v1.endpoints.payments import mentor_students
+    mine = mentor_students(current_user)
 
     result = await db.execute(
-        select(NotionSnapshot).where(NotionSnapshot.status != NotionMatchStatus.ignored)
+        select(NotionSnapshot).where(NotionSnapshot.status != NotionMatchStatus.ignored,
+                                     *([NotionSnapshot.student_id.in_(mine)] if mine is not None else []))
     )
     snapshots = result.scalars().all()
 

@@ -22,7 +22,8 @@ def failure_status(error):
 
 
 async def enqueue(db):
-    from app.services.finance_desk import finance_recipients, _groups, _email_html, EMAIL_MAX_AGE_HOURS
+    from app.services.finance_desk import finance_recipients, _groups, _email_html, EMAIL_MAX_AGE_HOURS, contract_now, email_subject, email_text
+    from app.models.contract import Contract
     recipients = [u for u in await finance_recipients(db) if u.role == UserRole.finance_manager and u.email]
     if not recipients:
         return
@@ -43,11 +44,10 @@ async def enqueue(db):
         own = [(e, name) for e, name in events if e.actor_id != recipient.id and (e.id, recipient.id) not in existing]
         for group in await _groups(db, own):
             url = settings.FRONTEND_URL.rstrip('/') + group.link
+            now = contract_now(await db.get(Contract, group.contract_id) if group.contract_id else None)
             delivery = FinanceMailDelivery(recipient_id=recipient.id, recipient=recipient.email,
                 student_id=group.student_id, contract_id=group.contract_id,
-                subject=f'Финансы: {group.title}',
-                body='\n'.join([group.student_name, f'Изменения {group.where}:', *group.lines, '', f'Открыть договор: {url}']),
-                html=_email_html(group, url))
+                subject=email_subject(group), body=email_text(group, url, now), html=_email_html(group, url, now))
             db.add(delivery)
             await db.flush()
             for event in group.events:

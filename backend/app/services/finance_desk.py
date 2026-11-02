@@ -377,7 +377,45 @@ async def flush_notifications(db: AsyncSession) -> int:
 EMAIL_MAX_AGE_HOURS = 24
 
 
-def _email_html(group: ChangeGroup, url: str) -> str:
+def email_subject(group: ChangeGroup) -> str:
+    """«Имя — остаток 500 000 → 300 000 ₸»: главное видно, не открывая письмо."""
+    remaining = next((e for e in group.events if e.field == "client_remaining"), None)
+    if remaining is not None:
+        old, new = (format_value("client_remaining", v).replace(" ₸", "") for v in (remaining.old_value, remaining.new_value))
+        return f"{group.student_name} — остаток {old} → {new} ₸"
+    if len(group.events) == 1:
+        e = group.events[0]
+        return f"{group.student_name} — {FIELD_LABELS.get(e.field, e.field).lower()}: {format_value(e.field, e.new_value)}"
+    return f"{group.student_name} — {_changes_word(len(group.events))} {group.where}"
+
+
+def contract_now(contract) -> list[tuple[str, str]]:
+    """Блок «Сейчас по договору»: оплачено = договор − остаток (одно число в договоре)."""
+    if contract is None:
+        return []
+    money = lambda v: format_value("client_fee", str(v)) if v is not None else "—"
+    paid = contract.amount - contract.client_remaining_amount if contract.amount is not None and contract.client_remaining_amount is not None else None
+    next_payment = "—"
+    if contract.client_remaining_amount and contract.client_remaining_date:
+        next_payment = f"{money(contract.client_remaining_amount)} до {contract.client_remaining_date.strftime('%d.%m.%Y')}"
+    return [("Договор", money(contract.amount)), ("Оплачено", money(paid)),
+            ("Остаток", money(contract.client_remaining_amount)), ("Следующий платёж", next_payment)]
+
+
+def changed_at(group: ChangeGroup) -> str:
+    from zoneinfo import ZoneInfo
+    latest = max(e.created_at for e in group.events if e.created_at) if any(e.created_at for e in group.events) else datetime.now(timezone.utc)
+    return latest.astimezone(ZoneInfo("Asia/Almaty")).strftime("%d.%m.%Y %H:%M")
+
+
+def email_text(group: ChangeGroup, url: str, now: list[tuple[str, str]]) -> str:
+    lines = [group.student_name, f"Изменения {group.where} · {changed_at(group)} (Алматы)", *group.lines]
+    if now:
+        lines += ["", "Сейчас по договору:", *(f"{label}: {value}" for label, value in now)]
+    return "\n".join([*lines, "", f"Открыть договор: {url}"])
+
+
+def _email_html(group: ChangeGroup, url: str, now: list[tuple[str, str]] | None = None) -> str:
     from html import escape
 
     rows = "".join(
@@ -386,12 +424,15 @@ def _email_html(group: ChangeGroup, url: str) -> str:
         f"<td style='padding:6px 0;font-weight:600'>{escape(format_value(e.field, e.new_value))}</td></tr>"
         for e in group.events
     )
+    state = "".join(f"<tr><td style='padding:4px 16px 4px 0;color:#555'>{escape(label)}</td><td style='padding:4px 0;font-weight:600'>{escape(value)}</td></tr>"
+                    for label, value in (now or []))
     return (
         "<div style='font-family:Arial,sans-serif;font-size:15px;color:#111'>"
         f"<p style='font-size:17px;font-weight:700;margin:0 0 4px'>{escape(group.student_name)}</p>"
-        f"<p style='margin:0 0 16px;color:#555'>Изменения {escape(group.where)}</p>"
+        f"<p style='margin:0 0 16px;color:#555'>Изменения {escape(group.where)} · {escape(changed_at(group))} (Алматы)</p>"
         f"<table style='border-collapse:collapse'>{rows}</table>"
-        f"<p style='margin:20px 0'><a href='{escape(url)}' style='background:#FFD400;color:#111;padding:10px 18px;"
+        + (f"<p style='margin:20px 0 6px;font-weight:700'>Сейчас по договору</p><table style='border-collapse:collapse'>{state}</table>" if state else "")
+        + f"<p style='margin:20px 0'><a href='{escape(url)}' style='background:#FFD400;color:#111;padding:10px 18px;"
         "border-radius:8px;text-decoration:none;font-weight:700'>Открыть договор</a></p>"
         "<p style='color:#888;font-size:12px'>Письмо из раздела «Финансы» TeenTechEd.</p></div>"
     )

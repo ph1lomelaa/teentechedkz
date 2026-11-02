@@ -73,7 +73,7 @@ EXPECTED_ACCESS: dict[tuple[str, Action], tuple[str, ...]] = {
     ("emergency_contacts", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("export", Action.manage): ("admin", "mzk_manager", "academic_head", "mentor"),
     ("finances", Action.manage): ("admin", "mzk_manager", "academic_head", "finance_manager"),
-    # review: ментор видит финансы целиком — решение продукта
+    # 02.11.2026: ментор видит финансы только своих активных учеников (scope assigned).
     ("finances", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager", "mentor"),
     # 01.11.2026: кабинет финансиста — смотрит управление, ведут финансист и админ.
     ("finance_desk", Action.view): ("admin", "mzk_manager", "academic_head", "finance_manager"),
