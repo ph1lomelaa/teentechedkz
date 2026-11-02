@@ -64,7 +64,12 @@ async def students_in_work(db, limit):
 async def check_student(db, client, student, all_names, stats):
     guardians = (await db.execute(select(Guardian).where(Guardian.student_id == student.id))).scalars().all()
     linked = (await db.execute(select(TrustMeContractLink).where(TrustMeContractLink.student_id == student.id))).scalars().all()
-    linked_ids = {l.external_id for l in linked}
+    await check_person(client, student, guardians, {l.external_id for l in linked}, all_names, stats)
+
+
+async def check_person(client, student, guardians, linked_ids, all_names, stats):
+    """student: .id/.full_name/.phone; guardians: .full_name/.phone — источник любой."""
+    linked = linked_ids
     phones = [p for p in dict.fromkeys([student.phone, *[g.phone for g in guardians]]) if phone_key(p)]
     queries = [(student.full_name, 'ФИО студента')]
     queries += [(g.full_name, 'ФИО родителя') for g in guardians if g.full_name]

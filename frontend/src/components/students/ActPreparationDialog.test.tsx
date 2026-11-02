@@ -55,11 +55,14 @@ it('does not invent a price for a partial act and prefills the finance total for
  expect(screen.getByLabelText(/Общая стоимость/)).toHaveValue('1800000')
  expect(screen.getByText(/из раздела «Финансы»/)).toBeInTheDocument()
 })
-it('requires an existing admission result for a final act', async () => {
+it('creates a final act or an offer-stage act without requiring a recorded result', async () => {
  show();fireEvent.click(await screen.findByRole('checkbox',{name:/^Профориентация/}));fireEvent.click(screen.getByRole('button',{name:'Далее'}))
  fireEvent.click(screen.getByRole('checkbox',{name:/Итоговый акт/}))
- expect(screen.getByText(/Сначала зафиксируйте зачисление/)).toBeInTheDocument()
- expect(screen.getByRole('button',{name:'Создать акт'})).toBeDisabled()
+ expect(screen.queryByText(/Сначала зафиксируйте/)).not.toBeInTheDocument()
+ fireEvent.change(screen.getByLabelText(/^С$/),{target:{value:'2026-08-01'}})
+ fireEvent.click(screen.getByRole('checkbox',{name:/Проверено/}))
+ fireEvent.click(screen.getByRole('button',{name:'Создать акт'}))
+ await waitFor(() => expect(actsApi.create).toHaveBeenCalledWith('student',expect.objectContaining({template:'admission',full_completion_confirmed:true,application_ids:[]})))
 })
 
 it('opens with selection only and preserves the chosen services when going back', async () => {

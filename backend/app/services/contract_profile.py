@@ -4,9 +4,13 @@ import json
 import re
 from datetime import date
 from app.services.contract_services import extract_services, signature_available
+from app.services.contract_discovery import same_person
 from app.core.encryption import decrypt, encrypt
 
 VERSION = 1
+# Версия правил чтения: при росте сохранённые профили перечитываются из PDF.
+EXTRACTOR = 2
+COMPANY_EMAIL_DOMAINS = ('teenteched', 'tinteched')
 FIELDS = ('student_name', 'customer_name', 'customer_id', 'student_id_number', 'customer_email',
           'executor_name', 'executor_representative', 'executor_basis', 'executor_requisites',
           'contract_number', 'contract_date', 'city')
@@ -53,8 +57,16 @@ def extract_profile(pages, info, content):
             value = _name(value)
             if not value: return
         entry = {'value': value, 'page': page, 'kind': 'ocr' if kind == 'pdf' and page in ocr_pages else kind, 'excerpt': clean(excerpt)[:220]}
-        if value.casefold() not in {x['value'].casefold() for x in candidates.get(key, [])}:
-            candidates.setdefault(key, []).append(entry)
+        known = candidates.setdefault(key, [])
+        if key.endswith('_name') and key != 'executor_name':
+            # Одно ФИО в разных падежах — не конфликт; оставляем более короткую форму.
+            for i, other in enumerate(known):
+                if same_person(other['value'], value) and len(value.split()) == len(other['value'].split()):
+                    if len(value) < len(other['value']) and (kind == 'pdf' or other['kind'] != 'pdf'):
+                        known[i] = entry
+                    return
+        if value.casefold() not in {x['value'].casefold() for x in known}:
+            known.append(entry)
     first = normalized[0][1] if normalized else ''
     def match(key, pattern, text, page=1, transform=None):
         for m in re.finditer(pattern, text, re.I):
@@ -85,15 +97,22 @@ def extract_profile(pages, info, content):
     match('executor_name', r'(?:Товариществ\w*\s+с\s+ограниченной\s+ответственностью|ТОО|TOO)\s*[«"]([^»"]{2,100})[»"]', first[:1800], transform=lambda s: 'ТОО «'+s+'»')
     match('executor_representative', r'в\s+лице\s+(.{3,200}?),?\s+действующ', first[:2400])
     match('executor_basis', r'на\s+основании\s+(.{3,100}?)(?:,|\s+с\s+одной\s+стороны)', first[:2400])
-    intro = re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?),\s*(?:ИИН|(?:индивидуальный\s+)?идентификационный\s+номер(?:\s*\(ИИН\))?)\s*:?\s*((?:\d\s*){9,16})', first[:2600], re.I)
+    intro = (re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*,\s*(?:ИИН|(?:индивидуальный\s+)?идентификационный\s+номер(?:\s*\(ИИН\))?)\s*:?\s*((?:\d\s*){9,16})', first[:2600], re.I)
+             or re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*\(\s*(?:ИИН\s*:?\s*)?((?:\d\s*){12})\s*\)', first[:2600], re.I)
+             or re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*\(\s*удостоверени\w*\s+личности()', first[:2600], re.I))
     if intro:
-        name = re.sub(r'^граждан\w*\s+(?:(?:Республики\s+Казахстан|Российской\s+Федерации|РК)\s+)?', '', intro.group(1), flags=re.I)
+        name = re.sub(r'^граждан\w*(?:\(ка\))?\s+(?:(?:Республики(?:\s+Казахстан)?|Российской\s+Федерации|РК)\s+)?', '', intro.group(1), flags=re.I)
         add('customer_name', name, 1, intro.group(0))
         ident = re.sub(r'\s+', '', intro.group(2))
         if 9 <= len(ident) <= 16: add('customer_id', ident, 1, intro.group(0))
+    ward = re.search(r'законного\s+представителя\s+(?:несовершеннолетн\w+\s+)?абитуриента\s*(?:[—–-]\s*)?(?:граждан\w+\s+(?:Республики(?:\s+Казахстан)?|РК|Российской\s+Федерации)\s+)?(.{3,150}?)\s*(?:,\s*ИИН\s*:?\s*((?:\d\s*){12})|\(\s*(?:ИИН\s*:?\s*)?((?:\d\s*){12})\s*\)|\(далее)', first[:3200], re.I)
+    if ward:
+        add('student_name', ward.group(1), 1, ward.group(0))
+        ident = re.sub(r'\s+', '', ward.group(2) or ward.group(3) or '')
+        if len(ident) == 12: add('student_id_number', ident, 1, ward.group(0))
     for page, text in normalized:
         match('customer_name', r'Подписант\s*/\s*законный\s+представитель\s*:\s*(.{5,150}?)(?=\s+Абитуриент\s*:|\s+ИИН|\s+Номер\s+телефона|$)', text, page)
-        match('student_name', r'Абитуриент\s*:\s*(.{5,150}?)(?=\s+ИИН|\s+Номер\s+телефона|\s+E-mail|$)', text, page)
+        match('student_name', r'Абитуриент\s*:\s*(.{5,150}?)(?=\s*\(\s*\d|\s+\d+\.\d|\s+ИИН|\s+Номер\s+телефона|\s+E-mail|$)', text, page)
         match('customer_id', r'ИИН\s+(?:подписанта|заказчика)\s*:\s*(\d{12})\b', text, page)
         match('student_id_number', r'ИИН\s+абитуриента\s*:\s*(\d{12})\b', text, page)
         match('customer_email', r'E[- ]?mail\s+(?:подписанта(?:/абитуриента)?|заказчика)\s*:\s*([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})', text, page)
@@ -104,7 +123,7 @@ def extract_profile(pages, info, content):
             tail = text[section.end():section.end()+350]
             match('customer_email', r'E[- ]?mail\s*:\s*([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})', tail, page)
     # Only an explicit self-customer clause permits reusing the customer's ID/name.
-    is_self = bool(re.search(r'Заказчика\s+и\s+Абитуриента|одновременно\s+являющ\w*\s+[«"]?Абитуриентом', first[:2600], re.I))
+    is_self = bool(re.search(r'Заказчика\s+и\s+Абитуриента|одновременно\s+являющ\w*\s+[«"]?Абитуриентом|[«"]Заказчик[»"]\s+и\s+[«"]Абитуриент[»"]', first[:2600], re.I))
     if is_self:
         for source, target in (('customer_name','student_name'), ('customer_id','student_id_number')):
             for candidate in candidates.get(source, []):
@@ -121,6 +140,19 @@ def extract_profile(pages, info, content):
             if key not in candidates:
                 value = next((values[a] for a in aliases if values.get(a)), None)
                 if value: add(key, value, None, 'Реквизиты подписанта TrustMe', 'trustme')
+    # В таблице реквизитов колонки склеиваются: блок заказчика — не реквизиты исполнителя.
+    requisites = [c for c in candidates.pop('executor_requisites', []) if 'заказчик' not in c['value'].casefold()]
+    if requisites: candidates['executor_requisites'] = requisites
+    if 'customer_email' not in candidates:
+        # Почта без подписи «E-mail заказчика»: берём, только если чужой адрес в договоре один.
+        found = {}
+        for page, text in normalized:
+            for m in re.finditer(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}', text):
+                if not any(d in m.group().casefold() for d in COMPANY_EMAIL_DOMAINS):
+                    found.setdefault(m.group().casefold(), (page, text[max(0, m.start() - 60):m.end()]))
+        if len(found) == 1:
+            email, (page, excerpt) = found.popitem()
+            add('customer_email', email, page, excerpt)
     for key, values in candidates.items():
         if len(values) == 1:
             fields[key] = values[0]['value']; sources[key] = {k:v for k,v in values[0].items() if k!='value'}
@@ -142,7 +174,7 @@ def extract_profile(pages, info, content):
             unique = {(p['amount'],p['currency']) for p in prices}
             if len(unique)==1: hints[template]['confirmed_price'] = prices[0]
     required = ('student_name','customer_name','executor_name','executor_representative','executor_basis','contract_number','contract_date','city')
-    return {'parser_version':VERSION, 'fingerprint':hashlib.sha256(content).hexdigest(), 'fields':fields,
+    return {'parser_version':VERSION, 'extractor':EXTRACTOR, 'fingerprint':hashlib.sha256(content).hexdigest(), 'fields':fields,
             'sources':sources, 'conflicts':conflicts, 'service_hints':hints,
             'service_policy':3, 'services':extract_services(pages, hashlib.sha256(content).hexdigest()),
             'source_pages':[{'page':p['page'],'text':clean(p['text'])} for p in pages],
