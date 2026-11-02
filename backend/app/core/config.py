@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     TRUSTME_PASSWORD: SecretStr = SecretStr("")
     # Optional when the account has exactly one company.
     TRUSTME_COMPANY_ID: str = ""
+    # Фоновая синхронизация договоров TrustMe с карточками (реестр trustme_documents):
+    # новые договоры читаются и привязываются, непривязанные перепроверяются.
+    TRUSTME_AUTO_SYNC: bool = True
+    TRUSTME_SYNC_MINUTES: int = 30
 
     # MinIO
     MINIO_ENDPOINT: str = "minio:9000"

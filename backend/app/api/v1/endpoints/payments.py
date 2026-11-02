@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.core.permissions import Action, require_access
+from app.core.permissions import Action, Scope, require_access, scope_for
 from app.models.payment import Payment, PaymentType, PaymentStatus
 from app.models.contract import Contract
 from app.models.student import Student
@@ -26,6 +26,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 
+def mentor_students(user):
+    """Решение 02.11.2026: ментор видит деньги только своих активных учеников.
+    None — ограничения нет (управление и финансист видят всё)."""
+    if scope_for(resource="finances", action=Action.view, role=user.role) != Scope.assigned:
+        return None
+    return select(MentorAssignment.student_id).where(
+        MentorAssignment.mentor_id == user.id, MentorAssignment.is_active.is_(True))
+
+
+def _mine(stmt, user):
+    students = mentor_students(user)
+    return stmt if students is None else stmt.where(Contract.student_id.in_(students))
+
+
 @router.get("")
 async def list_payments(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -33,11 +47,11 @@ async def list_payments(
 ):
     require_access(current_user, "finances", Action.view)
 
-    result = await db.execute(
+    result = await db.execute(_mine(
         select(Payment, Student.id, Student.full_name)
         .join(Contract, Contract.id == Payment.contract_id)
         .join(Student, Student.id == Contract.student_id)
-        .order_by(Payment.paid_at.desc().nulls_last())
+        .order_by(Payment.paid_at.desc().nulls_last()), current_user)
     )
     rows = result.all()
 
@@ -144,7 +158,7 @@ async def finance_summary(
 ):
     require_access(current_user, "finances", Action.view)
 
-    contracts_result = await db.execute(
+    contracts_result = await db.execute(_mine(
         select(
             Contract.currency,
             func.count(Contract.id).label("total_contracts"),
@@ -155,11 +169,11 @@ async def finance_summary(
             # без этого счётчика выглядит как «весь остаток», хотя на деле
             # это остаток только по know_count из total_contracts договоров.
             func.count(Contract.client_remaining_amount).label("remaining_known_count"),
-        ).group_by(Contract.currency)
+        ).group_by(Contract.currency), current_user)
     )
     contract_rows = contracts_result.all()
 
-    paid_result = await db.execute(
+    paid_result = await db.execute(_mine(
         select(Contract.currency, func.sum(Payment.amount))
         .select_from(Payment)
         .join(Contract, Contract.id == Payment.contract_id)
@@ -167,7 +181,7 @@ async def finance_summary(
             Payment.type == PaymentType.client_payment,
             Payment.status == PaymentStatus.paid,
         )
-        .group_by(Contract.currency)
+        .group_by(Contract.currency), current_user)
     )
     paid_by_currency = {r[0]: r[1] or Decimal("0") for r in paid_result.all()}
 
@@ -237,7 +251,7 @@ async def finance_breakdown(
         .scalar_subquery()
     )
 
-    result = await db.execute(
+    result = await db.execute(_mine(
         select(
             Contract.id,
             Student.id.label("student_id"),
@@ -254,7 +268,7 @@ async def finance_breakdown(
         )
         .join(Student, Student.id == Contract.student_id)
         .outerjoin(paid_subquery, paid_subquery.c.contract_id == Contract.id)
-        .order_by(func.coalesce(Contract.client_remaining_amount, 0).desc(), Student.full_name.asc())
+        .order_by(func.coalesce(Contract.client_remaining_amount, 0).desc(), Student.full_name.asc()), current_user)
     )
     rows = result.all()
 
@@ -298,7 +312,8 @@ async def mentor_payouts(
             func.sum(Payment.amount).filter(Payment.status == PaymentStatus.paid).label("paid"),
             func.sum(Payment.amount).filter(Payment.status == PaymentStatus.to_be_paid).label("to_be_paid"),
         )
-        .where(Payment.type == PaymentType.mentor_payout, Payment.mentor_id.isnot(None))
+        .where(Payment.type == PaymentType.mentor_payout, Payment.mentor_id.isnot(None),
+               *([Payment.mentor_id == current_user.id] if mentor_students(current_user) is not None else []))
         .group_by(Payment.mentor_id, Payment.currency)
     )
     rows = result.all()
@@ -326,6 +341,11 @@ async def payment_documents(
     current_user: CurrentUser,
 ):
     require_access(current_user, "finances", Action.view)
+    if mentor_students(current_user) is not None:
+        visible = (await db.execute(_mine(select(Payment.id).join(Contract, Contract.id == Payment.contract_id)
+                                          .where(Payment.id == payment_id), current_user))).first()
+        if visible is None:
+            raise HTTPException(404, "Платёж не найден")
 
     result = await db.execute(
         select(Document).where(Document.payment_id == payment_id).order_by(Document.uploaded_at.desc())
@@ -395,6 +415,7 @@ async def client_balances(
             Student.is_archived == False,  # noqa: E712
             Contract.client_remaining_amount.isnot(None),
             Contract.client_remaining_amount > 0,
+            *([Contract.student_id.in_(mentor_students(current_user))] if mentor_students(current_user) is not None else []),
         )
         .group_by(
             Student.id,
@@ -470,6 +491,7 @@ async def upcoming_payments(
             Contract.client_remaining_date.isnot(None),
             Contract.client_remaining_date <= threshold_date,
             Contract.client_remaining_date >= date.today(),
+            *([Contract.student_id.in_(mentor_students(current_user))] if mentor_students(current_user) is not None else []),
         )
         .order_by(Contract.client_remaining_date.asc())
     )

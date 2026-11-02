@@ -382,6 +382,11 @@ async def on_startup(ctx: dict) -> None:
         from app.services.meeting_telegram import meeting_telegram_loop
         tasks.append(asyncio.create_task(meeting_telegram_loop()))
 
+    if settings.TRUSTME_AUTO_SYNC and settings.TRUSTME_LOGIN:
+        from app.services.trustme_sync import trustme_sync_loop
+        tasks.append(asyncio.create_task(trustme_sync_loop()))
+        logger.info("TrustMe contract sync loop started")
+
     # Правки денег — бухгалтеру: колокольчик, браузер, Telegram и письмо.
     # Не зависит от настроек Notion: правки в самой платформе тоже здесь.
     from app.services.finance_desk import finance_notify_loop

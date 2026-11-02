@@ -36,9 +36,13 @@ STUDENT = _user(UserRole.student)
 
 
 class FinanceReadTests(unittest.TestCase):
-    def test_mentor_can_read(self):
-        """Главное отличие от записи — ментор смотрит финансы целиком."""
+    def test_mentor_can_read_only_own_students(self):
+        """02.11.2026: ментор читает финансы, но только своих активных учеников."""
+        from app.core.permissions import Scope, scope_for
         self.assertIsNone(require_access(MENTOR, "finances", Action.view))
+        self.assertEqual(scope_for(resource="finances", action=Action.view, role=MENTOR.role), Scope.assigned)
+        for user in (ADMIN, MZK):
+            self.assertEqual(scope_for(resource="finances", action=Action.view, role=user.role), Scope.all)
 
     def test_admin_and_mzk_can_read(self):
         self.assertIsNone(require_access(ADMIN, "finances", Action.view))

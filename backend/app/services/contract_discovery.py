@@ -39,8 +39,13 @@ def _stem(word):
     return word
 
 
+def _single(word):
+    """Удвоенные буквы не различают: «Джаппарова» = «Джапарова»."""
+    return re.sub(r'(.)\1+', r'\1', word)
+
+
 def _same_word(a, b):
-    a, b = _stem(a), _stem(b)
+    a, b = _stem(_single(a)), _stem(_single(b))
     if a == b:
         return True
     # Беглая гласная: Павел / Павлом → «павел» / «павл».
