@@ -207,7 +207,7 @@ async def manual_roundtrip(url):
             subset = await client.post(f'/acts/students/{sid}/contracts/{lid}/service-quote', json={'page':1,'text':'ordinary text PDF for a student'})
             assert subset.status_code == 200 and subset.json()['id'] == quote['id']
             unproven_offer = await client.post(f'/acts/students/{sid}/preview', json={**act_data,'template':'offer'})
-            assert unproven_offer.status_code == 422
+            assert unproven_offer.status_code == 409  # оффер необязателен; работа уже в готовом акте
             from app.models.application import Application, SubmissionStatus
             from app.schemas.service_act import ActInput
             async with sessions() as db:
