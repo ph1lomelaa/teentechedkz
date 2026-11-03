@@ -331,7 +331,7 @@ def _inspection_fallback(previous, link):
     profile = extract_profile([], {}, identity)
     profile['extractor'] = 0
     profile['fingerprint_kind'] = 'document_reference'
-    return profile, 'Не удалось прочитать PDF. Доступны пять стандартных услуг; реквизиты и дату подписания проверьте и заполните по оригиналу договора.'
+    return profile, 'Не удалось прочитать PDF. Доступны стандартные услуги; реквизиты и дату подписания проверьте и заполните по оригиналу договора.'
 
 
 @router.post("/students/{student_id}/contracts/{link_id}/inspect")

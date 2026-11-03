@@ -21,7 +21,7 @@ class ProvenanceTests(unittest.TestCase):
   return profile, ActInput(**{**payload(),'include_amount':False,'lines':[line]})
  def test_every_activity_is_a_literal_contract_fragment_and_has_a_page(self):
   p=self.profile()
-  self.assertEqual({s['category'] for s in p['services']},{'profile','career','ielts','csca','entrance','sat'})
+  self.assertEqual({s['category'] for s in p['services']},{'profile','career','ielts','csca','entrance','sat','portfolio'})
   text=' '.join(normalized(page['text']) for page in PAGES)
   for item in p['services']:
    if item.get('source_kind') == 'standard': continue

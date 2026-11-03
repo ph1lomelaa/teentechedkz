@@ -260,7 +260,7 @@ class InspectionFallbackTests(unittest.TestCase):
     def test_unavailable_pdf_still_offers_five_standard_services_without_invented_fields(self):
         link=SimpleNamespace(id=uuid.uuid4())
         profile, warning=acts._inspection_fallback(None,link)
-        self.assertEqual({s['category'] for s in profile['services']},{'ielts','career','csca','entrance','sat'})
+        self.assertEqual({s['category'] for s in profile['services']},{'ielts','career','csca','entrance','sat','portfolio'})
         self.assertTrue(all(s['source_kind']=='standard' for s in profile['services']))
         self.assertEqual(profile['fields'],{})
         self.assertEqual(profile['extractor'],0)
@@ -283,7 +283,7 @@ class InspectionApiFallbackTests(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value.scalars.return_value.all.return_value=[]
         with patch.object(acts,'_student',AsyncMock(return_value=SimpleNamespace(full_name='Тест Студент'))), patch.object(acts,'_link',AsyncMock(return_value=link)), patch.object(acts,'cached_profile',return_value=None), patch.object(acts,'_refresh_contract',AsyncMock(side_effect=TrustMeError('Unavailable'))), patch.object(acts,'store_profile') as store:
             result=await acts.inspect_contract(uuid.uuid4(),link.id,db,user())
-        self.assertEqual(len(result['services']),5)
+        self.assertEqual(len(result['services']),6)
         self.assertTrue(result['warning'])
         self.assertEqual(result['fields'],{})
         self.assertTrue(result['missing'])

@@ -11,7 +11,7 @@ import { neutralDisabled, documentLink } from './contractPresentation'
 const input = 'mt-1 block w-full min-w-0 rounded-lg border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-text'
 const check = 'mt-1 h-4 w-4 shrink-0'
 const CURRENCIES = ['KZT', 'RUB', 'USD', 'EUR'] as const
-const REQUIRED_SERVICES = [['ielts', 'Подготовка IELTS'], ['career', 'Профориентация'], ['csca', 'Подготовка к CSCA'], ['entrance', 'Подготовка к вступительным'], ['sat', 'Подготовка к SAT']] as const
+const REQUIRED_SERVICES = [['ielts', 'Подготовка IELTS'], ['career', 'Профориентация'], ['csca', 'Подготовка к CSCA'], ['entrance', 'Подготовка к вступительным'], ['sat', 'Подготовка к SAT'], ['portfolio', 'Улучшение академического портфолио']] as const
 const money = (value: string) => Number(value).toLocaleString('ru-RU').replace(/\s/g, ' ')
 export function ActPreparationDialog({ studentId, studentName, contract, initial, previousActs = [], onClose, onSaved }: {
   studentId: string; studentName: string; contract: ActContract; initial: ActRecord | null; previousActs?: ActRecord[]

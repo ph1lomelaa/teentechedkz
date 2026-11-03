@@ -16,8 +16,8 @@ from app.services.contract_profile import cached_profile, services_summary
 from app.services.contract_services import CATEGORIES, DEFAULT_SERVICES
 
 # Порядок столбцов-услуг в таблице.
-SERVICE_COLUMNS = ['ielts', 'career', 'csca', 'entrance', 'sat',
-                   *(key for key in CATEGORIES if key not in {'career', 'csca', 'entrance', 'sat'}),
+SERVICE_COLUMNS = ['ielts', 'career', 'csca', 'entrance', 'sat', 'portfolio',
+                   *(key for key in CATEGORIES if key not in {'career', 'csca', 'entrance', 'sat', 'portfolio'}),
                    'english', 'other']
 SERVICE_LABELS = {**{k: v[0] for k, v in CATEGORIES.items()}, 'ielts': 'Подготовка IELTS',
                   'english': 'Английский язык', 'other': 'Прочее'}

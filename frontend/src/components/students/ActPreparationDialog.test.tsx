@@ -108,8 +108,8 @@ it('defaults service period to the verified signing date through today', async (
 })
 
 it('offers standard descriptions for all five directions and submits the selected text', async () => {
- const categories = ['ielts','career','csca','entrance','sat']
- const names = ['Подготовка IELTS','Профориентация','Подготовка к CSCA','Подготовка к вступительным','Подготовка к SAT']
+ const categories = ['ielts','career','csca','entrance','sat','portfolio']
+ const names = ['Подготовка IELTS','Профориентация','Подготовка к CSCA','Подготовка к вступительным','Подготовка к SAT','Улучшение академического портфолио']
  const defaults = categories.map((category,index) => ({id:`standard-${category}`,category,name:names[index],text:`Описание подготовки из другого договора: ${category}`,page:20,reference:'Стандартное описание из договоров',excerpt:'Описание',source_kind:'standard' as const}))
  show({services:defaults,signed_date:'2026-08-03'})
  for (const name of names) expect(await screen.findByRole('checkbox',{name:new RegExp(`^${name}`)})).toBeEnabled()
