@@ -104,3 +104,25 @@ class ApplicantLabelTests(unittest.TestCase):
     def test_unnamed_minor_role_before_iin_names_participant(self):
         p=extract_profile(pages('в качестве законного представителя несовершеннолетнего Тест Алидар ИИН 000000000001, именуемого в дальнейшем «Участник»'),{},b'test')
         self.assertEqual(p['fields']['student_name'],'Тест Алидар')
+
+
+def test_student_named_after_in_the_interests_of_applicant_dash():
+    from app.services.contract_profile import extract_profile
+    text = ('ДОГОВОР № 5 г. Алматы «1» сентября 2026 г. Товарищество с ограниченной ответственностью «ТинТэкЭд», именуемое в дальнейшем «Исполнитель», '
+            'в лице директора Жұман Б.Б., действующей на основании Устава, с одной стороны, и Сыздыкова Динара Ахтановна , ИИН 821212450693 , '
+            'именуемая в дальнейшем «Заказчик» , действующая в интересах Абитуриента — Галым Томирис , ИИН 091231651297 , с другой стороны, '
+            'заключили настоящий Договор о нижеследующем.')
+    profile = extract_profile([{'page': 1, 'text': text}], {}, b'x')
+    assert profile['fields']['student_name'] == 'Галым Томирис'
+    assert profile['fields']['customer_name'] == 'Сыздыкова Динара Ахтановна'
+
+
+def test_typo_variants_of_the_same_student_are_not_a_conflict():
+    from app.services.contract_profile import extract_profile
+    text = ('ДОГОВОР № 5 г. Алматы «1» сентября 2026 г. Товарищество с ограниченной ответственностью «ТинТэкЭд», именуемое в дальнейшем «Исполнитель», '
+            'в лице директора Жұман Б.Б., действующей на основании Устава, с одной стороны, и Сатжановой Диной Жиреншиной, ИИН 850826402317 , '
+            'выступающей в качестве Заказчика , в интересах Бекжана Əлихана Ұланұлы, ИИН 100311552532 , являющегося Абитуриентом , с другой стороны. '
+            'Абитуриент: Бекжан Əлихан Ұанұлы. ')
+    profile = extract_profile([{'page': 1, 'text': text}], {}, b'x')
+    assert profile['fields']['student_name'].startswith('Бекжан')
+    assert 'student_name' not in profile['conflicts']

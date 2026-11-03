@@ -4,7 +4,7 @@ import json
 import re
 from datetime import date
 from app.services.contract_services import extract_services, signature_available, with_default_services
-from app.services.contract_discovery import same_person
+from app.services.contract_discovery import fuzzy_overlap, same_person
 from app.core.encryption import decrypt, encrypt
 
 VERSION = 1
@@ -128,7 +128,7 @@ def extract_profile(pages, info, content):
         add('student_name', ward.group(1), 1, ward.group(0))
         ident = re.sub(r'\s+', '', ward.group(2) or ward.group(3) or '')
         if len(ident) == 12: add('student_id_number', ident, 1, ward.group(0))
-    interest = re.search(r'в\s+интересах\s+(?:несовершеннолетн\w+\s+)?(.{3,150}?)\s*,\s*(?:(?:индивидуальный\s+)?идентификационный\s+номер\s*\(ИИН\)\s*|ИИН\s*:?\s*)((?:\d\s*){12})', first[:4500], re.I)
+    interest = re.search(r'в\s+интересах\s+(?:несовершеннолетн\w+\s+)?(?:(?:абитуриента|участника|обучающегося|учащегося)\s*[—–-]?\s*)?(.{3,150}?)\s*,\s*(?:(?:индивидуальный\s+)?идентификационный\s+номер\s*\(ИИН\)\s*|ИИН\s*:?\s*)((?:\d\s*){12})', first[:4500], re.I)
     if interest:
         add('student_name', interest.group(1), 1, interest.group(0))
         add('student_id_number', re.sub(r'\s+', '', interest.group(2)), 1, interest.group(0))
@@ -180,6 +180,11 @@ def extract_profile(pages, info, content):
             email, (page, excerpt) = found.popitem()
             add('customer_email', email, page, excerpt)
     for key, values in candidates.items():
+        if len(values) > 1 and key.endswith('_name') and key != 'executor_name':
+            # Один человек, в тексте договора написан дважды с опечаткой: оставляем первое написание.
+            first_name = values[0]['value']
+            if all(len(v['value'].split()) == len(first_name.split()) == fuzzy_overlap(first_name, v['value']) for v in values[1:]):
+                values = values[:1]
         if len(values) == 1:
             fields[key] = values[0]['value']; sources[key] = {k:v for k,v in values[0].items() if k!='value'}
         else: conflicts[key] = values

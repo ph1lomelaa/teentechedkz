@@ -71,7 +71,7 @@ async def list_registry(db: Db, current_user: CurrentUser):
     items = []
     for d in pending:
         facts = _facts(d)
-        items.append({"id": str(d.id), "number": d.number, "name": d.name, "decision": d.decision, "reason": d.reason,
+        items.append({"id": str(d.id), "number": None if (d.number or "").strip().casefold() in ("nan", "null", "none", "upl-nan", "upl-null", "") else d.number, "name": d.name, "decision": d.decision, "reason": d.reason,
                       "status": d.status, "created_at": d.contract_created_at, "checked_at": d.checked_at.isoformat(),
                       "student_name": facts.get("student_name"), "customer_name": facts.get("customer_name"),
                       "candidates": [{"id": c, "full_name": names[uuid.UUID(c)]} for c in d.candidate_ids or [] if uuid.UUID(c) in names]})

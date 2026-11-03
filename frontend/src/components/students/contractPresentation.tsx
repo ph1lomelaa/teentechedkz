@@ -2,7 +2,7 @@ import type { TrustMeCandidate } from '@/api/trustme'
 
 export function recordNumber(value?: string | null) {
   const number = value?.replace(/^(?:\s*(?:UPL\s*[-–—]?|№|#))+/i, '').trim()
-  return number ? `№${number}` : 'Без номера'
+  return number && !/^(nan|null|undefined)$/i.test(number) ? `№${number}` : 'Без номера'
 }
 export function contractStatus(status?: number) {
   return status === 3 ? { label: 'Подписан', color: 'bg-emerald-50 text-emerald-800' }

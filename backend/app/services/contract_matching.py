@@ -5,7 +5,7 @@
 """
 import re
 
-from app.services.contract_discovery import _same_word, _words, _roman_word, match_student, name_overlap, phone_key, phones_in_pages, same_person, phone_keys, role_phones, transliterated_person
+from app.services.contract_discovery import fuzzy_overlap, _same_word, _words, _roman_word, match_student, name_overlap, phone_key, phones_in_pages, same_person, phone_keys, role_phones, transliterated_person
 
 
 def _phones(student, guardians):
@@ -159,10 +159,13 @@ def pick_student(profile, pages, students, guardians, all_names, title=''):
     # human review. Two matching name parts avoid flooding the queue with every
     # student sharing a common first name; this rule never auto-links.
     hints = [s for s in students if (len(_words(named)) <= 2 and name_overlap(named, s.full_name) >= 2)
-             or name_overlap(title, s.full_name) >= 2 or transliterated_person(named, s.full_name)]
+             or name_overlap(title, s.full_name) >= 2 or transliterated_person(named, s.full_name)
+             # Опечатка: нечётких совпадений больше точных, иначе подойдут и родные с той же фамилией и отчеством.
+             or 2 <= fuzzy_overlap(named, s.full_name) and fuzzy_overlap(named, s.full_name) > name_overlap(named, s.full_name)
+             or 2 <= fuzzy_overlap(title, s.full_name) and fuzzy_overlap(title, s.full_name) > name_overlap(title, s.full_name)]
     if hints:
-        hints.sort(key=lambda s: max(name_overlap(named, s.full_name),
-                                     name_overlap(title, s.full_name)), reverse=True)
+        hints.sort(key=lambda s: max(fuzzy_overlap(named, s.full_name),
+                                     fuzzy_overlap(title, s.full_name)), reverse=True)
         return 'review', hints[:5], 'Есть совпадение ФИО, проверьте договор и выберите карточку'
     if not named:
         return 'none', [], 'В PDF не найден абитуриент'
