@@ -40,6 +40,7 @@ LOCK = 'trustme-sync:lock'
 # Нечитаемый PDF пробуем снова не чаще раза в сутки.
 RETRY_UNREADABLE = timedelta(hours=24)
 TRANSIENT = 'Не удалось прочитать PDF'
+UNSIGNED_NOTE = 'Не подписан'
 # Подряд столько сбоев TrustMe — проход прерывается, договоры не помечаются.
 MAX_FAILURES = 5
 PAUSE = 0.3
@@ -112,8 +113,9 @@ async def read_and_decide(db, client, doc, people, *, apply, ocr_scans=False):
     """Скачать и прочитать договор, решить, при apply — сохранить и привязать.
     Возвращает (решение, студент или список, причина)."""
     info = await client.contract(doc.short_url)
-    if info.get('contract_status') != 3:
-        doc.decision, doc.reason = 'unsigned', 'Договор ещё не подписан'
+    signed = info.get('contract_status') == 3
+    if info.get('contract_status') == 4:
+        doc.decision, doc.reason = 'unsigned', 'Договор отозван компанией'
         return 'unsigned', [], doc.reason
     content = await client.pdf(doc.short_url)
     pages = await asyncio.to_thread(read_pages, content, ocr=False)
@@ -125,6 +127,11 @@ async def read_and_decide(db, client, doc, people, *, apply, ocr_scans=False):
     profile = recover_student_identity(extract_profile(pages, info, content), pages, people.students, people.guardians)
     doc.facts_encrypted = encrypt(json.dumps(facts_of(profile, pages), ensure_ascii=False))
     decision, found, reason = pick_student(profile, pages, people.students, people.guardians, people.names, doc.name)
+    if not signed:
+        # Неподписанный договор — только в очередь на проверку, сам не привязывается.
+        if decision == 'link':
+            decision, found = 'review', [found]
+        reason = f'{UNSIGNED_NOTE} · {reason}'
     doc.decision, doc.candidate_ids = _decision(decision, found) if decision != 'link' else ('review', [str(found.id)])
     doc.reason = reason
     if decision == 'link' and apply:
@@ -181,12 +188,14 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
         # Сбой TrustMe — снова на следующем проходе; скан без текста — раз в сутки.
         retry = doc is not None and doc.decision == 'unreadable' and (
             (doc.reason or '').startswith(TRANSIENT) or now - doc.checked_at > RETRY_UNREADABLE)
-        if row.get('contractStatus') != 3:
+        if row.get('contractStatus') == 4:
             if apply and changed:
                 doc = await _document(db, company, row)
-                doc.decision, doc.reason = 'unsigned', 'Договор ещё не подписан'
-            stats['не подписан'] += 1
+                doc.decision, doc.reason = 'unsigned', 'Договор отозван компанией'
+            stats['отозван'] += 1
             continue
+        if row.get('contractStatus') != 3:
+            stats['не подписан (читаем для проверки)'] += 1
         if force_read or changed or retry or (doc is not None and doc.facts_encrypted is None and doc.decision != 'unreadable'):
             todo.append(row)
     stats['PDF к чтению'] = len(todo[:limit] if limit else todo)
@@ -264,6 +273,8 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
         except Exception:
             continue
         decision, found, reason = decide_from_facts(facts, people, doc.name)
+        if decision == 'link' and doc.status != 3:
+            decision, found, reason = 'review', [found], f'{UNSIGNED_NOTE} · {reason}'
         if decision == 'link':
             if not apply:
                 stats['привяжется при перепроверке'] += 1

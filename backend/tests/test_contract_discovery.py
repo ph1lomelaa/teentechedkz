@@ -146,3 +146,38 @@ class TypoHintTests(unittest.TestCase):
         from app.services.contract_discovery import fuzzy_overlap
         self.assertEqual(fuzzy_overlap('Клименко Артем Денисович', 'Иванов Иван Иванович'), 0)
         self.assertEqual(fuzzy_overlap('Раазан Әмір', 'Рамазан Әмір Манасұлы'), 2)
+
+
+class UnsignedReadTests(unittest.IsolatedAsyncioTestCase):
+    async def _read(self, status):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.services import trustme_sync as sync
+        student = SimpleNamespace(id='s1', full_name='Клименко Артем Денисович')
+        client = SimpleNamespace(contract=AsyncMock(return_value={'contract_status': status}), pdf=AsyncMock(return_value=b'%PDF'))
+        doc = SimpleNamespace(short_url='abc', name='Договор', number='1', facts_encrypted=None, decision=None, candidate_ids=None, reason=None)
+        people = SimpleNamespace(students=[student], guardians={}, names=[student.full_name])
+        with patch.object(sync, 'read_pages', return_value=[{'page': 1, 'text': 'текст'}]), \
+             patch.object(sync, 'extract_profile', return_value={'fields': {}, 'sources': {}}), \
+             patch.object(sync, 'recover_student_identity', side_effect=lambda p, *a: p), \
+             patch.object(sync, 'facts_of', return_value={}), patch.object(sync, 'encrypt', return_value='x'), \
+             patch.object(sync, 'pick_student', return_value=('link', student, 'Студент однозначно указан в договоре')), \
+             patch.object(sync, '_link', AsyncMock()) as link:
+            result = await sync.read_and_decide(MagicMock(), client, doc, people, apply=True)
+        return result, doc, link
+
+    async def test_unsigned_contract_goes_to_review_and_is_never_linked(self):
+        (decision, found, reason), doc, link = await self._read(1)
+        self.assertEqual((decision, doc.decision), ('review', 'review'))
+        self.assertEqual(doc.candidate_ids, ['s1'])
+        self.assertTrue(reason.startswith('Не подписан'))
+        link.assert_not_awaited()
+
+    async def test_signed_contract_is_still_linked(self):
+        (decision, *_), doc, link = await self._read(3)
+        self.assertEqual(decision, 'link')
+        link.assert_awaited_once()
+
+    async def test_revoked_contract_is_skipped(self):
+        (decision, *_), doc, link = await self._read(4)
+        self.assertEqual(decision, 'unsigned')
+        link.assert_not_awaited()
