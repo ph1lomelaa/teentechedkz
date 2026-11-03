@@ -29,6 +29,17 @@ it('accepts a number or reference in one field without choosing a search type', 
   fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и привязать' }))
   await waitFor(() => expect(trustmeApi.link).toHaveBeenCalledWith('student', '4Kuowd19'))
 })
+it('lets staff confirm when the search result has no status and checks the contract on the server', async () => {
+  vi.mocked(trustmeApi.search).mockResolvedValue({ candidates: [{ ...candidate, status: 0 }], queries: [], truncated: false })
+  show()
+  fireEvent.click(screen.getByText('Найти другой договор в TrustMe'))
+  fireEvent.change(screen.getByLabelText('Любые данные договора'), { target: { value: '474' } })
+  fireEvent.click(screen.getByRole('button', { name: /^Найти$/ }))
+  const button = await screen.findByRole('button', { name: 'Подтвердить и привязать' })
+  expect(button).toBeEnabled()
+  fireEvent.click(button)
+  await waitFor(() => expect(trustmeApi.link).toHaveBeenCalledWith('student', '4Kuowd19'))
+})
 it('requires confirmation for manual upload, independently of TrustMe', async () => {
   show()
   const file = new File(['%PDF-test'], 'Договор.pdf', { type: 'application/pdf' })

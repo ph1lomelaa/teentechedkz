@@ -12,7 +12,7 @@ vi.mock('@/lib/utils', async importOriginal => ({ ...await importOriginal<typeof
 const access = vi.hoisted(() => ({ manage: true }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ can: (_: string, action: string) => action === 'view' || access.manage }) }))
 vi.mock('@/api/acts', async importOriginal => ({ ...await importOriginal<typeof import('@/api/acts')>(), actsApi: {
-  financialContext: vi.fn(), contractPdf: vi.fn(), context: vi.fn(), update: vi.fn(), create: vi.fn(), generate: vi.fn(), share: vi.fn(), checkContract: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), pdf: vi.fn(), inspect: vi.fn(),
+  remove: vi.fn(), financialContext: vi.fn(), contractPdf: vi.fn(), context: vi.fn(), update: vi.fn(), create: vi.fn(), generate: vi.fn(), share: vi.fn(), checkContract: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), pdf: vi.fn(), inspect: vi.fn(),
 } }))
 vi.mock('@/api/trustme', () => ({ trustmeApi: { assignFinancial: vi.fn(), autoLink: vi.fn() } }))
 vi.mock('./StudentTrustMePanel', () => ({ StudentTrustMePanel: () => <div>Поиск TrustMe</div> }))
@@ -143,4 +143,15 @@ describe('Financial document integration', () => {
     await waitFor(() => expect(trustmeApi.assignFinancial).toHaveBeenCalledWith('student-1', 'link-1', 'financial-1'))
     expect(screen.queryByText('Поиск TrustMe')).not.toBeInTheDocument()
   })
+})
+
+it('requires confirmation before deleting a draft and refreshes the history', async () => {
+ vi.mocked(actsApi.remove).mockResolvedValue(undefined)
+ mount()
+ fireEvent.click(await screen.findByRole('button',{name:'Удалить акт'}))
+ expect(actsApi.remove).not.toHaveBeenCalled()
+ const buttons = screen.getAllByRole('button',{name:'Удалить акт'})
+ fireEvent.click(buttons[buttons.length - 1])
+ await waitFor(() => expect(actsApi.remove).toHaveBeenCalledWith('act-1'))
+ await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })

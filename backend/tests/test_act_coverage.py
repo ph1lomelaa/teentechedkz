@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.services.act_coverage import build_coverage
+from app.services.act_coverage import SERVICE_COLUMNS, build_coverage
 
 STUDENT = uuid.uuid4()
 
@@ -49,3 +49,10 @@ def test_services_of_several_contracts_are_combined_and_worst_state_is_shown():
 def test_student_without_contract_has_no_percent():
     row, state = cells()
     assert row['percent'] is None and set(state.values()) == {'none'}
+
+
+def test_requested_service_columns_are_visible_without_claiming_they_are_in_every_contract():
+    assert SERVICE_COLUMNS[:5] == ['ielts', 'career', 'csca', 'entrance', 'sat']
+    _, state = cells(link(('s1', 'ielts')))
+    assert state['ielts'] == 'missing'
+    assert all(state[key] == 'none' for key in ('career', 'csca', 'entrance', 'sat'))

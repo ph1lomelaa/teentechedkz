@@ -366,6 +366,7 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
     finance = [c for c in finance if c.id == link.financial_contract_id] if link.financial_contract_id else finance if len(finance) == 1 else []
     amount = finance[0] if finance and finance[0].amount else None
     return {**{k:v for k,v in profile.items() if k != "source_pages"}, "pages": pages, "status": link.status,
+            "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None),
             "contract_amount": str(amount.amount) if amount else None, "contract_currency": amount.currency if amount else None,
             "suggested_contract_number": profile["fields"].get("contract_number"),
             "signers": link.signers, "requires_verification": True,
@@ -468,6 +469,21 @@ async def update_draft(act_id: uuid.UUID, body: ActDraftInput, db: Db, current_u
     await log_change(db, "student", act.student_id, "act_draft_updated", None, str(act.id), str(current_user.id))
     await db.commit()
     return _act_dict(act)
+
+
+@router.delete("/{act_id}", status_code=204)
+async def delete_act(act_id: uuid.UUID, db: Db, current_user: CurrentUser):
+    act = await _act(db, act_id, current_user, manage=True, lock=True)
+    attempts = (await db.execute(select(ActMailAttempt).where(ActMailAttempt.act_id == act_id))).scalars().all()
+    if any(m.status in {"sending", "unknown"} for m in attempts):
+        raise HTTPException(409, "Сначала уточните результат отправки письма")
+    replacement = (await db.execute(select(ServiceAct.id).where(ServiceAct.supersedes_id == act_id))).first()
+    if replacement:
+        raise HTTPException(409, "Сначала удалите новую версию этого акта")
+    await log_change(db, "student", act.student_id, "act_deleted", str(act.id), None, str(current_user.id))
+    await db.delete(act)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/{act_id}/generate")
@@ -604,7 +620,7 @@ async def portal_pdf(act_id: uuid.UUID, student: CurrentStudent, db: Db):
 class ContractQuote(BaseModel):
     page: int = Field(ge=1, le=80)
     text: str = Field(min_length=12, max_length=1800)
-    category: Literal['profile','portfolio','ielts','career','applications','offer','admission','other'] = 'other'
+    category: Literal['profile','portfolio','ielts','career','csca','entrance','sat','applications','offer','admission','other'] = 'other'
 
 
 @router.post('/students/{student_id}/contracts/{link_id}/service-quote')
@@ -622,7 +638,8 @@ async def add_service_quote(student_id: uuid.UUID, link_id: uuid.UUID, body: Con
         if existing['page'] == body.page and (quote in normalized(existing.get('excerpt','')) or quote in normalized(existing['text'])):
             return existing
     identity = hashlib.sha256(f"{profile['fingerprint']}:{body.page}:{quote}".encode()).hexdigest()[:24]
-    item = {'id':identity, 'name':'Услуга по договору', 'category':body.category, 'text':quote,
+    from app.services.act_coverage import SERVICE_LABELS
+    item = {'id':identity, 'name':SERVICE_LABELS.get(body.category, 'Услуга по договору'), 'category':body.category, 'text':quote,
             'page':body.page, 'reference':f'Договор, стр. {body.page}', 'excerpt':quote, 'verbatim_manual': True}
     if not any(s['id'] == identity for s in profile.get('services',[])):
         profile.setdefault('services',[]).append(item)

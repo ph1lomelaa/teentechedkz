@@ -1,14 +1,20 @@
 """Verbatim contract activities for the act constructor; no authored work claims."""
 from decimal import Decimal
 import hashlib
+import json
+from pathlib import Path
 import re
 
 CATEGORIES = {
     'profile': ('Оценка профиля', r'Оценка\s+профиля\s+студента'),
     'career': ('Профориентация', r'Профориентация'),
+    'csca': ('Подготовка к CSCA', r'Подготовка\s+к\s+CSCA'),
+    'entrance': ('Подготовка к вступительным', r'Подготовка\s+к\s+вступительн\w*\s+(?:экзамен\w*|испытани\w*)'),
+    'sat': ('Подготовка к SAT', r'Подготовка\s+к\s+SAT'),
     'portfolio': ('Академическое портфолио', r'Улучшение\s+академического\s+портфолио'),
-    'shortlist': ('Подбор университетов и программ', r'Шорт-лист\s+образовательных'),
+    'shortlist': ('Подбор университетов и программ', r'Шорт-лист\s+(?:образовательных|университетов)'),
     'essays': ('Мотивационные письма и эссе', r'Эссе\s*:|General\s+till\s+1000'),
+    'recommendations': ('Рекомендательные письма', r'Рекомендательные\s+письма\s*/\s*Academic'),
     'resume': ('Резюме', r'Резюме\s*/\s*Personal'),
     'applications': ('Подачи в университеты', r'Регистрационны\s*е?\s+формы'),
     'interview': ('Подготовка к интервью', r'Интервью\s*/\s*General'),
@@ -20,6 +26,35 @@ CATEGORIES = {
 
 def normalized(value):
     return re.sub(r'\s+', ' ', value or '').strip()
+
+
+DEFAULT_SERVICES = json.loads((Path(__file__).resolve().parents[1] / 'data' / 'contract_service_defaults.json').read_text())
+
+
+def with_default_services(profile):
+    """Use this contract's descriptions first, then the approved shared catalog.
+
+    Catalog descriptions have their own provenance and never inherit another
+    student's prices, training duration, exam fees or other commercial terms.
+    """
+    if not profile or not profile.get('fingerprint'):
+        return profile
+    previous = {s['category']: s for s in profile.get('services', []) if s.get('source_kind') == 'standard'}
+    services = [s for s in profile.get('services', []) if s.get('source_kind') != 'standard']
+    for category, template in DEFAULT_SERVICES.items():
+        own = [s for s in services if s.get('category') == category]
+        # A heading alone supplies no description. Keep explicit staff quotes.
+        if any(s.get('verbatim_manual') or len(normalized(s['text'])) > len(s['name']) + 15 for s in own):
+            continue
+        services = [s for s in services if s not in own]
+        identity = own[0]['id'] if len(own) == 1 else previous[category]['id'] if category in previous else hashlib.sha256(f"{profile['fingerprint']}:standard:{category}".encode()).hexdigest()[:24]
+        services.append({'id': identity, 'name': template['name'], 'category': category,
+                         'text': template['text'], 'source_kind': 'standard',
+                         'page': template['source']['page'], 'reference': 'Стандартное описание из договоров',
+                         'excerpt': template['source']['excerpt'], 'template_source': template['source']})
+    profile['services'] = services
+    profile['default_services_version'] = 1
+    return profile
 
 
 def extract_services(pages, fingerprint):
@@ -105,7 +140,7 @@ def extract_services(pages, fingerprint):
     # Numbered language-training clauses can sit outside the appendix.
     for match in re.finditer(r'(?P<number>\d+\.\d+\.)\s*(?P<title>Подготовка\s+к\s+IELTS|Подготовка\s+по\s+английскому\s+языку)\s*:', whole, re.I):
         tail = whole[match.end():]
-        boundary = re.search(r'\s\d+\.\d+\.\s', tail)
+        boundary = re.search(r'\s\d+\.(?:\d+\.)?\s', tail)
         section = whole[match.start():match.end()+(boundary.start() if boundary else min(len(tail),2000))]
         activity = re.search(r'включает\s+(.+?)(?=\s+Курс направлен|$)', section, re.I)
         if activity:

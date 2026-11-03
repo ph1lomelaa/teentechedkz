@@ -222,3 +222,35 @@ class ActApiTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ActDeletionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_removes_act_with_audit(self):
+        act = record()
+        db = SimpleNamespace(execute=AsyncMock(return_value=MagicMock()), delete=AsyncMock(), commit=AsyncMock())
+        db.execute.return_value.scalars.return_value.all.return_value = []
+        db.execute.return_value.first.return_value = None
+        with patch.object(acts, '_act', AsyncMock(return_value=act)), patch.object(acts, 'log_change', AsyncMock()) as audit:
+            response = await acts.delete_act(act.id, db, user())
+        self.assertEqual(response.status_code, 204)
+        db.delete.assert_awaited_once_with(act)
+        db.commit.assert_awaited_once()
+        self.assertEqual(audit.call_args.args[3], 'act_deleted')
+
+    async def test_unresolved_send_prevents_deletion(self):
+        act = record()
+        db = SimpleNamespace(execute=AsyncMock(return_value=MagicMock()), delete=AsyncMock())
+        db.execute.return_value.scalars.return_value.all.return_value = [SimpleNamespace(status='sending')]
+        with patch.object(acts, '_act', AsyncMock(return_value=act)), self.assertRaises(HTTPException) as caught:
+            await acts.delete_act(act.id, db, user())
+        self.assertEqual(caught.exception.status_code, 409)
+        db.delete.assert_not_awaited()
+
+    async def test_replacement_prevents_deletion(self):
+        act = record()
+        db = SimpleNamespace(execute=AsyncMock(return_value=MagicMock()), delete=AsyncMock())
+        db.execute.return_value.scalars.return_value.all.return_value = []
+        db.execute.return_value.first.return_value = (uuid.uuid4(),)
+        with patch.object(acts, '_act', AsyncMock(return_value=act)), self.assertRaises(HTTPException):
+            await acts.delete_act(act.id, db, user())
+        db.delete.assert_not_awaited()

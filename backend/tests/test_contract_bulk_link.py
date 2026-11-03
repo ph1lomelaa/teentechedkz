@@ -117,3 +117,12 @@ def test_parent_rule_does_not_fire_when_the_contract_names_another_student():
     kamila = student('Асаубаева Камила Руслановна')
     prof = profile('Асаубаева Алина Руслановна', 'Асаубаев Руслан')
     assert pick_student(prof, [], [kamila], {}, [kamila.full_name])[0] != 'link'
+
+
+def test_title_or_partial_name_offers_review_candidate_without_auto_linking():
+    nurai = student('Жолдас Нұрай Бекболатқызы')
+    decision, found, _ = pick_student(profile(), [], [nurai], {}, [nurai.full_name],
+                                      'Admission договор Жолдас Нұрай')
+    assert decision == 'review' and found == [nurai]
+    decision, found, _ = pick_student(profile('Жолдас Нұрай'), [], [nurai], {}, [nurai.full_name])
+    assert decision == 'review' and found == [nurai]

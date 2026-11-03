@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     invites,
     contracts,
     trustme,
+    trustme_registry,
     acts,
     contract_addenda,
     applications,
@@ -76,6 +77,7 @@ api_router.include_router(student_access.router)
 api_router.include_router(invites.router)
 api_router.include_router(contracts.router)
 api_router.include_router(trustme.router)
+api_router.include_router(trustme_registry.router)
 api_router.include_router(acts.router)
 api_router.include_router(contract_addenda.router)
 api_router.include_router(applications.router)

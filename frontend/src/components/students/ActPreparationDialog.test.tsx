@@ -31,6 +31,18 @@ it('infers the act kind from service categories', () => {
  expect(inferTemplate(['portfolio','offer'],false)).toBe('offer')
  expect(inferTemplate(['ielts'],true)).toBe('admission')
 })
+it('always shows the five directions and requires a PDF quote for an unrecognized one', async () => {
+ show()
+ await screen.findByText('Обязательные направления')
+ for (const name of ['Подготовка IELTS','Профориентация','Подготовка к CSCA','Подготовка к вступительным','Подготовка к SAT'])
+   expect(screen.getAllByText(name).length).toBeGreaterThan(0)
+ expect(screen.queryByRole('checkbox',{name:/^Подготовка к SAT/})).not.toBeInTheDocument()
+ fireEvent.click(screen.getByText('Нужной услуги нет в списке'))
+ fireEvent.change(screen.getByLabelText('Направление'), {target:{value:'sat'}})
+ fireEvent.change(screen.getByLabelText('Точная цитата услуги'), {target:{value:'Подготовка к SAT включает занятия'}})
+ fireEvent.click(screen.getByRole('button',{name:'Проверить и добавить'}))
+ await waitFor(() => expect(actsApi.addServiceQuote).toHaveBeenCalledWith('student','link',expect.objectContaining({category:'sat'})))
+})
 it('defaults the period end and act date to today and explains a wrong date under the field', async () => {
  show()
  fireEvent.click(await screen.findByRole('checkbox',{name:/^Подготовка IELTS/}))
@@ -85,4 +97,25 @@ it('marks services already covered by a ready act instead of offering them again
  expect(await screen.findByText('Уже оформлено: акт от 01.10.2026')).toBeInTheDocument()
  expect(screen.queryByRole('checkbox',{name:/^Профориентация/})).not.toBeInTheDocument()
  expect(screen.getByRole('checkbox',{name:/^Подготовка IELTS/})).toBeEnabled()
+})
+
+it('defaults service period to the verified signing date through today', async () => {
+ show({signed_date:'2026-08-03',signed_date_source:'trustme'})
+ fireEvent.click(await screen.findByRole('checkbox',{name:/^Подготовка IELTS/}))
+ fireEvent.click(screen.getByRole('button',{name:'Далее'}))
+ expect(screen.getByLabelText(/^С$/)).toHaveValue('2026-08-03')
+ expect(screen.getByLabelText(/^По$/)).toHaveValue(actToday())
+})
+
+it('offers standard descriptions for all five directions and submits the selected text', async () => {
+ const categories = ['ielts','career','csca','entrance','sat']
+ const names = ['Подготовка IELTS','Профориентация','Подготовка к CSCA','Подготовка к вступительным','Подготовка к SAT']
+ const defaults = categories.map((category,index) => ({id:`standard-${category}`,category,name:names[index],text:`Описание подготовки из другого договора: ${category}`,page:20,reference:'Стандартное описание из договоров',excerpt:'Описание',source_kind:'standard' as const}))
+ show({services:defaults,signed_date:'2026-08-03'})
+ for (const name of names) expect(await screen.findByRole('checkbox',{name:new RegExp(`^${name}`)})).toBeEnabled()
+ fireEvent.click(screen.getByRole('checkbox',{name:/^Подготовка к SAT/}))
+ fireEvent.click(screen.getByRole('button',{name:'Далее'}))
+ fireEvent.click(screen.getByRole('checkbox',{name:/Проверено/}))
+ fireEvent.click(screen.getByRole('button',{name:'Создать акт'}))
+ await waitFor(() => expect(actsApi.create).toHaveBeenCalledWith('student',expect.objectContaining({lines:[expect.objectContaining({result:defaults[4].text,contract_source:'Стандартное описание из договоров',contract_service_id:'standard-sat'})]})))
 })

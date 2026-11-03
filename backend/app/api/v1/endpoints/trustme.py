@@ -449,7 +449,7 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
     guardians = [g.full_name for g in guardian_rows]
     phones = list(dict.fromkeys([student.phone, *[g.phone for g in guardian_rows]]))
     identity = hashlib.sha256(json.dumps([student.full_name, phones, sorted(guardians)], ensure_ascii=False).encode()).hexdigest()[:20]
-    key = f"contract-discovery:v2:{student_id}:{identity}"
+    key = f"contract-discovery:v3:{student_id}:{identity}"
     token = uuid.uuid4().hex
     async with Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2, socket_timeout=2) as redis:
         try:
@@ -525,11 +525,16 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                             related = (row['id'] in by_phone or any(same_person(fields.get('customer_name') or '', n) for n in names)
                                        or bool(phones_in_pages(pages) & {phone_key(p) for p in phones})
                                        or name_overlap(fields.get('student_name') or '', student.full_name) >= 2)
-                            if likely_candidate(row, names) or related:
-                                report['review'].append({**candidate, 'reason': reason})
-                            continue
+                            if not (likely_candidate(row, names) or related):
+                                continue
                         if existing:
-                            report['review'].append({**candidate, 'reason': 'Договор уже привязан к другой карточке; нужна проверка существующей связи', 'blocked': True})
+                            # «Подтвердить» здесь всё равно получила бы 409 — объясняем сразу.
+                            owner = await db.get(Student, existing.student_id)
+                            report['review'].append({**candidate, 'blocked': True, 'reason':
+                                f'Договор уже привязан к карточке «{owner.full_name if owner else "другого студента"}». Если это ошибка — отвяжите его там'})
+                            continue
+                        if outcome != 'confirmed':
+                            report['review'].append({**candidate, 'reason': reason})
                             continue
                         link = new_document_link(student_id, client.company_id, info, candidate, profile, pages, choices, current_user.id)
                         try:

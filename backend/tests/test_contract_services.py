@@ -21,9 +21,10 @@ class ProvenanceTests(unittest.TestCase):
   return profile, ActInput(**{**payload(),'include_amount':False,'lines':[line]})
  def test_every_activity_is_a_literal_contract_fragment_and_has_a_page(self):
   p=self.profile()
-  self.assertEqual({s['category'] for s in p['services']},{'profile','career','ielts'})
+  self.assertEqual({s['category'] for s in p['services']},{'profile','career','ielts','csca','entrance','sat'})
   text=' '.join(normalized(page['text']) for page in PAGES)
   for item in p['services']:
+   if item.get('source_kind') == 'standard': continue
    for fragment in item['text'].splitlines(): self.assertIn(normalized(fragment),text)
    self.assertGreater(item['page'],0)
   profile=next(s for s in p['services'] if s['category']=='profile')
@@ -57,3 +58,57 @@ class ProvenanceTests(unittest.TestCase):
  def test_company_identity_requires_bin_and_representative(self):
   self.assertTrue(signature_available([{'text':'БИН 210240033224'}],{'executor_representative':'директора Жұман Ботагөз'}))
   self.assertFalse(signature_available([{'text':'БИН 000000000000'}],{'executor_representative':'Жұман'}))
+
+ def test_exam_preparation_columns_need_an_actual_contract_service(self):
+  pages = [{'page': 1, 'text': 'Экзамены SAT и CSCA оплачиваются заказчиком. Подготовка к IELTS: занятия по Writing и Speaking.'}]
+  found = extract_services(pages, 'fingerprint')
+  self.assertNotIn('sat', {item['category'] for item in found})
+  self.assertNotIn('csca', {item['category'] for item in found})
+  pages = [{'page': 1, 'text': 'Приложение №1 к Договору. Подготовка к CSCA. Проведение занятий по математике. Подготовка к вступительным экзаменам. Проведение пробных тестов. Подготовка к SAT. Разбор заданий экзамена.'}]
+  found = extract_services(pages, 'fingerprint')
+  self.assertEqual({'csca', 'entrance', 'sat'}, {item['category'] for item in found})
+
+ def test_career_does_not_absorb_neighboring_table_rows(self):
+  pages = [{'page':1,'text':'Приложение №1 к Договору. Профориентация 3 6 🏛 Шорт-лист университетов и программ: до 10 ВУЗов 4 12 📜 Рекомендательные письма / Academic (2 * Letters of Recommendation) 4 8'}]
+  found = extract_services(pages, 'test')
+  career = next(s for s in found if s['category'] == 'career')
+  self.assertEqual(career['text'], 'Профориентация')
+  self.assertNotIn('Рекомендательные', next(s for s in found if s['category'] == 'shortlist')['text'])
+
+ def test_ielts_stops_before_next_top_level_section(self):
+  pages = [{'page':1,'text':'1.5. Подготовка к IELTS: Подготовка к IELTS включает проведение учебных занятий по Listening, Reading, Writing и Speaking. 2. СТОИМОСТЬ УСЛУГ И ПОРЯДОК РАСЧЕТОВ 2.1. Оплата.'}]
+  found = extract_services(pages, 'test')
+  self.assertEqual(len(found), 1)
+  self.assertNotIn('СТОИМОСТЬ', found[0]['text'])
+  self.assertTrue(found[0]['text'].endswith('Speaking'))
+
+ def test_defaults_are_available_and_valid_without_matching_contract_clauses(self):
+  from app.services.contract_services import with_default_services, DEFAULT_SERVICES
+  profile=with_default_services({'fingerprint':'student-contract','services':[]})
+  self.assertEqual({s['category'] for s in profile['services']},set(DEFAULT_SERVICES))
+  for service in profile['services']:
+   self.assertEqual(service['source_kind'],'standard')
+   self.assertIn(service['text'],service['excerpt'])
+   self.assertNotIn('confirmed_price',service)
+   line=dict(name=service['name'],result=service['text'],contract_service_id=service['id'],source_fingerprint=profile['fingerprint'],contract_source=service['reference'],unit='услуга',quantity='1')
+   validate_service_lines(ActInput(**{**payload(),'include_amount':False,'lines':[line]}),profile)
+  self.assertEqual(profile,with_default_services(copy.deepcopy(profile)))
+
+ def test_contract_description_wins_and_defaults_are_bound_to_current_contract(self):
+  from app.services.contract_services import with_default_services
+  own={'id':'own','name':'Подготовка к SAT','category':'sat','text':'Индивидуальные занятия по подготовке к SAT с преподавателем','reference':'Договор, стр. 2'}
+  first=with_default_services({'fingerprint':'first','services':[own]})
+  self.assertEqual([s for s in first['services'] if s['category']=='sat'],[own])
+  second=with_default_services({'fingerprint':'second','services':[]})
+  first_ids={s['id'] for s in first['services']}
+  self.assertFalse(first_ids & {s['id'] for s in second['services']})
+
+ def test_heading_only_uses_default_description_without_losing_existing_act_identity(self):
+  from app.services.contract_services import with_default_services
+  heading={'id':'existing-career','name':'Профориентация','category':'career','text':'Профориентация'}
+  profile=with_default_services({'fingerprint':'contract','services':[heading]})
+  service=next(s for s in profile['services'] if s['category']=='career')
+  self.assertEqual(service['id'],'existing-career')
+  self.assertEqual(service['source_kind'],'standard')
+  self.assertGreater(len(service['text']),len(heading['text']))
+  self.assertEqual(profile,with_default_services(copy.deepcopy(profile)))

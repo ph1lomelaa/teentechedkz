@@ -31,7 +31,7 @@ def progress(done, total, linked):
     print(f'  … обработано {done} из {total} · привязано {linked}', flush=True)
 
 
-async def main(apply, limit):
+async def main(apply, limit, full_scan=False):
     async with Redis.from_url(settings.REDIS_URL, decode_responses=True) as redis:
         if apply and not await redis.set(LOCK, 'contract-bulk-link', nx=True, ex=6 * 3600):
             print('Синхронизация уже идёт (в фоне или другой командой). Попробуйте позже.')
@@ -40,7 +40,7 @@ async def main(apply, limit):
             print(f'Режим: {"ПРИВЯЗКА" if apply else "только отчёт"}', flush=True)
             async with AsyncSessionLocal() as db:
                 async with _client() as client:
-                    stats, review = await sync(db, client, apply=apply, limit=limit, on_progress=progress)
+                    stats, review = await sync(db, client, apply=apply, limit=limit, force_read=full_scan, on_progress=progress)
         finally:
             if apply:
                 await redis.delete(LOCK)
@@ -59,5 +59,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--apply', action='store_true', help='записать в реестр и привязать однозначные договоры')
     parser.add_argument('--limit', type=int, default=0, help='прочитать не больше N новых договоров')
+    parser.add_argument('--full-scan', action='store_true', help='повторно прочитать каждый подписанный непривязанный PDF')
     args = parser.parse_args()
-    asyncio.run(main(args.apply, args.limit))
+    asyncio.run(main(args.apply, args.limit, args.full_scan))

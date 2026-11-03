@@ -11,6 +11,7 @@ import { neutralDisabled, documentLink } from './contractPresentation'
 const input = 'mt-1 block w-full min-w-0 rounded-lg border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-text'
 const check = 'mt-1 h-4 w-4 shrink-0'
 const CURRENCIES = ['KZT', 'RUB', 'USD', 'EUR'] as const
+const REQUIRED_SERVICES = [['ielts', 'Подготовка IELTS'], ['career', 'Профориентация'], ['csca', 'Подготовка к CSCA'], ['entrance', 'Подготовка к вступительным'], ['sat', 'Подготовка к SAT']] as const
 const money = (value: string) => Number(value).toLocaleString('ru-RU').replace(/\s/g, ' ')
 export function ActPreparationDialog({ studentId, studentName, contract, initial, previousActs = [], onClose, onSaved }: {
   studentId: string; studentName: string; contract: ActContract; initial: ActRecord | null; previousActs?: ActRecord[]
@@ -22,7 +23,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
   } : {
     contract_link_id:contract.id, supersedes_id:null, template:'stages', student_name:'', customer_name:'', customer_id:'', student_id_number:'', customer_email:'',
     executor_name:'', executor_representative:'', executor_basis:'', executor_requisites:'', contract_number:contract.legal_number || '', contract_date:contract.contract_date || '',
-    city:'', act_date:actToday(), period_start:'', period_end:actToday(), calls_count:null, include_amount:false, contract_total:null, currency:'KZT', lines:[], verified:false, full_completion_confirmed:false, company_signature:false, application_ids:[],
+    city:'', act_date:actToday(), period_start:contract.signed_date || '', period_end:actToday(), calls_count:null, include_amount:false, contract_total:null, currency:'KZT', lines:[], verified:false, full_completion_confirmed:false, company_signature:false, application_ids:[],
   })
   const dirty = useRef(new Set<string>())
   const applied = useRef(false)
@@ -34,6 +35,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
   const [message, setMessage] = useState('')
   const [quote, setQuote] = useState('')
   const [quotePage, setQuotePage] = useState('1')
+  const [quoteCategory, setQuoteCategory] = useState<string>('other')
   const profile = useQuery({ queryKey:['contract-requisites',studentId,contract.id], queryFn:() => actsApi.inspect(studentId,contract.id), staleTime:0, retry:false })
   useEffect(() => {
     if (!profile.data || applied.current) return
@@ -41,6 +43,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     setForm(old => {
       const next = { ...old }
       for (const [key] of REQUISITES) if (!dirty.current.has(key) && profile.data.fields[key] && (!initial || !old[key])) Object.assign(next,{[key]:profile.data.fields[key]})
+      if (!initial && !dirty.current.has('period_start') && profile.data.signed_date) next.period_start = profile.data.signed_date
       // Подпись и печать по умолчанию, если сервер подтвердил исполнителя договора.
       if (!initial && profile.data.company_signature_available) next.company_signature = true
       return next
@@ -120,7 +123,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     setDraftId(record.id); onSaved()
     if (generate) { await actsApi.generate(record.id); onSaved(record.id); onClose() } else setMessage('Черновик сохранён')
   },retry:false })
-  const quoteMutation = useMutation({ mutationFn:() => actsApi.addServiceQuote(studentId,contract.id,{page:Number(quotePage),text:quote,category:'other'}),
+  const quoteMutation = useMutation({ mutationFn:() => actsApi.addServiceQuote(studentId,contract.id,{page:Number(quotePage),text:quote,category:quoteCategory}),
     onSuccess:async () => { setQuote(''); await profile.refetch() },retry:false })
   const dateField = (key: 'period_start' | 'period_end' | 'act_date', label: string) => <label key={key} className="min-w-0 text-xs text-p-muted">{label}<input className={`${input} ${errors[key] ? '!border-red-400' : ''}`} type="date" aria-invalid={!!errors[key]} value={form[key] || ''} onChange={e => change(key,e.target.value)} />{errors[key] && <span role="alert" className="mt-1 block text-red-700">{errors[key]}</span>}</label>
   return <Dialog open onOpenChange={open => { if (!open && !save.isPending) onClose() }}><DialogContent className={`flex h-[94dvh] max-h-[94dvh] !w-[calc(100vw-1rem)] ${step === 'services' ? '!max-w-[800px]' : '!max-w-[1240px]'} flex-col gap-0 overflow-hidden !p-0 sm:!w-[calc(100vw-3rem)]`}>
@@ -132,11 +135,15 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
         {profile.isPending && <p role="status" className="mb-4 text-sm text-p-muted">Читаем договор и приложение…</p>}
         {profile.error && <p role="alert" className="mb-4 text-sm text-red-700">Не удалось прочитать договор. <button className="underline" onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
         {quoteMutation.error && <p role="alert" className="mb-3 text-sm text-red-700">{getErrorMessage(quoteMutation.error)}</p>}
-      <section className="space-y-3"><h3 className="text-sm font-semibold">Услуги из договора</h3>
+      <section className="space-y-3"><h3 className="text-sm font-semibold">Обязательные направления</h3>
+        <p className="text-xs text-p-muted">Эти направления доступны для каждого договора. Если в нём нет описания, используется стандартное описание из других договоров.</p>
+        <div className="grid gap-2 sm:grid-cols-2">{REQUIRED_SERVICES.map(([category, label]) => { const found = services.filter(service => service.category === category); return <div key={category} className="rounded-lg border border-p-line p-3 text-sm"><p className="font-semibold">{label}</p>{found.length ? <div className="mt-2 space-y-2">{found.map(service => <div key={service.id}><p className="whitespace-pre-line text-xs leading-relaxed">{service.text}</p><p className="mt-1 text-xs text-p-muted">{service.reference}</p></div>)}</div> : <p className="mt-1 text-xs text-amber-800">Описание в PDF не найдено. Проверьте договор и добавьте точную цитату ниже.</p>}</div> })}</div>
+      </section>
+      <section className="space-y-3"><h3 className="text-sm font-semibold">Услуги для акта</h3>
         {legacy && <p role="alert" className="text-sm text-amber-800">В старом черновике есть описания без подтверждённого источника. Повторно выберите услуги ниже; текст старого PDF сохранён.</p>}
         {!profile.isPending && !services.length && <p className="text-sm text-p-muted">Услуги не распознаны. Добавьте точную цитату из договора ниже.</p>}
-        {services.map(service => { const done = usedIn.get(service.id); return <div key={service.id} className={`border-b border-p-line py-3 ${done ? '-mx-2 rounded-lg border-transparent bg-emerald-500/10 px-2 ring-1 ring-inset ring-emerald-500/30' : ''}`}><label className="flex items-start gap-3 text-sm">{done ? <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-white"><Check size={13} /></span> : <input type="checkbox" className={check} checked={form.lines.some(l => l.contract_service_id === service.id)} onChange={e => select(service,e.target.checked)} />}<span className="min-w-0"><span className="font-semibold">{service.name}</span><span className="mt-1 block text-xs text-p-muted">{service.reference}</span>{done && <span className="mt-1 block text-xs font-medium text-emerald-500">Уже оформлено: акт от {displayDate(done.snapshot.act_date)}</span>}</span></label><details className="ml-7 mt-2"><summary className="cursor-pointer text-xs text-p-muted">Описание из договора</summary><p className="mt-2 whitespace-pre-line text-xs leading-relaxed">{service.text}</p>{service.confirmed_price && <p className="mt-2 text-xs">Стоимость по договору: {money(service.confirmed_price.amount)} {service.confirmed_price.currency}</p>}</details></div> })}
-        <details className="border-b border-p-line py-3"><summary className="cursor-pointer text-xs text-p-muted">Нужной услуги нет в списке</summary><div className="mt-3 space-y-3"><p className="text-xs text-p-muted">Вставьте точную цитату услуги из PDF договора — сервер проверит, что она есть на указанной странице.</p><label className="block text-xs">Страница<input type="number" min={1} max={80} className={input} value={quotePage} onChange={e => setQuotePage(e.target.value)} /></label><label className="block text-xs">Точная цитата услуги<textarea className={input} rows={4} maxLength={1800} value={quote} onChange={e => setQuote(e.target.value)} /></label><AppButton colorPrefix="p" variant="subtle" size="sm" disabled={quote.trim().length < 12 || quoteMutation.isPending} onClick={() => quoteMutation.mutate()}>Проверить и добавить</AppButton></div></details>
+        {services.map(service => { const done = usedIn.get(service.id); return <div key={service.id} className={`border-b border-p-line py-3 ${done ? '-mx-2 rounded-lg border-transparent bg-emerald-500/10 px-2 ring-1 ring-inset ring-emerald-500/30' : ''}`}><label className="flex items-start gap-3 text-sm">{done ? <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-white"><Check size={13} /></span> : <input type="checkbox" className={check} checked={form.lines.some(l => l.contract_service_id === service.id)} onChange={e => select(service,e.target.checked)} />}<span className="min-w-0"><span className="font-semibold">{service.name}</span><span className="mt-1 block text-xs text-p-muted">{service.reference}</span>{done && <span className="mt-1 block text-xs font-medium text-emerald-500">Уже оформлено: акт от {displayDate(done.snapshot.act_date)}</span>}</span></label><details className="ml-7 mt-2"><summary className="cursor-pointer text-xs text-p-muted">{service.source_kind === 'standard' ? 'Стандартное описание' : 'Описание из договора'}</summary><p className="mt-2 whitespace-pre-line text-xs leading-relaxed">{service.text}</p>{service.confirmed_price && <p className="mt-2 text-xs">Стоимость по договору: {money(service.confirmed_price.amount)} {service.confirmed_price.currency}</p>}</details></div> })}
+        <details className="border-b border-p-line py-3"><summary className="cursor-pointer text-xs text-p-muted">Нужной услуги нет в списке</summary><div className="mt-3 space-y-3"><p className="text-xs text-p-muted">Вставьте точную цитату услуги из PDF договора — сервер проверит, что она есть на указанной странице.</p><label className="block text-xs">Направление<select className={input} value={quoteCategory} onChange={e => setQuoteCategory(e.target.value)}><option value="other">Другое</option>{REQUIRED_SERVICES.map(([category, label]) => <option key={category} value={category}>{label}</option>)}</select></label><label className="block text-xs">Страница<input type="number" min={1} max={80} className={input} value={quotePage} onChange={e => setQuotePage(e.target.value)} /></label><label className="block text-xs">Точная цитата услуги<textarea className={input} rows={4} maxLength={1800} value={quote} onChange={e => setQuote(e.target.value)} /></label><AppButton colorPrefix="p" variant="subtle" size="sm" disabled={quote.trim().length < 12 || quoteMutation.isPending} onClick={() => quoteMutation.mutate()}>Проверить и добавить</AppButton></div></details>
       </section>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-p-line px-4 py-4 sm:px-6"><span className="text-sm text-p-muted">Выбрано услуг: {legacy ? 0 : form.lines.length}</span><AppButton colorPrefix="p" className={neutralDisabled} disabled={!form.lines.length || legacy || !active || profile.isFetching || !!profile.error} onClick={() => { setMobilePreview(false); setStep('details') }}>Далее</AppButton></div>

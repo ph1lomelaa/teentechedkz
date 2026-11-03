@@ -29,9 +29,9 @@ from app.models.guardian import Guardian
 from app.models.student import Student
 from app.models.trustme_contract import TrustMeContractLink, TrustMeDocument
 from app.services.contract_discovery import phones_in_pages
-from app.services.contract_documents import read_pages
+from app.services.contract_documents import apply_document_signing_date, preserve_manual, read_pages
 from app.services.contract_matching import pick_student
-from app.services.contract_profile import extract_profile
+from app.services.contract_profile import cached_profile, extract_profile, store_profile
 from app.services.trustme import TrustMeError
 
 log = logging.getLogger(__name__)
@@ -91,19 +91,23 @@ async def _document(db, company_id, row):
     return doc
 
 
-async def _link(db, client, doc, student, info, profile, pages):
+async def _link(db, client, doc, student, info, profile, pages, user_id=None):
+    """user_id — сотрудник, выбравший карточку в реестре; без него привязка автоматическая."""
     from app.api.v1.endpoints.trustme import _candidate, new_document_link
     choices = (await db.execute(select(Contract).where(Contract.student_id == student.id))).scalars().all()
     link = new_document_link(student.id, client.company_id, info, _candidate({'id': doc.external_id, 'shortUrl': doc.short_url,
-                             'contractName': doc.name, 'numberDeal': doc.number}), profile, pages, choices, None)
+                             'contractName': doc.name, 'numberDeal': doc.number}), profile, pages, choices, user_id)
     db.add(link)
     await db.flush()
-    await log_change(db, 'student', student.id, 'contract_auto_linked', None, str(link.id), ACTOR, 'auto')
+    if user_id:
+        await log_change(db, 'student', student.id, 'trustme_contract_linked', None, str(link.id), str(user_id))
+    else:
+        await log_change(db, 'student', student.id, 'contract_auto_linked', None, str(link.id), ACTOR, 'auto')
     doc.decision, doc.reason, doc.link_id, doc.candidate_ids = 'linked', None, link.id, [str(student.id)]
     return link
 
 
-async def read_and_decide(db, client, doc, people, *, apply):
+async def read_and_decide(db, client, doc, people, *, apply, ocr_scans=False):
     """Скачать и прочитать договор, решить, при apply — сохранить и привязать.
     Возвращает (решение, студент или список, причина)."""
     info = await client.contract(doc.short_url)
@@ -112,6 +116,8 @@ async def read_and_decide(db, client, doc, people, *, apply):
         return 'unsigned', [], doc.reason
     content = await client.pdf(doc.short_url)
     pages = await asyncio.to_thread(read_pages, content, ocr=False)
+    if ocr_scans and not ''.join(p['text'] for p in pages).strip():
+        pages = await asyncio.to_thread(read_pages, content, ocr=True)
     if not ''.join(p['text'] for p in pages).strip():
         doc.decision, doc.reason = 'unreadable', 'Скан без текста — проверить вручную'
         return 'unreadable', [], doc.reason
@@ -137,7 +143,7 @@ async def _list_all(client):
         page += 1
 
 
-async def sync(db, client, *, apply=True, limit=0, on_progress=None):
+async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress=None):
     """Один проход. apply=False — только посчитать, ничего не записывая.
     Возвращает (счётчики, [(документ-строка TrustMe, решение, кандидаты, причина)])."""
     stats, review = Counter(), []
@@ -151,7 +157,7 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
     rows = await _list_all(client)
     stats['договоров в TrustMe'] = len(rows)
     now = datetime.now(timezone.utc)
-    todo = []
+    todo, refresh_linked = [], []
     for row in rows:
         doc = known.get(row['id'])
         if row['id'] in linked:
@@ -159,6 +165,8 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
                 doc = await _document(db, company, row)
                 doc.decision, doc.reason, doc.link_id = 'linked', None, linked[row['id']]
             stats['уже привязан'] += 1
+            if force_read and row.get('contractStatus') == 3 and row.get('shortUrl'):
+                refresh_linked.append(row)
             continue
         if doc is not None and doc.decision == 'linked':
             # Связь удалил сотрудник — не возвращаем её автоматически.
@@ -178,8 +186,10 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
                 doc.decision, doc.reason = 'unsigned', 'Договор ещё не подписан'
             stats['не подписан'] += 1
             continue
-        if changed or retry or (doc is not None and doc.facts_encrypted is None and doc.decision != 'unreadable'):
+        if force_read or changed or retry or (doc is not None and doc.facts_encrypted is None and doc.decision != 'unreadable'):
             todo.append(row)
+    stats['PDF к чтению'] = len(todo[:limit] if limit else todo)
+    stats['привязанных PDF к повторному чтению'] = len(refresh_linked[:limit] if limit else refresh_linked)
     if apply:
         await db.commit()
     failures = 0
@@ -194,7 +204,7 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
         doc = await _document(db, company, row) if apply else SimpleNamespace(
             external_id=row['id'], short_url=row['shortUrl'], name=row.get('contractName') or '', number=row.get('numberDeal'))
         try:
-            decision, found, reason = await read_and_decide(db, client, doc, people, apply=apply)
+            decision, found, reason = await read_and_decide(db, client, doc, people, apply=apply, ocr_scans=force_read)
             if apply:
                 await db.commit()
         except (IntegrityError, DBAPIError) as error:
@@ -217,6 +227,32 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
             review.append((row, found, reason))
         if on_progress and n % 20 == 0:
             on_progress(n, len(todo), stats['привязано'])
+    for row in refresh_linked[:limit] if limit else refresh_linked:
+        if failures >= MAX_FAILURES:
+            stats['TrustMe не отвечает — проход прерван, продолжит следующий'] += 1
+            break
+        try:
+            await asyncio.sleep(PAUSE)
+            info = await client.contract(row['shortUrl'])
+            content = await client.pdf(row['shortUrl'])
+            pages = await asyncio.to_thread(read_pages, content, ocr=True)
+            if apply:
+                link = await db.get(TrustMeContractLink, linked[row['id']])
+                if link:
+                    profile = preserve_manual(extract_profile(pages, info, content), cached_profile(link))
+                    store_profile(link, profile)
+                    apply_document_signing_date(link, pages)
+                    link.profile_checked_at = datetime.now(timezone.utc)
+                    await db.commit()
+            stats['привязанных PDF перечитано'] += 1
+            failures = 0
+        except (TrustMeError, ValueError, OSError) as error:
+            await db.rollback()
+            failures += isinstance(error, TrustMeError)
+            stats['не удалось перечитать привязанный PDF'] += 1
+        except (IntegrityError, DBAPIError):
+            await db.rollback()
+            stats['ошибка сохранения профиля привязанного PDF'] += 1
     # Перепроверка непривязанных по сохранённым фактам.
     pending = (await db.execute(select(TrustMeDocument).where(
         TrustMeDocument.company_id == company, TrustMeDocument.decision.in_(('review', 'unmatched')),
@@ -245,6 +281,12 @@ async def sync(db, client, *, apply=True, limit=0, on_progress=None):
             doc.checked_at = datetime.now(timezone.utc)
     if apply:
         await db.commit()
+    # Состояние реестра после прохода (для режима отчёта — текущее состояние БД).
+    registry = (await db.execute(select(TrustMeDocument).where(
+        TrustMeDocument.company_id == company))).scalars().all()
+    for decision, label in (('review', 'на проверку'), ('unmatched', 'студент не найден'),
+                            ('unreadable', 'скан без текста')):
+        stats[f'в реестре: {label}'] = sum(d.decision == decision and d.link_id is None for d in registry)
     return stats, review
 
 

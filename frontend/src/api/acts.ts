@@ -36,7 +36,7 @@ export interface ActContext {
   contracts: ActContract[]
   acts: ActRecord[]
 }
-export interface ContractService { id: string; name: string; category: string; text: string; page: number; reference: string; excerpt: string; confirmed_price?: { amount: string; currency: ActInput['currency'] } }
+export interface ContractService { source_kind?: 'standard'; id: string; name: string; category: string; text: string; page: number; reference: string; excerpt: string; confirmed_price?: { amount: string; currency: ActInput['currency'] } }
 export interface ContractInspection {
   applications?: { id: string; university: string | null; program: string | null; status: string }[]
   fingerprint?: string; services?: ContractService[]; company_signature_available?: boolean
@@ -89,6 +89,7 @@ export const actsApi = {
   preview: (sid: string, input: ActInput) => blobRequest(api.post(`/acts/students/${sid}/preview`, input, { responseType: 'blob' })),
   create: async (sid: string, input: ActInput) => (await api.post<ActRecord>(`/acts/students/${sid}`, input)).data,
   update: async (id: string, input: ActInput) => (await api.put<ActRecord>(`/acts/${id}`, input)).data,
+  remove: async (id: string) => { await api.delete(`/acts/${id}`) },
   generate: async (id: string) => (await api.post<ActRecord>(`/acts/${id}/generate`)).data,
   pdf: (id: string) => blobRequest(api.get(`/acts/${id}/pdf`, { responseType: 'blob' })),
   share: async (id: string) => (await api.post(`/acts/${id}/share`)).data,

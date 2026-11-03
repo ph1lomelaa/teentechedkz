@@ -31,3 +31,9 @@ it('shows provider failure without losing already linked contracts', async () =>
   show()
   expect(await screen.findByText(/Автопоиск временно недоступен/)).toBeInTheDocument()
 })
+it('explains a contract linked to another card instead of offering a button that fails', async () => {
+  vi.mocked(trustmeApi.autoLink).mockResolvedValue({ state: 'complete', linked_ids: [], review: [{ short_url: 'taken123', name: 'Договор', status: 3, number: '9', created_at: null, signers: [], blocked: true, reason: 'Договор уже привязан к карточке «Иванов Иван». Если это ошибка — отвяжите его там' }] })
+  show()
+  expect(await screen.findByText(/уже привязан к карточке «Иванов Иван»/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Подтвердить и привязать' })).not.toBeInTheDocument()
+})

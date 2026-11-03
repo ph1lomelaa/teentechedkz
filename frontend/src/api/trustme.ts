@@ -31,6 +31,13 @@ export interface TrustMeLink extends TrustMeCandidate {
 
 export interface ContractDiscovery { state: 'pending' | 'complete' | 'unavailable'; linked_ids: string[]; review: TrustMeCandidate[]; partial?: boolean; checked_at?: string }
 
+export interface RegistryItem {
+  id: string; number: string | null; name: string; decision: 'review' | 'unmatched' | 'unreadable'; reason: string | null
+  status: number; created_at: string | null; checked_at: string; student_name: string | null; customer_name: string | null
+  candidates: { id: string; full_name: string }[]
+}
+export interface TrustMeRegistry { counts: Record<string, number>; items: RegistryItem[] }
+
 export interface TrustMeSearch {
   candidates: TrustMeCandidate[]
   queries: string[]
@@ -63,6 +70,11 @@ export const trustmeApi = {
     (await apiClient.patch<TrustMeLink>(`${base(studentId)}/links/${linkId}/financial-contract`, { financial_contract_id })).data,
   unlink: async (studentId: string, linkId: string) =>
     apiClient.delete(`${base(studentId)}/links/${linkId}`),
+  registry: async () => (await apiClient.get<TrustMeRegistry>('/trustme/registry')).data,
+  registryPdf: async (docId: string) => (await apiClient.get<Blob>(`/trustme/registry/${docId}/pdf`, { responseType: 'blob' })).data,
+  registryLink: async (docId: string, student_id: string) =>
+    (await apiClient.post<{ link_id: string }>(`/trustme/registry/${docId}/link`, { student_id }, { timeout: 120000 })).data,
+  registryDismiss: async (docId: string) => apiClient.post(`/trustme/registry/${docId}/dismiss`),
   pdf: async (studentId: string, shortUrl: string) => {
     try {
       return (await apiClient.get<Blob>(`${base(studentId)}/pdf/${encodeURIComponent(shortUrl)}`, { responseType: 'blob' })).data

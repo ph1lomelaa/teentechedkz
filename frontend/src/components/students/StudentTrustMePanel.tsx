@@ -41,11 +41,13 @@ export function StudentTrustMePanel({ studentId, studentName, canManage, onChang
           <p className="text-xs text-p-muted">{recordNumber(candidate.legal_number || candidate.number)} · Дата договора: {candidate.contract_date ? displayDate(candidate.contract_date) : 'не указана'}</p>
           {[...candidate.signers].sort((a,b) => Number(a.is_company) - Number(b.is_company)).map((party, i) => <p key={i} className="text-xs text-p-muted">{party.is_company ? 'Компания' : 'Подписант'}: {party.name || 'Не указан'}</p>)}
           <p className="text-xs text-p-muted">Проверьте, что договор относится к этому студенту.</p>
-          <div className="flex flex-wrap items-center gap-4"><button className={documentLink} disabled={pdf.isPending || !candidate.short_url} onClick={() => pdf.mutate(candidate)}>Открыть PDF</button><AppButton colorPrefix="p" variant="subtle" size="sm" className={neutralDisabled} disabled={candidate.status !== 3 || !candidate.short_url || link.isPending} onClick={() => link.mutate(candidate)}>Подтвердить и привязать</AppButton></div>
+          <div className="flex flex-wrap items-center gap-4"><button className={documentLink} disabled={pdf.isPending || !candidate.short_url} onClick={() => pdf.mutate(candidate)}>Открыть PDF</button><AppButton colorPrefix="p" variant="subtle" size="sm" className={neutralDisabled} disabled={!candidate.short_url || link.isPending} onClick={() => link.mutate(candidate)}>{link.isPending && link.variables?.short_url === candidate.short_url ? 'Проверяем и привязываем…' : 'Подтвердить и привязать'}</AppButton></div>
+          {candidate.status !== 3 && <p className="text-xs text-p-muted">Статус проверим по самому договору при привязке.</p>}
+          {link.error && link.variables?.short_url === candidate.short_url && <p role="alert" className="text-sm text-red-700">{getErrorMessage(link.error)}</p>}
         </div>)}
         {lookup.data && !lookup.data.candidates.length && <p className="py-3 text-sm text-p-muted">Договор не найден. Его можно загрузить PDF выше.</p>}
       </details></>}
-    {error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(error)}</p>}
+    {error && error !== link.error && <p role="alert" className="text-sm text-red-700">{getErrorMessage(error)}</p>}
     {preview && <div><button className={documentLink} onClick={() => setPreview(null)}>Закрыть PDF</button><iframe title="Оригинал договора" src={preview} className="h-[65dvh] w-full border border-p-line" /></div>}
   </div>
 }

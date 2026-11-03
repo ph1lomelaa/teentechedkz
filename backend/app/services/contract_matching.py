@@ -108,6 +108,15 @@ def pick_student(profile, pages, students, guardians, all_names, title=''):
     review = [(s, reason) for s, outcome, reason in results if outcome == 'review']
     if review:
         return 'review', [s for s, _ in review], review[0][1]
+    # Even when the extractor cannot prove an identity, show plausible cards for
+    # human review. Two matching name parts avoid flooding the queue with every
+    # student sharing a common first name; this rule never auto-links.
+    hints = [s for s in students if (len(_words(named)) <= 2 and name_overlap(named, s.full_name) >= 2)
+             or name_overlap(title, s.full_name) >= 2]
+    if hints:
+        hints.sort(key=lambda s: max(name_overlap(named, s.full_name),
+                                     name_overlap(title, s.full_name)), reverse=True)
+        return 'review', hints[:5], 'Есть совпадение ФИО, проверьте договор и выберите карточку'
     if not named:
         return 'none', [], 'В PDF не найден абитуриент'
     return 'none', [], 'Студента из договора нет среди карточек платформы'

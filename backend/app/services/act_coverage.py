@@ -13,10 +13,12 @@ from sqlalchemy import select
 from app.models.service_act import ActMailAttempt, ServiceAct
 from app.models.trustme_contract import TrustMeContractLink
 from app.services.contract_profile import cached_profile, services_summary
-from app.services.contract_services import CATEGORIES
+from app.services.contract_services import CATEGORIES, DEFAULT_SERVICES
 
 # Порядок столбцов-услуг в таблице.
-SERVICE_COLUMNS = [*CATEGORIES, 'ielts', 'english', 'other']
+SERVICE_COLUMNS = ['ielts', 'career', 'csca', 'entrance', 'sat',
+                   *(key for key in CATEGORIES if key not in {'career', 'csca', 'entrance', 'sat'}),
+                   'english', 'other']
 SERVICE_LABELS = {**{k: v[0] for k, v in CATEGORIES.items()}, 'ielts': 'Подготовка IELTS',
                   'english': 'Английский язык', 'other': 'Прочее'}
 SENT = ('sent', 'confirmed_sent')
@@ -25,9 +27,10 @@ SENT = ('sent', 'confirmed_sent')
 def link_services(link):
     """Состав услуг договора; для старых связей — из профиля один раз (вызывающий сохраняет).
     Там же номер из текста для договоров без номера TrustMe."""
-    if link.services_summary is None or link.number is None:
+    missing_defaults = not set(DEFAULT_SERVICES).issubset({s.get('category') for s in (link.services_summary or [])})
+    if link.services_summary is None or link.number is None or missing_defaults:
         profile = cached_profile(link) or {}
-        if link.services_summary is None:
+        if link.services_summary is None or (missing_defaults and profile):
             link.services_summary = services_summary(profile)
         if link.number is None:
             link.number = (profile.get('fields', {}).get('contract_number') or '')[:200]
