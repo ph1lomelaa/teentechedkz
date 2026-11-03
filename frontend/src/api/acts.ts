@@ -87,7 +87,7 @@ export const actsApi = {
   inspect: async (sid: string, id: string, refresh = false) => (await api.post<ContractInspection>(`/acts/students/${sid}/contracts/${id}/inspect`, null, { params: { refresh } })).data,
   addServiceQuote: async (sid: string, id: string, data: { page: number; text: string; category: string }) => (await api.post<ContractService>(`/acts/students/${sid}/contracts/${id}/service-quote`, data)).data,
   saveProfile: async (sid: string, id: string, fields: Record<string, string>) => (await api.patch(`/acts/students/${sid}/contracts/${id}/profile`, { fields })).data,
-  preview: (sid: string, input: ActInput) => blobRequest(api.post(`/acts/students/${sid}/preview`, input, { responseType: 'blob' })),
+  preview: (sid: string, input: ActInput, signal?: AbortSignal) => blobRequest(api.post(`/acts/students/${sid}/preview`, input, { responseType: 'blob', signal })),
   create: async (sid: string, input: ActInput) => (await api.post<ActRecord>(`/acts/students/${sid}`, input)).data,
   update: async (id: string, input: ActInput) => (await api.put<ActRecord>(`/acts/${id}`, input)).data,
   remove: async (id: string) => { await api.delete(`/acts/${id}`) },

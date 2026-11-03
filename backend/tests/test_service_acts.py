@@ -289,3 +289,20 @@ class InspectionApiFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result['missing'])
         store.assert_called_once()
         db.commit.assert_awaited_once()
+
+
+class LinkLockTests(unittest.IsolatedAsyncioTestCase):
+    async def _statement(self, **kwargs):
+        from unittest.mock import AsyncMock, MagicMock
+        from app.api.v1.endpoints import acts
+        sid = uuid.uuid4()
+        result = MagicMock(); result.scalar_one_or_none.return_value = SimpleNamespace(student_id=sid)
+        db = SimpleNamespace(execute=AsyncMock(return_value=result))
+        await acts._link(db, sid, uuid.uuid4(), **kwargs)
+        return str(db.execute.await_args.args[0].compile(compile_kwargs={'literal_binds': False}))
+
+    async def test_reading_does_not_lock_the_contract(self):
+        self.assertNotIn('FOR UPDATE', await self._statement(lock=False))
+
+    async def test_changes_still_lock_the_contract(self):
+        self.assertIn('FOR UPDATE', await self._statement())

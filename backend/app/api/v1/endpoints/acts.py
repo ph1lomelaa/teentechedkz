@@ -112,8 +112,11 @@ def _pdf_response(content, name, *, inline=False):
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
-async def _link(db, sid, link_id):
-    link = (await db.execute(select(TrustMeContractLink).where(TrustMeContractLink.id == link_id).with_for_update())).scalar_one_or_none()
+async def _link(db, sid, link_id, *, lock=True):
+    # Блокировка нужна только тем, кто меняет договор. Чтение (предпросмотр, черновик, PDF)
+    # иначе ждёт, пока другой запрос держит строку на время обращения к TrustMe.
+    stmt = select(TrustMeContractLink).where(TrustMeContractLink.id == link_id)
+    link = (await db.execute(stmt.with_for_update() if lock else stmt)).scalar_one_or_none()
     if link is None or link.student_id != sid:
         raise HTTPException(404, "Привязанный договор не найден")
     return link
@@ -265,7 +268,7 @@ async def student_acts(student_id: uuid.UUID, db: Db, current_user: CurrentUser,
 @router.get("/students/{student_id}/contracts/{link_id}/pdf")
 async def contract_pdf(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user)
-    link = await _link(db, student_id, link_id)
+    link = await _link(db, student_id, link_id, lock=False)
     if getattr(link, "source", None) == "manual":
         if not link.storage_path:
             raise HTTPException(404, "PDF договора не найден")
@@ -441,8 +444,8 @@ async def save_contract_profile(student_id: uuid.UUID, link_id: uuid.UUID, body:
     return {"saved": True}
 
 
-async def _validate_input(db, sid, data):
-    link = await _link(db, sid, data.contract_link_id)
+async def _validate_input(db, sid, data, *, lock=False):
+    link = await _link(db, sid, data.contract_link_id, lock=lock)
     if data.supersedes_id:
         previous = await db.get(ServiceAct, data.supersedes_id)
         if previous is None or previous.student_id != sid or previous.status != "ready":
@@ -520,7 +523,7 @@ async def generate(act_id: uuid.UUID, db: Db, current_user: CurrentUser):
         data.require_verified()
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
-    link = await _validate_input(db, act.student_id, data)
+    link = await _validate_input(db, act.student_id, data, lock=True)
     await _verify_contract(link)
     try:
         validate_service_lines(data, cached_profile(link))
