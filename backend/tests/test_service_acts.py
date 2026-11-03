@@ -16,6 +16,7 @@ from app.core.permissions import allows, Action, scope_for, Scope
 from app.models.service_act import ServiceAct
 from app.models.user import UserRole
 from app.schemas.service_act import ActInput, ActMailInput, ActMailResolution
+from app.services.contract_services import DEFAULT_SERVICES
 from app.services.act_pdf import render_act
 from app.services import mailer
 from scripts.sync_trustme import classify
@@ -260,7 +261,7 @@ class InspectionFallbackTests(unittest.TestCase):
     def test_unavailable_pdf_still_offers_five_standard_services_without_invented_fields(self):
         link=SimpleNamespace(id=uuid.uuid4())
         profile, warning=acts._inspection_fallback(None,link)
-        self.assertEqual({s['category'] for s in profile['services']},{'ielts','career','csca','entrance','sat','portfolio'})
+        self.assertEqual({s['category'] for s in profile['services']},set(DEFAULT_SERVICES))
         self.assertTrue(all(s['source_kind']=='standard' for s in profile['services']))
         self.assertEqual(profile['fields'],{})
         self.assertEqual(profile['extractor'],0)
@@ -283,7 +284,7 @@ class InspectionApiFallbackTests(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value.scalars.return_value.all.return_value=[]
         with patch.object(acts,'_student',AsyncMock(return_value=SimpleNamespace(full_name='Тест Студент'))), patch.object(acts,'_link',AsyncMock(return_value=link)), patch.object(acts,'cached_profile',return_value=None), patch.object(acts,'_refresh_contract',AsyncMock(side_effect=TrustMeError('Unavailable'))), patch.object(acts,'store_profile') as store:
             result=await acts.inspect_contract(uuid.uuid4(),link.id,db,user())
-        self.assertEqual(len(result['services']),6)
+        self.assertEqual(len(result['services']),len(DEFAULT_SERVICES))
         self.assertTrue(result['warning'])
         self.assertEqual(result['fields'],{})
         self.assertTrue(result['missing'])
@@ -339,3 +340,16 @@ class TrustMeFallbackTests(unittest.IsolatedAsyncioTestCase):
             result = await acts.check_contract(uuid.uuid4(), link.id, db, SimpleNamespace())
         self.assertEqual((result['status'], result['stale']), (3, True))
         db.commit.assert_not_awaited()
+
+
+class FreshStatusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recently_checked_contract_does_not_call_trustme(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        from app.api.v1.endpoints import acts
+        link = SimpleNamespace(id=uuid.uuid4(), source='trustme', status=1, profile_checked_at=datetime.now(timezone.utc))
+        with patch.object(acts, '_client', side_effect=AssertionError('TrustMe must not be called')):
+            await acts._verify_contract(link)
+            link.status = 4
+            with self.assertRaises(acts.HTTPException):
+                await acts._verify_contract(link)

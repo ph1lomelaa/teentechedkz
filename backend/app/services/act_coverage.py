@@ -13,24 +13,25 @@ from sqlalchemy import select
 from app.models.service_act import ActMailAttempt, ServiceAct
 from app.models.trustme_contract import TrustMeContractLink
 from app.services.contract_profile import cached_profile, services_summary
-from app.services.contract_services import CATEGORIES, DEFAULT_SERVICES
+from app.services.contract_services import CATEGORIES
 
 # Порядок столбцов-услуг в таблице.
-SERVICE_COLUMNS = ['ielts', 'career', 'csca', 'entrance', 'sat', 'portfolio',
+SERVICE_COLUMNS = ['ielts', 'ielts_fee', 'career', 'csca', 'entrance', 'sat', 'portfolio',
                    *(key for key in CATEGORIES if key not in {'career', 'csca', 'entrance', 'sat', 'portfolio'}),
-                   'english', 'other']
-SERVICE_LABELS = {**{k: v[0] for k, v in CATEGORIES.items()}, 'ielts': 'Подготовка IELTS',
-                  'english': 'Английский язык', 'other': 'Прочее'}
+                   'english', 'mentor', 'mock_test', 'other']
+SERVICE_LABELS = {**{k: v[0] for k, v in CATEGORIES.items()}, 'ielts': 'Подготовка IELTS', 'ielts_fee': 'Оплата сдачи IELTS',
+                  'english': 'Английский язык', 'mentor': 'Консультации с ментором', 'mock_test': 'Мок-тест', 'other': 'Прочее'}
 SENT = ('sent', 'confirmed_sent')
 
 
 def link_services(link):
     """Состав услуг договора; для старых связей — из профиля один раз (вызывающий сохраняет).
     Там же номер из текста для договоров без номера TrustMe."""
-    missing_defaults = not set(DEFAULT_SERVICES).issubset({s.get('category') for s in (link.services_summary or [])})
-    if link.services_summary is None or link.number is None or missing_defaults:
+    # Сводка до каталога 2 не знала, какие услуги стандартные.
+    outdated = any('source_kind' not in s for s in (link.services_summary or []))
+    if link.services_summary is None or link.number is None or outdated:
         profile = cached_profile(link) or {}
-        if link.services_summary is None or (missing_defaults and profile):
+        if link.services_summary is None or (outdated and profile):
             link.services_summary = services_summary(profile)
         if link.number is None:
             link.number = (profile.get('fields', {}).get('contract_number') or '')[:200]
@@ -73,10 +74,19 @@ def build_coverage(ids, links, acts, sent):
         services = link_services(link)  # до номера: заполняет его для старых договоров
         row['contracts'].append({'id': str(link.id), 'number': link.number, 'name': link.name, 'status': link.status,
                                  'source': link.source, 'financial_contract_id': str(link.financial_contract_id) if link.financial_contract_id else None})
+        closed = {s['id']: closing.get((link.student_id, s['id'])) for s in services}
+        standard = {s['category']: closed[s['id']] for s in services if s.get('source_kind') == 'standard' and closed[s['id']]}
+        own = {s['category'] for s in services if s.get('source_kind') != 'standard'}
         for service in services:
             category = service['category'] if service['category'] in SERVICE_LABELS else 'other'
             cell = row['cells'][category]
-            act = closing.get((link.student_id, service['id']))
+            if service.get('source_kind') == 'standard':
+                # Стандартная услуга входит в итог, только когда её включили в акт.
+                if closed[service['id']] is None or service['category'] in own:
+                    continue
+                act = closed[service['id']]
+            else:
+                act = closed[service['id']] or standard.get(service['category'])
             row['services_total'] += 1
             row['services_closed'] += act is not None
             state = 'missing' if act is None else 'sent' if sent.get(act.id) else 'ready'

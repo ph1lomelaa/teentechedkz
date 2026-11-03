@@ -7,7 +7,7 @@ import logging
 import re
 import smtplib
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -122,10 +122,19 @@ async def _link(db, sid, link_id, *, lock=True):
     return link
 
 
+STATUS_FRESH = timedelta(minutes=15)
+
+
 async def _verify_contract(link):
     if getattr(link, "source", None) == "manual":
         if not link.storage_path:
             raise HTTPException(409, "Загрузите файл договора")
+        return
+    checked = getattr(link, "profile_checked_at", None)
+    if checked and datetime.now(timezone.utc) - checked < STATUS_FRESH:
+        # Статус проверен при открытии панели — не ждём TrustMe ещё раз.
+        if link.status == 4:
+            raise HTTPException(409, "Договор отозван компанией")
         return
     try:
         async with _client() as client:

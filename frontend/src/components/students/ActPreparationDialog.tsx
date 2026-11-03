@@ -11,7 +11,6 @@ import { neutralDisabled, documentLink } from './contractPresentation'
 const input = 'mt-1 block w-full min-w-0 rounded-lg border border-p-line bg-p-panel px-3 py-2.5 text-sm text-p-text'
 const check = 'mt-1 h-4 w-4 shrink-0'
 const CURRENCIES = ['KZT', 'RUB', 'USD', 'EUR'] as const
-const REQUIRED_SERVICES = [['ielts', 'Подготовка IELTS'], ['career', 'Профориентация'], ['csca', 'Подготовка к CSCA'], ['entrance', 'Подготовка к вступительным'], ['sat', 'Подготовка к SAT'], ['portfolio', 'Улучшение академического портфолио']] as const
 const money = (value: string) => Number(value).toLocaleString('ru-RU').replace(/\s/g, ' ')
 export function ActPreparationDialog({ studentId, studentName, contract, initial, previousActs = [], onClose, onSaved }: {
   studentId: string; studentName: string; contract: ActContract; initial: ActRecord | null; previousActs?: ActRecord[]
@@ -33,9 +32,6 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState('')
   const [message, setMessage] = useState('')
-  const [quote, setQuote] = useState('')
-  const [quotePage, setQuotePage] = useState('1')
-  const [quoteCategory, setQuoteCategory] = useState<string>('other')
   const profile = useQuery({ queryKey:['contract-requisites',studentId,contract.id], queryFn:() => actsApi.inspect(studentId,contract.id), staleTime:0, retry:false })
   useEffect(() => {
     if (!profile.data || applied.current) return
@@ -94,7 +90,9 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
   const milestone = ['applications','offer','admission','final'].includes(form.template)
   const final = ['admission','final'].includes(form.template)
   const applications = (profile.data?.applications || []).filter(a => final ? a.status === 'enrolled' : (form.template === 'applications' ? ['submitted','offer_received','enrolled'] : ['offer_received','enrolled']).includes(a.status))
-  const complete = !missing.length && validPeriod && amountValid && !!form.lines.length && !legacy
+  // Текст услуги можно править, но пустым он в акт не уйдёт.
+  const textsFilled = form.lines.every(line => line.result.trim().length >= 3)
+  const complete = !missing.length && validPeriod && amountValid && !!form.lines.length && textsFilled && !legacy
   // Акты разрешены и по неподписанным договорам; нельзя только по отозванному.
   const active = (profile.data?.status ?? contract.status) !== 4
   const readyToGenerate = complete && active && form.verified && (!final || form.full_completion_confirmed) && !profile.isFetching
@@ -105,7 +103,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     ...(form.include_amount ? [['Стоимость', amountValid] as const] : []),
   ] as const
   const reason = !active ? 'Договор отозван компанией' : profile.isFetching ? 'Читаем договор' : legacy ? 'Повторно выберите пункты из договора для старого черновика'
-    : !complete ? 'Заполните отмеченные пункты' : !form.verified ? 'Подтвердите выполнение работ галочкой внизу' : ''
+    : !textsFilled ? 'Заполните текст выбранной услуги' : !complete ? 'Заполните отмеченные пункты' : !form.verified ? 'Подтвердите выполнение работ галочкой внизу' : ''
   useEffect(() => {
     setPreviewUrl(null); setPreviewError('')
     if (step !== 'details' || !complete || !active) return
@@ -126,8 +124,6 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     setDraftId(record.id); onSaved()
     if (generate) { await actsApi.generate(record.id); onSaved(record.id); onClose() } else setMessage('Черновик сохранён')
   },retry:false })
-  const quoteMutation = useMutation({ mutationFn:() => actsApi.addServiceQuote(studentId,contract.id,{page:Number(quotePage),text:quote,category:quoteCategory}),
-    onSuccess:async () => { setQuote(''); await profile.refetch() },retry:false })
   const dateField = (key: 'period_start' | 'period_end' | 'act_date', label: string) => <label key={key} className="min-w-0 text-xs text-p-muted">{label}<input className={`${input} ${errors[key] ? '!border-red-400' : ''}`} type="date" aria-invalid={!!errors[key]} value={form[key] || ''} onChange={e => change(key,e.target.value)} />{errors[key] && <span role="alert" className="mt-1 block text-red-700">{errors[key]}</span>}</label>
   const renderServices = (items: ContractService[]) => items.map(service => { const done = usedIn.get(service.id); return <div key={service.id} className={`border-b border-p-line py-3 ${done ? '-mx-2 rounded-lg border-transparent bg-emerald-500/10 px-2 ring-1 ring-inset ring-emerald-500/30' : ''}`}><label className="flex items-start gap-3 text-sm">{done ? <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-white"><Check size={13} /></span> : <input type="checkbox" className={check} checked={form.lines.some(l => l.contract_service_id === service.id)} onChange={e => select(service,e.target.checked)} />}<span className="min-w-0"><span className="font-semibold">{service.name}</span><span className="mt-1 block text-xs text-p-muted">{service.reference}</span>{done && <span className="mt-1 block text-xs font-medium text-emerald-500">Уже оформлено: акт от {displayDate(done.snapshot.act_date)}</span>}</span></label>{(() => { const line = form.lines.find(l => l.contract_service_id === service.id); return line && <label className="ml-7 mt-2 block text-xs text-p-muted">Текст в акте<textarea aria-label={`Текст в акте: ${service.name}`} className={input} rows={4} value={line.result} onChange={e => { const result = e.target.value; setForm(old => ({...old,verified:false,lines:old.lines.map(l => l.contract_service_id === service.id ? {...l,result} : l)})) }} /></label> })()}<details className="ml-7 mt-2"><summary className="cursor-pointer text-xs text-p-muted">{service.source_kind === 'standard' ? 'Стандартное описание' : 'Описание из договора'}</summary><p className="mt-2 whitespace-pre-line text-xs leading-relaxed">{service.text}</p>{service.confirmed_price && <p className="mt-2 text-xs">Стоимость по договору: {money(service.confirmed_price.amount)} {service.confirmed_price.currency}</p>}</details></div> })
   return <Dialog open onOpenChange={open => { if (!open && !save.isPending) onClose() }}><DialogContent className={`flex h-[94dvh] max-h-[94dvh] !w-[calc(100vw-1rem)] ${step === 'services' ? '!max-w-[800px]' : '!max-w-[1240px]'} flex-col gap-0 overflow-hidden !p-0 sm:!w-[calc(100vw-3rem)]`}>
@@ -139,14 +135,14 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
         {profile.isPending && <p role="status" className="mb-4 text-sm text-p-muted">Читаем договор и приложение…</p>}
         {profile.error && <p role="alert" className="mb-4 text-sm text-red-700">{getErrorMessage(profile.error, 'Не удалось загрузить данные договора')}. <button className="underline" onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
         {profile.data?.warning && <p role="alert" className="mb-4 text-sm text-amber-800">{profile.data.warning} <button className="underline" disabled={profile.isFetching} onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
-        {quoteMutation.error && <p role="alert" className="mb-3 text-sm text-red-700">{getErrorMessage(quoteMutation.error)}</p>}
       {legacy && <p role="alert" className="mb-3 text-sm text-amber-800">В старом черновике есть описания без подтверждённого источника. Повторно выберите услуги ниже; текст старого PDF сохранён.</p>}
-      <section aria-label="Обязательные" className="mb-6"><h3 className="text-sm font-semibold">Обязательные</h3>
-        {renderServices(REQUIRED_SERVICES.flatMap(([category]) => services.filter(service => service.category === category)))}
+      <section aria-label="Из договора" className="mb-6"><h3 className="text-sm font-semibold">Из договора</h3>
+        {services.some(service => service.source_kind !== 'standard') ? renderServices(services.filter(service => service.source_kind !== 'standard'))
+          : profile.data && <p className="py-3 text-xs text-p-muted">В договоре услуги не распознаны — выберите из стандартных ниже.</p>}
       </section>
-      <section aria-label="Услуги из договора"><h3 className="text-sm font-semibold">Услуги из договора</h3>
-        {renderServices(services.filter(service => !REQUIRED_SERVICES.some(([category]) => service.category === category)))}
-        <details className="border-b border-p-line py-3"><summary className="cursor-pointer text-xs text-p-muted">Нужной услуги нет в списке</summary><div className="mt-3 space-y-3"><p className="text-xs text-p-muted">Вставьте точную цитату услуги из PDF договора — сервер проверит, что она есть на указанной странице.</p><label className="block text-xs">Направление<select className={input} value={quoteCategory} onChange={e => setQuoteCategory(e.target.value)}><option value="other">Другое</option>{REQUIRED_SERVICES.map(([category, label]) => <option key={category} value={category}>{label}</option>)}</select></label><label className="block text-xs">Страница<input type="number" min={1} max={80} className={input} value={quotePage} onChange={e => setQuotePage(e.target.value)} /></label><label className="block text-xs">Точная цитата услуги<textarea className={input} rows={4} value={quote} onChange={e => setQuote(e.target.value)} /></label><AppButton colorPrefix="p" variant="subtle" size="sm" disabled={quote.trim().length < 12 || quoteMutation.isPending} onClick={() => quoteMutation.mutate()}>Проверить и добавить</AppButton></div></details>
+      <section aria-label="Стандартные услуги"><h3 className="text-sm font-semibold">Стандартные услуги</h3>
+        <p className="mt-1 text-xs text-p-muted">Виды услуг, которых нет в тексте договора. Отметьте выполненные.</p>
+        {renderServices(services.filter(service => service.source_kind === 'standard'))}
       </section>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-p-line px-4 py-4 sm:px-6"><span className="text-sm text-p-muted">Выбрано услуг: {legacy ? 0 : form.lines.length}</span><AppButton colorPrefix="p" className={neutralDisabled} disabled={!form.lines.length || legacy || !active || profile.isFetching || !!profile.error} onClick={() => { setMobilePreview(false); setStep('details') }}>Далее</AppButton></div>
@@ -170,7 +166,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     </fieldset></div><aside className={`${mobilePreview ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col border-p-line bg-p-bg p-3 lg:border-l`}><p className="mb-2 text-xs text-p-muted">Предпросмотр PDF · обновляется автоматически</p>{previewUrl ? <iframe title="Предпросмотр акта PDF" src={previewUrl} className="min-h-0 w-full flex-1 border-0 bg-white" />
       : <div className="flex flex-1 items-center justify-center p-5"><div className="w-full max-w-xs space-y-3 text-sm">{previewError ? <p role="alert" className="text-red-700">{previewError}</p> : complete && active ? <p className="text-center text-p-muted">Готовим предпросмотр…</p> : <><p className="text-p-muted">Для предпросмотра осталось:</p><ul className="space-y-2">{checklist.map(([label, ok]) => <li key={label} className={`flex items-center gap-2 ${ok ? 'text-p-muted' : 'font-medium text-p-text'}`}>{ok ? <Check size={16} className="text-emerald-700" /> : <X size={16} className="text-red-600" />}{label}</li>)}</ul></>}</div></div>}</aside></div>
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-p-line px-4 py-3 sm:px-6">
-      {(save.error || quoteMutation.error) && <p role="alert" className="mr-auto text-sm text-red-700">{getErrorMessage(save.error || quoteMutation.error)}</p>}
+      {save.error && <p role="alert" className="mr-auto text-sm text-red-700">{getErrorMessage(save.error)}</p>}
       {message && <p role="status" className="mr-auto text-sm">{message}</p>}
       {!save.error && !message && reason && <p className="mr-auto text-xs text-p-muted">{reason}</p>}
       <button type="button" className={documentLink} disabled={save.isPending || !active} onClick={() => save.mutate(false)}>Сохранить черновик</button>

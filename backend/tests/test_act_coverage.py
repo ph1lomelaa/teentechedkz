@@ -52,7 +52,25 @@ def test_student_without_contract_has_no_percent():
 
 
 def test_requested_service_columns_are_visible_without_claiming_they_are_in_every_contract():
-    assert SERVICE_COLUMNS[:5] == ['ielts', 'career', 'csca', 'entrance', 'sat']
+    assert SERVICE_COLUMNS[:6] == ['ielts', 'ielts_fee', 'career', 'csca', 'entrance', 'sat']
     _, state = cells(link(('s1', 'ielts')))
     assert state['ielts'] == 'missing'
     assert all(state[key] == 'none' for key in ('career', 'csca', 'entrance', 'sat'))
+
+
+def std_link(*services):
+    item = link()
+    item.services_summary = [{'id': i, 'category': c, 'name': c, 'source_kind': k} for i, c, k in services]
+    return item
+
+
+def test_standard_services_do_not_lower_the_percent_until_used_in_an_act():
+    row, state = cells(std_link(('own', 'essays', None), ('m', 'mentor', 'standard'), ('t', 'mock_test', 'standard')), acts=[act('own')])
+    assert (row['services_total'], row['services_closed'], row['percent']) == (1, 1, 100)
+    assert state['mentor'] == 'none'
+
+
+def test_standard_service_in_an_act_is_counted_and_closed():
+    row, state = cells(std_link(('own', 'essays', None), ('m', 'mentor', 'standard')), acts=[act('m')])
+    assert (row['services_total'], row['services_closed'], row['percent']) == (2, 1, 50)
+    assert state['mentor'] == 'ready' and state['essays'] == 'missing'

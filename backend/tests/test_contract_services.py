@@ -19,6 +19,11 @@ class QuantityTests(unittest.TestCase):
   self.assertEqual(strip_quantities('занятий 3 (три) раза в неделю в формате, а также Speaking Club 2 (два) раза в неделю'),'занятий в формате, а также Speaking Club')
   self.assertEqual(strip_quantities('до получения оффера (3 ВУЗа * до 5 email) услуги'),'до получения оффера услуги')
 
+ def test_numbered_clause_has_no_lesson_frequency(self):
+  pages=[{'page':1,'text':'1.6. Подготовка по английскому языку: курс сроком 3 месяца. Подготовка включает проведение учебных занятий 3 (три) раза в неделю в формате мини-группы. 1.7. Другое.'}]
+  english=[x for x in extract_services(pages,'f') if x['category']=='english'][0]
+  self.assertNotIn('раза в неделю',english['text'])
+
  def test_long_result_is_accepted(self):
   raw=payload(); raw['lines'][0]['result']='Описание. '*400
   self.assertGreater(len(ActInput(**raw).lines[0].result),2000)
@@ -41,7 +46,12 @@ class ProvenanceTests(unittest.TestCase):
   return profile, ActInput(**{**payload(),'include_amount':False,'lines':[line]})
  def test_every_activity_is_a_literal_contract_fragment_and_has_a_page(self):
   p=self.profile()
-  self.assertEqual({s['category'] for s in p['services']},{'profile','career','ielts','csca','entrance','sat','portfolio'})
+  from app.services.contract_services import DEFAULT_SERVICES
+  categories=[s['category'] for s in p['services']]
+  # Все виды услуг есть, и ни один не повторяется: своя услуга договора скрывает стандартную.
+  self.assertEqual(set(categories),set(DEFAULT_SERVICES))
+  self.assertEqual(len(categories),len(set(categories)))
+  self.assertEqual({s['category'] for s in p['services'] if s.get('source_kind')!='standard'},{'profile','career','ielts'})
   text=' '.join(normalized(page['text']) for page in PAGES)
   for item in p['services']:
    if item.get('source_kind') == 'standard': continue
@@ -112,7 +122,7 @@ class ProvenanceTests(unittest.TestCase):
   self.assertEqual({s['category'] for s in profile['services']},set(DEFAULT_SERVICES))
   for service in profile['services']:
    self.assertEqual(service['source_kind'],'standard')
-   self.assertIn(service['text'],service['excerpt'])
+   for line in service['text'].split('\n'): self.assertIn(normalized(line),normalized(service['excerpt']))
    self.assertNotIn('confirmed_price',service)
    line=dict(name=service['name'],result=service['text'],contract_service_id=service['id'],source_fingerprint=profile['fingerprint'],contract_source=service['reference'],unit='услуга',quantity='1')
    validate_service_lines(ActInput(**{**payload(),'include_amount':False,'lines':[line]}),profile)
@@ -136,3 +146,38 @@ class ProvenanceTests(unittest.TestCase):
   self.assertEqual(service['source_kind'],'standard')
   self.assertGreater(len(service['text']),len(heading['text']))
   self.assertEqual(profile,with_default_services(copy.deepcopy(profile)))
+
+
+class BrokenWordsTests(unittest.TestCase):
+ def test_pdf_word_breaks_are_joined(self):
+  from app.services.contract_services import join_broken_words as j
+  for raw, fixed in [('участие в исследовательск их проектах','участие в исследовательских проектах'),('сертификационн ых программ','сертификационных программ'),
+                     ('кейс-чемпионата х','кейс-чемпионатах'),('конкурентоспосо бно го профиля','конкурентоспособного профиля'),('численностью д о 3 человек','численностью до 3 человек')]:
+   self.assertEqual(j(raw),fixed)
+
+ def test_real_words_are_not_glued(self):
+  from app.services.contract_services import join_broken_words as j
+  for text in ('Мы адаптируем его содержание','оценка их результатов','через их сайт','в и к о у','разбор его результатов'):
+   self.assertEqual(j(text),text)
+
+ def test_catalog_has_twenty_clean_services_without_prices(self):
+  from app.services.contract_services import DEFAULT_SERVICES
+  self.assertEqual(len(DEFAULT_SERVICES),20)
+  for key in ('mentor','mock_test','recommendations','ielts_fee','english'): self.assertIn(key,DEFAULT_SERVICES)
+  for item in DEFAULT_SERVICES.values():
+   self.assertNotIn('confirmed_price',item)
+   for bad in (' д о ','исследовательск их','четыре консультации','раза в неделю',' ,'): self.assertNotIn(bad,item['text'])
+
+ def test_contract_service_hides_its_standard_twin_and_edited_text_still_validates(self):
+  from app.services.act_pdf import render_act
+  from app.services.contract_services import with_default_services
+  p=extract_profile(PAGES,{},b'test-contract')
+  career=[s for s in p['services'] if s['category']=='career']
+  self.assertEqual(len(career),1); self.assertNotEqual(career[0].get('source_kind'),'standard')
+  mentor=next(s for s in p['services'] if s['category']=='mentor')
+  lines=[dict(name=s['name'],result=s['text']+' (поправлено вручную)',contract_service_id=s['id'],source_fingerprint=p['fingerprint'],contract_source=s['reference'],unit='услуга',quantity='1') for s in (career[0],mentor)]
+  data=ActInput(**{**payload(),'include_amount':False,'lines':lines})
+  validate_service_lines(data,p)
+  self.assertTrue(render_act(data).startswith(b'%PDF'))
+  # Повторное применение каталога не меняет идентификаторы: готовые акты не теряют услуги.
+  self.assertEqual([s['id'] for s in with_default_services(copy.deepcopy(p))['services']],[s['id'] for s in p['services']])
