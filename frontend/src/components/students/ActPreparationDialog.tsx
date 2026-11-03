@@ -109,11 +109,13 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     setPreviewUrl(null); setPreviewError('')
     if (step !== 'details' || !complete || !active) return
     let cancelled = false; let url: string | null = null
+    // Устаревший запрос отменяем: иначе при наборе текста запросы копятся в очередь.
+    const controller = new AbortController()
     const timer = setTimeout(async () => {
-      try { const blob = await actsApi.preview(studentId,form); if (!cancelled) { url = URL.createObjectURL(blob); setPreviewUrl(url) } }
+      try { const blob = await actsApi.preview(studentId,form,controller.signal); if (!cancelled) { url = URL.createObjectURL(blob); setPreviewUrl(url) } }
       catch (error) { if (!cancelled) setPreviewError(getErrorMessage(error)) }
     },650)
-    return () => { cancelled = true; clearTimeout(timer); if (url) URL.revokeObjectURL(url) }
+    return () => { cancelled = true; clearTimeout(timer); controller.abort(); if (url) URL.revokeObjectURL(url) }
   },[studentId,form,complete,active,step])
   const save = useMutation({ mutationFn:async (generate: boolean) => {
     const fields = Object.fromEntries(REQUISITES.filter(([key]) => dirty.current.has(key)).map(([key]) => [key,String(form[key] || '')]))
