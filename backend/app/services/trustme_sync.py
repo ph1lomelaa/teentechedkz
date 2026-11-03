@@ -151,7 +151,7 @@ async def _list_all(client):
         page += 1
 
 
-async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress=None):
+async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress=None, pause=PAUSE):
     """Один проход. apply=False — только посчитать, ничего не записывая.
     Возвращает (счётчики, [(документ-строка TrustMe, решение, кандидаты, причина)])."""
     stats, review = Counter(), []
@@ -207,7 +207,7 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
         if failures >= MAX_FAILURES:
             stats['TrustMe не отвечает — проход прерван, продолжит следующий'] += 1
             break
-        await asyncio.sleep(PAUSE)
+        await asyncio.sleep(pause)
         if not row.get('shortUrl'):
             stats['нет ссылки на договор'] += 1
             continue
@@ -242,7 +242,7 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
             stats['TrustMe не отвечает — проход прерван, продолжит следующий'] += 1
             break
         try:
-            await asyncio.sleep(PAUSE)
+            await asyncio.sleep(pause)
             info = await client.contract(row['shortUrl'])
             content = await client.pdf(row['shortUrl'])
             pages = await asyncio.to_thread(read_pages, content, ocr=True)
