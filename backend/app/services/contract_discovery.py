@@ -3,7 +3,7 @@ from collections import Counter
 import re
 import unicodedata
 
-_TRANSLATE = str.maketrans('әғқңөұүһіё', 'агкноуухие')
+_TRANSLATE = str.maketrans('әғқңөұүһіёə', 'агкноуухиеа')
 
 
 def name_key(value):
@@ -14,6 +14,22 @@ def name_key(value):
 def phone_key(value):
     digits = re.sub(r'\D', '', value or '')
     return digits[-10:] if 10 <= len(digits) <= 11 else ''
+
+
+def phone_keys(value):
+    """A card may contain several phones and comments such as '(мама)'."""
+    direct = phone_key(value)
+    return ({direct} if direct else set()) | phones_in_pages([{'text': value or ''}])
+
+
+def role_phones(pages, role):
+    label = r'(?:абитуриента|студента|обучающегося|участника|учащегося)' if role == 'student' else r'(?:подписанта|заказчика|родителя)'
+    found = set()
+    for page in pages:
+        text = re.sub(r'\s+', ' ', page['text'])
+        for match in re.finditer(r'(?:Номер\s+)?(?:мобильного\s+)?телефон(?:а)?\s+' + label + r'\s*:\s*([+\d][\d\s()+,;.-]{8,100})', text, re.I):
+            found |= phone_keys(match.group(1))
+    return found
 
 
 def phones_in_pages(pages):
@@ -65,6 +81,30 @@ def name_overlap(a, b):
     return hits
 
 
+_ROMAN = dict(zip('абвгдезийклмнопрстуфхыэ', ('a','b','v','g','d','e','z','i','i','k','l','m','n','o','p','r','s','t','u','f','h','y','e')))
+_ROMAN.update({'ж':'zh','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ю':'yu','я':'ya','ь':'','ъ':''})
+
+
+def _roman_word(word):
+    word = ''.join(_ROMAN.get(c,c) for c in _single(_stem(word)))
+    # Latin spelling retains vowels stripped as case endings in Cyrillic.
+    return word[:-1] if len(word) >= 5 and word.endswith(('a','y','i','u')) else word
+
+
+def transliterated_person(a, b):
+    left, right = _words(a), _words(b)
+    if not (re.search('[а-я]', a, re.I) and re.search('[a-z]', b, re.I) or re.search('[a-z]', a, re.I) and re.search('[а-я]', b, re.I)):
+        return False
+    short, long = (left,right) if len(left) <= len(right) else (right,left)
+    remaining = [_roman_word(w) for w in long]
+    if len(short) < 2: return False
+    for word in short:
+        key = _roman_word(word)
+        if key not in remaining: return False
+        remaining.remove(key)
+    return True
+
+
 def same_person(a, b):
     """Все слова более короткого ФИО (минимум два) есть в другом с учётом падежа."""
     shortest = min(len(_words(a)), len(_words(b)))
@@ -82,7 +122,7 @@ def match_student(student, profile, pages, all_names, extra_phones=()):
     if not actual and fields.get('customer_name') and same_person(fields['customer_name'], student.full_name):
         # Абитуриент не назван отдельно, а заказчик — сам студент.
         actual, source, self_contract = fields['customer_name'], sources.get('customer_name', {}), True
-    card_phones = {phone_key(p) for p in (student.phone, *extra_phones)} - {''}
+    card_phones = set().union(*(phone_keys(p) for p in (student.phone, *extra_phones)))
     phone_in_pdf = bool(card_phones & phones_in_pages(pages))
     if not actual:
         return 'review', ('В PDF не найден абитуриент, но телефон из карточки есть в договоре' if phone_in_pdf

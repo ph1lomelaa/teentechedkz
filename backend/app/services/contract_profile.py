@@ -9,7 +9,7 @@ from app.core.encryption import decrypt, encrypt
 
 VERSION = 1
 # Версия правил чтения: при росте сохранённые профили перечитываются из PDF.
-EXTRACTOR = 4
+EXTRACTOR = 5
 COMPANY_EMAIL_DOMAINS = ('teenteched', 'tinteched')
 FIELDS = ('student_name', 'customer_name', 'customer_id', 'student_id_number', 'customer_email',
           'executor_name', 'executor_representative', 'executor_basis', 'executor_requisites',
@@ -26,8 +26,8 @@ def _name(value):
     value = clean(value).strip(' /_')
     words = value.split()
     if not 2 <= len(words) <= 5 or any(not any(c.isalpha() for c in w) for w in words): return None
-    if any(w.casefold().strip('.,') in {'и','иин','номер','реквизиты','заказчик','абитуриент','гражданкой','республики','действующей'} for w in words): return None
-    if any(any(c.isdigit() or c in ':[]' for c in w) for w in words): return None
+    if any(w.casefold().strip('.,') in {'и','иин','номер','реквизиты','заказчик','абитуриент','гражданкой','республики','действующей','физическое','физическим','лицо','лицом','услуги'} for w in words): return None
+    if any(not re.fullmatch(r"[^\W\d_][^\W\d_.'’-]*", w, re.UNICODE) for w in words): return None
     return value
 
 
@@ -81,6 +81,8 @@ def extract_profile(pages, info, content):
     first = normalized[0][1] if normalized else ''
     def match(key, pattern, text, page=1, transform=None):
         for m in re.finditer(pattern, text, re.I):
+            if key == 'student_name' and re.search(r'(?:получает|получит)\s*$', text[max(0, m.start()-40):m.start()], re.I):
+                continue
             value = m.group(1)
             if transform: value = transform(value)
             if value: add(key, value, page, m.group(0))
@@ -108,7 +110,7 @@ def extract_profile(pages, info, content):
     match('executor_name', r'(?:Товариществ\w*\s+с\s+ограниченной\s+ответственностью|ТОО|TOO)\s*[«"]([^»"]{2,100})[»"]', first[:1800], transform=lambda s: 'ТОО «'+s+'»')
     match('executor_representative', r'в\s+лице\s+(.{3,200}?),?\s+действующ', first[:2400])
     match('executor_basis', r'на\s+основании\s+(.{3,100}?)(?:,|\s+с\s+одной\s+стороны)', first[:2400])
-    intro = (re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*,\s*(?:ИИН|(?:индивидуальный\s+)?идентификационный\s+номер(?:\s*\(ИИН\))?)\s*:?\s*((?:\d\s*){9,16})', first[:2600], re.I)
+    intro = (re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*,?\s*(?:ИИН|(?:индивидуальный\s+)?идентификационный\s+номер(?:\s*\(ИИН\))?)\s*:?\s*((?:\d\s*){9,16})', first[:2600], re.I)
              or re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*\(\s*(?:ИИН\s*:?\s*)?((?:\d\s*){12})\s*\)', first[:2600], re.I)
              or re.search(r'с\s+одной\s+стороны,?\s+и\s+(.{3,200}?)\s*\(\s*удостоверени\w*\s+личности()', first[:2600], re.I)
              # Старые шаблоны: «Гражданин Республики Казахстан ФИО, именуемый в дальнейшем «Заказчик»» без ИИН.
@@ -126,11 +128,19 @@ def extract_profile(pages, info, content):
         add('student_name', ward.group(1), 1, ward.group(0))
         ident = re.sub(r'\s+', '', ward.group(2) or ward.group(3) or '')
         if len(ident) == 12: add('student_id_number', ident, 1, ward.group(0))
+    interest = re.search(r'в\s+интересах\s+(?:несовершеннолетн\w+\s+)?(.{3,150}?)\s*,\s*(?:(?:индивидуальный\s+)?идентификационный\s+номер\s*\(ИИН\)\s*|ИИН\s*:?\s*)((?:\d\s*){12})', first[:4500], re.I)
+    if interest:
+        add('student_name', interest.group(1), 1, interest.group(0))
+        add('student_id_number', re.sub(r'\s+', '', interest.group(2)), 1, interest.group(0))
+    participant = re.search(r'законного\s+представителя\s+несовершеннолетн\w+\s+(?:(?:абитуриента|участника)\s*[—–-]?\s*)?(.{3,150}?)\s*,?\s+ИИН\s*:?\s*((?:\d\s*){12})', first[:4500], re.I)
+    if participant:
+        add('student_name', participant.group(1), 1, participant.group(0))
+        add('student_id_number', re.sub(r'\s+', '', participant.group(2)), 1, participant.group(0))
     for page, text in normalized:
         match('customer_name', r'Подписант\s*/\s*законный\s+представитель\s*:\s*(.{5,150}?)(?=\s+Абитуриент\s*:|\s+ИИН|\s+Номер\s+телефона|$)', text, page)
-        match('student_name', r'Абитуриент\s*:\s*(.{5,150}?)(?=\s*\(\s*\d|\s+\d+\.\d|\s+ИИН|\s+Номер\s+телефона|\s+E-mail|$)', text, page)
+        match('student_name', r'(?:Ф\.?\s*И\.?\s*О\.?\s+(?:\(\s*)?(?:абитуриента|учащегося|обучающегося|студента|участника|стажирующегося)(?:\s*\))?|Абитуриент|Учащийся|Обучающийся|Студент|Участник|Стажирующийся)\s*:\s*(.{5,150}?)(?=\.\s|\s*\(\s*\d|\s+\d+\.\d|\s+ИИН|\s+(?:Номер\s+)?телефон(?:а)?\b|\s+Адрес\s*:|\s+E-mail|$)', text, page)
         match('customer_id', r'ИИН\s+(?:подписанта|заказчика)\s*:\s*(\d{12})\b', text, page)
-        match('student_id_number', r'ИИН\s+абитуриента\s*:\s*(\d{12})\b', text, page)
+        match('student_id_number', r'ИИН\s+(?:абитуриента|участника|учащегося)\s*:\s*(\d{12})\b', text, page)
         match('customer_email', r'E[- ]?mail\s+(?:подписанта(?:/абитуриента)?|заказчика)\s*:\s*([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})', text, page)
         match('executor_requisites', r'Реквизиты\s+Исполнителя\s*:\s*(.{5,1500}?)(?=Реквизиты\s+Заказчика\s*:|$)', text, page)
         for section in re.finditer(r'ЗАКАЗЧИК\s*(?:/\s*АБИТУРИЕНТ\s*)?Ф\.\s*И\.\s*О\.\s*:\s*(.{5,150}?)\s+(?:ИИН|идентификационный\s+номер)\s*:\s*(\d{9,16})', text, re.I):
@@ -139,7 +149,7 @@ def extract_profile(pages, info, content):
             tail = text[section.end():section.end()+350]
             match('customer_email', r'E[- ]?mail\s*:\s*([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})', tail, page)
     # Only an explicit self-customer clause permits reusing the customer's ID/name.
-    is_self = bool(re.search(r'Заказчика\s+и\s+Абитуриента|одновременно\s+являющ\w*\s+[«"]?Абитуриентом|[«"]Заказчик[»"]\s+и\s+[«"]Абитуриент[»"]', first[:2600], re.I))
+    is_self = bool(re.search(r'одновременно\s+в\s+качестве\s+[«\"]?Абитуриента|Заказчика\s+и\s+Абитуриента|одновременно\s+являющ\w*\s+[«"]?Абитуриентом|[«"]Заказчик[»"]\s+и\s+[«"]Абитуриент[»"]', first[:2600], re.I))
     if is_self:
         for source, target in (('customer_name','student_name'), ('customer_id','student_id_number')):
             for candidate in candidates.get(source, []):

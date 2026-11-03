@@ -126,3 +126,35 @@ def test_title_or_partial_name_offers_review_candidate_without_auto_linking():
     assert decision == 'review' and found == [nurai]
     decision, found, _ = pick_student(profile('Жолдас Нұрай'), [], [nurai], {}, [nurai.full_name])
     assert decision == 'review' and found == [nurai]
+
+
+def test_labelled_student_phone_beats_parent_phone_and_latin_spelling():
+    latin = student('Kurman Kamila', '87001381080')
+    parent_card = student('Курман Камилла Ахатулы', '87056982411')
+    prof = profile('Курман Камилы Ахаткызы')
+    pages=[{'text':'Номер телефона подписанта: +77056982411 Номер телефона абитуриента: +77001381080 E-mail: example@example.test'}]
+    assert pick_student(prof,pages,[latin,parent_card],{},[latin.full_name,parent_card.full_name])[:2] == ('link',latin)
+
+
+def test_shared_labelled_student_phone_does_not_choose_duplicate_card():
+    first=student('Мурат Алинур','87770000000',sid='one')
+    second=student('Мурат Алинур Даулетулы','87770000000',sid='two')
+    prof=profile('Мурат Алинур Даулетулы')
+    pages=[{'text':'Номер телефона абитуриента: +77770000000'}]
+    assert pick_student(prof,pages,[first,second],{},[first.full_name,second.full_name])[0]=='review'
+
+
+def test_unlabelled_name_in_customer_requisites_can_be_recovered_with_phone():
+    from app.services.contract_matching import recover_student_identity
+    first=student('Самиголла Наргиз','87476913194',sid='one')
+    second=student('Елнур Солтанов','87476913194',sid='two')
+    prof=profile(customer_name='Айманова Ерсин Ерденовна')
+    pages=[{'page':14,'text':'Реквизиты Заказчика: ФИО: Айманова Ерсин Ерденовна. Самиғолла Наргиз Нұрланқызы Адрес: Алматы 000000000000 example@example.test 87476913194'}]
+    recovered=recover_student_identity(prof,pages,[first,second],{})
+    assert recovered['fields']['student_name']=='Самиғолла Наргиз'
+    assert pick_student(recovered,pages,[first,second],{},[first.full_name,second.full_name])[:2]==('link',first)
+
+
+def test_multiple_phones_in_one_card_are_individually_matched():
+    from app.services.contract_discovery import phone_keys
+    assert phone_keys('87770315965, 87087680421') == {'7770315965','7087680421'}

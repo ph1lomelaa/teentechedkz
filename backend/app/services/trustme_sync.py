@@ -28,9 +28,9 @@ from app.models.contract import Contract
 from app.models.guardian import Guardian
 from app.models.student import Student
 from app.models.trustme_contract import TrustMeContractLink, TrustMeDocument
-from app.services.contract_discovery import phones_in_pages
+from app.services.contract_discovery import phones_in_pages, role_phones
 from app.services.contract_documents import apply_document_signing_date, preserve_manual, read_pages
-from app.services.contract_matching import pick_student
+from app.services.contract_matching import pick_student, recover_student_identity
 from app.services.contract_profile import cached_profile, extract_profile, store_profile
 from app.services.trustme import TrustMeError
 
@@ -63,13 +63,14 @@ async def load_people(db):
 def facts_of(profile, pages):
     return {'fields': {k: profile['fields'].get(k) for k in FACT_FIELDS if profile['fields'].get(k)},
             'sources': {k: profile['sources'][k] for k in ('student_name', 'customer_name') if k in profile.get('sources', {})},
-            'phones': sorted(phones_in_pages(pages))}
+            'phones': sorted(phones_in_pages(pages)),
+            'student_phones': sorted(role_phones(pages, 'student'))}
 
 
 def decide_from_facts(facts, people, title):
     """То же решение, что по PDF, — по сохранённым фактам, без TrustMe."""
     pages = [{'text': ' '.join('8' + p for p in facts.get('phones', []))}]
-    return pick_student({'fields': facts.get('fields', {}), 'sources': facts.get('sources', {})}, pages,
+    return pick_student({'fields': facts.get('fields', {}), 'sources': facts.get('sources', {}), 'student_phones': facts.get('student_phones', [])}, pages,
                         people.students, people.guardians, people.names, title)
 
 
@@ -121,7 +122,7 @@ async def read_and_decide(db, client, doc, people, *, apply, ocr_scans=False):
     if not ''.join(p['text'] for p in pages).strip():
         doc.decision, doc.reason = 'unreadable', 'Скан без текста — проверить вручную'
         return 'unreadable', [], doc.reason
-    profile = extract_profile(pages, info, content)
+    profile = recover_student_identity(extract_profile(pages, info, content), pages, people.students, people.guardians)
     doc.facts_encrypted = encrypt(json.dumps(facts_of(profile, pages), ensure_ascii=False))
     decision, found, reason = pick_student(profile, pages, people.students, people.guardians, people.names, doc.name)
     doc.decision, doc.candidate_ids = _decision(decision, found) if decision != 'link' else ('review', [str(found.id)])

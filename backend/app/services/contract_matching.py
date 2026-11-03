@@ -5,11 +5,11 @@
 """
 import re
 
-from app.services.contract_discovery import _same_word, _words, match_student, name_overlap, phone_key, phones_in_pages, same_person
+from app.services.contract_discovery import _same_word, _words, match_student, name_overlap, phone_key, phones_in_pages, same_person, phone_keys, role_phones, transliterated_person
 
 
 def _phones(student, guardians):
-    return ({phone_key(student.phone)} | {phone_key(g.phone) for g in guardians}) - {''}
+    return set().union(*(phone_keys(p) for p in [student.phone, *[g.phone for g in guardians]]))
 
 
 def _close_names(a, b):
@@ -63,6 +63,41 @@ _NAME_ONLY = {'ФИО требует проверки по оригиналу PD
               'Заказчик совпадает со студентом — подтвердите, что договор его'}
 
 
+def recover_student_identity(profile, pages, students, guardians):
+    """Recover an unlabelled recipient only inside customer requisites: full three-part name, or
+    a shorter name with a matching card/family phone. Do not replace explicit PDF identities.
+    """
+    if profile.get('fields', {}).get('student_name') or profile.get('conflicts', {}).get('student_name'):
+        return profile
+    evidence = {}
+    for page in pages:
+        if page.get('ocr'): continue
+        text = re.sub(r'\s+', ' ', page['text'])
+        heading = re.search(r'Реквизиты\s+Заказчика', text, re.I)
+        if not heading: continue
+        section = text[heading.end():]
+        tokens = list(re.finditer(r'[^\W\d_]+', section, re.UNICODE))
+        phones = phones_in_pages([page])
+        for student in students:
+            phone_match = bool(phones & _phones(student, guardians.get(student.id, ())))
+            size = len(_words(student.full_name))
+            if not phone_match and size < 3: continue
+            if not 2 <= size <= 4: continue
+            for i in range(len(tokens)-size+1):
+                candidate = section[tokens[i].start():tokens[i+size-1].end()]
+                if same_person(candidate, profile.get('fields', {}).get('customer_name', '')): continue
+                if same_person(candidate, student.full_name) or transliterated_person(candidate, student.full_name):
+                    evidence.setdefault(student.id, (candidate, page['page'], section[max(0,tokens[i].start()-50):tokens[i+size-1].end()+100]))
+                    break
+    values = list(evidence.values())
+    if values and all(same_person(values[0][0], value[0]) for value in values):
+        candidate, page, excerpt = max(values, key=lambda value: len(_words(value[0])))
+        profile.setdefault('fields', {})['student_name'] = candidate
+        profile.setdefault('sources', {})['student_name'] = {'kind':'pdf', 'page':page, 'excerpt':excerpt, 'method':'requisites_name_and_phone'}
+        profile['missing'] = [key for key in profile.get('missing', []) if key != 'student_name']
+    return profile
+
+
 def pick_student(profile, pages, students, guardians, all_names, title=''):
     """('link', student, причина) | ('review', [студенты], причина) | ('none', [], причина).
 
@@ -70,6 +105,14 @@ def pick_student(profile, pages, students, guardians, all_names, title=''):
     fields = profile.get('fields', {})
     named = fields.get('student_name') or fields.get('customer_name') or ''
     in_pdf = phones_in_pages(pages)
+    # An explicitly labelled student's phone is stronger than a parent's phone
+    # elsewhere in the PDF. Require the student's name as independent evidence.
+    student_phones = set(profile.get('student_phones', [])) or role_phones(pages, 'student')
+    actual = fields.get('student_name') or ''
+    own_phone_matches = [s for s in students if student_phones & phone_keys(s.phone)
+                         and actual and (same_person(actual, s.full_name) or transliterated_person(actual, s.full_name))]
+    if len(own_phone_matches) == 1 and profile.get('sources', {}).get('student_name', {}).get('kind') == 'pdf':
+        return 'link', own_phone_matches[0], 'ФИО и отдельный телефон абитуриента совпадают с одной карточкой'
     customer_iin = re.sub(r'\D', '', fields.get('customer_id') or '')
     family = {}
     for s in students:
@@ -78,7 +121,7 @@ def pick_student(profile, pages, students, guardians, all_names, title=''):
               (['ИИН родителя'] if len(customer_iin) == 12 and any(g.iin == customer_iin for g in own) else [])
         if why:
             family[s.id] = (s, why)
-    candidates = [s for s in students if (named and same_person(named, s.full_name)) or s.id in family]
+    candidates = [s for s in students if (named and (same_person(named, s.full_name) or transliterated_person(named, s.full_name))) or s.id in family]
     results = [(s, *match_student(s, profile, pages, all_names, [g.phone for g in guardians.get(s.id, ())])) for s in candidates]
     confirmed = [s for s, outcome, _ in results if outcome == 'confirmed']
     if len(confirmed) == 1:
@@ -112,7 +155,7 @@ def pick_student(profile, pages, students, guardians, all_names, title=''):
     # human review. Two matching name parts avoid flooding the queue with every
     # student sharing a common first name; this rule never auto-links.
     hints = [s for s in students if (len(_words(named)) <= 2 and name_overlap(named, s.full_name) >= 2)
-             or name_overlap(title, s.full_name) >= 2]
+             or name_overlap(title, s.full_name) >= 2 or transliterated_person(named, s.full_name)]
     if hints:
         hints.sort(key=lambda s: max(name_overlap(named, s.full_name),
                                      name_overlap(title, s.full_name)), reverse=True)

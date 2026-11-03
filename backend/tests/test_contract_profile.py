@@ -74,3 +74,33 @@ class ContractProfileTests(unittest.TestCase):
         self.assertEqual(amount_words(Decimal('200000')),'двести тысяч')
         self.assertEqual(amount_words(Decimal('90000')),'девяносто тысяч')
         self.assertEqual(amount_words(Decimal('21001.45')),'двадцать одна тысяча один 45/100')
+
+class ApplicantLabelTests(unittest.TestCase):
+    def test_full_name_label_and_glued_colon_are_supported(self):
+        p=extract_profile(pages('Реквизиты Заказчика: ФИО подписанта: Тест Родитель. ФИО абитуриента:Тест Амина Есимовна ИИН подписанта: 000000000000 ИИН абитуриента: 000000000001'),{},b'test')
+        self.assertEqual(p['fields']['student_name'],'Тест Амина Есимовна')
+
+    def test_current_template_names_child_after_in_interests(self):
+        text='Заказчик, действующая в качестве законного представителя и в интересах Тест Әбілқайыр, индивидуальный идентификационный номер (ИИН) 000000000001, именуемого в дальнейшем «Абитуриент»'
+        p=extract_profile(pages(text),{},b'test')
+        self.assertEqual(p['fields']['student_name'],'Тест Әбілқайыр')
+        self.assertEqual(p['fields']['student_id_number'],'000000000001')
+
+    def test_old_template_uses_uchashchiysya_label(self):
+        p=extract_profile(pages('1.3. Учащийся: Тест Кристина Александровна. 2. Права и обязанности Сторон'),{},b'test')
+        self.assertEqual(p['fields']['student_name'],'Тест Кристина Александровна')
+
+    def test_service_outcome_heading_does_not_conflict_with_applicant(self):
+        p=extract_profile(pages('Абитуриент: Тест Алинур Даулетулы ИИН абитуриента: 000000000001. Что получает абитуриент: ✅Осознанность в выборе академического трека. Понимание направлений.'),{},b'test')
+        self.assertEqual(p['fields']['student_name'],'Тест Алинур Даулетулы')
+        self.assertNotIn('student_name',p['conflicts'])
+
+    def test_camp_participant_and_intern_labels(self):
+        for label in ['ФИО Участника','Стажирующийся','ФИО (стажирующегося)']:
+            p=extract_profile(pages(f'{label}: Тест Арлан Телефон номер: +77000000000 ИИН Участника: 000000000001'),{},b'test')
+            self.assertEqual(p['fields']['student_name'],'Тест Арлан')
+            self.assertEqual(p['fields']['student_id_number'],'000000000001')
+
+    def test_unnamed_minor_role_before_iin_names_participant(self):
+        p=extract_profile(pages('в качестве законного представителя несовершеннолетнего Тест Алидар ИИН 000000000001, именуемого в дальнейшем «Участник»'),{},b'test')
+        self.assertEqual(p['fields']['student_name'],'Тест Алидар')
