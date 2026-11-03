@@ -88,3 +88,36 @@ def build_coverage(ids, links, acts, sent):
         if row['services_total']:
             row['percent'] = round(100 * row['services_closed'] / row['services_total'])
     return out
+
+
+async def financial_coverage(db, contract_ids):
+    """То же по финансовым договорам. Договор TrustMe без сопоставления
+    относится к финансовому, если тот у студента единственный."""
+    from sqlalchemy import func, or_
+    from app.models.contract import Contract
+    ids = list(contract_ids)
+    if not ids:
+        return {}
+    owners = dict((await db.execute(select(Contract.id, Contract.student_id).where(Contract.id.in_(ids)))).all())
+    single = {sid for sid, n in (await db.execute(select(Contract.student_id, func.count()).where(
+        Contract.student_id.in_(set(owners.values()))).group_by(Contract.student_id))).all() if n == 1}
+    links = (await db.execute(select(TrustMeContractLink).where(or_(
+        TrustMeContractLink.financial_contract_id.in_(ids),
+        TrustMeContractLink.financial_contract_id.is_(None) & TrustMeContractLink.student_id.in_(single)))
+        .order_by(TrustMeContractLink.linked_at))).scalars().all()
+    by_student = {sid: cid for cid, sid in owners.items() if sid in single}
+    grouped = defaultdict(list)
+    for link in links:
+        cid = link.financial_contract_id or by_student.get(link.student_id)
+        if cid in owners:
+            grouped[cid].append(link)
+    students = set(owners.values())
+    acts = (await db.execute(select(ServiceAct).where(ServiceAct.student_id.in_(students), ServiceAct.status == 'ready')
+                             .order_by(ServiceAct.created_at.desc()))).scalars().all()
+    sent = defaultdict(list)
+    if acts:
+        for act_id, at in (await db.execute(select(ActMailAttempt.act_id, ActMailAttempt.created_at).where(
+                ActMailAttempt.act_id.in_([a.id for a in acts]), ActMailAttempt.status.in_(SENT)))).all():
+            sent[act_id].append(at)
+    return {cid: build_coverage([sid], grouped[cid], [a for a in acts if a.student_id == sid], sent)[sid]
+            for cid, sid in owners.items()}

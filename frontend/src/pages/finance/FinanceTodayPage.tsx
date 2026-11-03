@@ -7,7 +7,7 @@ import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { financeApi, financeKeys, type ScheduleItem } from '@/api/finance'
 import {
-  EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinPageHeader, FinTable, StudentCell, Td, Th,
+  EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
 import { PayDialog } from '@/components/finance/dialogs'
 import { METHOD_LABELS, date, dateTime, money, num, parseIso, paymentTitle, payments, plural } from '@/components/finance/format'
@@ -40,6 +40,7 @@ export function FinanceTodayPage() {
   })
 
   const open = (contractId: string) => navigate(`/finance/contracts/${contractId}`)
+  const acts = useQuery({ queryKey: financeKeys.actsSummary(), queryFn: financeApi.actsSummary, retry: false })
   const waiting = data?.due_today.filter((i) => i.state !== 'paid') ?? []
   const waitingSum = waiting.reduce((s, i) => s + num(i.left), 0)
   const day = data ? parseIso(data.today) : null
@@ -65,6 +66,31 @@ export function FinanceTodayPage() {
           В Notion указаны остаток и дата оплаты по {plural(data.notion_import_count, ['договору', 'договорам', 'договорам'])}, у которых ещё нет графика платежей.
           Перенести их как первый платёж? Сумму и дату потом можно поправить.
         </FinAlert>
+      )}
+
+      {acts.data && (
+        <FinCard title="Договоры и акты" meta={`активных договоров: ${acts.data.active_total}`}>
+          <div className="px-5 pt-4">
+            <FinMetrics items={[
+              { label: 'Без договора TrustMe', value: String(acts.data.active_without_trustme), tone: acts.data.active_without_trustme ? 'warn' : undefined,
+                hint: <Link className="underline" to="/finance/contracts?documents=no_contract">Открыть список</Link> },
+              { label: 'Договор есть, актов нет', value: String(acts.data.active_without_acts),
+                hint: <Link className="underline" to="/finance/contracts?documents=no_act">Открыть список</Link> },
+              { label: 'Закрыто актами в среднем', value: acts.data.active_average_percent == null ? '—' : `${acts.data.active_average_percent}%`,
+                progress: acts.data.active_average_percent ?? 0, tone: 'ok' },
+              { label: 'Актов отправлено в этом месяце', value: `${acts.data.month.sent} из ${acts.data.month.created}`,
+                tone: acts.data.month.not_sent ? 'warn' : undefined,
+                hint: acts.data.month.not_sent ? `ждут отправки: ${acts.data.month.not_sent}` : 'все отправлены' },
+            ]} />
+          </div>
+          {acts.data.paid_not_closed_total > 0 && <FinTable minWidth={560}>
+            <thead><tr><Th>Оплачено полностью, но не закрыто актами · {acts.data.paid_not_closed_total}</Th><Th right>Закрыто</Th></tr></thead>
+            <tbody>{acts.data.paid_not_closed.map(r => <tr key={r.contract_id} className="hover:bg-[var(--fin-head)]">
+              <Td><StudentCell name={r.student_name} onOpen={() => open(r.contract_id)} /></Td>
+              <Td right>{r.services_closed} из {r.services_total}{r.closed_percent != null ? ` · ${r.closed_percent}%` : ''}</Td>
+            </tr>)}</tbody>
+          </FinTable>}
+        </FinCard>
       )}
 
       {data && (

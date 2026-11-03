@@ -100,6 +100,10 @@ export type NextPaymentKind = 'overdue' | 'today' | 'planned' | 'not_planned' | 
 export interface FinanceContractRow {
   trustme_count?: number
   acts_count?: number
+  trustme?: { id: string; number: string | null; status: number; source?: string }[]
+  services_total?: number
+  services_closed?: number
+  closed_percent?: number | null
   contract_id: string
   student_id: string
   student_name: string
@@ -179,6 +183,13 @@ export interface ContractsQuery {
   page?: number
 }
 
+export interface ActsSummary {
+  active_total: number; active_without_trustme: number; active_without_acts: number; active_average_percent: number | null
+  month: { created: number; sent: number; not_sent: number }
+  paid_not_closed: { contract_id: string; student_name: string; closed_percent: number | null; services_closed: number; services_total: number }[]
+  paid_not_closed_total: number
+}
+
 export const financeKeys = {
   all: ['finance'] as const,
   today: () => ['finance', 'today'] as const,
@@ -190,11 +201,13 @@ export const financeKeys = {
   contracts: (q: ContractsQuery) => ['finance', 'contracts', q] as const,
   contract: (id: string | undefined) => ['finance', 'contract', id] as const,
   review: () => ['finance', 'review'] as const,
+  actsSummary: () => ['finance', 'acts-summary'] as const,
 }
 
 export const financeApi = {
   deliveries: async (): Promise<FinanceMailDelivery[]> => (await apiClient.get('/finance/mail-deliveries')).data,
   resolveDelivery: async (id: string, outcome: string, note: string): Promise<FinanceMailDelivery> => (await apiClient.post(`/finance/mail-deliveries/${id}/resolve`, { outcome, note })).data,
+  actsSummary: async (): Promise<ActsSummary> => (await apiClient.get('/finance/acts-summary')).data,
   today: async (): Promise<TodayView> => (await apiClient.get('/finance/today')).data,
   counters: async (): Promise<FinanceCounters> => (await apiClient.get('/finance/counters')).data,
   expected: async (): Promise<ScheduleItem[]> => (await apiClient.get('/finance/expected')).data,

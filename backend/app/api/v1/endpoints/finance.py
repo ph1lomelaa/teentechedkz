@@ -517,7 +517,7 @@ async def contracts(
     mzk: str | None = None,
     intake: int | None = None,
     schedule: str | None = Query(None, description="mismatch — график не равен остатку, none — графика нет"),
-    documents: Literal["all", "no_contract", "no_act"] = "all",
+    documents: Literal["all", "no_contract", "no_act", "open"] = "all",
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=100),
 ):
@@ -553,6 +553,13 @@ async def contracts(
         money_all = await _contract_money(db, [c for c, _, _ in candidates], today)
         ids = [c.id for c, _, _ in candidates if _is_discrepancy(money_all[c.id])]
         stmt = stmt.where(Contract.id.in_(ids or [uuid.uuid4()]))
+    if documents == "open":
+        # Закрытие считается правилом act_coverage, как в таблице «Договоры и акты».
+        from app.services.act_coverage import financial_coverage
+        candidates = [c.id for c, _, _ in (await db.execute(stmt)).all()]
+        covered = await financial_coverage(db, candidates)
+        ids = [cid for cid in candidates if covered[cid]["services_total"] > covered[cid]["services_closed"]]
+        stmt = stmt.where(Contract.id.in_(ids or [uuid.uuid4()]))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(stmt.order_by(Student.full_name.asc()).offset((page - 1) * size).limit(size))).all()
     money = await _contract_money(db, [c for c, _, _ in rows], today)
@@ -565,12 +572,22 @@ async def contracts(
     act_counts = dict((await db.execute(select(TrustMeContractLink.financial_contract_id, func.count(ServiceAct.id)).join(
         ServiceAct, ServiceAct.contract_link_id == TrustMeContractLink.id).where(
         TrustMeContractLink.financial_contract_id.in_(ids), ServiceAct.status == "ready").group_by(TrustMeContractLink.financial_contract_id))).all()) if ids else {}
+    from app.services.act_coverage import financial_coverage
+    covered = await financial_coverage(db, ids)
+    await db.commit()  # состав услуг старых договоров, посчитанный один раз
     return {
         "items": [{**_contract_row(c, s, mzk_name, money[c.id], today), "trustme_count": document_counts.get(c.id, 0),
-                   "acts_count": act_counts.get(c.id, 0)} for c, s, mzk_name in rows],
+                   "acts_count": act_counts.get(c.id, 0), **_coverage_brief(covered.get(c.id))} for c, s, mzk_name in rows],
         "total": total, "page": page, "size": size,
         "mzk_options": mzk_options, "intake_options": intake_options,
     }
+
+
+def _coverage_brief(row) -> dict:
+    """Договор TrustMe и закрытие услуг актами — для строки и карточки финансиста."""
+    row = row or {"contracts": [], "services_total": 0, "services_closed": 0, "percent": None}
+    return {"trustme": [{"id": c["id"], "number": c["number"], "status": c["status"], "source": c["source"]} for c in row["contracts"]],
+            "services_total": row["services_total"], "services_closed": row["services_closed"], "closed_percent": row["percent"]}
 
 
 def _contract_row(c: Contract, s: Student, mzk_name: str | None, money: ContractMoney, today: date) -> dict:
@@ -586,6 +603,41 @@ def _contract_row(c: Contract, s: Student, mzk_name: str | None, money: Contract
         "paid": str(money.paid),
         "remaining": str(money.remaining) if money.remaining is not None else None,
         "next_payment": _next_payment(money, today),
+    }
+
+
+@router.get("/acts-summary")
+async def acts_summary(db: Db, current_user: CurrentUser):
+    """Сводка для «Сегодня»: договоры TrustMe и закрытие услуг актами.
+    Правило закрытия — act_coverage, как в таблице «Договоры и акты»."""
+    require_access(current_user, "finance_desk", Action.view)
+    from app.models.service_act import ActMailAttempt
+    from app.services.act_coverage import SENT, financial_coverage
+    today = _today()
+    rows = (await db.execute(select(Contract, Student).join(Student, Student.id == Contract.student_id)
+                             .where(Student.is_archived.is_(False)))).all()
+    covered = await financial_coverage(db, [c.id for c, _ in rows])
+    money = await _contract_money(db, [c for c, _ in rows], today)
+    await db.commit()
+    active = [(c, s) for c, s in rows if c.pipeline_status == PipelineStatus.active_work]
+    percents = [covered[c.id]["percent"] for c, _ in active if covered[c.id]["percent"] is not None]
+    month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+    made = (await db.execute(select(ServiceAct.id).where(ServiceAct.status == "ready", ServiceAct.created_at >= month_start))).scalars().all()
+    sent = set((await db.execute(select(ActMailAttempt.act_id).where(ActMailAttempt.act_id.in_(made or [uuid.uuid4()]),
+                                                                    ActMailAttempt.status.in_(SENT)))).scalars().all())
+    paid_open = sorted(([c, s] for c, s in rows if money[c.id].remaining == 0 and c.amount
+                        and covered[c.id]["services_total"] > covered[c.id]["services_closed"]),
+                       key=lambda pair: covered[pair[0].id]["percent"] or 0)
+    return {
+        "active_total": len(active),
+        "active_without_trustme": sum(not covered[c.id]["contracts"] for c, _ in active),
+        "active_without_acts": sum(bool(covered[c.id]["contracts"]) and not covered[c.id]["services_closed"] for c, _ in active),
+        "active_average_percent": round(sum(percents) / len(percents)) if percents else None,
+        "month": {"created": len(made), "sent": len(sent), "not_sent": len(made) - len(sent)},
+        "paid_not_closed": [{"contract_id": str(c.id), "student_name": s.full_name, "closed_percent": covered[c.id]["percent"],
+                             "services_closed": covered[c.id]["services_closed"], "services_total": covered[c.id]["services_total"]}
+                            for c, s in paid_open[:20]],
+        "paid_not_closed_total": len(paid_open),
     }
 
 
@@ -625,8 +677,11 @@ async def contract_detail(contract_id: uuid.UUID, db: Db, current_user: CurrentU
         select(NotionSnapshot).where(NotionSnapshot.student_id == student.id,
                                      NotionSnapshot.status == NotionMatchStatus.linked).limit(1)
     )).scalar_one_or_none()
+    from app.services.act_coverage import financial_coverage
+    covered = (await financial_coverage(db, [c.id])).get(c.id)
+    await db.commit()
     return {
-        **_contract_row(c, student, mzk_name, money, today),
+        **_contract_row(c, student, mzk_name, money, today), **_coverage_brief(covered),
         "signed_date": c.signed_date.isoformat() if c.signed_date else None,
         "source": "Notion" if snapshot else "Платформа",
         "synced_at": snapshot.synced_at.isoformat() if snapshot and snapshot.synced_at else None,
