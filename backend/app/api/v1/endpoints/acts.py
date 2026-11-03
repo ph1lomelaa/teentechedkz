@@ -132,8 +132,10 @@ async def _verify_contract(link):
             data = await client.contract(link.short_url)
             if client.company_id != link.company_id or data.get("id") != link.external_id:
                 raise HTTPException(409, "Привязка договора не соответствует подключённой компании")
-    except TrustMeError as error:
-        raise _upstream(error) from None
+    except TrustMeError:
+        # TrustMe недоступен — опираемся на последний известный статус договора.
+        logging.getLogger(__name__).warning("TrustMe unavailable, using cached status for link %s", link.id)
+        data = {"contract_status": link.status}
     if data.get("contract_status") == 4:
         raise HTTPException(409, "Договор отозван компанией")
 
@@ -311,12 +313,18 @@ async def _refresh_contract(db, link):
 async def check_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user)
     link = await _link(db, student_id, link_id)
+    stale = False
     try:
         await _refresh_contract(db, link)
-    except TrustMeError as error:
-        raise _upstream(error) from None
-    await db.commit()
-    return {"status": link.status, "checked_at": link.profile_checked_at.isoformat(), "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None)}
+    except TrustMeError:
+        # Не блокируем работу с актами: показываем последний известный статус.
+        await db.rollback()
+        link = await _link(db, student_id, link_id, lock=False)
+        stale = True
+    else:
+        await db.commit()
+    checked = link.profile_checked_at
+    return {"status": link.status, "stale": stale, "checked_at": checked.isoformat() if checked else None, "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None)}
 
 
 def _inspection_fallback(previous, link):

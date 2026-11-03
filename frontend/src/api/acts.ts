@@ -83,7 +83,7 @@ export const actsApi = {
   context: async (sid: string, period?: { period_start: string; period_end: string }) =>
     (await api.get<ActContext>(`/acts/students/${sid}`, { params: period })).data,
   contractPdf: (sid: string, id: string) => blobRequest(api.get(`/acts/students/${sid}/contracts/${id}/pdf`, { responseType: 'blob' })),
-  checkContract: async (sid: string, id: string) => (await api.post<{ status: number; checked_at: string; signed_date?: string | null; signed_date_source?: string | null }>(`/acts/students/${sid}/contracts/${id}/status`)).data,
+  checkContract: async (sid: string, id: string) => (await api.post<{ status: number; stale?: boolean; checked_at: string | null; signed_date?: string | null; signed_date_source?: string | null }>(`/acts/students/${sid}/contracts/${id}/status`)).data,
   inspect: async (sid: string, id: string, refresh = false) => (await api.post<ContractInspection>(`/acts/students/${sid}/contracts/${id}/inspect`, null, { params: { refresh } })).data,
   addServiceQuote: async (sid: string, id: string, data: { page: number; text: string; category: string }) => (await api.post<ContractService>(`/acts/students/${sid}/contracts/${id}/service-quote`, data)).data,
   saveProfile: async (sid: string, id: string, fields: Record<string, string>) => (await api.patch(`/acts/students/${sid}/contracts/${id}/profile`, { fields })).data,
