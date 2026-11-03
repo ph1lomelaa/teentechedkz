@@ -6,7 +6,7 @@ import { QueryError } from '@/components/shared/QueryState'
 import { financeApi, financeKeys, type FinanceContractRow } from '@/api/finance'
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from '@/types'
 import {
-  EmptyRow, FinBadge, FinButton, FinCard, FinFilterBar, FinInput, FinPageHeader, FinSelect, FinTable, StudentCell, Td, Th,
+  ActsClosure, EmptyRow, FinBadge, FinButton, FinCard, FinFilterBar, FinInput, FinPageHeader, FinSelect, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
 import { date, downloadCsv, money, num, plural, statusLabel } from '@/components/finance/format'
 
@@ -94,7 +94,7 @@ export function FinanceContractsPage() {
             {data?.intake_options.map((y) => <option key={y} value={y}>{y}</option>)}
           </FinSelect>
           <FinSelect aria-label="Документы" value={documents} onChange={e => set({ documents: e.target.value })} className="w-52">
-            <option value="all">Документы: все</option><option value="no_contract">Нет договора TrustMe</option><option value="no_act">Нет готовых актов</option>
+            <option value="all">Документы: все</option><option value="no_contract">Нет договора TrustMe</option><option value="no_act">Нет готовых актов</option><option value="open">Есть незакрытые услуги</option>
           </FinSelect>
           {/* Бывшая таблица «Расхождения в графиках» из «Проверки» — теперь фильтр. */}
           <FinSelect aria-label="График платежей" value={schedule} onChange={(e) => set({ schedule: e.target.value })} className="w-60">
@@ -104,7 +104,7 @@ export function FinanceContractsPage() {
           </FinSelect>
         </FinFilterBar>
         <FinTable minWidth={980}>
-          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Документы</Th></tr></thead>
+          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Договор TrustMe и акты</Th></tr></thead>
           <tbody>
             {isLoading && <EmptyRow colSpan={7}>Загрузка…</EmptyRow>}
             {data && rows.length === 0 && <EmptyRow colSpan={7}>Договоров с такими условиями нет</EmptyRow>}
@@ -115,7 +115,7 @@ export function FinanceContractsPage() {
                 <Td right>{money(r.amount, r.currency)}</Td>
                 <Td><PaidBar paid={r.paid} amount={r.amount} /></Td>
                 <Td right className="font-semibold">{money(r.remaining, r.currency)}</Td>
-                <Td><NextPayment row={r} /></Td><Td>TrustMe: {r.trustme_count ?? 0} · Акты: {r.acts_count ?? 0}</Td>
+                <Td><NextPayment row={r} /></Td><Td><ActsClosure row={r} /></Td>
               </tr>
             ))}
           </tbody>

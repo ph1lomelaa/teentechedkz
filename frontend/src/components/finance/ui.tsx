@@ -406,3 +406,21 @@ export function FinAlert({ children, action }: { children: React.ReactNode; acti
     </div>
   )
 }
+
+/** Договор TrustMe и доля услуг, закрытых актами (правило act_coverage на сервере). */
+export function ActsClosure({ row }: { row: { trustme?: { number: string | null }[]; services_total?: number; services_closed?: number; closed_percent?: number | null } }) {
+  const contracts = row.trustme ?? []
+  if (!contracts.length) return <span className="text-[13px] text-[var(--fin-text-3)]">Нет договора TrustMe</span>
+  const pct = row.closed_percent ?? 0
+  return (
+    <div className="min-w-[150px]">
+      <div className="text-[13px] font-medium text-p-text">№{contracts[0].number || '—'}{contracts.length > 1 ? ` +${contracts.length - 1}` : ''}</div>
+      {row.services_total ? <>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--fin-neutral-bg)]" aria-hidden="true">
+          <div className="h-full rounded-full bg-[var(--fin-ok)]" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="mt-1 whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">актами {row.services_closed} из {row.services_total} · {pct}%</div>
+      </> : <div className="mt-1 text-[13px] text-[var(--fin-text-3)]">услуги не распознаны</div>}
+    </div>
+  )
+}

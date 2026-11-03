@@ -89,11 +89,15 @@ export function FinanceContractPage() {
         </FinAlert>
       )}
 
-      <FinMetrics columns={3} items={[
+      <FinMetrics columns={4} items={[
         { label: 'Сумма договора', value: money(c.amount, c.currency) },
         { label: 'Оплачено', value: money(c.paid, c.currency), tone: 'ok', progress: amount > 0 ? (paid / amount) * 100 : 0,
           hint: amount > 0 ? `${Math.round((paid / amount) * 100)}% договора` : undefined },
         { label: 'Осталось оплатить', value: money(c.remaining, c.currency) },
+        c.trustme?.length
+          ? { label: 'Закрыто актами', value: c.services_total ? `${c.services_closed} из ${c.services_total}` : '—', tone: 'ok',
+              progress: c.closed_percent ?? 0, hint: `Договор TrustMe №${c.trustme[0].number || '—'}${c.trustme.length > 1 ? ` +${c.trustme.length - 1}` : ''}` }
+          : { label: 'Закрыто актами', value: '—', hint: 'Договор TrustMe не привязан — «Документы и акты»' },
       ]} />
 
       <div className="mt-6">
