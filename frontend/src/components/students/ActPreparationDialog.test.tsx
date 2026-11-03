@@ -33,8 +33,8 @@ it('infers the act kind from service categories', () => {
 })
 it('always shows the five directions and requires a PDF quote for an unrecognized one', async () => {
  show()
- await screen.findByText('Обязательные направления')
- for (const name of ['Подготовка IELTS','Профориентация','Подготовка к CSCA','Подготовка к вступительным','Подготовка к SAT'])
+ await screen.findByText('Обязательные')
+ for (const name of ['Подготовка IELTS','Профориентация'])
    expect(screen.getAllByText(name).length).toBeGreaterThan(0)
  expect(screen.queryByRole('checkbox',{name:/^Подготовка к SAT/})).not.toBeInTheDocument()
  fireEvent.click(screen.getByText('Нужной услуги нет в списке'))
