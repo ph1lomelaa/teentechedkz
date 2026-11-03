@@ -130,3 +130,19 @@ async def discovery_scenario(url):
         assert len(links) == 1 and links[0].short_url == 'autoLink1'
         assert trustme._link_dict(links[0])['contract_date'] == '2026-07-28'
     await engine.dispose()
+
+
+class TypoHintTests(unittest.TestCase):
+    def test_one_letter_typo_gives_review_hint_but_never_links(self):
+        from app.services.contract_matching import pick_student
+        student = SimpleNamespace(id='1', full_name='Клименко Артеа Денисович', phone='')
+        other = SimpleNamespace(id='2', full_name='Иванов Иван Иванович', phone='')
+        profile = {'fields': {'student_name': 'Клименко Артем Денисович'}, 'sources': {'student_name': {'kind': 'pdf'}}}
+        decision, found, _ = pick_student(profile, [], [student, other], {}, [student.full_name, other.full_name], 'Договор')
+        self.assertEqual(decision, 'review')
+        self.assertEqual([s.id for s in found], ['1'])
+
+    def test_unrelated_names_are_not_hinted(self):
+        from app.services.contract_discovery import fuzzy_overlap
+        self.assertEqual(fuzzy_overlap('Клименко Артем Денисович', 'Иванов Иван Иванович'), 0)
+        self.assertEqual(fuzzy_overlap('Раазан Әмір', 'Рамазан Әмір Манасұлы'), 2)

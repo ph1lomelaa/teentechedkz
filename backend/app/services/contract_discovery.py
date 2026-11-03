@@ -70,6 +70,32 @@ def _same_word(a, b):
         long[i] in _VOWELS and long[:i] + long[i + 1:] == short for i in range(1, len(long)))
 
 
+def _edit1(a, b):
+    if min(len(a), len(b)) < 5 or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    long, short = (a, b) if len(a) > len(b) else (b, a)
+    return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
+
+
+def _one_typo(a, b):
+    """Слова от 5 букв, отличающиеся одной вставкой, пропуском или заменой."""
+    return _edit1(a, b) or _edit1(_single(a), _single(b))
+
+
+def fuzzy_overlap(a, b):
+    """Как name_overlap, но слово с одной опечаткой считается совпавшим. Только для подсказок."""
+    rest, hits = _words(b), 0
+    for word in _words(a):
+        for i, other in enumerate(rest):
+            if _same_word(word, other) or _one_typo(word, other):
+                hits += 1
+                del rest[i]
+                break
+    return hits
+
+
 def name_overlap(a, b):
     rest, hits = _words(b), 0
     for word in _words(a):
