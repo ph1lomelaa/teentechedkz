@@ -306,3 +306,36 @@ class LinkLockTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_changes_still_lock_the_contract(self):
         self.assertIn('FOR UPDATE', await self._statement())
+
+
+class TrustMeFallbackTests(unittest.IsolatedAsyncioTestCase):
+    def _client(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.trustme import TrustMeError
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(side_effect=TrustMeError('Unavailable'))
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    async def test_generate_uses_last_known_status_when_trustme_is_down(self):
+        from unittest.mock import patch
+        from app.api.v1.endpoints import acts
+        link = SimpleNamespace(id=uuid.uuid4(), source='trustme', status=1, short_url='abc', company_id='c', external_id='e')
+        with patch.object(acts, '_client', return_value=self._client()):
+            await acts._verify_contract(link)
+            link.status = 4
+            with self.assertRaises(acts.HTTPException) as error:
+                await acts._verify_contract(link)
+        self.assertEqual(error.exception.status_code, 409)
+
+    async def test_status_check_returns_cached_status_instead_of_error(self):
+        from unittest.mock import AsyncMock, patch
+        from app.api.v1.endpoints import acts
+        from app.services.trustme import TrustMeError
+        link = SimpleNamespace(id=uuid.uuid4(), status=3, profile_checked_at=None)
+        db = SimpleNamespace(rollback=AsyncMock(), commit=AsyncMock())
+        with patch.object(acts, '_student', AsyncMock()), patch.object(acts, '_link', AsyncMock(return_value=link)), \
+             patch.object(acts, '_refresh_contract', AsyncMock(side_effect=TrustMeError('Unavailable'))):
+            result = await acts.check_contract(uuid.uuid4(), link.id, db, SimpleNamespace())
+        self.assertEqual((result['status'], result['stale']), (3, True))
+        db.commit.assert_not_awaited()

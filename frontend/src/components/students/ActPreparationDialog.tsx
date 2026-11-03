@@ -95,7 +95,8 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
   const final = ['admission','final'].includes(form.template)
   const applications = (profile.data?.applications || []).filter(a => final ? a.status === 'enrolled' : (form.template === 'applications' ? ['submitted','offer_received','enrolled'] : ['offer_received','enrolled']).includes(a.status))
   const complete = !missing.length && validPeriod && amountValid && !!form.lines.length && !legacy
-  const active = (profile.data?.status ?? contract.status) === 3
+  // Акты разрешены и по неподписанным договорам; нельзя только по отозванному.
+  const active = (profile.data?.status ?? contract.status) !== 4
   const readyToGenerate = complete && active && form.verified && (!final || form.full_completion_confirmed) && !profile.isFetching
   const checklist = [
     ['Услуги из договора', !!form.lines.length && !legacy],
@@ -103,7 +104,7 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     ['Период и дата акта', validPeriod],
     ...(form.include_amount ? [['Стоимость', amountValid] as const] : []),
   ] as const
-  const reason = !active ? 'Нужен подписанный договор' : profile.isFetching ? 'Читаем договор' : legacy ? 'Повторно выберите пункты из договора для старого черновика'
+  const reason = !active ? 'Договор отозван компанией' : profile.isFetching ? 'Читаем договор' : legacy ? 'Повторно выберите пункты из договора для старого черновика'
     : !complete ? 'Заполните отмеченные пункты' : !form.verified ? 'Подтвердите выполнение работ галочкой внизу' : ''
   useEffect(() => {
     setPreviewUrl(null); setPreviewError('')
