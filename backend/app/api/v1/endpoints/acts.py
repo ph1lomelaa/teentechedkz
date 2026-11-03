@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 import json
+import logging
 import re
 import smtplib
 import uuid
@@ -33,7 +34,7 @@ from app.models.user import User, UserRole
 from app.schemas.service_act import ActInput, ActDraftInput, ActMailInput, ActMailResolution
 from app.services import mailer
 from app.services.act_pdf import render_act
-from app.services.contract_services import validate_service_lines, validate_company_signature
+from app.services.contract_services import validate_service_lines, validate_company_signature, extract_services, with_default_services
 from app.services.contract_documents import read_pages, signing_date, apply_document_signing_date
 from app.services.contract_discovery import same_person
 from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS, EXTRACTOR
@@ -315,6 +316,24 @@ async def check_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, curr
     return {"status": link.status, "checked_at": link.profile_checked_at.isoformat(), "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None)}
 
 
+def _inspection_fallback(previous, link):
+    if previous:
+        if previous.get('source_pages') and previous.get('fingerprint'):
+            services = extract_services(previous['source_pages'], previous['fingerprint'])
+            known = {s['id'] for s in services}
+            services.extend(s for s in previous.get('services', []) if s.get('verbatim_manual') and s['id'] not in known)
+            previous['services'] = services
+            with_default_services(previous)
+        return previous, 'Не удалось обновить договор. Используются ранее сохранённые данные; проверьте реквизиты по оригиналу.'
+    # No PDF is claimed as read: this identity is tied to the linked document,
+    # and only shared standard services are available until extraction succeeds.
+    identity = f"document-reference:{link.id}".encode()
+    profile = extract_profile([], {}, identity)
+    profile['extractor'] = 0
+    profile['fingerprint_kind'] = 'document_reference'
+    return profile, 'Не удалось прочитать PDF. Доступны пять стандартных услуг; реквизиты и дату подписания проверьте и заполните по оригиналу договора.'
+
+
 @router.post("/students/{student_id}/contracts/{link_id}/inspect")
 async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser,
                            refresh: bool = False):
@@ -322,11 +341,12 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
     link = await _link(db, student_id, link_id)
     previous = cached_profile(link)
     pages = []
+    warning = None
     try:
-        info = await _refresh_contract(db, link)
         if previous and previous.get('service_policy') == 3 and 'source_pages' in previous and previous.get('extractor', 1) >= EXTRACTOR and not refresh:
             profile = previous
         else:
+            info = await _refresh_contract(db, link)
             if getattr(link, "source", None) == "manual":
                 content = await minio_download(link.storage_path)
             else:
@@ -348,11 +368,14 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
                     profile["conflicts"].pop(key, None)
             profile["missing"] = [key for key in profile["missing"] if not profile["fields"].get(key)]
             store_profile(link, profile)
-    except TrustMeError as error:
-        raise _upstream(error) from None
+    except TrustMeError:
+        profile, warning = _inspection_fallback(previous, link)
+        store_profile(link, profile)
     except Exception as error:
         if isinstance(error, HTTPException): raise
-        raise HTTPException(422, "Не удалось прочитать PDF. Откройте договор и дополните недостающие данные.") from None
+        logging.getLogger(__name__).exception("Contract inspection failed for link %s", link.id)
+        profile, warning = _inspection_fallback(previous, link)
+        store_profile(link, profile)
     fields = profile["fields"]
     if not fields.get("student_name") and fields.get("customer_name") and same_person(fields["customer_name"], student.full_name):
         # Договор заключён самим студентом: отдельной строки «Абитуриент» нет.
@@ -365,7 +388,7 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
     finance = (await db.execute(select(Contract).where(Contract.student_id == student_id))).scalars().all()
     finance = [c for c in finance if c.id == link.financial_contract_id] if link.financial_contract_id else finance if len(finance) == 1 else []
     amount = finance[0] if finance and finance[0].amount else None
-    return {**{k:v for k,v in profile.items() if k != "source_pages"}, "pages": pages, "status": link.status,
+    return {**{k:v for k,v in profile.items() if k != "source_pages"}, "pages": pages or profile.get("source_pages", []), "status": link.status, "warning": warning,
             "signed_date": getattr(link, "signed_date", None), "signed_date_source": getattr(link, "signed_date_source", None),
             "contract_amount": str(amount.amount) if amount else None, "contract_currency": amount.currency if amount else None,
             "suggested_contract_number": profile["fields"].get("contract_number"),

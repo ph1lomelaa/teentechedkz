@@ -119,3 +119,11 @@ it('offers standard descriptions for all five directions and submits the selecte
  fireEvent.click(screen.getByRole('button',{name:'Создать акт'}))
  await waitFor(() => expect(actsApi.create).toHaveBeenCalledWith('student',expect.objectContaining({lines:[expect.objectContaining({result:defaults[4].text,contract_source:'Стандартное описание из договоров',contract_service_id:'standard-sat'})]})))
 })
+
+it('keeps services selectable when PDF extraction returns a warning', async () => {
+ show({warning:'Не удалось прочитать PDF. Доступны пять стандартных услуг.'})
+ expect(await screen.findByRole('alert')).toHaveTextContent('Доступны пять стандартных услуг')
+ fireEvent.click(screen.getByRole('checkbox',{name:/^Подготовка IELTS/}))
+ fireEvent.click(screen.getByRole('button',{name:'Далее'}))
+ expect(screen.getByText('Период оказания услуг')).toBeInTheDocument()
+})

@@ -38,6 +38,7 @@ export interface ActContext {
 }
 export interface ContractService { source_kind?: 'standard'; id: string; name: string; category: string; text: string; page: number; reference: string; excerpt: string; confirmed_price?: { amount: string; currency: ActInput['currency'] } }
 export interface ContractInspection {
+  warning?: string | null
   applications?: { id: string; university: string | null; program: string | null; status: string }[]
   fingerprint?: string; services?: ContractService[]; company_signature_available?: boolean
   contract_amount?: string | null; contract_currency?: string | null

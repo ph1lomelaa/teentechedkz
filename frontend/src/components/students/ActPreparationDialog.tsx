@@ -133,7 +133,8 @@ export function ActPreparationDialog({ studentId, studentName, contract, initial
     {step === 'services' ? <>
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {profile.isPending && <p role="status" className="mb-4 text-sm text-p-muted">Читаем договор и приложение…</p>}
-        {profile.error && <p role="alert" className="mb-4 text-sm text-red-700">Не удалось прочитать договор. <button className="underline" onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
+        {profile.error && <p role="alert" className="mb-4 text-sm text-red-700">{getErrorMessage(profile.error, 'Не удалось загрузить данные договора')}. <button className="underline" onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
+        {profile.data?.warning && <p role="alert" className="mb-4 text-sm text-amber-800">{profile.data.warning} <button className="underline" disabled={profile.isFetching} onClick={() => profile.refetch()}>Повторить чтение договора</button></p>}
         {quoteMutation.error && <p role="alert" className="mb-3 text-sm text-red-700">{getErrorMessage(quoteMutation.error)}</p>}
       <section className="space-y-3"><h3 className="text-sm font-semibold">Обязательные направления</h3>
         <p className="text-xs text-p-muted">Эти направления доступны для каждого договора. Если в нём нет описания, используется стандартное описание из других договоров.</p>

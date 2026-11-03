@@ -254,3 +254,38 @@ class ActDeletionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(acts, '_act', AsyncMock(return_value=act)), self.assertRaises(HTTPException):
             await acts.delete_act(act.id, db, user())
         db.delete.assert_not_awaited()
+
+
+class InspectionFallbackTests(unittest.TestCase):
+    def test_unavailable_pdf_still_offers_five_standard_services_without_invented_fields(self):
+        link=SimpleNamespace(id=uuid.uuid4())
+        profile, warning=acts._inspection_fallback(None,link)
+        self.assertEqual({s['category'] for s in profile['services']},{'ielts','career','csca','entrance','sat'})
+        self.assertTrue(all(s['source_kind']=='standard' for s in profile['services']))
+        self.assertEqual(profile['fields'],{})
+        self.assertEqual(profile['extractor'],0)
+        self.assertEqual(profile['source_pages'],[])
+        self.assertEqual(profile['fingerprint_kind'],'document_reference')
+        self.assertIn('Не удалось прочитать PDF',warning)
+        self.assertEqual(profile['fingerprint'],acts._inspection_fallback(None,link)[0]['fingerprint'])
+
+    def test_upstream_failure_preserves_cached_descriptions_and_manual_requisites(self):
+        previous={'fields':{'contract_number':'MANUAL-123'},'services':[{'text':'Сохранённое описание'}]}
+        profile, warning=acts._inspection_fallback(previous,SimpleNamespace(id=uuid.uuid4()))
+        self.assertEqual(profile,previous)
+        self.assertIn('сохранённые данные',warning)
+
+class InspectionApiFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inspection_returns_standard_services_when_trustme_is_unavailable(self):
+        from app.services.trustme import TrustMeError
+        link=SimpleNamespace(id=uuid.uuid4(),status=3,financial_contract_id=None,signers=[])
+        db=SimpleNamespace(execute=AsyncMock(return_value=MagicMock()),commit=AsyncMock())
+        db.execute.return_value.scalars.return_value.all.return_value=[]
+        with patch.object(acts,'_student',AsyncMock(return_value=SimpleNamespace(full_name='Тест Студент'))), patch.object(acts,'_link',AsyncMock(return_value=link)), patch.object(acts,'cached_profile',return_value=None), patch.object(acts,'_refresh_contract',AsyncMock(side_effect=TrustMeError('Unavailable'))), patch.object(acts,'store_profile') as store:
+            result=await acts.inspect_contract(uuid.uuid4(),link.id,db,user())
+        self.assertEqual(len(result['services']),5)
+        self.assertTrue(result['warning'])
+        self.assertEqual(result['fields'],{})
+        self.assertTrue(result['missing'])
+        store.assert_called_once()
+        db.commit.assert_awaited_once()
