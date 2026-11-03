@@ -51,7 +51,7 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const current = contracts.find(c => c.id === selectedId) || [...activeContracts].sort((a, b) => (b.contract_date || b.signed_date || '').localeCompare(a.contract_date || a.signed_date || ''))[0] || contracts[0] || null
   const status = useQuery({ queryKey: ['act-contract-status', studentId, current?.id], queryFn: () => actsApi.checkContract(studentId, current!.id), enabled: !!current, staleTime: 60000, retry: false })
   const currentStatus = status.data?.status ?? current?.status
-  const canCreate = manage && !!current && currentStatus === 3 && !status.isPending && !status.error
+  const canCreate = manage && !!current && !status.isPending && !status.error
   const refresh = () => { for (const key of [['act-contract-status', studentId], ['contract-requisites', studentId], ['contract-details', studentId], ['acts', studentId], ['acts-registry'], ['acts-table'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
   const action = useMutation({ mutationFn: async ({ type, act, fileName }: { type: string; act: ActRecord; fileName?: string }) => {
     if (type === 'share') { await actsApi.share(act.id); refresh() }

@@ -12,7 +12,7 @@ class ActLine(BaseModel):
     contract_service_id: str = Field(default="", max_length=64)
     source_fingerprint: str = Field(default="", max_length=64)
     name: str = Field(min_length=3, max_length=300)
-    result: str = Field(min_length=3, max_length=2000)
+    result: str = Field(min_length=3)
     evidence: str = Field(default="", max_length=1500)
     contract_source: str = Field(min_length=2, max_length=300)
     quantity: Decimal = Field(default=Decimal("1"), gt=0, le=100000, max_digits=10, decimal_places=2)
@@ -107,8 +107,13 @@ class ActMailInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     request_id: uuid.UUID
     recipient: EmailStr
-    subject: str = Field(min_length=1, max_length=300)
+    subject: str = Field(default="Акт выполненных работ", max_length=300)
     body: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("subject", mode="before")
+    @classmethod
+    def default_subject(cls, value):
+        return value.strip() if isinstance(value, str) and value.strip() else "Акт выполненных работ"
 
     @field_validator("subject")
     @classmethod
@@ -125,7 +130,7 @@ class ActMailResolution(BaseModel):
 
 class ActDraftLine(ActLine):
     name: str = Field(default="", max_length=300)
-    result: str = Field(default="", max_length=2000)
+    result: str = Field(default="")
     contract_source: str = Field(default="", max_length=300)
 
 

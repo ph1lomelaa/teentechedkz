@@ -28,6 +28,18 @@ def normalized(value):
     return re.sub(r'\s+', ' ', value or '').strip()
 
 
+_NUM = r'(?:\d+|один|одну|одна|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)'
+
+
+def strip_quantities(value):
+    """Описание услуги для акта без количества консультаций и часов работы."""
+    value = re.sub(r'\s*\(\s*\d+\s*ВУЗ\w*\s*\*\s*до\s*\d+\s*email\s*\)', '', value, flags=re.I)
+    value = re.sub(rf'\b{_NUM}\s*(?:\([^)]*\)\s*)?(?=консультац)', '', value, flags=re.I)
+    value = re.sub(rf'\b{_NUM}\s*(?:\([^)]*\)\s*)?час\w*\s+работы\s+координатора', '', value, flags=re.I)
+    value = re.sub(rf'\s*{_NUM}\s*(?:\([^)]*\)\s*)?раз\w*\s+в\s+неделю', '', value, flags=re.I)
+    return re.sub(r'[ \t]{2,}', ' ', value).strip()
+
+
 DEFAULT_SERVICES = json.loads((Path(__file__).resolve().parents[1] / 'data' / 'contract_service_defaults.json').read_text())
 
 
@@ -49,7 +61,7 @@ def with_default_services(profile):
         services = [s for s in services if s not in own]
         identity = own[0]['id'] if len(own) == 1 else previous[category]['id'] if category in previous else hashlib.sha256(f"{profile['fingerprint']}:standard:{category}".encode()).hexdigest()[:24]
         services.append({'id': identity, 'name': template['name'], 'category': category,
-                         'text': template['text'], 'source_kind': 'standard',
+                         'text': strip_quantities(template['text']), 'source_kind': 'standard',
                          'page': template['source']['page'], 'reference': 'Стандартное описание из договоров',
                          'excerpt': template['source']['excerpt'], 'template_source': template['source']})
     profile['services'] = services
@@ -80,7 +92,7 @@ def extract_services(pages, fingerprint):
     items = []
     def add(text, category, page, reference, excerpt):
         text = normalized(text).strip(' ;.:-–—')
-        if not 12 <= len(text) <= 1800 or text not in normalized(excerpt):
+        if len(text) < 12 or text not in normalized(excerpt):
             return
         identity = hashlib.sha256(f'{fingerprint}:{page}:{text}'.encode()).hexdigest()[:24]
         if any(item['id'] == identity for item in items): return
@@ -108,7 +120,7 @@ def extract_services(pages, fingerprint):
             if category == 'portfolio':
                 candidate = candidate.split('.', 1)[0].strip()
                 if re.search(r'\d{3,}',candidate): continue
-            if 20 <= len(candidate) <= 1000 and candidate in section:
+            if len(candidate) >= 20 and candidate in section:
                 selected.append(candidate)
         if category == 'portfolio':
             selected = [c for c in selected if re.search(r'участи|публикац|прохождени|развит|получени|формировани|подбор|комплект|знакомств|встреч', c, re.I)]
@@ -119,6 +131,7 @@ def extract_services(pages, fingerprint):
         # when its description contains several activities.
         selected = list(dict.fromkeys(normalized(c).strip(' ;.:-–—') for c in selected[:15]))
         selected = [c for c in selected if c and c in section]
+        selected = [c for c in (strip_quantities(c) for c in selected) if c]
         if not selected: continue
         page = page_at(begin)
         identity = hashlib.sha256(f'{fingerprint}:{begin}:{category}'.encode()).hexdigest()[:24]
@@ -164,8 +177,9 @@ def validate_service_lines(data, profile):
         if line.contract_service_id in seen:
             raise ValueError('Одна и та же работа не должна повторяться в акте')
         seen.add(line.contract_service_id)
-        if line.name != item['name'] or normalized(line.result) != normalized(item['text']) or line.contract_source != item['reference']:
-            raise ValueError('Описание работы должно совпадать с выбранным пунктом договора')
+        # Текст можно поправить вручную; дословная цитата остаётся в профиле договора по contract_service_id.
+        if line.name != item['name'] or line.contract_source != item['reference']:
+            raise ValueError('Услуга должна совпадать с выбранным пунктом договора')
         if line.quantity != 1 or line.unit != 'услуга':
             raise ValueError('Объём нельзя подставлять произвольно: выбранный пункт оформляется как одна услуга')
         if data.include_amount and data.contract_total is None:

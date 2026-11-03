@@ -121,8 +121,8 @@ async def _link(db, sid, link_id):
 
 async def _verify_contract(link):
     if getattr(link, "source", None) == "manual":
-        if link.status != 3 or not link.storage_path:
-            raise HTTPException(409, "Подтвердите наличие подписанного договора")
+        if not link.storage_path:
+            raise HTTPException(409, "Загрузите файл договора")
         return
     try:
         async with _client() as client:
@@ -131,8 +131,8 @@ async def _verify_contract(link):
                 raise HTTPException(409, "Привязка договора не соответствует подключённой компании")
     except TrustMeError as error:
         raise _upstream(error) from None
-    if data.get("contract_status") != 3:
-        raise HTTPException(409, "Договор больше не имеет статуса «Подписан»")
+    if data.get("contract_status") == 4:
+        raise HTTPException(409, "Договор отозван компанией")
 
 
 @router.get("/registry")
@@ -443,8 +443,6 @@ async def save_contract_profile(student_id: uuid.UUID, link_id: uuid.UUID, body:
 
 async def _validate_input(db, sid, data):
     link = await _link(db, sid, data.contract_link_id)
-    if link.status != 3:
-        raise HTTPException(409, "Новые акты можно создавать только по подписанному действующему договору")
     if data.supersedes_id:
         previous = await db.get(ServiceAct, data.supersedes_id)
         if previous is None or previous.student_id != sid or previous.status != "ready":
@@ -642,7 +640,7 @@ async def portal_pdf(act_id: uuid.UUID, student: CurrentStudent, db: Db):
 
 class ContractQuote(BaseModel):
     page: int = Field(ge=1, le=80)
-    text: str = Field(min_length=12, max_length=1800)
+    text: str = Field(min_length=12)
     category: Literal['profile','portfolio','ielts','career','csca','entrance','sat','applications','offer','admission','other'] = 'other'
 
 

@@ -110,6 +110,8 @@ class ManualContractTests(unittest.IsolatedAsyncioTestCase):
             await acts._verify_contract(link)
         upstream.assert_not_called()
         link.status = 0
+        await acts._verify_contract(link)
+        link.storage_path = ''
         with self.assertRaises(HTTPException):
             await acts._verify_contract(link)
 
