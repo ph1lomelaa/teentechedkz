@@ -172,8 +172,8 @@ async def link_contract(student_id: uuid.UUID, body: LinkRequest, db: Db, curren
             company_id = client.company_id
     except TrustMeError as error:
         raise _upstream(error) from None
-    if data.get("contract_status") != 3:
-        raise HTTPException(409, "Для актов выберите договор, подписанный обеими сторонами")
+    if data.get("contract_status") == 4:
+        raise HTTPException(409, "Договор отозван компанией")
     external_id = data.get("id")
     if not isinstance(external_id, str) or not external_id:
         raise HTTPException(502, "TrustMe не вернул идентификатор договора")

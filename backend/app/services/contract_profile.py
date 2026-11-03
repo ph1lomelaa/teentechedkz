@@ -9,7 +9,7 @@ from app.core.encryption import decrypt, encrypt
 
 VERSION = 1
 # Версия правил чтения: при росте сохранённые профили перечитываются из PDF.
-EXTRACTOR = 5
+EXTRACTOR = 6
 COMPANY_EMAIL_DOMAINS = ('teenteched', 'tinteched')
 FIELDS = ('student_name', 'customer_name', 'customer_id', 'student_id_number', 'customer_email',
           'executor_name', 'executor_representative', 'executor_basis', 'executor_requisites',

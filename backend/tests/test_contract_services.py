@@ -2,7 +2,7 @@ import copy
 from decimal import Decimal
 from types import SimpleNamespace
 import unittest
-from app.services.contract_services import extract_services, validate_service_lines, validate_company_signature, signature_available, normalized
+from app.services.contract_services import strip_quantities, extract_services, validate_service_lines, validate_company_signature, signature_available, normalized
 from app.services.contract_profile import extract_profile
 from app.schemas.service_act import ActInput
 from test_service_acts import payload
@@ -11,6 +11,26 @@ PAGES = [
  {'page':1,'text':'ДОГОВОР № 671 г. Алматы «28» июля 2026 г. 1.5. Подготовка к IELTS: сроком 2 месяца. Подготовка к IELTS включает проведение учебных занятий, подготовку к Listening, Reading, Writing и Speaking. 1.6. Другие условия.'},
  {'page':2,'text':'Приложение №1 к Договору. Стоимость услуги, тенге. Оценка профиля студента 2 6 57 500 Анализ академического и личного профиля студента. В услугу входит: Анализ академических показателей и имеющихся документов студента; Предоставление рекомендаций по выбору направления обучения. Профориентация 6 3 50000 Что получает абитуриент: ✅ Осознанность в выборе академического трека. ✅ Представление о возможных карьерных перспективах.'},
 ]
+
+
+class QuantityTests(unittest.TestCase):
+ def test_counts_removed_from_description(self):
+  self.assertEqual(strip_quantities('проводят с вами четыре консультации для редактирования'),'проводят с вами консультации для редактирования')
+  self.assertEqual(strip_quantities('занятий 3 (три) раза в неделю в формате, а также Speaking Club 2 (два) раза в неделю'),'занятий в формате, а также Speaking Club')
+  self.assertEqual(strip_quantities('до получения оффера (3 ВУЗа * до 5 email) услуги'),'до получения оффера услуги')
+
+ def test_long_result_is_accepted(self):
+  raw=payload(); raw['lines'][0]['result']='Описание. '*400
+  self.assertGreater(len(ActInput(**raw).lines[0].result),2000)
+
+
+class MailSubjectTests(unittest.TestCase):
+ def test_blank_subject_gets_default(self):
+  from app.schemas.service_act import ActMailInput
+  import uuid
+  for subject in ('', '  '):
+   mail=ActMailInput(request_id=uuid.uuid4(),recipient='a@b.kz',subject=subject,body='x')
+   self.assertEqual(mail.subject,'Акт выполненных работ')
 
 
 class ProvenanceTests(unittest.TestCase):
@@ -33,10 +53,14 @@ class ProvenanceTests(unittest.TestCase):
  def test_exact_contract_description_can_generate(self):
   p,data=self.data();validate_service_lines(data,p)
  def test_rejects_invented_work_fake_reference_and_wrong_contract(self):
-  for change in ({'result':'Проведено сто новых занятий без договора'},{'contract_source':'Договор №999'},{'source_fingerprint':'another'},{'name':'Выдана виза'}):
+  for change in ({'contract_source':'Договор №999'},{'source_fingerprint':'another'},{'name':'Выдана виза'}):
    p,data=self.data()
    data.lines[0]=data.lines[0].model_copy(update=change)
    with self.subTest(change=change),self.assertRaises(ValueError):validate_service_lines(data,p)
+ def test_edited_result_text_is_allowed(self):
+  p,data=self.data()
+  data.lines[0]=data.lines[0].model_copy(update={'result':data.lines[0].result+' (уточнено)'})
+  validate_service_lines(data,p)
  def test_duplicate_and_unproven_amount_or_meeting_counts_are_blocked(self):
   p,data=self.data();data.lines.append(copy.deepcopy(data.lines[0]))
   with self.assertRaises(ValueError):validate_service_lines(data,p)
