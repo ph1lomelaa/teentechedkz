@@ -114,8 +114,8 @@ async def link_registry(doc_id: uuid.UUID, body: LinkBody, db: Db, current_user:
     try:
         async with _client() as client:
             info = await client.contract(doc.short_url)
-            if info.get("contract_status") != 3:
-                raise HTTPException(409, "Договор ещё не подписан обеими сторонами")
+            if info.get("contract_status") == 4:
+                raise HTTPException(409, "Договор отозван компанией")
             content = await client.pdf(doc.short_url)
             pages = await asyncio.to_thread(read_pages, content, ocr=False)
             link = await _link(db, client, doc, student, info, extract_profile(pages, info, content), pages, current_user.id)

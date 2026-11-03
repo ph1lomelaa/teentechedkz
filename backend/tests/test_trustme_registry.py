@@ -40,10 +40,10 @@ class RegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.status_code, 409)
         client.assert_not_called()
 
-    async def test_unsigned_contract_is_not_linked(self):
+    async def test_revoked_contract_is_not_linked(self):
         student = SimpleNamespace(id=uuid.uuid4())
         db = SimpleNamespace(get=AsyncMock(return_value=doc()), execute=AsyncMock(return_value=result(None)), rollback=AsyncMock())
-        upstream = SimpleNamespace(contract=AsyncMock(return_value={'contract_status': 1}), pdf=AsyncMock())
+        upstream = SimpleNamespace(contract=AsyncMock(return_value={'contract_status': 4}), pdf=AsyncMock())
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=upstream)
         client.__aexit__ = AsyncMock(return_value=False)
