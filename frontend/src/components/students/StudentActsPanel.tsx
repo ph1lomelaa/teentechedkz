@@ -51,7 +51,8 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   const current = contracts.find(c => c.id === selectedId) || [...activeContracts].sort((a, b) => (b.contract_date || b.signed_date || '').localeCompare(a.contract_date || a.signed_date || ''))[0] || contracts[0] || null
   const status = useQuery({ queryKey: ['act-contract-status', studentId, current?.id], queryFn: () => actsApi.checkContract(studentId, current!.id), enabled: !!current, staleTime: 60000, retry: false })
   const currentStatus = status.data?.status ?? current?.status
-  const canCreate = manage && !!current && currentStatus !== 4 && !status.isPending && !status.error
+  // Проверка статуса в TrustMe не держит кнопку: до ответа берём последний известный статус.
+  const canCreate = manage && !!current && currentStatus !== 4
   const refresh = () => { for (const key of [['act-contract-status', studentId], ['contract-requisites', studentId], ['contract-details', studentId], ['acts', studentId], ['acts-registry'], ['acts-table'], ['portal-acts'], ['finance'], ['trustme-links', studentId]]) cache.invalidateQueries({ queryKey: key }) }
   const action = useMutation({ mutationFn: async ({ type, act, fileName }: { type: string; act: ActRecord; fileName?: string }) => {
     if (type === 'share') { await actsApi.share(act.id); refresh() }
@@ -108,7 +109,7 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   </article>)
   const others = contracts.filter(c => c.id !== current?.id)
   const signer = current ? current.customer_name || current.signers.filter(s => !s.is_company).map(s => s.name).filter(Boolean).join(', ') : ''
-  const createReason = !current ? '' : status.isPending ? 'Проверяем статус договора…' : status.error ? 'Не удалось проверить статус договора' : currentStatus === 4 ? 'Договор отозван компанией' : status.data?.stale ? 'TrustMe не ответил — статус договора по последней проверке' : ''
+  const createReason = !current ? '' : status.error ? 'TrustMe не ответил — статус договора по последней проверке' : currentStatus === 4 ? 'Договор отозван компанией' : status.data?.stale ? 'TrustMe не ответил — статус договора по последней проверке' : ''
   return <div className="min-w-0 space-y-6 text-p-text">
     {can('contracts', 'manage') && !financialContractId && <AutomaticContracts studentId={studentId} onChanged={refresh} linkedShortUrls={contracts.map(c => c.short_url)} />}
     {!current && !choosing ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-p-line p-5">

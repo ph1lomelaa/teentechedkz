@@ -37,7 +37,33 @@ def strip_quantities(value):
     value = re.sub(rf'\b{_NUM}\s*(?:\([^)]*\)\s*)?(?=консультац)', '', value, flags=re.I)
     value = re.sub(rf'\b{_NUM}\s*(?:\([^)]*\)\s*)?час\w*\s+работы\s+координатора', '', value, flags=re.I)
     value = re.sub(rf'\s*{_NUM}\s*(?:\([^)]*\)\s*)?раз\w*\s+в\s+неделю', '', value, flags=re.I)
-    return re.sub(r'[ \t]{2,}', ' ', value).strip()
+    value = re.sub(r'[ \t]+([,;:.)])', r'\1', re.sub(r'([(])[ \t]+', r'\1', value))
+    return join_broken_words(re.sub(r'[ \t]{2,}', ' ', value).strip())
+
+
+# PDF рвёт слова: «исследовательск их», «конкурентоспосо бно го», «д о 3».
+_TAILS = {'ых', 'ого', 'ые', 'ий', 'ый', 'ую', 'ая', 'ое', 'ами', 'ями', 'ах', 'ях', 'бно', 'го', 'ных', 'ные', 'ная', 'ной', 'ный'}
+_STEM_END = set('кнчшщ')  # усечённые основы прилагательных: «исследовательск их»
+_PAIRS = {'до', 'по', 'со', 'во', 'на', 'за', 'из', 'от', 'но'}
+_ORPHANS = set('хыйьюм')
+
+
+def join_broken_words(value):
+    out = []
+    for token in re.split(r'([ \t]+)', value or ''):
+        word = token.casefold()
+        prev = out[-2] if len(out) >= 2 and not out[-1].strip() else ''
+        stem = (re.search(r'[а-яёА-ЯЁ]+$', prev) or [''])[0]
+        if stem and re.fullmatch(r'[а-яё]+', word):
+            glue = ((word in _TAILS or (word == 'их' and stem[-1:].casefold() in _STEM_END)) and len(stem) >= 4) \
+                or (len(word) == 1 and word in _ORPHANS and len(stem) >= 4) \
+                or (len(word) == 1 and len(stem) == 1 and (stem + word).casefold() in _PAIRS)
+            if glue:
+                out.pop()
+                out[-1] += token
+                continue
+        out.append(token)
+    return ''.join(out)
 
 
 DEFAULT_SERVICES = json.loads((Path(__file__).resolve().parents[1] / 'data' / 'contract_service_defaults.json').read_text())
@@ -65,7 +91,7 @@ def with_default_services(profile):
                          'page': template['source']['page'], 'reference': 'Стандартное описание из договоров',
                          'excerpt': template['source']['excerpt'], 'template_source': template['source']})
     profile['services'] = services
-    profile['default_services_version'] = 1
+    profile['default_services_version'] = 2
     return profile
 
 
@@ -94,9 +120,10 @@ def extract_services(pages, fingerprint):
         text = normalized(text).strip(' ;.:-–—')
         if len(text) < 12 or text not in normalized(excerpt):
             return
+        # Идентификатор — по исходному тексту: готовые акты ссылаются на него.
         identity = hashlib.sha256(f'{fingerprint}:{page}:{text}'.encode()).hexdigest()[:24]
         if any(item['id'] == identity for item in items): return
-        items.append({'id':identity, 'name': CATEGORIES.get(category, ('Подготовка IELTS' if category == 'ielts' else 'Английский язык', ''))[0], 'category':category, 'text':text, 'page':page,
+        items.append({'id':identity, 'name': CATEGORIES.get(category, ('Подготовка IELTS' if category == 'ielts' else 'Английский язык', ''))[0], 'category':category, 'text':strip_quantities(text), 'page':page,
                       'reference':reference, 'excerpt':normalized(excerpt)[:3500]})
     for index, (begin, heading_end, category, label) in enumerate(boundaries):
         end = boundaries[index+1][0] if index+1 < len(boundaries) else len(whole)

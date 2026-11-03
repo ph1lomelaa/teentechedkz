@@ -42,7 +42,7 @@ def cached_profile(link):
 
 
 def services_summary(profile):
-    return [{'id': x['id'], 'category': x.get('category') or 'other', 'name': x.get('name') or ''}
+    return [{'id': x['id'], 'category': x.get('category') or 'other', 'name': x.get('name') or '', 'source_kind': x.get('source_kind')}
             for x in (profile or {}).get('services', []) if x.get('id')]
 
 
