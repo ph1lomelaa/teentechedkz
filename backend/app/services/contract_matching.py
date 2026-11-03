@@ -5,7 +5,7 @@
 """
 import re
 
-from app.services.contract_discovery import _same_word, _words, match_student, name_overlap, phone_key, phones_in_pages, same_person, phone_keys, role_phones, transliterated_person
+from app.services.contract_discovery import _same_word, _words, _roman_word, match_student, name_overlap, phone_key, phones_in_pages, same_person, phone_keys, role_phones, transliterated_person
 
 
 def _phones(student, guardians):
@@ -78,11 +78,15 @@ def recover_student_identity(profile, pages, students, guardians):
         section = text[heading.end():]
         tokens = list(re.finditer(r'[^\W\d_]+', section, re.UNICODE))
         phones = phones_in_pages([page])
+        section_words = _words(section)
+        section_keys = {_roman_word(word) for word in section_words}
         for student in students:
             phone_match = bool(phones & _phones(student, guardians.get(student.id, ())))
             size = len(_words(student.full_name))
             if not phone_match and size < 3: continue
             if not 2 <= size <= 4: continue
+            first = _words(student.full_name)[0]
+            if _roman_word(first) not in section_keys and not any(_same_word(first, word) for word in section_words): continue
             for i in range(len(tokens)-size+1):
                 candidate = section[tokens[i].start():tokens[i+size-1].end()]
                 if same_person(candidate, profile.get('fields', {}).get('customer_name', '')): continue

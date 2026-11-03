@@ -109,7 +109,8 @@ async def analyze(db, client, rows, root, apply):
                     decision, found, reason = pick_student(profile, pages, people.students, people.guardians, people.names, row['name'])
                     candidates = found if isinstance(found, list) else [found]
                     item.update(result=decision, reason=reason, student_name=profile['fields'].get('student_name'), customer_name=profile['fields'].get('customer_name'),
-                                candidates=[{'id': str(s.id), 'name': s.full_name} for s in candidates])
+                                candidates=[{'id': str(s.id), 'name': s.full_name} for s in candidates],
+                                source_page=profile.get('sources', {}).get('student_name', {}).get('page'))
                     save_json(folder / 'profile.json', profile)
                     if apply:
                         doc = (await db.execute(select(TrustMeDocument).where(TrustMeDocument.id == uuid.UUID(row['id'])).with_for_update())).scalar_one_or_none()
