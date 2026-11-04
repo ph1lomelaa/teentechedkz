@@ -151,6 +151,18 @@ async def _list_all(client):
         page += 1
 
 
+async def _recover(client, failures, error, stats):
+    """Сбой TrustMe посреди длинного прохода: часто истёк токен или сработал лимит.
+    Обновляем сессию и ждём всё дольше, прежде чем идти дальше."""
+    stats[f'сбой TrustMe: {type(error).__name__}'] += 1
+    log.warning('trustme sync: %s (%s подряд)', type(error).__name__, failures)
+    await asyncio.sleep(min(60 * failures, 300))
+    try:
+        await client.refresh_session()
+    except Exception as refresh_error:  # повторный вход тоже может не пройти
+        log.warning('trustme sync: refresh failed %s', type(refresh_error).__name__)
+
+
 async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress=None, pause=PAUSE):
     """Один проход. apply=False — только посчитать, ничего не записывая.
     Возвращает (счётчики, [(документ-строка TrustMe, решение, кандидаты, причина)])."""
@@ -225,6 +237,8 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
         except (TrustMeError, ValueError, OSError) as error:
             await db.rollback()
             failures += isinstance(error, TrustMeError)
+            if isinstance(error, TrustMeError) and failures < MAX_FAILURES:
+                await _recover(client, failures, error, stats)
             if apply:
                 doc = await _document(db, company, row)
                 doc.decision, doc.reason = 'unreadable', f'{TRANSIENT} ({type(error).__name__})'
@@ -259,6 +273,8 @@ async def sync(db, client, *, apply=True, limit=0, force_read=False, on_progress
         except (TrustMeError, ValueError, OSError) as error:
             await db.rollback()
             failures += isinstance(error, TrustMeError)
+            if isinstance(error, TrustMeError) and failures < MAX_FAILURES:
+                await _recover(client, failures, error, stats)
             stats['не удалось перечитать привязанный PDF'] += 1
         except (IntegrityError, DBAPIError):
             await db.rollback()
