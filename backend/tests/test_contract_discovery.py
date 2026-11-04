@@ -189,3 +189,19 @@ class UnsignedReadTests(unittest.IsolatedAsyncioTestCase):
         (decision, *_), doc, link = await self._read(4)
         self.assertEqual(decision, 'unsigned')
         link.assert_not_awaited()
+
+
+class RecoverTests(unittest.IsolatedAsyncioTestCase):
+    async def test_trustme_failure_refreshes_session_and_backs_off(self):
+        from collections import Counter
+        from unittest.mock import AsyncMock, patch
+        from app.services import trustme_sync as sync
+        from app.services.trustme import TrustMeError
+        client = SimpleNamespace(refresh_session=AsyncMock(side_effect=[TrustMeError('down'), None]))
+        stats = Counter()
+        with patch.object(sync.asyncio, 'sleep', AsyncMock()) as sleep:
+            await sync._recover(client, 1, TrustMeError('x'), stats)   # неудачное обновление не роняет проход
+            await sync._recover(client, 9, TrustMeError('x'), stats)
+        self.assertEqual([c.args[0] for c in sleep.await_args_list], [60, 300])
+        self.assertEqual(client.refresh_session.await_count, 2)
+        self.assertEqual(stats['сбой TrustMe: TrustMeError'], 2)
