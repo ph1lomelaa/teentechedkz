@@ -28,7 +28,7 @@ from app.models.contract import Contract
 from app.models.service_act import ServiceAct
 from app.models.mentor_assignment import MentorAssignment
 from app.models.user import UserRole
-from app.models.trustme_contract import TrustMeContractLink
+from app.models.trustme_contract import TrustMeContractLink, TrustMeDocument
 from app.services.mentor_scope import require_student_access
 from app.services.trustme import (
     TrustMeChallengeRequired, TrustMeClient, TrustMeError, TrustMeSessionExpired,
@@ -449,7 +449,7 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
     guardians = [g.full_name for g in guardian_rows]
     phones = list(dict.fromkeys([student.phone, *[g.phone for g in guardian_rows]]))
     identity = hashlib.sha256(json.dumps([student.full_name, phones, sorted(guardians)], ensure_ascii=False).encode()).hexdigest()[:20]
-    key = f"contract-discovery:v3:{student_id}:{identity}"
+    key = f"contract-discovery:v4:{student_id}:{identity}"
     token = uuid.uuid4().hex
     async with Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2, socket_timeout=2) as redis:
         try:
@@ -485,7 +485,9 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                         found.update({row['id']: row for row in extra.candidates})
                         report['partial'] = report['partial'] or extra.truncated
                     rows = sorted(found.values(), key=lambda row: (row['id'] not in by_phone, not likely_candidate(row, names)))
-                    signed = [row for row in rows if row.get('contractStatus') == 3]
+                    # Неподписанные тоже показываем — но только на подтверждение, без автопривязки.
+                    # Отозванные (статус 4) не предлагаем.
+                    signed = sorted((row for row in rows if row.get('contractStatus') != 4), key=lambda row: row.get('contractStatus') != 3)
                     all_names = (await db.execute(select(Student.full_name))).scalars().all()
                     choices = (await db.execute(select(Contract).where(Contract.student_id == student_id))).scalars().all()
                     for row in signed[:12]:
@@ -498,8 +500,9 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                         if existing and existing.student_id == student_id:
                             continue
                         info = await client.contract(candidate['short_url'])
-                        if info.get('contract_status') != 3:
+                        if info.get('contract_status') == 4:
                             continue
+                        is_signed = info.get('contract_status') == 3
                         try:
                             content = await client.pdf(candidate['short_url'])
                             # OCR is a review case; unattended matching relies on the
@@ -533,8 +536,8 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                             report['review'].append({**candidate, 'blocked': True, 'reason':
                                 f'Договор уже привязан к карточке «{owner.full_name if owner else "другого студента"}». Если это ошибка — отвяжите его там'})
                             continue
-                        if outcome != 'confirmed':
-                            report['review'].append({**candidate, 'reason': reason})
+                        if outcome != 'confirmed' or not is_signed:
+                            report['review'].append({**candidate, 'reason': reason if is_signed else f'Не подписан · {reason}'})
                             continue
                         link = new_document_link(student_id, client.company_id, info, candidate, profile, pages, choices, current_user.id)
                         try:
@@ -547,6 +550,17 @@ async def auto_link_contracts(student_id: uuid.UUID, db: Db, current_user: Curre
                         report['linked_ids'].append(str(link.id))
                     if len(signed) > 12:
                         report['partial'] = True
+                    # Реестр мог найти договор по телефону или ИИН родителя, когда поиск
+                    # по ФИО его не видит (другое написание фамилии). Показываем и его.
+                    shown = {c.get('short_url') for c in report['review']}
+                    for doc in (await db.execute(select(TrustMeDocument).where(
+                            TrustMeDocument.company_id == client.company_id, TrustMeDocument.decision == 'review',
+                            TrustMeDocument.link_id.is_(None)))).scalars():
+                        if str(student_id) in (doc.candidate_ids or []) and doc.short_url not in shown and doc.status != 4:
+                            candidate = _candidate({'id': doc.external_id, 'shortUrl': doc.short_url, 'contractName': doc.name,
+                                                    'numberDeal': doc.number, 'contractStatus': doc.status, 'createdAt': doc.contract_created_at})
+                            if candidate['short_url']:
+                                report['review'].append({**candidate, 'reason': doc.reason or 'Найден при сверке реестра договоров'})
                 await db.commit()
                 cache_report = True
         except (TrustMeError, HTTPException, TimeoutError) as error:
