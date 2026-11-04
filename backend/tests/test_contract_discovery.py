@@ -56,7 +56,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.student import Student, DegreeLevel
 from app.models.user import User, UserRole
-from app.models.trustme_contract import TrustMeContractLink
+from app.models.trustme_contract import TrustMeContractLink, TrustMeDocument
 
 
 @pytest.mark.skipif(not os.environ.get('FINANCE_TEST_DATABASE_URL'), reason='Requires disposable PostgreSQL')
@@ -83,8 +83,14 @@ async def discovery_scenario(url):
         for i, line in enumerate(['ДОГОВОР № 123 г. Алматы «28» июля 2026 г.', 'Подписант / законный представитель: Другая Мама', *( [f'Абитуриент: {recipient}', 'ИИН абитуриента: 000000000000'] if recipient else [] )]):
             canvas.drawString(40, 790-i*20, line)
         canvas.save(); return stream.getvalue()
-    documents = {'autoLink1': document(name), 'autoLink2': document(None), 'autoLink3': document('Другой Ребёнок Серикович')}
-    rows = [{'id': f'{suffix}-{i}', 'shortUrl': code, 'contractName': f'Договор {name}', 'contractStatus': 3, 'signers': []} for i, code in enumerate(documents)]
+    documents = {'autoLink1': document(name), 'autoLink2': document(None), 'autoLink3': document('Другой Ребёнок Серикович'), 'autoLink4': document(name)}
+    # autoLink4 — тот же студент, но договор не подписан: только на подтверждение.
+    rows = [{'id': f'{suffix}-{i}', 'shortUrl': code, 'contractName': f'Договор {name}', 'contractStatus': 1 if code == 'autoLink4' else 3, 'signers': []} for i, code in enumerate(documents)]
+    async with sessions() as db:
+        # Реестр нашёл договор по телефону, а поиск по ФИО его не видит.
+        db.add(TrustMeDocument(company_id='test-auto', external_id=f'{suffix}-reg', short_url='regLink1', name='Договор с другим написанием',
+                               number='408', status=1, decision='review', reason='Не подписан · В договоре телефон из карточки', candidate_ids=[str(student.id)]))
+        await db.commit()
     class Provider:
         company_id = 'test-auto'
         calls = 0
@@ -95,7 +101,7 @@ async def discovery_scenario(url):
             return SimpleNamespace(candidates=rows, truncated=False)
         async def contract(self, short):
             row = next(r for r in rows if r['shortUrl'] == short)
-            return {'id': row['id'], 'contract_status': 3, 'contract_name': row['contractName'], 'doc_parties': []}
+            return {'id': row['id'], 'contract_status': row['contractStatus'], 'contract_name': row['contractName'], 'doc_parties': []}
         async def pdf(self, short): return documents[short]
     class Cache:
         values = {}
@@ -121,7 +127,9 @@ async def discovery_scenario(url):
             data = response.json()
             assert data['state'] == 'complete', data
             assert len(data['linked_ids']) == 1, data
-            assert [row['short_url'] for row in data['review']] == ['autoLink2'], data
+            assert sorted(row['short_url'] for row in data['review']) == ['autoLink2', 'autoLink4', 'regLink1'], data
+            unsigned = next(row for row in data['review'] if row['short_url'] == 'autoLink4')
+            assert unsigned['reason'].startswith('Не подписан'), unsigned
             calls = provider.calls
             assert (await client.post(endpoint)).json() == data
             assert provider.calls == calls  # opening again does not repeat corporate search
