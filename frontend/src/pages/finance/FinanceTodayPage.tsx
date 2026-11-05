@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { QueryError } from '@/components/shared/QueryState'
-import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
 import { financeApi, financeKeys, type ScheduleItem } from '@/api/finance'
 import {
-  EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
+  EmptyRow, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
+import { NotionScheduleNotice } from '@/components/finance/NotionScheduleNotice'
 import { PayDialog } from '@/components/finance/dialogs'
 import { METHOD_LABELS, date, dateTime, money, num, parseIso, paymentTitle, payments, plural } from '@/components/finance/format'
 
@@ -23,20 +22,11 @@ export function FinanceTodayPage() {
   const { can } = useAuth()
   const canManage = can('finance_desk', 'manage')
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: financeKeys.today(),
     queryFn: financeApi.today,
     refetchInterval: 60_000,
-  })
-  const importNotion = useMutation({
-    mutationFn: financeApi.notionImport,
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: financeKeys.all })
-      toast({ title: `Перенесено в график: ${plural(res.created, ['договор', 'договора', 'договоров'])}` })
-    },
-    onError: (err) => toast({ title: 'Не перенесено', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const open = (contractId: string) => navigate(`/finance/contracts/${contractId}`)
@@ -57,16 +47,7 @@ export function FinanceTodayPage() {
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       {isLoading && <p className="text-p-muted">Загрузка…</p>}
 
-      {data && data.notion_import_count > 0 && canManage && (
-        <FinAlert action={
-          <FinButton size="sm" variant="primary" disabled={importNotion.isPending} onClick={() => importNotion.mutate()}>
-            {importNotion.isPending ? 'Переносим…' : 'Перенести в график'}
-          </FinButton>
-        }>
-          В Notion указаны остаток и дата оплаты по {plural(data.notion_import_count, ['договору', 'договорам', 'договорам'])}, у которых ещё нет графика платежей.
-          Перенести их как первый платёж? Сумму и дату потом можно поправить.
-        </FinAlert>
-      )}
+      {data && <NotionScheduleNotice count={data.notion_import_count} canManage={canManage} />}
 
       {acts.data && (
         <FinCard title="Договоры и акты" meta={`активных договоров: ${acts.data.active_total}`}>

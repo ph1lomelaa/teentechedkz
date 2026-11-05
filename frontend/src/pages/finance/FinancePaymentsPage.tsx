@@ -1,3 +1,4 @@
+import { NotionScheduleNotice } from '@/components/finance/NotionScheduleNotice'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -56,6 +57,7 @@ export function FinancePaymentsPage() {
   const canManage = can('finance_desk', 'manage')
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const { data: counters } = useQuery({ queryKey: financeKeys.counters(), queryFn: financeApi.counters })
+  const notionPreview = useQuery({ queryKey: financeKeys.notionImportPreview(), queryFn: financeApi.notionImportPreview })
   const [exporter, setExporter] = useState<(() => void) | null>(null)
 
   return (
@@ -65,6 +67,7 @@ export function FinancePaymentsPage() {
         description="Ожидаемые, просроченные и поступившие оплаты клиентов по графику договоров."
         actions={<FinButton onClick={() => exporter?.()} disabled={!exporter || raw === 'calendar'}>Экспорт</FinButton>}
       />
+      {notionPreview.data && <NotionScheduleNotice count={notionPreview.data.count} canManage={canManage} />}
       <FinTabs<Tab>
         value={tab}
         onChange={setTab}

@@ -192,6 +192,7 @@ export interface ActsSummary {
 
 export const financeKeys = {
   all: ['finance'] as const,
+  notionImportPreview: () => ['finance', 'notion-import'] as const,
   today: () => ['finance', 'today'] as const,
   counters: () => ['finance', 'counters'] as const,
   expected: () => ['finance', 'expected'] as const,
@@ -247,6 +248,7 @@ export const financeApi = {
     (await apiClient.post(`/finance/schedule/${id}/remind`)).data,
   acceptChange: async (id: string, moveSchedule = false): Promise<{ ok: boolean; moved_item_id: string | null }> =>
     (await apiClient.post(`/finance/changes/${id}/accept`, { move_schedule: moveSchedule })).data,
+  notionImportPreview: async (): Promise<{ count: number; total: string }> => (await apiClient.get('/finance/notion-import')).data,
   notionImport: async (): Promise<{ created: number }> => (await apiClient.post('/finance/notion-import')).data,
   rejectChange: async (id: string): Promise<{ ok: boolean }> => (await apiClient.post(`/finance/changes/${id}/reject`)).data,
 }
