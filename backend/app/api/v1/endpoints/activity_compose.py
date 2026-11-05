@@ -86,7 +86,7 @@ async def duplicates(db: DB, user: CurrentUser, title: str = Query('', max_lengt
         conditions.append(func.lower(func.trim(Activity.title)) == title.lower())
     if url:
         conditions.append(func.lower(Activity.source_url).contains(url))
-    query = select(Activity).where(or_(*conditions))
+    query = select(Activity).where(Activity.portfolio_student_id.is_(None), or_(*conditions))
     if exclude:
         query = query.where(Activity.id != exclude)
     rows = (await db.execute(query.limit(5))).scalars().all()
@@ -101,6 +101,8 @@ async def duplicate(activity_id: uuid.UUID, db: DB, user: CurrentUser):
     у новой активности свои сроки, старые даты выдали бы неправду."""
     require_catalog_editor(user)
     source = await visible_activity(db, activity_id, user)
+    if source.portfolio_student_id:
+        raise HTTPException(409, 'Личный опыт не копируется в каталог')
     copy = Activity(**{c: getattr(source, c) for c in ('direction', 'kind', 'organizer', 'country', 'description',
         'eligibility', 'assignment', 'source_url', 'experience_type', 'result_requires_file')}, title=f'{source.title} (копия)'[:500], publication='draft')
     db.add(copy)

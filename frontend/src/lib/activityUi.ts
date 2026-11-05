@@ -284,7 +284,6 @@ export function nearestDue(item: Pick<Participation, 'personal_deadline' | 'inta
 /** Чего не хватает до публикации — то же правило, что review_issues на backend. */
 export function publishIssues(form: Pick<ActivityInput, 'source_url' | 'description'>, intakes: Array<Pick<IntakeInput, 'mode' | 'deadline' | 'cost_state'>>): string[] {
   const issues: string[] = []
-  if (!form.source_url?.trim()) issues.push('Ссылка организатора')
   if (!form.description?.trim()) issues.push('Описание')
   if (!intakes.length) issues.push('Сроки набора')
   else if (intakes.every((i) => i.mode === 'unknown' && !i.deadline)) issues.push('Сроки набора')

@@ -43,7 +43,12 @@ export interface StepsSummary {
   total: number; done: number; pending: number; returned: number; overdue: number
   next: { id: string; title: string; due_date: string | null; state: 'returned' | 'overdue' | 'todo' | 'pending'; submitted_at?: string | null; index?: number; requires_review?: boolean; review_comment?: string | null; reviewed_at?: string | null } | null
 }
+export interface HistoricalInput {
+  request_key: string; title: string; experience_type: ExperienceKey; period: string
+  role: string | null; result: string; organizer: string | null; source_url: string | null
+}
 export interface Participation {
+  is_historical?: boolean; participation_period?: string | null; participation_role?: string | null
   id: string; student_id: string; intake_id: string; goal: string | null
   decision: 'suggested' | 'selected' | 'not_interested'
   status: 'not_started' | 'in_progress' | 'submitted' | 'completed' | 'cancelled'
@@ -125,6 +130,9 @@ export interface StudentOverviewRow {
   experience_confirmed: ExperienceKey[]; next_deadline: NextDeadline | null
 }
 export const activitiesApi = {
+  saveHistorical: async (body: HistoricalInput, studentId?: string, id?: string) => (id
+    ? await apiClient.put<Participation>(`/activities/history/${id}`, body)
+    : await apiClient.post<Participation>('/activities/history', body, { params: { student_id: studentId } })).data,
   createFull: async (body: { activity: ActivityInput; intake: IntakeInput | null; steps: TemplateStep[] }) => (await apiClient.post<Activity>('/activities/full', body)).data,
   template: async (id: string) => (await apiClient.get<TemplateStep[]>(`/activities/${id}/step-template`)).data,
   saveTemplate: async (id: string, steps: TemplateStep[]) => (await apiClient.put<TemplateStep[]>(`/activities/${id}/step-template`, { steps })).data,

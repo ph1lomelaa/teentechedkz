@@ -9,6 +9,7 @@ class Activity(Base):
     __tablename__ = 'activities'
     __table_args__ = (CheckConstraint("publication IN ('draft','published','archived')", name='ck_activity_publication'),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    portfolio_student_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('students.id', ondelete='CASCADE'), index=True)
     import_key: Mapped[str | None] = mapped_column(String(64), unique=True)
     import_source: Mapped[dict | None] = mapped_column(JSON)
     title: Mapped[str] = mapped_column(String(500))
@@ -69,6 +70,9 @@ class StudentActivity(Base):
     personal_deadline: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    is_historical: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    participation_period: Mapped[str | None] = mapped_column(String(255))
+    participation_role: Mapped[str | None] = mapped_column(String(500))
     result_text: Mapped[str | None] = mapped_column(Text)
     result_review_status: Mapped[str] = mapped_column(String(20), default='none', server_default='none')
     result_review_comment: Mapped[str | None] = mapped_column(Text)

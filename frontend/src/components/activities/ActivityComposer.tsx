@@ -113,7 +113,7 @@ export function ActivityComposer({ activity, catalog, editable, presetType, onSa
           {text('organizer', 'Организатор', 500)}
           {text('country', 'Страна', 500)}
         </div>
-        {text('source_url', 'Ссылка организатора', 2048, { type: 'url', placeholder: 'https://', id: 'composer-source_url' })}
+        {text('source_url', 'Ссылка организатора — необязательно', 2048, { type: 'url', placeholder: 'https://', id: 'composer-source_url' })}
         {!!dupes.data?.length && <div role="status" className="flex gap-3 rounded-panel border border-ds-accent-dim bg-ds-accent/[0.07] p-3 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ds-accentText" aria-hidden />
           <div><p className="font-semibold">Похожее уже есть в каталоге</p><ul className="mt-1 space-y-0.5 text-ds-muted">{dupes.data.map((d) => <li key={d.id}>«{d.title}» · {d.reason === 'title' ? 'то же название' : 'тот же сайт'}{d.publication === 'archived' ? ' · в архиве' : d.publication === 'draft' ? ' · черновик' : ''}</li>)}</ul></div>

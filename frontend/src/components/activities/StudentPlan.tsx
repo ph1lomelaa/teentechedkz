@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { HistoricalDialog } from './HistoricalExperience'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 import type { Participation, PortfolioSummary } from '@/api/activities'
@@ -58,7 +60,7 @@ export function ActivityRow({ item, base }: { item: Participation; base: '/porta
 
 /** Достижение строкой: название, «тип · дата · итог», справа файл или «+ Файл». */
 function AchievementRow({ item }: { item: Participation }) {
-  const meta = [item.result_reviewed_at ? formatDay(item.result_reviewed_at) : null, item.result_text].filter(Boolean).join(' · ')
+  const meta = [item.participation_period, item.is_historical ? (item.result_review_status === 'approved' ? 'Подтверждено' : item.result_review_status === 'pending' ? 'На проверке' : 'Нужны правки') : null, item.result_reviewed_at ? formatDay(item.result_reviewed_at) : null, item.result_text].filter(Boolean).join(' · ')
   return <li className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
     <Trophy className="h-4 w-4 shrink-0 text-ds-good" aria-hidden />
     <Link to={`/portal/activities/participations/${item.id}`} className="min-w-0 flex-1 basis-48">
@@ -81,11 +83,14 @@ function Achievements({ results }: { results: Participation[] }) {
 
 /** Портфолио ученика: «Сейчас», участия, достижения. На телефоне достижения свёрнуты. */
 export function StudentPlan({ items, summary, catalogPath }: { items: Participation[]; summary: PortfolioSummary; catalogPath: string }) {
+  const [historyOpen, setHistoryOpen] = useState(false)
   const active = items.filter((item) => planGroup(item) === 'active')
     .sort((a, b) => (nearestDue(a) ?? '9999').localeCompare(nearestDue(b) ?? '9999'))
   const results = items.filter((item) => planGroup(item) === 'results')
   const closed = items.filter((item) => planGroup(item) === 'closed')
   return <div className="space-y-6">
+    <div><button type="button" className="rounded-ctl border border-ds-line px-3 py-2 text-sm font-bold hover:bg-ds-panel2" onClick={() => setHistoryOpen(true)}>Добавить прошлую активность</button><p className="mt-2 text-xs text-ds-muted">Уже завершённые конкурсы, курсы, проекты и волонтёрство.</p></div>
+    {historyOpen && <HistoricalDialog onClose={() => setHistoryOpen(false)} />}
     <div className="max-w-3xl">
       <div className="min-w-0 space-y-8">
         <section aria-labelledby="portfolio-now" className="space-y-3">

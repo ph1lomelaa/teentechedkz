@@ -26,11 +26,15 @@ def is_open(item: ParticipationDetail) -> bool:
 
 
 def is_confirmed(item: ParticipationDetail) -> bool:
-    return item.status == 'completed' and item.decision == 'selected'
+    return item.status == 'completed' and item.decision == 'selected' and (not item.is_historical or item.result_review_status == 'approved')
 
 
 def participation_action(item: ParticipationDetail, today: date) -> PortfolioAction | None:
     """Одно действие на участие — самое срочное. Закрытые участия действий не дают."""
+    if item.is_historical and item.result_review_status == 'returned':
+        return PortfolioAction(kind='fix_result', owner='student', participation_id=item.id, activity_title=item.activity.title, student_id=item.student_id, student_name=item.student_name, comment=item.result_review_comment)
+    if item.is_historical and item.result_review_status == 'pending':
+        return PortfolioAction(kind='result_waiting', owner='mentor', participation_id=item.id, activity_title=item.activity.title, student_id=item.student_id, student_name=item.student_name)
     if not is_open(item):
         return None
     base = dict(participation_id=item.id, activity_title=item.activity.title, student_id=item.student_id, student_name=item.student_name,
@@ -62,6 +66,8 @@ def participation_action(item: ParticipationDetail, today: date) -> PortfolioAct
 
 
 def mentor_actions(item: ParticipationDetail) -> list[PortfolioAction]:
+    if item.is_historical and item.result_review_status == 'pending':
+        return [participation_action(item, date.today())]
     if not is_open(item) or item.decision != 'selected':
         return []
     base = dict(participation_id=item.id, activity_title=item.activity.title, student_id=item.student_id, student_name=item.student_name, owner='mentor')
@@ -95,6 +101,13 @@ def summarize(items: list[ParticipationDetail], focus: PortfolioFocusOut | None,
         if is_confirmed(item):
             counts.confirmed += 1
             tiles[kind].confirmed += 1
+            continue
+        if item.is_historical:
+            action = participation_action(item, today)
+            if action:
+                actions.append(action)
+                counts.waiting_student += action.owner == 'student'
+                waiting.extend(mentor_actions(item))
             continue
         if not is_open(item):
             continue

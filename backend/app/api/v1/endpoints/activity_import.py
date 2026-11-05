@@ -21,7 +21,7 @@ async def read_preview(file):
         raise HTTPException(422, 'Не удалось прочитать XLSX') from exc
 
 async def mark_duplicates(db, preview):
-    existing = (await db.execute(select(Activity))).scalars().all()
+    existing = (await db.execute(select(Activity).where(Activity.portfolio_student_id.is_(None)))).scalars().all()
     keys = {a.import_key or identity(a.title, a.organizer, a.source_url) for a in existing}
     for row in preview['rows']:
         if row['key'] in keys:

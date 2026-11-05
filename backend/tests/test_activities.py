@@ -224,7 +224,7 @@ def test_repeated_recommendation_does_not_overwrite_existing():
 
 def test_review_issues_name_missing_data_without_inventing():
     activity = Activity(title='Олимпиада', source_url=None, description='')
-    assert api.review_issues(activity, [], None) == ['Нет ссылки организатора', 'Нет описания', 'Нет наборов']
+    assert api.review_issues(activity, [], None) == ['Нет описания', 'Нет наборов']
     unknown = ActivityIntake(label='2026', mode='unknown', deadline=None, cost_state='unknown')
     assert api.review_issues(Activity(title='x', source_url='https://a.kz', description='d'), [unknown], unknown) == ['Сроки не уточнены', 'Стоимость не уточнена']
     ok = ActivityIntake(label='2026', mode='rolling', deadline=None, cost_state='free')

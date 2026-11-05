@@ -25,6 +25,11 @@ class ActivityCreate(BaseModel):
     experience_type: Literal['competitions', 'research', 'programs', 'courses', 'internships', 'social', 'other'] | None = None
     # Итог подтверждается только с файлом.
     result_requires_file: bool = False
+    @field_validator('source_url', mode='before')
+    @classmethod
+    def empty_url(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
     @field_validator('title')
     @classmethod
     def clean_title(cls, value):
@@ -107,6 +112,9 @@ class ParticipationOut(BaseModel):
     created_at: datetime
     result_documents_count: int = 0
     certificates_count: int = 0
+    is_historical: bool = False
+    participation_period: str | None = None
+    participation_role: str | None = None
     result_text: str | None = None
     result_review_status: str = 'none'
     result_review_comment: str | None = None
