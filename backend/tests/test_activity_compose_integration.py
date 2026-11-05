@@ -66,6 +66,10 @@ async def run():
         # Без описания опубликовать нельзя, черновик сохраняется.
         blocked = await call('POST', '/activities/full', expected=422, json={**body, 'activity': {**body['activity'], 'title': f'Публикация {suffix}', 'source_url': f'https://example.net/{suffix}/pub', 'publication': 'published'}})
         assert 'Нет описания' in blocked['detail']['issues']
+        no_link = await call('POST', '/activities/full', expected=201, json={**body, 'activity': {**body['activity'], 'title': f'Без ссылки {suffix}', 'source_url': '', 'description': 'Описание активности', 'publication': 'published'}})
+        assert no_link['source_url'] is None and no_link['publication'] == 'published'
+        await call('POST', '/activities/full', expected=422, json={**body, 'activity': {**body['activity'], 'source_url': 'invalid'}})
+
         unlabeled = await call('POST', '/activities/full', expected=201, json={**body, 'activity': {**body['activity'], 'title': f'Сезон {suffix}', 'source_url': f'https://example.net/{suffix}/season'}, 'intake': {**body['intake'], 'label': ''}})
         intakes = await call('GET', f"/activities/{unlabeled['id']}/intakes")
         assert intakes[0]['label'] == 'Осень 2030'

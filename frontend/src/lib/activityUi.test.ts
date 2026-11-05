@@ -183,7 +183,7 @@ describe('конструктор активности', () => {
     expect(stepsFromTemplate([t(10)], null, '2030-01-15')[0].due_date).toBeNull()
   })
   it('до публикации не хватает того же, что проверяет сервер', () => {
-    expect(publishIssues({ source_url: null, description: '' }, [])).toEqual(['Ссылка организатора', 'Описание', 'Сроки набора'])
+    expect(publishIssues({ source_url: null, description: '' }, [])).toEqual(['Описание', 'Сроки набора'])
     expect(publishIssues({ source_url: 'https://x.org', description: 'Есть' }, [{ mode: 'fixed', deadline: '2030-01-01', cost_state: 'free' }])).toEqual([])
     expect(publishIssues({ source_url: 'https://x.org', description: 'Есть' }, [{ mode: 'rolling', deadline: null, cost_state: 'unknown' }])).toEqual(['Стоимость'])
   })

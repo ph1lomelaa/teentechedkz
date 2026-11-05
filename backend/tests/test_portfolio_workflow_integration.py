@@ -161,6 +161,40 @@ async def run_workflow(monkeypatch):
         one=await call('POST','/learner-tasks',expected=201,json=extra)
         two=await call('POST','/learner-tasks',expected=201,json=extra)
         assert one['id']==two['id']
+        # Historical experience: private, idempotent, reviewable without active tasks.
+        historic = {'request_key': str(uuid.uuid4()), 'title': 'Past olympiad '+suffix,
+                    'experience_type': 'competitions', 'period': '2024', 'role': 'Участник',
+                    'result': 'Финалист', 'source_url': ''}
+        old = await call('POST', '/activities/history', role='learner', expected=201, json=historic)
+        assert old['status'] == 'completed' and old['is_historical'] and old['activity']['source_url'] is None
+        assert old['result_review_status'] == 'pending' and old['steps']['total'] == 0
+        replay = await call('POST', '/activities/history', role='learner', expected=201, json=historic)
+        assert replay['id'] == old['id']
+        await call('POST', '/activities/history', role='learner', expected=409, json={**historic, 'request_key': str(uuid.uuid4())})
+        await call('POST', '/activities/history', role='learner', expected=422, json={**historic, 'source_url': 'bad'})
+        await call('GET', f"/activities/participations/{old['id']}", role='other', expected=404)
+        await call('GET', f"/activities/{old['activity']['id']}", role='other', expected=404)
+        await call('POST', '/activities/history', params={'student_id': str(stranger.id)}, expected=404, json={**historic, 'request_key': str(uuid.uuid4())})
+        assert not any(a['id'] == old['activity']['id'] for a in await call('GET', '/activities'))
+        assert not any(a['id'] == old['activity']['id'] for a in await call('GET', '/activities', role='learner'))
+        rejected = await call('POST', '/activities/assignments', json={**payload, 'intake_id': old['intake_id']})
+        assert rejected['results'][0]['status'] == 'error'
+        assert not any(a['activity']['id'] == old['activity']['id'] for a in await call('GET', '/activities/catalog/rows'))
+        review_queue = await call('GET', '/activities/staff/participations?view=waiting')
+        assert any(p['id'] == old['id'] and p['column'] == 'review' for p in review_queue['items'])
+        old_detail = await call('GET', f"/activities/participations/{old['id']}")
+        assert old_detail['steps']['total'] == 0
+        summary = await call('GET', '/activities/my/portfolio-summary', role='learner')
+        assert any(a['participation_id'] == old['id'] and a['kind'] == 'result_waiting' for a in summary['mentor_actions'])
+        await call('POST', f"/activities/participations/{old['id']}/result/review", json={'action': 'return', 'comment': 'Уточните место'})
+        old = await call('PUT', f"/activities/history/{old['id']}", role='learner', json={**historic, 'result': 'Второе место'})
+        assert old['result_review_status'] == 'pending'
+        await call('POST', f"/activities/participations/{old['id']}/result/review", json={'action': 'approve'})
+        approved = await call('GET', f"/activities/participations/{old['id']}")
+        assert approved['result_review_status'] == 'approved' and approved['status'] == 'completed'
+        await call('POST', '/portfolio-documents/upload', role='learner', files={'file': ('past.txt', b'proof', 'text/plain')}, data={'participation_id': old['id']})
+        # Staff can also record past experience, without catalog publication rights.
+        await call('POST', '/activities/history', expected=201, params={'student_id': str(student.id)}, json={**historic, 'request_key': str(uuid.uuid4()), 'title': 'Past course '+suffix})
     async with sessions() as db:
         orphan_count=(await db.execute(select(func.count()).select_from(RoadmapTask).where(RoadmapTask.student_id.is_(None)))).scalar_one()
         assert orphan_count==0

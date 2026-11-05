@@ -31,7 +31,7 @@ it('новая активность с набором и типовыми шаг
   fireEvent.click(screen.getByRole('button', { name: /Типовые шаги/ }))
   // Пока не хватает полей, «Опубликовать» недоступна.
   expect(screen.getByRole('button', { name: 'Опубликовать' })).toBeDisabled()
-  fireEvent.change(screen.getByLabelText('Ссылка организатора'), { target: { value: 'https://example.org' } })
+  fireEvent.change(screen.getByLabelText('Ссылка организатора — необязательно'), { target: { value: 'https://example.org' } })
   fireEvent.change(screen.getByLabelText('О чём это'), { target: { value: 'Олимпиада для старшеклассников' } })
   fireEvent.change(screen.getByLabelText('Стоимость'), { target: { value: 'free' } })
   expect(screen.getByText('Готово к публикации')).toBeInTheDocument()

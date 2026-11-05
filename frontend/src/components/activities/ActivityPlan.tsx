@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { Participation } from '@/api/activities'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronDown, Compass, Plus } from 'lucide-react'
 import { activitiesApi } from '@/api/activities'
 import { QueryState } from '@/components/shared/QueryState'
+import { HistoricalDialog } from './HistoricalExperience'
 import { StudentPlan } from './StudentPlan'
 import { PortfolioSummaryCard } from './PortfolioSummaryCard'
 import { StatusTag } from './StatusTag'
@@ -27,7 +28,7 @@ function whereNow(item: Participation): { label: string; tone: StatusTone } {
 
 /** Активность ученика строкой, как этап Roadmap: раскрывается шагами, файлами и итогом. */
 function ParticipationRow({ item, open, onToggle, onWithdraw, busy }: { item: Participation; open: boolean; onToggle: () => void; onWithdraw: (item: Participation) => void; busy: boolean }) {
-  const where = whereNow(item)
+  const where = item.is_historical ? { label: item.result_review_status === 'approved' ? 'Подтверждено' : item.result_review_status === 'pending' ? 'На проверке' : 'Нужны правки', tone: 'neutral' as StatusTone } : whereNow(item)
   const d = item.decision === 'suggested' ? item.decide_by : item.steps?.next?.due_date || item.personal_deadline || item.intake.deadline
   const late = item.steps?.next?.state === 'overdue'
   return <li id={`participation-${item.id}`} className={`scroll-mt-6 rounded-card border bg-ds-panel ${open ? 'border-ds-muted2' : 'border-ds-line'}`}>
@@ -36,7 +37,7 @@ function ParticipationRow({ item, open, onToggle, onWithdraw, busy }: { item: Pa
         <ChevronDown aria-hidden className={`h-4 w-4 shrink-0 text-ds-muted transition ${open ? '' : '-rotate-90'}`} />
         <span className="min-w-0 flex-1">
           <span className="block break-words font-bold">{item.activity.title}</span>
-          <span className="block text-xs text-ds-muted">{item.intake.deadline ? `подача до ${formatDay(item.intake.deadline)}` : EXPERIENCE_LABEL[item.activity.experience_type ?? 'other']}</span>
+          <span className="block text-xs text-ds-muted">{item.is_historical ? `Прошлый опыт · ${item.participation_period}` : item.intake.deadline ? `подача до ${formatDay(item.intake.deadline)}` : EXPERIENCE_LABEL[item.activity.experience_type ?? 'other']}</span>
         </span>
       </button>
       <div className="flex flex-wrap items-center gap-3 pl-7 text-xs sm:pl-0">
@@ -52,6 +53,7 @@ function ParticipationRow({ item, open, onToggle, onWithdraw, busy }: { item: Pa
 
 /** Активности ученика для команды: в работе, достижения, отказы. Карточка ученика и список учеников показывают одно и то же. */
 export function StudentActivities({ studentId, compact = false }: { studentId: string; compact?: boolean }) {
+  const [historyOpen, setHistoryOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   // Раскрытая активность живёт в ссылке (?p=), её можно переслать; якорь раздела карточки сохраняется.
@@ -85,7 +87,8 @@ export function StudentActivities({ studentId, compact = false }: { studentId: s
         {current.length ? rows(current)
           : <p className="rounded-card border border-dashed border-ds-line px-5 py-6 text-sm text-ds-muted"><Compass className="mr-2 inline h-4 w-4" aria-hidden />Активностей в работе нет. Нажмите «Добавить активность», выберите из каталога и составьте шаги.</p>}
       </section>
-      {!!achievements.length && <section className="space-y-3"><h2 className={heading}>Достижения <span className="text-ds-muted">· {achievements.length}</span></h2>{rows(achievements)}</section>}
+      <section className="space-y-3"><h2 className={heading}>Достижения <span className="text-ds-muted">· {achievements.length}</span></h2>{can('portfolio', 'manage') && <button type="button" onClick={() => setHistoryOpen(true)} className="rounded-ctl border border-ds-line px-3 py-2 text-sm font-bold hover:bg-ds-panel2">Добавить прошлую активность</button>}{achievements.length ? rows(achievements) : <p className="text-sm text-ds-muted">Добавьте завершённый опыт ученика: конкурсы, курсы, проекты или волонтёрство.</p>}</section>
+      {historyOpen && <HistoricalDialog studentId={studentId} onClose={() => setHistoryOpen(false)} />}
       {!!declined.length && <details className="group space-y-3" open={declined.some(i => i.id === opened)}>
         <summary className="cursor-pointer list-none text-sm font-bold text-ds-muted hover:text-ds-ink">Не участвует · {declined.length}</summary>
         <div className="pt-3">{rows(declined)}</div>

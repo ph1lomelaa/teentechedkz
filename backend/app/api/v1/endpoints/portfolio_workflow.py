@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,98 @@ from app.api.v1.endpoints.documents import _doc_to_dict, portal_upload, upload_d
 
 router = APIRouter(tags=['portfolio-workflow'])
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+class HistoricalInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    request_key: uuid.UUID
+    title: str = Field(min_length=1, max_length=500)
+    experience_type: Literal['competitions', 'research', 'programs', 'courses', 'internships', 'social', 'other']
+    period: str = Field(min_length=1, max_length=255)
+    role: str | None = Field(default=None, max_length=500)
+    result: str = Field(min_length=1, max_length=20000)
+    organizer: str | None = Field(default=None, max_length=500)
+    source_url: HttpUrl | None = Field(default=None, max_length=2048)
+
+    @field_validator('source_url', mode='before')
+    @classmethod
+    def empty_url(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+async def historical_student(db, user, student_id):
+    if user.role == UserRole.student:
+        student = (await db.execute(select(Student).where(Student.user_id == user.id))).scalar_one_or_none()
+        if not student or (student_id and student.id != student_id):
+            raise HTTPException(404, 'Ученик не найден')
+        return student.id
+    require_access(user, 'portfolio', Action.manage)
+    if not student_id:
+        raise HTTPException(422, 'Выберите ученика')
+    await require_activity_student(db, student_id, user)
+    if not await db.get(Student, student_id):
+        raise HTTPException(404, 'Ученик не найден')
+    return student_id
+
+async def save_historical(db, user, student_id, body, item=None):
+    from app.schemas.activity import ActivityCreate
+    from app.api.v1.endpoints.activities import activity_values
+    from sqlalchemy import func
+    student_id = await historical_student(db, user, student_id)
+    # Serialize retries and duplicate checks for this student's imports.
+    await db.execute(select(Student.id).where(Student.id == student_id).with_for_update())
+    values = ActivityCreate(title=body.title, organizer=body.organizer, source_url=body.source_url,
+                            experience_type=body.experience_type)
+    if not item:
+        existing = await db.get(StudentActivity, body.request_key)
+        if existing:
+            if existing.student_id != student_id or not existing.is_historical:
+                raise HTTPException(409, 'Ключ сохранения уже использован')
+            return await detail(existing.id, db, user)
+        duplicate = (await db.execute(select(StudentActivity.id).join(ActivityIntake, StudentActivity.intake_id == ActivityIntake.id)
+            .join(Activity, ActivityIntake.activity_id == Activity.id).where(StudentActivity.student_id == student_id,
+            StudentActivity.is_historical.is_(True), func.lower(Activity.title) == body.title.lower(),
+            func.lower(StudentActivity.participation_period) == body.period.lower()).limit(1))).scalar_one_or_none()
+        if duplicate:
+            raise HTTPException(409, 'Такая активность за этот период уже есть в портфолио. Откройте её для редактирования.')
+        activity = Activity(**activity_values(values), portfolio_student_id=student_id)
+        db.add(activity)
+        await db.flush()
+        intake = ActivityIntake(activity_id=activity.id, label=body.period, mode='unknown', dates_text=body.period)
+        db.add(intake)
+        await db.flush()
+        mentors = await mentor_options(db, student_id)
+        item = StudentActivity(id=body.request_key, student_id=student_id, intake_id=intake.id, is_historical=True,
+            status='completed', decision='selected', selection_source='student' if user.role == UserRole.student else 'staff',
+            selected_by_id=user.id, mentor_id=mentors[0]['id'] if len(mentors) == 1 else None)
+        db.add(item)
+    else:
+        intake = await db.get(ActivityIntake, item.intake_id)
+        activity = await db.get(Activity, intake.activity_id)
+        for key, value in activity_values(values).items():
+            setattr(activity, key, value)
+        intake.label = intake.dates_text = body.period
+    item.participation_period = body.period
+    item.participation_role = body.role
+    item.result_text = body.result
+    item.result_review_status = 'pending'
+    item.result_submitted_at = datetime.now(timezone.utc)
+    item.result_reviewed_at = item.result_reviewed_by = item.result_review_comment = None
+    await db.flush()
+    await log_change(db, 'student_activity', item.id, 'historical_experience', None, body.title, str(user.id), source='portfolio')
+    await commit_note(db, await participation_notify(db, item, user, 'activity_result_requested', 'Прошлый опыт ждёт проверки', mentor=True))
+    return await detail(item.id, db, user)
+
+@router.post('/activities/history', status_code=201)
+async def create_historical(body: HistoricalInput, db: DB, user: CurrentUser, student_id: uuid.UUID | None = None):
+    return await save_historical(db, user, student_id, body)
+
+@router.put('/activities/history/{participation_id}')
+async def update_historical(participation_id: uuid.UUID, body: HistoricalInput, db: DB, user: CurrentUser):
+    item = await participation_access(db, participation_id, user)
+    item = (await db.execute(select(StudentActivity).where(StudentActivity.id == item.id).with_for_update())).scalar_one()
+    if not item.is_historical:
+        raise HTTPException(409, 'Это текущее участие, измените его через план')
+    return await save_historical(db, user, item.student_id, body, item)
+
 
 class Recipient(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -82,7 +174,7 @@ async def assign(body: BulkInput, db: DB, user: CurrentUser):
                 if not student: raise HTTPException(404, 'Ученик не найден')
                 intake = await db.get(ActivityIntake, body.intake_id)
                 activity = await db.get(Activity, intake.activity_id) if intake else None
-                if not activity or activity.publication == 'archived': raise HTTPException(409, 'Активность недоступна')
+                if not activity or activity.publication == 'archived' or activity.portfolio_student_id: raise HTTPException(409, 'Активность недоступна')
                 from app.services.task_urgency import company_today
                 if intake.deadline and intake.deadline < company_today(): raise HTTPException(409, 'Набор закрыт')
                 existing = (await db.execute(select(StudentActivity).where(StudentActivity.student_id == recipient.student_id, StudentActivity.intake_id == body.intake_id))).scalar_one_or_none()
@@ -143,7 +235,7 @@ async def review_result(participation_id: uuid.UUID, body: Verdict, db: DB, user
     item = await participation_access(db, participation_id, user)
     # Serialize competing verdicts.
     item = (await db.execute(select(StudentActivity).where(StudentActivity.id == item.id).with_for_update())).scalar_one()
-    if item.result_review_status != 'pending' or item.decision != 'selected' or item.status in ('completed', 'cancelled'): raise HTTPException(409, 'Результат уже разобран или участие закрыто')
+    if item.result_review_status != 'pending' or item.decision != 'selected' or (item.status == 'cancelled' or (item.status == 'completed' and not item.is_historical)): raise HTTPException(409, 'Результат уже разобран или участие закрыто')
     comment = (body.comment or '').strip()
     if body.action == 'return' and not comment: raise HTTPException(422, 'Добавьте комментарий при возврате')
     item.result_review_status = 'approved' if body.action == 'approve' else 'returned'
@@ -374,7 +466,8 @@ async def results_pending_count(db: DB, user: CurrentUser):
     if not allows(resource='portfolio', action=Action.manage, role=user.role):
         return {'count': 0}
     query = select(func.count(StudentActivity.id)).where(StudentActivity.result_review_status == 'pending',
-        StudentActivity.decision == 'selected', StudentActivity.status.notin_(('completed', 'cancelled')))
+        StudentActivity.decision == 'selected', StudentActivity.status != 'cancelled',
+        ((StudentActivity.status != 'completed') | StudentActivity.is_historical.is_(True)))
     allowed = await activity_student_ids(db, user)
     if allowed is not None:
         query = query.where(StudentActivity.student_id.in_(allowed))
@@ -390,10 +483,10 @@ def board_stage(item) -> str | None:
         return None
     if item.decision == 'suggested':
         return 'recommendation'
-    if item.status == 'completed':
-        return 'achievement'
     if item.result_review_status == 'pending':
         return 'result_review'
+    if item.status == 'completed':
+        return 'achievement'
     return 'in_work'
 
 

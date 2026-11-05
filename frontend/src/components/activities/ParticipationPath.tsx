@@ -11,6 +11,7 @@ import { AppButton } from '@/components/ui'
 import { Textarea } from '@/components/ui/primitives/textarea'
 import { QueryState } from '@/components/shared/QueryState'
 import { LearnerStep } from './LearnerStep'
+import { HistoricalExperience } from './HistoricalExperience'
 import { ResultStep } from './ResultStep'
 import { AddStepInline } from './AddStepInline'
 import { getErrorMessage } from '@/lib/errorMessage'
@@ -72,7 +73,7 @@ export function ParticipationPath({ participationId, embedded = false }: { parti
   return <div className={embedded ? 'space-y-5 text-ds-ink' : 'mx-auto w-full max-w-[1200px] space-y-6 px-4 py-6 text-ds-ink sm:px-6'}>
     {!embedded && <Link className="inline-flex items-center gap-2 text-sm font-semibold text-ds-muted hover:text-ds-ink" to={back}><ArrowLeft className="h-4 w-4" />{own ? 'Портфолио' : `Портфолио · ${item?.student_name ?? 'ученик'}`}</Link>}
     <QueryState isLoading={itemQuery.isLoading} isError={itemQuery.isError} error={itemQuery.error} onRetry={() => itemQuery.refetch()}>
-      {item && <>
+      {item?.is_historical ? <HistoricalExperience item={item} canManage={canManage} own={own} /> : item && <>
         <header className={embedded ? 'space-y-3' : 'space-y-3 rounded-card border border-ds-line bg-ds-panel p-5 sm:p-6'}>
           {!embedded && <div className="flex flex-wrap items-start justify-between gap-3">
             {!embedded && <h1 className="min-w-0 break-words text-2xl font-bold sm:text-3xl">{item.activity.title}</h1>}

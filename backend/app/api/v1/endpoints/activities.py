@@ -57,6 +57,12 @@ async def visible_activity(db, activity_id, user):
     if not activity or (user.role == UserRole.student and activity.publication != 'published'
                         and not await student_has_activity(db, user, activity_id)):
         raise HTTPException(404, 'Активность не найдена')
+    if activity.portfolio_student_id:
+        if user.role == UserRole.student:
+            if not await student_has_activity(db, user, activity_id):
+                raise HTTPException(404, 'Активность не найдена')
+        else:
+            await require_activity_student(db, activity.portfolio_student_id, user)
     return activity
 
 
@@ -70,8 +76,6 @@ def activity_values(body: ActivityCreate) -> dict:
 def review_issues(activity: Activity, intakes: list[ActivityIntake], near: ActivityIntake | None) -> list[str]:
     """Чего не хватает записи, чтобы ученик не получил выдуманных условий."""
     issues = []
-    if not activity.source_url:
-        issues.append('Нет ссылки организатора')
     if not (activity.description or '').strip():
         issues.append('Нет описания')
     if not intakes:
@@ -111,7 +115,7 @@ def nearest_intake(intakes: list[ActivityIntake], today: date) -> ActivityIntake
 async def list_activities(db: DB, current_user: CurrentUser, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
     if current_user.role != UserRole.student:
         require_access(current_user, 'portfolio', Action.manage)
-    query = select(Activity)
+    query = select(Activity).where(Activity.portfolio_student_id.is_(None))
     if current_user.role == UserRole.student:
         # Ученик видит опубликованное с открытым или неизвестным набором:
         # есть набор без даты или с будущей датой, либо наборов ещё нет.
@@ -153,6 +157,8 @@ async def create_activity(body: ActivityCreate, db: DB, current_user: CurrentUse
 async def update_activity(activity_id: uuid.UUID, body: ActivityCreate, db: DB, current_user: CurrentUser):
     require_catalog_editor(current_user)
     activity = await visible_activity(db, activity_id, current_user)
+    if activity.portfolio_student_id:
+        raise HTTPException(409, 'Изменяйте прошлый опыт через портфолио ученика')
     was_published = activity.publication == 'published'
     for key, value in activity_values(body).items():
         setattr(activity, key, value)
@@ -184,7 +190,7 @@ async def create_intake(activity_id: uuid.UUID, body: IntakeCreate, db: DB, curr
 async def select_participation(db, student_id, body, *, allow_draft=False, source='unknown', actor_id=None):
     intake = await db.get(ActivityIntake, body.intake_id)
     activity = await db.get(Activity, intake.activity_id) if intake else None
-    if not activity or activity.publication == 'archived' or (activity.publication == 'draft' and not allow_draft):
+    if not activity or activity.portfolio_student_id or activity.publication == 'archived' or (activity.publication == 'draft' and not allow_draft):
         raise HTTPException(404, 'Набор недоступен для выбора')
     query = select(StudentActivity).where(StudentActivity.student_id == student_id, StudentActivity.intake_id == body.intake_id)
     existing = (await db.execute(query)).scalar_one_or_none()
@@ -529,7 +535,7 @@ async def staff_participations(db: DB, user: CurrentUser, student_id: uuid.UUID 
     items = []
     for item, intake, activity, mentor, name, selected_by in rows:
         summary = steps.get(item.id, StepsSummary())
-        col = 'review' if item.decision == 'selected' and item.status not in ('completed', 'cancelled') and item.result_review_status == 'pending' else board_column(item.decision, item.status, summary)
+        col = 'review' if item.decision == 'selected' and item.status != 'cancelled' and (item.status != 'completed' or item.is_historical) and item.result_review_status == 'pending' else board_column(item.decision, item.status, summary)
         due = nearest_due(item.personal_deadline, intake.deadline, summary)
         items.append(BoardItem(**{**ParticipationOut.model_validate(item).model_dump(), **documents.get(item.id, {})},
             activity=ActivityOut.model_validate(activity), intake=IntakeOut.model_validate(intake),
@@ -573,6 +579,7 @@ async def staff_students(db: DB, user: CurrentUser):
 async def catalog_rows(db: DB, user: CurrentUser):
     require_access(user, 'portfolio', Action.manage)
     rows = (await db.execute(select(Activity, ActivityIntake).outerjoin(ActivityIntake, ActivityIntake.activity_id == Activity.id)
+        .where(Activity.portfolio_student_id.is_(None))
         .order_by(Activity.title, ActivityIntake.label))).all()
     return [{'activity': ActivityOut.model_validate(activity), 'intake': IntakeOut.model_validate(intake) if intake else None}
         for activity, intake in rows]

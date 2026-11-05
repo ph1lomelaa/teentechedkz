@@ -135,3 +135,21 @@ def test_intake_label_from_deadline_season():
     assert intake_label('', date(2027, 2, 1), 'fixed') == 'Зима 2027'
     assert intake_label(' ', None, 'rolling') == 'Принимают постоянно'
     assert intake_label('Весенний поток', date(2026, 10, 1), 'fixed') == 'Весенний поток'
+
+
+def test_historical_review_does_not_create_active_work_or_confirm_early():
+    history = item(status='completed', result='pending', deadline=TODAY - timedelta(days=100))
+    history.is_historical = True
+    summary = summarize([history], None, TODAY)
+    assert summary.counts.active == summary.counts.confirmed == summary.counts.overdue == 0
+    assert summary.next_deadline is None
+    assert [a.kind for a in summary.mentor_actions] == ['result_waiting']
+    history.result_review_status = 'returned'
+    history.result_review_comment = 'Уточните результат'
+    summary = summarize([history], None, TODAY)
+    assert [a.kind for a in summary.actions] == ['fix_result']
+    assert not summary.mentor_actions
+    history.result_review_status = 'approved'
+    summary = summarize([history], None, TODAY)
+    assert summary.counts.confirmed == 1
+    assert not summary.actions and not summary.mentor_actions
