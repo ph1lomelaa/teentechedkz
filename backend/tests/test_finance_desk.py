@@ -271,9 +271,11 @@ async def run(sent):
                 assert await finance_desk.email_pending(db) == 0, 'Без дублей'
         finally:
             mailer_module.is_configured, mailer_module.send_mail, settings.FINANCE_EMAIL_NOTIFICATIONS = orig
-        ours = [l for l in letters if suffix in l[1]]
+        # В теме короткое имя («Айгерим Ф.»), полное — в тексте письма.
+        ours = [l for l in letters if suffix in l[2]]
         assert ours and all(l[0] == [f'finance_manager-{suffix}@example.test'] for l in ours)
-        assert any('Остаток клиента: 800\u00a0000 ₸ → 900\u00a0000 ₸' in l[2] for l in ours)
+        assert any('Остаток увеличился на 100\u00a0000 ₸: 800\u00a0000 ₸ → 900\u00a0000 ₸' in l[2] for l in ours)
+        assert any(l[1].startswith('Айгерим Ф. — ') for l in ours)
         assert any(f'/finance/contracts/{contract_id}' in l[2] for l in ours)
 
         # Колокольчик CRM читает data/unread_count.
