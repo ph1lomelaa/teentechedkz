@@ -165,6 +165,14 @@ class ActApiTests(unittest.IsolatedAsyncioTestCase):
                 await acts.portal_pdf(uuid.uuid4(), SimpleNamespace(id=uuid.uuid4()), db)
         self.assertEqual(error.exception.status_code, 404); download.assert_not_awaited()
 
+    async def test_student_cannot_download_another_students_contract(self):
+        link = SimpleNamespace(id=uuid.uuid4(), student_id=uuid.uuid4(), status=3, source='manual', storage_path='c.pdf')
+        db = SimpleNamespace(get=AsyncMock(return_value=link))
+        with patch.object(acts, 'minio_download', AsyncMock()) as download:
+            with self.assertRaises(HTTPException) as error:
+                await acts.portal_contract_pdf(link.id, SimpleNamespace(id=uuid.uuid4()), db)
+        self.assertEqual(error.exception.status_code, 404); download.assert_not_awaited()
+
     async def test_unshared_pdf_is_not_available_in_portal(self):
         row = record(); db = SimpleNamespace(get=AsyncMock(return_value=row))
         with self.assertRaises(HTTPException) as error:

@@ -20,10 +20,10 @@ export function NextPayment({ row }: { row: FinanceContractRow }) {
   if (kind === 'today') return <FinBadge tone="yellow">Сегодня</FinBadge>
   if (kind === 'paid_full') return <FinBadge tone="ok">Оплачен полностью</FinBadge>
   if (kind === 'not_planned') return <FinBadge tone="dashed">Графика нет</FinBadge>
-  return <span className="whitespace-nowrap">{date(item?.due_date)} · {money(item?.left)}</span>
+  return <span className="whitespace-nowrap">{date(item?.due_date)} · {money(item?.left, row.currency)}</span>
 }
 
-export function PaidBar({ paid, amount }: { paid: string; amount: string | null }) {
+export function PaidBar({ paid, amount, currency }: { paid: string; amount: string | null; currency?: string }) {
   const total = num(amount)
   const pct = total > 0 ? Math.min(100, Math.round((num(paid) / total) * 100)) : 0
   return (
@@ -31,7 +31,7 @@ export function PaidBar({ paid, amount }: { paid: string; amount: string | null 
       <div className="h-1.5 overflow-hidden rounded-full bg-[var(--fin-neutral-bg)]" aria-hidden="true">
         <div className="h-full rounded-full bg-[var(--fin-ok)]" style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-1 whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">{money(paid)} · {pct}%</div>
+      <div className="mt-1 whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">{money(paid, currency)} · {pct}%</div>
     </div>
   )
 }
@@ -68,8 +68,8 @@ export function FinanceContractsPage() {
         description="Сумма договора, оплаты и следующий платёж по графику."
         actions={
           <FinButton disabled={!rows.length} onClick={() => downloadCsv('договоры.csv', ['Ученик', 'Год поступления', 'МЗК', 'Договор', 'Оплачено', 'Остаток', 'Следующий платёж'],
-            rows.map((r) => [r.student_name, r.intake_year, r.mzk_name, money(r.amount), money(r.paid), money(r.remaining), r.next_payment.item ? date(r.next_payment.item.due_date) : NEXT_LABELS[r.next_payment.kind]]))}>
-            Экспорт
+            rows.map((r) => [r.student_name, r.intake_year, r.mzk_name, money(r.amount, r.currency), money(r.paid, r.currency), money(r.remaining, r.currency), r.next_payment.item ? date(r.next_payment.item.due_date) : NEXT_LABELS[r.next_payment.kind]]))}>
+            Экспорт страницы
           </FinButton>
         }
       />
@@ -104,7 +104,7 @@ export function FinanceContractsPage() {
           </FinSelect>
         </FinFilterBar>
         <FinTable minWidth={980}>
-          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Договор TrustMe и акты</Th></tr></thead>
+          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено по остатку</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Договор TrustMe и акты</Th></tr></thead>
           <tbody>
             {isLoading && <EmptyRow colSpan={7}>Загрузка…</EmptyRow>}
             {data && rows.length === 0 && <EmptyRow colSpan={7}>Договоров с такими условиями нет</EmptyRow>}
@@ -113,7 +113,7 @@ export function FinanceContractsPage() {
                 <Td><StudentCell name={r.student_name} sub={r.intake_year ? `Поступление ${r.intake_year}` : statusLabel(r.pipeline_status)} onOpen={() => navigate(`/finance/contracts/${r.contract_id}`)} /></Td>
                 <Td className="whitespace-nowrap">{r.mzk_name ?? '—'}</Td>
                 <Td right>{money(r.amount, r.currency)}</Td>
-                <Td><PaidBar paid={r.paid} amount={r.amount} /></Td>
+                <Td><PaidBar paid={r.paid} amount={r.amount} currency={r.currency} /></Td>
                 <Td right className="font-semibold">{money(r.remaining, r.currency)}</Td>
                 <Td><NextPayment row={r} /></Td><Td><ActsClosure row={r} /></Td>
               </tr>

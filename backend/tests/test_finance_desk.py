@@ -353,8 +353,9 @@ async def run(sent):
         other_row = next(r for r in listing['items'] if r['contract_id'] == str(other_contract_id))
         assert other_row['next_payment']['kind'] == 'not_planned'
         # «Оплачено» = договор − остаток: деньги, внесённые до запуска, видны.
-        # Остаток 250 000 поставил МЗК в карточке выше.
-        assert Decimal(other_row['paid']) == Decimal('650000')
+        # Остаток 250 000 поставил МЗК, затем оплата 50 000 уменьшила его до 200 000.
+        assert Decimal(other_row['paid']) == Decimal('700000')
+        assert Decimal(other_row['recorded_paid']) == Decimal('50000')
         assert (await call('GET', f'/finance/contracts?q={suffix}&status=refund'))['total'] == 0
 
         detail = await call('GET', f'/finance/contracts/{contract_id}')
@@ -388,7 +389,7 @@ async def run(sent):
         await call('POST', '/finance/notion-import', role='mzk_manager', expected=403)
         assert (await call('POST', '/finance/notion-import'))['created'] >= 1
         other_detail = await call('GET', f'/finance/contracts/{other_contract_id}')
-        assert [(i['label'], Decimal(i['amount'])) for i in other_detail['schedule']] == [('Остаток из Notion', Decimal('250000'))]
+        assert [(i['label'], Decimal(i['amount'])) for i in other_detail['schedule']] == [('Остаток из Notion', Decimal('200000'))]
         assert (await call('POST', '/finance/notion-import'))['created'] == 0, 'Повтор ничего не дублирует'
 
         # Расхождение: убрали платёж из графика — остаток больше графика.

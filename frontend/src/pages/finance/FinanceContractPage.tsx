@@ -6,11 +6,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { QueryError } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { financeApi, financeKeys, type FinanceChange, type ScheduleItem } from '@/api/finance'
+import { financeApi, financeKeys, type ReceivedPayment, type FinanceChange, type ScheduleItem } from '@/api/finance'
 import {
   EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, FinTabs, ItemStatus, Td, Th, TotalRow,
 } from '@/components/finance/ui'
-import { AttachReceiptButton, PayDialog, ScheduleItemDialog } from '@/components/finance/dialogs'
+import { AllocatePaymentDialog, AttachReceiptButton, PayDialog, ScheduleItemDialog } from '@/components/finance/dialogs'
 import { METHOD_LABELS, date, dateTime, money, num, paymentTitle, statusLabel } from '@/components/finance/format'
 
 type Tab = 'schedule' | 'payments' | 'history' | 'documents'
@@ -18,7 +18,7 @@ type Tab = 'schedule' | 'payments' | 'history' | 'documents'
 export function ChangeStatus({ change }: { change: FinanceChange }) {
   if (change.status === 'new') return <FinBadge tone="yellow">Ожидает проверки</FinBadge>
   if (change.status === 'accepted') return <FinBadge tone="ok">Подтверждено</FinBadge>
-  return <FinBadge tone="neutral">Отклонено</FinBadge>
+  return <FinBadge tone="neutral">Проверено, без изменения графика</FinBadge>
 }
 
 export function FinanceContractPage() {
@@ -26,6 +26,7 @@ export function FinanceContractPage() {
   const { can } = useAuth()
   const canManage = can('finance_desk', 'manage')
   const queryClient = useQueryClient()
+  const [allocating, setAllocating] = useState<ReceivedPayment | null>(null)
   const [tab, setTab] = useState<Tab>('schedule')
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const [editing, setEditing] = useState<{ item: ScheduleItem | null; amount?: number } | null>(null)
@@ -54,7 +55,6 @@ export function FinanceContractPage() {
   const amount = num(c.amount)
   const paid = num(c.paid)
   const outside = c.undistributed === null ? null : num(c.undistributed)
-  const firstOpen = c.schedule.find((i) => i.state !== 'paid') ?? null
   const pending = c.changes.filter((ch) => ch.status === 'new').length
 
   return (
@@ -76,7 +76,6 @@ export function FinanceContractPage() {
                 Изменить договор
               </Link>
             )}
-            {canManage && firstOpen && <FinButton variant="primary" onClick={() => setPaying(firstOpen)}>Отметить оплату</FinButton>}
           </>
         }
       />
@@ -91,8 +90,8 @@ export function FinanceContractPage() {
 
       <FinMetrics columns={4} items={[
         { label: 'Сумма договора', value: money(c.amount, c.currency) },
-        { label: 'Оплачено', value: money(c.paid, c.currency), tone: 'ok', progress: amount > 0 ? (paid / amount) * 100 : 0,
-          hint: amount > 0 ? `${Math.round((paid / amount) * 100)}% договора` : undefined },
+        { label: 'Оплачено по остатку', value: money(c.paid, c.currency), tone: 'ok', progress: amount > 0 ? (paid / amount) * 100 : 0,
+          hint: `Записано оплатами: ${money(c.recorded_paid, c.currency)}. Исторически по остатку: ${money(c.historical_paid, c.currency)}` },
         { label: 'Осталось оплатить', value: money(c.remaining, c.currency) },
         c.trustme?.length
           ? { label: 'Закрыто актами', value: c.services_total ? `${c.services_closed} из ${c.services_total}` : '—', tone: 'ok',
@@ -163,7 +162,7 @@ export function FinanceContractPage() {
           </FinCard>
         )}
         {tab === 'payments' && (
-          <FinCard title="Оплаты, отмеченные в платформе">
+          <FinCard title="Отмеченные оплаты">
             <FinTable minWidth={720}>
               <thead><tr><Th>Дата оплаты</Th><Th>За что</Th><Th>Способ</Th><Th right>Сумма</Th><Th>Чек</Th><Th>Отметил</Th></tr></thead>
               <tbody>
@@ -171,7 +170,7 @@ export function FinanceContractPage() {
                 {c.payments.map((p) => (
                   <tr key={p.id}>
                     <Td className="whitespace-nowrap">{date(p.paid_at)}</Td>
-                    <Td>{paymentTitle(p)}</Td>
+                    <Td>{paymentTitle(p)}{!p.schedule_item_id && <div className="mt-1 text-xs text-p-muted">Не распределена по графику{canManage && <button type="button" className="ml-2 underline" onClick={() => setAllocating(p)}>Привязать</button>}</div>}</Td>
                     <Td>{p.method ? METHOD_LABELS[p.method] : '—'}</Td>
                     <Td right className="font-semibold">{money(p.amount, p.currency)}</Td>
                     <Td>{p.has_receipt ? <FinBadge tone="ok">Есть</FinBadge> : (
@@ -205,6 +204,7 @@ export function FinanceContractPage() {
           </FinCard>
         )}
       </div>
+      <AllocatePaymentDialog payment={allocating} items={c.schedule} onClose={() => setAllocating(null)} />
       <PayDialog item={paying} onClose={() => setPaying(null)} />
       <ScheduleItemDialog
         open={!!editing}

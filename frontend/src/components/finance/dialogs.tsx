@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { financeApi, financeKeys, type FinanceChange, type PaymentMethod, type ScheduleItem, type ScheduleKind } from '@/api/finance'
+import { financeApi, financeKeys, type ReceivedPayment, type FinanceChange, type PaymentMethod, type ScheduleItem, type ScheduleKind } from '@/api/finance'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { FileDrop, FinButton, FinField, FinInput, FinModal, FinSelect, MoneyInput } from './ui'
@@ -25,7 +25,7 @@ export function PayDialog({ item, onClose }: { item: ScheduleItem | null; onClos
 
   useEffect(() => {
     if (!item) return
-    setAmount(formatAmountInput(String(Math.round(Number.parseFloat(item.left)))))
+    setAmount(formatAmountInput(item.left))
     setPaidAt(localIso())
     setMethod('kaspi')
     setNote('')
@@ -33,7 +33,7 @@ export function PayDialog({ item, onClose }: { item: ScheduleItem | null; onClos
   }, [item])
 
   const value = parseAmountInput(amount)
-  const invalid = value <= 0 || !paidAt || paidAt > localIso()
+  const invalid = value <= 0 || (item ? value > Number(item.left) : true) || !paidAt || paidAt > localIso()
 
   const pay = useMutation({
     mutationFn: async () => {
@@ -54,8 +54,8 @@ export function PayDialog({ item, onClose }: { item: ScheduleItem | null; onClos
     onSuccess: ({ result, receiptFailed }) => {
       invalidate()
       toast({
-        title: result.state === 'paid' ? 'Оплата сохранена' : 'Частичная оплата сохранена',
-        description: receiptFailed ? 'Чек не загрузился. Прикрепите его в разделе «Проверка».' : `${result.student_name} · ${money(value)}`,
+        title: result.state === 'paid' ? 'Отмечено' : 'Отмечена частичная оплата',
+        description: receiptFailed ? 'Чек не загрузился. Прикрепите его в разделе «Проверка».' : `${result.student_name} · ${money(value, item?.currency)}`,
         variant: receiptFailed ? 'destructive' : undefined,
       })
       onClose()
@@ -74,14 +74,15 @@ export function PayDialog({ item, onClose }: { item: ScheduleItem | null; onClos
         <>
           <FinButton onClick={onClose}>Отмена</FinButton>
           <FinButton variant="primary" type="submit" form="fin-pay" disabled={invalid || pay.isPending}>
-            {pay.isPending ? 'Сохранение…' : 'Сохранить оплату'}
+            {pay.isPending ? 'Сохранение…' : 'Отметить'}
           </FinButton>
         </>
       }
     >
-      <form id="fin-pay" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (!invalid) pay.mutate() }}>
-        <FinField label="Сумма, ₸" required htmlFor="fin-pay-amount"
-          hint={item && value > 0 && value < left ? `Частичная оплата: останется ${money(left - value)}` : undefined}>
+      <p className="mb-4 text-sm text-p-muted">Отметка видна только в разделе «Финансы»: остаток договора и Notion не меняются, ученику ничего не отправляется.</p>
+      <form id="fin-pay" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (!invalid && !pay.isPending) pay.mutate() }}>
+        <FinField label={`Сумма, ${item?.currency ?? 'KZT'}`} required htmlFor="fin-pay-amount"
+          hint={item && value > 0 && value < left ? `Частичная оплата: останется ${money(left - value, item?.currency)}` : undefined}>
           <MoneyInput id="fin-pay-amount" value={amount} onChange={setAmount} required />
         </FinField>
         <FinField label="Дата оплаты" required htmlFor="fin-pay-date">
@@ -121,6 +122,7 @@ export function ScheduleItemDialog({
   onClose: () => void
 }) {
   const invalidate = useInvalidateFinance()
+  const creation = useRef<{ fingerprint: string; key: string } | null>(null)
   const [kind, setKind] = useState<ScheduleKind>('main')
   const [label, setLabel] = useState('')
   const [amount, setAmount] = useState('')
@@ -130,10 +132,11 @@ export function ScheduleItemDialog({
 
   useEffect(() => {
     if (!open) return
+    creation.current = null
     setKind(item?.kind ?? 'main')
     setLabel(item?.label ?? '')
     const preset = item ? Number.parseFloat(item.amount) : presetAmount
-    setAmount(preset ? formatAmountInput(String(Math.round(preset))) : '')
+    setAmount(preset ? formatAmountInput(String(preset)) : '')
     setDueDate(item?.due_date ?? localIso())
     setNote(item?.note ?? '')
     setConfirmDelete(false)
@@ -144,7 +147,13 @@ export function ScheduleItemDialog({
   const payload = () => ({ kind, label: label.trim() || null, amount: String(value), due_date: dueDate, note: note.trim() || null })
 
   const save = useMutation({
-    mutationFn: () => (item ? financeApi.updateItem(item.id, payload()) : financeApi.createItem({ contract_id: contractId, ...payload() })),
+    mutationFn: () => {
+      const data = payload()
+      if (item) return financeApi.updateItem(item.id, data)
+      const fingerprint = JSON.stringify([contractId, data])
+      if (creation.current?.fingerprint !== fingerprint) creation.current = { fingerprint, key: crypto.randomUUID() }
+      return financeApi.createItem({ contract_id: contractId, ...data, operation_key: creation.current.key })
+    },
     onSuccess: () => {
       invalidate()
       toast({ title: item ? 'Платёж изменён' : 'Платёж добавлен в график' })
@@ -187,7 +196,7 @@ export function ScheduleItemDialog({
         </>
       }
     >
-      <form id="fin-schedule" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (!invalid) save.mutate() }}>
+      <form id="fin-schedule" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); if (!invalid && !save.isPending) save.mutate() }}>
         <FinField label="За что" htmlFor="fin-s-kind">
           <FinSelect id="fin-s-kind" value={kind} onChange={(e) => setKind(e.target.value as ScheduleKind)}>
             {(Object.keys(KIND_LABELS) as ScheduleKind[]).map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
@@ -277,4 +286,18 @@ export function AttachReceiptButton({ paymentId, label = 'Прикрепить' 
       />
     </>
   )
+}
+
+
+export function AllocatePaymentDialog({ payment, items, onClose }: { payment: ReceivedPayment | null; items: ScheduleItem[]; onClose: () => void }) {
+  const invalidate = useInvalidateFinance()
+  const [itemId, setItemId] = useState('')
+  useEffect(() => { setItemId('') }, [payment])
+  const candidates = items.filter(i => i.currency === payment?.currency && Number(i.left) >= Number(payment?.amount))
+  const save = useMutation({ mutationFn: () => financeApi.allocatePayment(payment!.id, itemId), onSuccess: () => { invalidate(); onClose(); toast({ title: 'Оплата привязана к графику' }) }, onError: e => toast({ title: 'Не удалось привязать', description: getErrorMessage(e), variant: 'destructive' }) })
+  return <FinModal open={!!payment} onClose={onClose} title="Привязать полученную оплату" footer={<><FinButton onClick={onClose}>Отмена</FinButton><FinButton variant="primary" disabled={!itemId || save.isPending} onClick={() => save.mutate()}>Привязать</FinButton></>}>
+    <p className="mb-4 text-sm">Оплата уже учтена в остатке договора. Привязка закроет соответствующую часть графика и не спишет сумму повторно.</p>
+    <FinSelect aria-label="Платёж графика" value={itemId} onChange={e => setItemId(e.target.value)}><option value="">Выберите строку графика</option>{candidates.map(i => <option key={i.id} value={i.id}>{paymentTitle(i)} · {date(i.due_date)} · {money(i.left, i.currency)}</option>)}</FinSelect>
+    {!candidates.length && <p className="mt-3 text-sm">Нет строки графика с достаточным неоплаченным остатком в этой валюте.</p>}
+  </FinModal>
 }

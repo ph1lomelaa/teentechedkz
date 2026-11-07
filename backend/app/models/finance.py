@@ -40,6 +40,7 @@ class PaymentScheduleItem(Base):
     __tablename__ = "payment_schedule_items"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    import_key: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     contract_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
     kind: Mapped[ScheduleKind] = mapped_column(SAEnum(ScheduleKind, name="schedule_kind"), default=ScheduleKind.main)
