@@ -100,4 +100,17 @@ export const actsApi = {
     (await api.post<ActMail>(`/acts/${id}/mail/${attempt}/resolve`, { outcome, note })).data,
   portalList: async () => (await api.get<ActRecord[]>('/acts/portal/mine')).data,
   portalPdf: (id: string) => blobRequest(api.get(`/acts/portal/${id}/pdf`, { responseType: 'blob' })),
+  portalContracts: async () => (await api.get<PortalContract[]>('/acts/portal/contracts')).data,
+  portalContractPdf: (id: string) => blobRequest(api.get(`/acts/portal/contracts/${id}/pdf`, { responseType: 'blob' })),
+}
+
+export interface PortalContract {
+  id: string
+  status: number
+  source: string
+  signed_date: string | null
+  fields: Partial<Record<'contract_number' | 'contract_date' | 'city' | 'customer_name' | 'student_name' | 'executor_name', string>>
+  services: { name: string; text?: string | null }[]
+  amount: string | null
+  currency: string | null
 }

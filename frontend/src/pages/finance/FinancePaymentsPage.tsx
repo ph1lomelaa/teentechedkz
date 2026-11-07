@@ -1,3 +1,4 @@
+import { NotionScheduleNotice } from '@/components/finance/NotionScheduleNotice'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -12,7 +13,7 @@ import {
 } from '@/components/finance/ui'
 import { AttachReceiptButton, PayDialog } from '@/components/finance/dialogs'
 import {
-  METHOD_LABELS, addDays, date, dateTime, downloadCsv, localIso, money, num, parseIso, paymentTitle, payments, plural,
+  METHOD_LABELS, addDays, date, dateTime, downloadCsv, localIso, money, moneyTotals, num, parseIso, paymentTitle, payments, plural,
 } from '@/components/finance/format'
 
 const paidCount = (n: number) => plural(n, ['оплата', 'оплаты', 'оплат'])
@@ -20,8 +21,6 @@ const paidCount = (n: number) => plural(n, ['оплата', 'оплаты', 'о�
 type Tab = 'expected' | 'overdue' | 'received' | 'calendar'
 const TABS: Tab[] = ['expected', 'overdue', 'received', 'calendar']
 
-const sum = (rows: { left?: string; amount: string }[], key: 'left' | 'amount' = 'left') =>
-  rows.reduce((s, r) => s + num(key === 'left' ? r.left : r.amount), 0)
 
 function SearchBox({ value, onChange, placeholder = 'Имя ученика' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
@@ -56,6 +55,7 @@ export function FinancePaymentsPage() {
   const canManage = can('finance_desk', 'manage')
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const { data: counters } = useQuery({ queryKey: financeKeys.counters(), queryFn: financeApi.counters })
+  const notionPreview = useQuery({ queryKey: financeKeys.notionImportPreview(), queryFn: financeApi.notionImportPreview })
   const [exporter, setExporter] = useState<(() => void) | null>(null)
 
   return (
@@ -65,6 +65,7 @@ export function FinancePaymentsPage() {
         description="Ожидаемые, просроченные и поступившие оплаты клиентов по графику договоров."
         actions={<FinButton onClick={() => exporter?.()} disabled={!exporter || raw === 'calendar'}>Экспорт</FinButton>}
       />
+      {notionPreview.data && <NotionScheduleNotice count={notionPreview.data.count} canManage={canManage} />}
       <FinTabs<Tab>
         value={tab}
         onChange={setTab}
@@ -114,14 +115,14 @@ function ExpectedTab({ canManage, onPay, setExporter }: { canManage: boolean; on
     || (p === 'month' && i.due_date <= monthEnd) || (p === 'later' && i.due_date > addDays(today, 6))
   const rows = data.filter((i) => matches(i, q, mzk) && inPeriod(i, period))
   const exportFn = () => downloadCsv(`ожидаются-${today}.csv`, ['Ученик', 'МЗК', 'Платёж', 'Срок оплаты', 'Сумма'],
-    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), money(i.left)]))
+    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), money(i.left, i.currency)]))
   useExporter(setExporter, exportFn)
 
   return (
     <>
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       <FinCard>
-        <FinFilterBar summary={`${payments(rows.length)} · ${money(sum(rows))}`}>
+        <FinFilterBar summary={`${payments(rows.length)} · ${moneyTotals(rows)}`}>
           <SearchBox value={q} onChange={setQ} />
           <MzkSelect items={data} value={mzk} onChange={setMzk} />
           <FinSelect aria-label="Период" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="w-44">
@@ -146,12 +147,12 @@ function ExpectedTab({ canManage, onPay, setExporter }: { canManage: boolean; on
                   {date(i.due_date)}
                   {i.due_date === today && <span className="ml-2"><FinBadge tone="yellow">сегодня</FinBadge></span>}
                 </Td>
-                <Td right className="font-semibold">{money(i.left)}</Td>
+                <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
                 <Td right>{canManage && <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>}</Td>
               </tr>
             ))}
             {rows.length > 0 && (
-              <TotalRow><Td colSpan={4}>Итого</Td><Td right>{money(sum(rows))}</Td><Td /></TotalRow>
+              <TotalRow><Td colSpan={4}>Итого</Td><Td right>{moneyTotals(rows)}</Td><Td /></TotalRow>
             )}
           </tbody>
         </FinTable>
@@ -179,13 +180,13 @@ function OverdueTab({ canManage, onPay, setExporter }: { canManage: boolean; onP
   const rows = data.filter((i) => matches(i, q, mzk) && inAge(i, age))
   const today = localIso()
   useExporter(setExporter, () => downloadCsv(`просрочены-${today}.csv`, ['Ученик', 'МЗК', 'Платёж', 'Срок оплаты', 'Просрочка, дн.', 'Сумма', 'Напоминание'],
-    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), i.days_overdue, money(i.left), i.reminded_at ? dateTime(i.reminded_at) : ''])))
+    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), i.days_overdue, money(i.left, i.currency), i.reminded_at ? dateTime(i.reminded_at) : ''])))
 
   return (
     <>
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       <FinCard>
-        <FinFilterBar summary={`${payments(rows.length)} · ${money(sum(rows))}`}>
+        <FinFilterBar summary={`${payments(rows.length)} · ${moneyTotals(rows)}`}>
           <SearchBox value={q} onChange={setQ} />
           <MzkSelect items={data} value={mzk} onChange={setMzk} />
           <FinSelect aria-label="Срок просрочки" value={age} onChange={(e) => setAge(e.target.value as keyof typeof AGE)} className="w-44">
@@ -204,14 +205,14 @@ function OverdueTab({ canManage, onPay, setExporter }: { canManage: boolean; onP
                 <Td>{paymentTitle(i)}</Td>
                 <Td className="whitespace-nowrap">{date(i.due_date)}</Td>
                 <Td right><FinBadge tone="bad">{i.days_overdue} дн.</FinBadge></Td>
-                <Td right className="font-semibold">{money(i.left)}</Td>
+                <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
                 <Td className="whitespace-nowrap text-[13px] text-p-muted">{i.reminded_at ? dateTime(i.reminded_at) : 'Не отправлялось'}</Td>
                 {/* «Напомнить МЗК» — в карточке договора: здесь одна кнопка на строку. */}
                 <Td right>{canManage && <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>}</Td>
               </tr>
             ))}
             {rows.length > 0 && (
-              <TotalRow><Td colSpan={5}>Итого</Td><Td right>{money(sum(rows))}</Td><Td colSpan={2} /></TotalRow>
+              <TotalRow><Td colSpan={5}>Итого</Td><Td right>{moneyTotals(rows)}</Td><Td colSpan={2} /></TotalRow>
             )}
           </tbody>
         </FinTable>
@@ -246,10 +247,9 @@ function ReceivedTab({ canManage, setExporter }: { canManage: boolean; setExport
     queryFn: () => financeApi.received(from, to),
   })
   const rows = data.filter((p) => (!method || p.method === method) && (!noReceipt || !p.has_receipt))
-  const total = (list: ReceivedPayment[]) => list.reduce((s, p) => s + num(p.amount), 0)
   const byMethod = (m: PaymentMethod) => rows.filter((p) => p.method === m)
   useExporter(setExporter, () => downloadCsv(`поступили-${from}-${to}.csv`, ['Дата оплаты', 'Ученик', 'За что', 'Способ', 'Сумма', 'Чек', 'Отметил'],
-    rows.map((p) => [date(p.paid_at), p.student_name, paymentTitle(p), p.method ? METHOD_LABELS[p.method] : '', money(p.amount), p.has_receipt ? 'есть' : 'нет', p.recorded_by])))
+    rows.map((p) => [date(p.paid_at), p.student_name, paymentTitle(p), p.method ? METHOD_LABELS[p.method] : '', money(p.amount, p.currency), p.has_receipt ? 'есть' : 'нет', p.recorded_by])))
 
   return (
     <>
@@ -257,9 +257,9 @@ function ReceivedTab({ canManage, setExporter }: { canManage: boolean; setExport
       <FinCard>
         <FinFilterBar summary={
           <span>
-            {paidCount(rows.length)} · {money(total(rows))}
+            {paidCount(rows.length)} · {moneyTotals(rows, 'amount')}
             <span className="ml-2 font-normal text-p-muted">
-              {(['kaspi', 'bank', 'cash'] as PaymentMethod[]).filter((m) => byMethod(m).length).map((m) => `${METHOD_LABELS[m]} ${money(total(byMethod(m)))}`).join(' · ')}
+              {(['kaspi', 'bank', 'cash'] as PaymentMethod[]).filter((m) => byMethod(m).length).map((m) => `${METHOD_LABELS[m]} ${moneyTotals(byMethod(m), 'amount')}`).join(' · ')}
             </span>
           </span>
         }>
@@ -308,7 +308,7 @@ function ReceivedTab({ canManage, setExporter }: { canManage: boolean; setExport
               </tr>
             ))}
             {rows.length > 0 && (
-              <TotalRow><Td colSpan={4}>Итого</Td><Td right>{money(total(rows))}</Td><Td colSpan={2} /></TotalRow>
+              <TotalRow><Td colSpan={4}>Итого</Td><Td right>{moneyTotals(rows, 'amount')}</Td><Td colSpan={2} /></TotalRow>
             )}
           </tbody>
         </FinTable>
@@ -351,9 +351,9 @@ function CalendarTab({ canManage, onPay }: { canManage: boolean; onPay: (i: Sche
   }, [items, received])
 
   const inMonth = (iso: string) => iso >= monthFrom && iso <= monthTo
-  const plan = items.filter((i) => inMonth(i.due_date)).reduce((s, i) => s + num(i.amount), 0)
-  const got = received.filter((p) => p.paid_at && inMonth(p.paid_at)).reduce((s, p) => s + num(p.amount), 0)
-  const wait = items.filter((i) => inMonth(i.due_date) && i.state !== 'paid').reduce((s, i) => s + num(i.left), 0)
+  const plan = moneyTotals(items.filter((i) => inMonth(i.due_date)), 'amount')
+  const got = moneyTotals(received.filter((p) => p.paid_at && inMonth(p.paid_at)), 'amount')
+  const wait = moneyTotals(items.filter((i) => inMonth(i.due_date) && i.state !== 'paid'))
   const day = byDay.get(picked)
   const shift = (delta: number) => {
     const d = new Date(cursor.y, cursor.m + delta, 1)
@@ -387,7 +387,7 @@ function CalendarTab({ canManage, onPay }: { canManage: boolean; onPay: (i: Sche
                   type="button"
                   onClick={() => setPicked(iso)}
                   aria-pressed={picked === iso}
-                  aria-label={`${date(iso)}: поступило ${money(v?.got ?? 0)}, ожидается ${money(v?.wait ?? 0)}, просрочено ${money(v?.late ?? 0)}`}
+                  aria-label={`${date(iso)}: поступило ${moneyTotals(v?.payments ?? [], 'amount')}, ожидается ${moneyTotals(v?.items.filter(i => i.state !== 'paid' && i.state !== 'overdue') ?? [])}, просрочено ${moneyTotals(v?.items.filter(i => i.state === 'overdue') ?? [])}`}
                   className={cn(
                     'flex min-h-[88px] flex-col gap-0.5 border-b border-r border-[var(--fin-line-soft)] px-2.5 py-2 text-left text-xs transition-colors hover:bg-[var(--fin-head)]',
                     i % 7 >= 5 && 'bg-[#FBFAF7]',
@@ -396,16 +396,16 @@ function CalendarTab({ canManage, onPay }: { canManage: boolean; onPay: (i: Sche
                   )}
                 >
                   <span className={cn('mb-1 grid h-6 w-6 place-items-center rounded-full text-[13px] font-semibold', iso === today && 'bg-brand text-black')}>{d.getDate()}</span>
-                  {!!v?.got && <span className="truncate font-semibold text-[var(--fin-ok)]">+{money(v.got)}</span>}
-                  {!!v?.wait && <span className="truncate font-semibold text-p-text">{money(v.wait)}</span>}
-                  {!!v?.late && <span className="truncate font-semibold text-[var(--fin-bad)]">{money(v.late)}</span>}
+                  {!!v?.got && <span className="truncate font-semibold text-[var(--fin-ok)]">+{moneyTotals(v.payments, 'amount')}</span>}
+                  {!!v?.wait && <span className="truncate font-semibold text-p-text">{moneyTotals(v.items.filter(i => i.state !== 'paid' && i.state !== 'overdue'))}</span>}
+                  {!!v?.late && <span className="truncate font-semibold text-[var(--fin-bad)]">{moneyTotals(v.items.filter(i => i.state === 'overdue'))}</span>}
                 </button>
               )
             })}
           </div>
         </div>
         <div className="grid grid-cols-3 border-t border-p-line text-sm">
-          {[['План', money(plan), ''], ['Поступило', money(got), 'text-[var(--fin-ok)]'], ['Ожидается', money(wait), '']].map(([l, v, c]) => (
+          {[['План', plan, ''], ['Поступило', got, 'text-[var(--fin-ok)]'], ['Ожидается', wait, '']].map(([l, v, c]) => (
             <div key={l} className="border-r border-p-line px-5 py-3 last:border-r-0">
               <div className="text-[13px] text-p-muted">{l}</div>
               <div className={cn('font-bold', c)}>{v}</div>
@@ -426,7 +426,7 @@ function CalendarTab({ canManage, onPay }: { canManage: boolean; onPay: (i: Sche
                   <div className="mt-1"><ItemStatus item={i} today={today} /></div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  <span className="font-semibold">{money(i.state === 'paid' ? i.amount : i.left)}</span>
+                  <span className="font-semibold">{money(i.state === 'paid' ? i.amount : i.left, i.currency)}</span>
                   {canManage && i.state !== 'paid' && <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>}
                 </div>
               </li>
@@ -434,7 +434,7 @@ function CalendarTab({ canManage, onPay }: { canManage: boolean; onPay: (i: Sche
             {day.payments.filter((p) => !day.items.some((i) => i.id === p.schedule_item_id)).map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <StudentCell name={p.student_name} sub={`Поступило · ${paymentTitle(p)}`} />
-                <span className="font-semibold text-[var(--fin-ok)]">+{money(p.amount)}</span>
+                <span className="font-semibold text-[var(--fin-ok)]">+{money(p.amount, p.currency)}</span>
               </li>
             ))}
           </ul>

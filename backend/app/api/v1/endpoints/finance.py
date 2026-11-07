@@ -45,7 +45,8 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 
 
 def _today() -> date:
-    return date.today()
+    from app.services.task_urgency import company_today
+    return company_today()
 
 
 def _month_bounds(day: date) -> tuple[date, date]:
@@ -76,6 +77,7 @@ class ContractMoney:
     scheduled_open: Decimal
     has_schedule: bool
     next_item: dict | None
+    recorded_paid: Decimal = Decimal("0")
 
     @property
     def undistributed(self) -> Decimal | None:
@@ -117,6 +119,7 @@ async def _contract_money(db: AsyncSession, contracts: list[Contract], today: da
             scheduled_open=sum((Decimal(i["left"]) for i in open_items), Decimal("0")),
             has_schedule=bool(own),
             next_item=open_items[0] if open_items else None,
+            recorded_paid=p,
         )
     return out
 
@@ -165,7 +168,7 @@ async def _payments_without_receipt(db: AsyncSession) -> list[dict]:
         .join(Contract, Contract.id == Payment.contract_id)
         .join(Student, Student.id == Contract.student_id)
         .outerjoin(User, User.id == Payment.recorded_by)
-        .join(PaymentScheduleItem, PaymentScheduleItem.id == Payment.schedule_item_id)
+        .outerjoin(PaymentScheduleItem, PaymentScheduleItem.id == Payment.schedule_item_id)
         .where(Payment.type == PaymentType.client_payment, Payment.status == PaymentStatus.paid,
                ~Payment.id.in_(select(Document.payment_id).where(Document.payment_id.is_not(None))))
         .order_by(Payment.paid_at.desc())
@@ -209,15 +212,19 @@ async def today_view(db: Db, current_user: CurrentUser):
     due_today = await _items(db, today, PaymentScheduleItem.due_date == today)
     overdue = [i for i in await _items(db, today, PaymentScheduleItem.due_date < today) if i["state"] == "overdue"]
     overdue.sort(key=lambda i: -i["days_overdue"])
-    received = (await db.execute(
-        select(func.coalesce(func.sum(Payment.amount), 0))
-        .where(Payment.type == PaymentType.client_payment, Payment.status == PaymentStatus.paid,
-               Payment.paid_at >= month_start, Payment.paid_at < month_end)
-    )).scalar_one()
-    planned = (await db.execute(
-        select(func.coalesce(func.sum(PaymentScheduleItem.amount), 0))
-        .where(PaymentScheduleItem.due_date >= month_start, PaymentScheduleItem.due_date < month_end)
-    )).scalar_one()
+    received_by_currency = dict((await db.execute(
+        select(Payment.currency, func.sum(Payment.amount)).join(Contract, Contract.id == Payment.contract_id)
+        .join(Student, Student.id == Contract.student_id)
+        .where(Student.is_archived.is_(False), Payment.type == PaymentType.client_payment,
+               Payment.status == PaymentStatus.paid, Payment.paid_at >= month_start, Payment.paid_at < month_end)
+        .group_by(Payment.currency))).all())
+    planned_by_currency = dict((await db.execute(
+        select(PaymentScheduleItem.currency, func.sum(PaymentScheduleItem.amount))
+        .join(Student, Student.id == PaymentScheduleItem.student_id)
+        .where(Student.is_archived.is_(False), PaymentScheduleItem.due_date >= month_start,
+               PaymentScheduleItem.due_date < month_end).group_by(PaymentScheduleItem.currency))).all())
+    received = received_by_currency.get('KZT', Decimal('0'))
+    planned = planned_by_currency.get('KZT', Decimal('0'))
     changes = (await db.execute(
         select(FinanceChangeEvent, Student.full_name)
         .join(Student, Student.id == FinanceChangeEvent.student_id)
@@ -229,11 +236,14 @@ async def today_view(db: Db, current_user: CurrentUser):
         "due_today": due_today,
         "overdue": overdue[:5],
         "overdue_count": len(overdue),
-        "overdue_total": _total(overdue),
+        "overdue_total": _total([i for i in overdue if i["currency"] == "KZT"]),
         "changes": [finance_desk.change_to_dict(e, name, None) for e, name in changes[:5]],
         "changes_count": len(changes),
         "month_received": str(received),
         "month_planned": str(planned),
+        "month_totals": [{"currency": currency, "received": str(received_by_currency.get(currency, 0)),
+                          "planned": str(planned_by_currency.get(currency, 0))}
+                         for currency in sorted(set(received_by_currency) | set(planned_by_currency))],
         "notion_import_count": len(await finance_desk.notion_import_candidates(db)),
     }
 
@@ -309,7 +319,7 @@ async def received(
         .outerjoin(User, User.id == Payment.recorded_by)
         .outerjoin(PaymentScheduleItem, PaymentScheduleItem.id == Payment.schedule_item_id)
         .where(Payment.type == PaymentType.client_payment, Payment.status == PaymentStatus.paid,
-               Payment.paid_at >= date_from, Payment.paid_at <= date_to)
+               Payment.paid_at >= date_from, Payment.paid_at <= date_to, Student.is_archived.is_(False))
         .order_by(Payment.paid_at.desc())
     )).all()
     with_receipt = set((await db.execute(
@@ -331,10 +341,11 @@ async def schedule(
 
 
 class ScheduleItemIn(BaseModel):
+    operation_key: uuid.UUID | None = None
     contract_id: uuid.UUID
     kind: ScheduleKind = ScheduleKind.main
     label: str | None = Field(default=None, max_length=200)
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=0, decimal_places=2)
     due_date: date
     note: str | None = None
 
@@ -342,7 +353,7 @@ class ScheduleItemIn(BaseModel):
 class ScheduleItemPatch(BaseModel):
     kind: ScheduleKind | None = None
     label: str | None = Field(default=None, max_length=200)
-    amount: Decimal | None = Field(default=None, gt=0)
+    amount: Annotated[Decimal, Field(gt=0, decimal_places=2)] | None = None
     due_date: date | None = None
     note: str | None = None
 
@@ -361,10 +372,17 @@ async def _item_dict(db: AsyncSession, item: PaymentScheduleItem) -> dict:
 @router.post("/schedule", status_code=201)
 async def create_item(body: ScheduleItemIn, db: Db, current_user: CurrentUser):
     require_access(current_user, "finance_desk", Action.manage)
-    contract = await db.get(Contract, body.contract_id)
+    contract = (await db.execute(select(Contract).where(Contract.id == body.contract_id).with_for_update())).scalar_one_or_none()
     if contract is None:
         raise HTTPException(status_code=404, detail="Договор не найден")
+    if body.operation_key:
+        existing = (await db.execute(select(PaymentScheduleItem).where(PaymentScheduleItem.import_key == f'manual:{body.operation_key}'))).scalar_one_or_none()
+        if existing:
+            if existing.contract_id != contract.id or existing.amount != body.amount or existing.due_date != body.due_date or existing.kind != body.kind:
+                raise HTTPException(409, 'Ключ операции уже использован для другого платежа графика')
+            return await _item_dict(db, existing)
     item = PaymentScheduleItem(
+        import_key=f'manual:{body.operation_key}' if body.operation_key else None,
         contract_id=contract.id, student_id=contract.student_id, kind=body.kind, label=body.label,
         amount=body.amount, currency=contract.currency or "KZT", due_date=body.due_date, note=body.note,
         created_by=current_user.id,
@@ -373,7 +391,6 @@ async def create_item(body: ScheduleItemIn, db: Db, current_user: CurrentUser):
     await db.flush()
     await log_change(db, "payment_schedule_item", item.id, "created", None,
                      f"{item.amount} · {item.due_date.isoformat()}", str(current_user.id))
-    await finance_desk.sync_contract_to_notion(db, contract, today=_today(), user=current_user)
     await db.commit()
     return await _item_dict(db, item)
 
@@ -382,6 +399,11 @@ async def create_item(body: ScheduleItemIn, db: Db, current_user: CurrentUser):
 async def update_item(item_id: uuid.UUID, body: ScheduleItemPatch, db: Db, current_user: CurrentUser):
     require_access(current_user, "finance_desk", Action.manage)
     item = await _load_item(db, item_id)
+    await db.execute(select(Contract.id).where(Contract.id == item.contract_id).with_for_update())
+    await db.refresh(item)
+    paid = (await finance_desk.paid_by_item(db, [item.id])).get(item.id, Decimal('0'))
+    if body.amount is not None and body.amount < paid:
+        raise HTTPException(409, 'Сумма графика не может быть меньше уже внесённых оплат')
     for key, value in body.model_dump(exclude_unset=True).items():
         old = getattr(item, key)
         if value is None and key in ("amount", "due_date", "kind"):
@@ -390,7 +412,6 @@ async def update_item(item_id: uuid.UUID, body: ScheduleItemPatch, db: Db, curre
         if key in ("amount", "due_date"):
             await log_change(db, "payment_schedule_item", item.id, key, str(old), str(value), str(current_user.id))
     await db.flush()
-    await finance_desk.sync_contract_to_notion(db, await db.get(Contract, item.contract_id), today=_today(), user=current_user)
     await db.commit()
     return await _item_dict(db, item)
 
@@ -399,6 +420,7 @@ async def update_item(item_id: uuid.UUID, body: ScheduleItemPatch, db: Db, curre
 async def delete_item(item_id: uuid.UUID, db: Db, current_user: CurrentUser):
     require_access(current_user, "finance_desk", Action.manage)
     item = await _load_item(db, item_id)
+    await db.execute(select(Contract.id).where(Contract.id == item.contract_id).with_for_update())
     paid = (await finance_desk.paid_by_item(db, [item.id])).get(item.id, Decimal("0"))
     if paid > 0:
         raise HTTPException(status_code=409, detail="По платежу уже есть оплата — удалить нельзя, измените сумму")
@@ -407,12 +429,42 @@ async def delete_item(item_id: uuid.UUID, db: Db, current_user: CurrentUser):
     contract_id = item.contract_id
     await db.delete(item)
     await db.flush()
-    await finance_desk.sync_contract_to_notion(db, await db.get(Contract, contract_id), today=_today(), user=current_user)
     await db.commit()
 
 
+class AllocatePaymentIn(BaseModel):
+    schedule_item_id: uuid.UUID
+
+
+@router.post('/payments/{payment_id}/allocate')
+async def allocate_payment(payment_id: uuid.UUID, body: AllocatePaymentIn, db: Db, current_user: CurrentUser):
+    require_access(current_user, 'finance_desk', Action.manage)
+    payment = await db.get(Payment, payment_id)
+    if payment is None:
+        raise HTTPException(404, 'Оплата не найдена')
+    contract = (await db.execute(select(Contract).where(Contract.id == payment.contract_id).with_for_update())).scalar_one()
+    await db.refresh(payment)
+    if payment.type != PaymentType.client_payment or payment.status != PaymentStatus.paid:
+        raise HTTPException(409, 'К графику привязывается только полученная оплата клиента')
+    if payment.schedule_item_id:
+        if payment.schedule_item_id == body.schedule_item_id:
+            return {'ok': True}
+        raise HTTPException(409, 'Оплата уже привязана к графику')
+    item = await _load_item(db, body.schedule_item_id)
+    if item.contract_id != contract.id or item.currency != payment.currency:
+        raise HTTPException(422, 'Выберите платёж того же договора и в той же валюте')
+    paid = (await finance_desk.paid_by_item(db, [item.id])).get(item.id, Decimal('0'))
+    if payment.amount > item.amount - paid:
+        raise HTTPException(409, 'Оплата превышает неоплаченный остаток строки графика')
+    payment.schedule_item_id = item.id
+    await log_change(db, 'payment', payment.id, 'schedule_item_id', None, str(item.id), str(current_user.id))
+    # Личная отметка финансиста: остаток договора и Notion не трогаем.
+    await db.commit()
+    return {'ok': True}
+
+
 class PayIn(BaseModel):
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=0, decimal_places=2)
     paid_at: date
     method: PaymentMethod
     note: str | None = Field(default=None, max_length=500)
@@ -424,6 +476,12 @@ async def pay_item(item_id: uuid.UUID, body: PayIn, db: Db, current_user: Curren
     остаётся открытой на разницу и видна в просроченных, если срок прошёл."""
     require_access(current_user, "finance_desk", Action.manage)
     item = await _load_item(db, item_id)
+    contract = (await db.execute(select(Contract).where(Contract.id == item.contract_id).with_for_update())).scalar_one()
+    # The contract lock serializes partial payments and balance changes.
+    await db.refresh(item)
+    paid = (await finance_desk.paid_by_item(db, [item.id])).get(item.id, Decimal('0'))
+    if body.amount > item.amount - paid:
+        raise HTTPException(409, 'Сумма превышает неоплаченный остаток платежа. Обновите график перед сохранением.')
     if body.paid_at > _today():
         raise HTTPException(status_code=400, detail="Дата оплаты не может быть в будущем")
     payment = Payment(
@@ -435,9 +493,8 @@ async def pay_item(item_id: uuid.UUID, body: PayIn, db: Db, current_user: Curren
     await db.flush()
     await log_change(db, "payment", payment.id, "created", None,
                      f"{payment.amount} · {body.method.value} · график {item.id}", str(current_user.id))
-    # Оплата уменьшает «Остаток клиента» и уходит в Notion — МЗК видят её там.
-    await finance_desk.sync_contract_to_notion(
-        db, await db.get(Contract, item.contract_id), today=_today(), user=current_user, paid_now=body.amount)
+    # Отметка — для самого финансиста: остаток договора не меняется, в Notion
+    # и ученику ничего не уходит (решение 06.11.2026).
     await db.commit()
     # payment_id нужен фронту, чтобы приложить чек к этому платежу.
     return {**await _item_dict(db, item), "payment_id": str(payment.id)}
@@ -537,13 +594,13 @@ async def contracts(
         stmt = stmt.where(User.name == mzk)
     if intake:
         stmt = stmt.where(Student.intake_year == intake)
-    linked = select(TrustMeContractLink.id).where(TrustMeContractLink.financial_contract_id == Contract.id).exists()
-    ready = select(ServiceAct.id).join(TrustMeContractLink, TrustMeContractLink.id == ServiceAct.contract_link_id).where(
-        TrustMeContractLink.financial_contract_id == Contract.id, ServiceAct.status == "ready").exists()
-    if documents == "no_contract":
-        stmt = stmt.where(~linked)
-    elif documents == "no_act":
-        stmt = stmt.where(~ready)
+    if documents in ("no_contract", "no_act"):
+        from app.services.act_coverage import financial_coverage
+        candidates = [c.id for c, _, _ in (await db.execute(stmt)).all()]
+        covered = await financial_coverage(db, candidates)
+        ids = [cid for cid in candidates if (not covered[cid]['contracts'] if documents == 'no_contract'
+               else not covered[cid]['ready_act_count'])]
+        stmt = stmt.where(Contract.id.in_(ids))
     if schedule == "none":
         stmt = stmt.where(~Contract.id.in_(select(PaymentScheduleItem.contract_id)))
     if schedule == "mismatch":
@@ -601,6 +658,8 @@ def _contract_row(c: Contract, s: Student, mzk_name: str | None, money: Contract
         "currency": c.currency,
         "amount": str(c.amount) if c.amount is not None else None,
         "paid": str(money.paid),
+        "recorded_paid": str(money.recorded_paid),
+        "historical_paid": str(max(money.paid - money.recorded_paid, Decimal("0"))),
         "remaining": str(money.remaining) if money.remaining is not None else None,
         "next_payment": _next_payment(money, today),
     }
@@ -631,7 +690,7 @@ async def acts_summary(db: Db, current_user: CurrentUser):
     return {
         "active_total": len(active),
         "active_without_trustme": sum(not covered[c.id]["contracts"] for c, _ in active),
-        "active_without_acts": sum(bool(covered[c.id]["contracts"]) and not covered[c.id]["services_closed"] for c, _ in active),
+        "active_without_acts": sum(not covered[c.id]["ready_act_count"] for c, _ in active),
         "active_average_percent": round(sum(percents) / len(percents)) if percents else None,
         "month": {"created": len(made), "sent": len(sent), "not_sent": len(made) - len(sent)},
         "paid_not_closed": [{"contract_id": str(c.id), "student_name": s.full_name, "closed_percent": covered[c.id]["percent"],
@@ -659,7 +718,7 @@ async def contract_detail(contract_id: uuid.UUID, db: Db, current_user: CurrentU
         select(Payment, User.name, PaymentScheduleItem)
         .outerjoin(User, User.id == Payment.recorded_by)
         .outerjoin(PaymentScheduleItem, PaymentScheduleItem.id == Payment.schedule_item_id)
-        .where(Payment.contract_id == c.id, Payment.type == PaymentType.client_payment)
+        .where(Payment.contract_id == c.id, Payment.type == PaymentType.client_payment, Payment.status == PaymentStatus.paid)
         .order_by(Payment.paid_at.desc().nulls_last())
     )).all()
     with_receipt = set((await db.execute(
@@ -699,23 +758,26 @@ async def contract_detail(contract_id: uuid.UUID, db: Db, current_user: CurrentU
 
 
 @router.get("/review")
-async def review(db: Db, current_user: CurrentUser, limit: int = Query(200, le=500)):
+async def review(db: Db, current_user: CurrentUser, limit: int = Query(200, ge=1, le=500), offset: int = Query(0, ge=0), status: Literal["new", "all"] = "all"):
     """Всё, что ждёт решения бухгалтера: правки из Notion, оплаты без чека,
     расхождения графика с остатком."""
     require_access(current_user, "finance_desk", Action.view)
     mzk_user = User.__table__.alias("mzk_user")
     actor = User.__table__.alias("actor")
-    events = (await db.execute(
-        select(FinanceChangeEvent, Student.full_name, User.name, mzk_user.c.name, actor.c.name)
+    stmt = (select(FinanceChangeEvent, Student.full_name, User.name, mzk_user.c.name, actor.c.name)
         .join(Student, Student.id == FinanceChangeEvent.student_id)
         .outerjoin(User, User.id == FinanceChangeEvent.resolved_by)
         .outerjoin(actor, actor.c.id == FinanceChangeEvent.actor_id)
         .outerjoin(Contract, Contract.id == FinanceChangeEvent.contract_id)
         .outerjoin(mzk_user, mzk_user.c.id == Contract.mzk_manager_id)
-        .order_by((FinanceChangeEvent.status == FinanceChangeStatus.new).desc(), FinanceChangeEvent.created_at.desc())
-        .limit(limit)
-    )).all()
+        .order_by((FinanceChangeEvent.status == FinanceChangeStatus.new).desc(), FinanceChangeEvent.created_at.desc(), FinanceChangeEvent.id))
+    if status == 'new':
+        stmt = stmt.where(FinanceChangeEvent.status == FinanceChangeStatus.new)
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    pending_total = await _new_changes_count(db)
+    events = (await db.execute(stmt.offset(offset).limit(limit))).all()
     return {
+        "total": total, "pending_total": pending_total, "offset": offset, "limit": limit,
         "changes": [finance_desk.change_to_dict(e, name, resolver, mzk, who) for e, name, resolver, mzk, who in events],
         "no_receipt": await _payments_without_receipt(db),
         "discrepancies": await _discrepancies(db, _today()),
@@ -723,7 +785,7 @@ async def review(db: Db, current_user: CurrentUser, limit: int = Query(200, le=5
 
 
 async def _open_event(db: AsyncSession, event_id: uuid.UUID) -> FinanceChangeEvent:
-    event = await db.get(FinanceChangeEvent, event_id)
+    event = (await db.execute(select(FinanceChangeEvent).where(FinanceChangeEvent.id == event_id).with_for_update())).scalar_one_or_none()
     if event is None:
         raise HTTPException(status_code=404, detail="Изменение не найдено")
     if event.status is not FinanceChangeStatus.new:
@@ -751,7 +813,6 @@ async def accept_change(event_id: uuid.UUID, db: Db, current_user: CurrentUser, 
                          old_due.isoformat() if old_due else None, moved.due_date.isoformat(),
                          str(current_user.id), "notion_change")
         await db.flush()
-        await finance_desk.sync_contract_to_notion(db, await db.get(Contract, moved.contract_id), today=_today(), user=current_user)
     await db.commit()
     return {"ok": True, "moved_item_id": str(moved.id) if moved else None}
 
@@ -786,8 +847,16 @@ async def notion_import(db: Db, current_user: CurrentUser):
     пропускает, поэтому безопасен."""
     require_access(current_user, "finance_desk", Action.manage)
     created = 0
-    for contract, student, remaining in await finance_desk.notion_import_candidates(db):
+    candidates = await finance_desk.notion_import_candidates(db)
+    for candidate, student, remaining in sorted(candidates, key=lambda row: str(row[0].id)):
+        contract = (await db.execute(select(Contract).where(Contract.id == candidate.id).with_for_update().execution_options(populate_existing=True))).scalar_one()
+        if (await db.execute(select(PaymentScheduleItem.id).where(PaymentScheduleItem.contract_id == contract.id).limit(1))).first():
+            continue
+        remaining = contract_finance.client_remaining(contract.amount, await finance_desk.platform_paid(db, contract.id), manual_remaining=contract.client_remaining_amount)
+        if not remaining or remaining <= 0 or not contract.client_remaining_date or contract.pipeline_status == PipelineStatus.refund:
+            continue
         item = PaymentScheduleItem(
+            import_key=f'notion-initial:{contract.id}',
             contract_id=contract.id, student_id=student.id, kind=ScheduleKind.main, label="Остаток из Notion",
             amount=remaining, currency=contract.currency or "KZT", due_date=contract.client_remaining_date,
             note="Перенесено из Notion: «Остаток клиента» и «Остаток клиента (дата)»", created_by=current_user.id,

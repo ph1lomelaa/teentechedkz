@@ -301,6 +301,9 @@ async def run(sent):
             await db.commit()
             assert await finance_desk.notify_due_today(db, TODAY) == 0
 
+        async with sessions() as db:
+            c = await db.get(Contract, contract_id)
+            before_remaining = (c.client_remaining_amount, c.client_remaining_date)
         part = await call('POST', f"/finance/schedule/{today['id']}/pay", expected=201,
                           json={'amount': '200000', 'paid_at': TODAY.isoformat(), 'method': 'kaspi'})
         assert part['state'] == 'today' and Decimal(part['left']) == Decimal('250000')
@@ -315,11 +318,10 @@ async def run(sent):
         assert mine(view['due_today']) == [today['id']]
         assert view['overdue_count'] - base_today['overdue_count'] == 1
         assert Decimal(view['month_received']) - Decimal(base_today['month_received']) == Decimal('450000')
-        # Оплата уменьшила остаток в договоре, дата — срок ближайшего неоплаченного.
+        # Отметка оплаты — личная для финансиста: остаток и его дата не меняются.
         async with sessions() as db:
             c = await db.get(Contract, contract_id)
-            assert c.client_remaining_amount == Decimal('900000')
-            assert c.client_remaining_date == TODAY - timedelta(days=10)
+            assert (c.client_remaining_amount, c.client_remaining_date) == before_remaining
         counters = await call('GET', '/finance/counters')
         assert counters['overdue'] - base_counters['overdue'] == 1
         assert counters['no_receipt'] - base_counters['no_receipt'] == 2
@@ -353,8 +355,9 @@ async def run(sent):
         other_row = next(r for r in listing['items'] if r['contract_id'] == str(other_contract_id))
         assert other_row['next_payment']['kind'] == 'not_planned'
         # «Оплачено» = договор − остаток: деньги, внесённые до запуска, видны.
-        # Остаток 250 000 поставил МЗК в карточке выше.
+        # Остаток 250 000 поставил МЗК в карточке выше; оплата на старой странице его не меняет.
         assert Decimal(other_row['paid']) == Decimal('650000')
+        assert Decimal(other_row['recorded_paid']) == Decimal('50000')
         assert (await call('GET', f'/finance/contracts?q={suffix}&status=refund'))['total'] == 0
 
         detail = await call('GET', f'/finance/contracts/{contract_id}')

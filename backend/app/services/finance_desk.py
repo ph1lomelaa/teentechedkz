@@ -291,6 +291,17 @@ class ChangeGroup:
     def link(self) -> str:
         return f"/finance/contracts/{self.contract_id}" if self.contract_id else "/finance/review"
 
+    @property
+    def notion_url(self) -> str | None:
+        """Страница ученика в Notion — из ссылки снимка «snapshot:<page_id>:…»."""
+        for e in self.events:
+            ref = e.source_ref or ""
+            if ref.startswith("snapshot:"):
+                page = ref.split(":")[1].replace("-", "")
+                if page:
+                    return f"https://www.notion.so/{page}"
+        return None
+
 
 async def _groups(db: AsyncSession, events: list[tuple[FinanceChangeEvent, str]]) -> list[ChangeGroup]:
     """Сгруппировать по договору. Ученик, у которого в очереди синка ещё лежат
@@ -412,7 +423,8 @@ def email_text(group: ChangeGroup, url: str, now: list[tuple[str, str]]) -> str:
     lines = [group.student_name, f"Изменения {group.where} · {changed_at(group)} (Алматы)", *group.lines]
     if now:
         lines += ["", "Сейчас по договору:", *(f"{label}: {value}" for label, value in now)]
-    return "\n".join([*lines, "", f"Открыть договор: {url}"])
+    links = [f"Открыть договор: {url}"] + ([f"Открыть в Notion: {group.notion_url}"] if group.notion_url else [])
+    return "\n".join([*lines, "", *links])
 
 
 def _email_html(group: ChangeGroup, url: str, now: list[tuple[str, str]] | None = None) -> str:
@@ -433,7 +445,10 @@ def _email_html(group: ChangeGroup, url: str, now: list[tuple[str, str]] | None 
         f"<table style='border-collapse:collapse'>{rows}</table>"
         + (f"<p style='margin:20px 0 6px;font-weight:700'>Сейчас по договору</p><table style='border-collapse:collapse'>{state}</table>" if state else "")
         + f"<p style='margin:20px 0'><a href='{escape(url)}' style='background:#FFD400;color:#111;padding:10px 18px;"
-        "border-radius:8px;text-decoration:none;font-weight:700'>Открыть договор</a></p>"
+        "border-radius:8px;text-decoration:none;font-weight:700'>Открыть договор</a>"
+        + (f" <a href='{escape(group.notion_url)}' style='margin-left:8px;border:1px solid #111;color:#111;padding:9px 18px;"
+           "border-radius:8px;text-decoration:none;font-weight:700'>Открыть в Notion</a>" if group.notion_url else "")
+        + "</p>"
         "<p style='color:#888;font-size:12px'>Письмо из раздела «Финансы» TeenTechEd.</p></div>"
     )
 

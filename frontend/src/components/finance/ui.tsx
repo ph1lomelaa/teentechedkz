@@ -152,26 +152,23 @@ const TONE_TEXT: Record<Tone, string> = {
 
 export function FinMetrics({
   items,
-  columns = 4,
 }: {
   items: { label: string; value: string; hint?: React.ReactNode; tone?: Tone; progress?: number }[]
   columns?: 3 | 4
 }) {
+  // Одна строка-сводка вместо сетки карточек: цифры читаются как текст отчёта.
   return (
-    <div className={cn('mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2', columns === 3 ? 'lg:grid-cols-3' : 'xl:grid-cols-4')}>
+    <dl className="mb-5 flex flex-wrap gap-x-8 gap-y-3 border-b border-p-line pb-4">
       {items.map((m) => (
-        <div key={m.label} className="min-w-0 rounded-xl border border-p-line bg-white px-5 py-4">
-          <div className="text-[13px] text-p-muted">{m.label}</div>
-          <div className={cn('mt-1 truncate text-2xl font-extrabold text-p-text', m.tone && TONE_TEXT[m.tone])}>{m.value}</div>
-          {m.progress !== undefined && (
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--fin-neutral-bg)]" aria-hidden="true">
-              <div className="h-full rounded-full bg-[var(--fin-ok)]" style={{ width: `${Math.min(100, Math.max(0, m.progress))}%` }} />
-            </div>
-          )}
-          {m.hint && <div className="mt-1.5 text-[13px] text-[var(--fin-text-3)]">{m.hint}</div>}
+        <div key={m.label} className="min-w-0">
+          <dt className="text-[13px] text-p-muted">{m.label}</dt>
+          <dd className={cn('text-base font-semibold text-p-text', m.tone && TONE_TEXT[m.tone])}>
+            {m.value}
+            {m.hint && <span className="ml-2 text-[13px] font-normal text-[var(--fin-text-3)]">{m.hint}</span>}
+          </dd>
         </div>
       ))}
-    </div>
+    </dl>
   )
 }
 
@@ -324,7 +321,7 @@ export function MoneyInput({ value, onChange, id, ...rest }: { value: string; on
   return (
     <FinInput
       id={id}
-      inputMode="numeric"
+      inputMode="decimal"
       value={value}
       onChange={(e) => onChange(formatAmountInput(e.target.value))}
       className="text-right tabular-nums"
@@ -399,10 +396,10 @@ export function FinModal({
 
 export function FinAlert({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#F2D675] bg-[var(--fin-warn-bg)] px-4 py-3 text-sm text-p-text">
+    <div role="status" className="mb-5 flex flex-col items-start gap-3 rounded-xl border border-[#F2D675] sm:flex-row sm:flex-wrap sm:items-center bg-[var(--fin-warn-bg)] px-4 py-3 text-sm text-p-text">
       <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--fin-warn)]" />
-      <div className="min-w-0 flex-1">{children}</div>
-      {action}
+      <div className="min-w-0 w-full flex-1 sm:w-auto">{children}</div>
+      {action && <div className="max-w-full shrink-0 [&_button]:whitespace-normal">{action}</div>}
     </div>
   )
 }

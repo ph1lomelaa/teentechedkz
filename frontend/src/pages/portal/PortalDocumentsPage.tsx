@@ -6,6 +6,7 @@ import { QueryState } from '@/components/shared/QueryState'
 import { toast } from '@/hooks/use-toast'
 import { documentsApi } from '@/api/documents'
 import { PortalActs } from '@/components/portal/PortalActs'
+import { PortalContracts } from '@/components/portal/PortalContracts'
 import { DocumentList, documentName } from '@/components/shared/DocumentList'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -138,6 +139,7 @@ export const PortalDocumentsPage: React.FC = () => {
         </div>
       </div>
 
+      <PortalContracts />
       <PortalActs />
       <input
         ref={fileRef}

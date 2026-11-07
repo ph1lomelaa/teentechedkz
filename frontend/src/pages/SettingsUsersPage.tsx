@@ -124,7 +124,7 @@ function AgreementStatusBadge({ status }: { status?: User['agreement_status'] })
   )
 }
 
-function UserModal({
+export function UserModal({
   user,
   open,
   onClose,
@@ -174,7 +174,7 @@ function UserModal({
           role: form.role,
           phone: form.phone || undefined,
           telegram_username: form.telegram_username || undefined,
-          mentor_specialties: form.mentor_specialties,
+          mentor_specialties: form.role === 'mentor' ? form.mentor_specialties : [],
         }
         await usersApi.update(user.id, payload)
         return null
@@ -185,7 +185,7 @@ function UserModal({
         email: form.email,
         role: form.role,
         phone: form.phone || undefined,
-        mentor_specialties: form.mentor_specialties,
+        mentor_specialties: form.role === 'mentor' ? form.mentor_specialties : [],
       })
       return created.invite_url
     },
@@ -277,7 +277,7 @@ function UserModal({
                 <Label>Роль</Label>
                 <Select
                   value={form.role}
-                  onValueChange={(v) => setForm({ ...form, role: v as UserRole })}
+                  onValueChange={(v) => setForm({ ...form, role: v as UserRole, mentor_specialties: v === 'mentor' ? form.mentor_specialties : [] })}
                   disabled={isSelf}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -294,12 +294,7 @@ function UserModal({
                   <p className="text-xs text-p-muted mt-1">Нельзя изменить собственную роль — попросите другого администратора.</p>
                 )}
               </div>
-              {/* Специализация у любого сотрудника, а не только у ментора:
-                  именно она говорит, кем человек работает, и именно по ней
-                  собирается список «кого назначить». Ученику она не нужна —
-                  он в назначениях не участвует. Список множественный: один
-                  сотрудник реально ведёт и IELTS, и страну. */}
-              {form.role !== 'student' && (
+              {form.role === 'mentor' && (
                 <div>
                   <Label>Специализация</Label>
                   <div className="mt-1 space-y-2 rounded-panel border border-p-line p-3">

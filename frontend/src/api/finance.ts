@@ -81,6 +81,7 @@ export interface TodayView {
   /** Пять последних непроверенных правок из Notion; всего — changes_count. */
   changes: FinanceChange[]
   changes_count: number
+  month_totals?: Array<{ currency: string; received: string; planned: string }>
   month_received: string
   month_planned: string
   /** Договоры с остатком и датой в Notion, но без графика. */
@@ -113,6 +114,8 @@ export interface FinanceContractRow {
   currency: string
   amount: string | null
   paid: string
+  recorded_paid?: string
+  historical_paid?: string
   remaining: string | null
   next_payment: { kind: NextPaymentKind; item: ScheduleItem | null }
 }
@@ -151,12 +154,14 @@ export interface FinanceMailDelivery {
 }
 
 export interface ReviewView {
+  total?: number; pending_total?: number; offset?: number; limit?: number
   changes: FinanceChange[]
   no_receipt: ReceivedPayment[]
   discrepancies: Discrepancy[]
 }
 
 export interface ScheduleItemInput {
+  operation_key?: string
   contract_id: string
   kind: ScheduleKind
   label?: string | null
@@ -192,6 +197,7 @@ export interface ActsSummary {
 
 export const financeKeys = {
   all: ['finance'] as const,
+  notionImportPreview: () => ['finance', 'notion-import'] as const,
   today: () => ['finance', 'today'] as const,
   counters: () => ['finance', 'counters'] as const,
   expected: () => ['finance', 'expected'] as const,
@@ -200,7 +206,7 @@ export const financeKeys = {
   schedule: (from: string, to: string) => ['finance', 'schedule', from, to] as const,
   contracts: (q: ContractsQuery) => ['finance', 'contracts', q] as const,
   contract: (id: string | undefined) => ['finance', 'contract', id] as const,
-  review: () => ['finance', 'review'] as const,
+  review: (status = 'all', offset = 0) => ['finance', 'review', status, offset] as const,
   actsSummary: () => ['finance', 'acts-summary'] as const,
 }
 
@@ -227,13 +233,14 @@ export const financeApi = {
     return (await apiClient.get('/finance/contracts', { params })).data
   },
   contract: async (id: string): Promise<FinanceContractDetail> => (await apiClient.get(`/finance/contracts/${id}`)).data,
-  review: async (): Promise<ReviewView> => (await apiClient.get('/finance/review')).data,
+  review: async (status = 'all', offset = 0): Promise<ReviewView> => (await apiClient.get('/finance/review', { params: { status, offset, limit: 100 } })).data,
   createItem: async (data: ScheduleItemInput): Promise<ScheduleItem> => (await apiClient.post('/finance/schedule', data)).data,
   updateItem: async (id: string, data: Partial<Omit<ScheduleItemInput, 'contract_id'>>): Promise<ScheduleItem> =>
     (await apiClient.patch(`/finance/schedule/${id}`, data)).data,
   deleteItem: async (id: string): Promise<void> => {
     await apiClient.delete(`/finance/schedule/${id}`)
   },
+  allocatePayment: async (id: string, scheduleItemId: string): Promise<void> => { await apiClient.post(`/finance/payments/${id}/allocate`, { schedule_item_id: scheduleItemId }) },
   pay: async (id: string, data: PayInput): Promise<ScheduleItem & { payment_id: string }> =>
     (await apiClient.post(`/finance/schedule/${id}/pay`, data)).data,
   uploadReceipt: async (paymentId: string, file: File): Promise<{ id: string; file_name: string }> => {
@@ -247,6 +254,7 @@ export const financeApi = {
     (await apiClient.post(`/finance/schedule/${id}/remind`)).data,
   acceptChange: async (id: string, moveSchedule = false): Promise<{ ok: boolean; moved_item_id: string | null }> =>
     (await apiClient.post(`/finance/changes/${id}/accept`, { move_schedule: moveSchedule })).data,
+  notionImportPreview: async (): Promise<{ count: number; total: string }> => (await apiClient.get('/finance/notion-import')).data,
   notionImport: async (): Promise<{ created: number }> => (await apiClient.post('/finance/notion-import')).data,
   rejectChange: async (id: string): Promise<{ ok: boolean }> => (await apiClient.post(`/finance/changes/${id}/reject`)).data,
 }

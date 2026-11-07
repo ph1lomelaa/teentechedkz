@@ -132,5 +132,11 @@ async def financial_coverage(db, contract_ids):
         for act_id, at in (await db.execute(select(ActMailAttempt.act_id, ActMailAttempt.created_at).where(
                 ActMailAttempt.act_id.in_([a.id for a in acts]), ActMailAttempt.status.in_(SENT)))).all():
             sent[act_id].append(at)
-    return {cid: build_coverage([sid], grouped[cid], [a for a in acts if a.student_id == sid], sent)[sid]
-            for cid, sid in owners.items()}
+    result = {}
+    replaced = {a.supersedes_id for a in acts if a.supersedes_id}
+    for cid, sid in owners.items():
+        row = build_coverage([sid], grouped[cid], [a for a in acts if a.student_id == sid], sent)[sid]
+        link_ids = {link.id for link in grouped[cid]}
+        row['ready_act_count'] = sum(a.id not in replaced and a.contract_link_id in link_ids for a in acts)
+        result[cid] = row
+    return result

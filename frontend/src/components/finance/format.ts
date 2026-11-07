@@ -8,7 +8,7 @@ export function money(value?: string | number | null, currency = 'KZT'): string 
   if (value === undefined || value === null || value === '') return '—'
   const n = typeof value === 'string' ? Number.parseFloat(value) : value
   if (!Number.isFinite(n)) return '—'
-  const digits = Math.round(n).toString().replace('-', '').replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)
+  const digits = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(Math.abs(n))
   return `${n < 0 ? '−' : ''}${digits}${NBSP}${currency === 'KZT' ? '₸' : currency}`
 }
 
@@ -17,14 +17,16 @@ export function num(value?: string | number | null): number {
   return Number.isFinite(n) ? (n as number) : 0
 }
 
-/** Ввод суммы: цифры с разрядами «450 000», без копеек. */
+/** Ввод суммы: цифры с разрядами «450 000», с двумя знаками после запятой. */
 export function formatAmountInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)
+  const clean = raw.replace(/[^\d.,]/g, '').replace(',', '.')
+  const [whole, ...fraction] = clean.split('.')
+  const digits = whole.replace(/^0+(?=\d)/, '')
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP) + (fraction.length ? ',' + fraction.join('').slice(0, 2) : '')
 }
 
 export function parseAmountInput(text: string): number {
-  return Number.parseInt(text.replace(/\D/g, ''), 10) || 0
+  return Number.parseFloat(text.replace(/[^\d.,]/g, '').replace(',', '.')) || 0
 }
 
 /** Дата по местному времени: toISOString() дал бы вчерашний день до 05:00 по Алматы. */
@@ -112,4 +114,14 @@ export function downloadCsv(filename: string, header: string[], rows: (string | 
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** Totals stay in their own currencies; no implicit conversion. */
+export function moneyTotals(rows: Array<{ currency?: string; amount: string; left?: string }>, key: 'left' | 'amount' = 'left'): string {
+  const totals = new Map<string, number>()
+  for (const row of rows) {
+    const currency = row.currency || 'KZT'
+    totals.set(currency, (totals.get(currency) ?? 0) + num(key === 'left' ? row.left ?? row.amount : row.amount))
+  }
+  return totals.size ? [...totals].sort(([a], [b]) => a.localeCompare(b)).map(([currency, value]) => money(value, currency)).join(' + ') : money(0)
 }

@@ -279,7 +279,10 @@ async def student_acts(student_id: uuid.UUID, db: Db, current_user: CurrentUser,
 @router.get("/students/{student_id}/contracts/{link_id}/pdf")
 async def contract_pdf(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, current_user: CurrentUser):
     await _student(db, student_id, current_user)
-    link = await _link(db, student_id, link_id, lock=False)
+    return await _link_pdf(await _link(db, student_id, link_id, lock=False))
+
+
+async def _link_pdf(link):
     if getattr(link, "source", None) == "manual":
         if not link.storage_path:
             raise HTTPException(404, "PDF договора не найден")
@@ -656,6 +659,38 @@ async def portal_pdf(act_id: uuid.UUID, student: CurrentStudent, db: Db):
     if act is None or act.student_id != student.id or act.status != "ready" or not act.shared_at or not act.storage_path:
         raise HTTPException(404, "Акт не найден")
     return _pdf_response(await minio_download(act.storage_path), act.file_name)
+
+
+# Ученик видит свой договор только для чтения: реквизиты сторон, услуги и
+# сумму. Внутренние пометки разбора (источники, конфликты) не отдаются.
+PORTAL_CONTRACT_FIELDS = ("contract_number", "contract_date", "city", "customer_name", "student_name", "executor_name")
+
+
+@router.get("/portal/contracts")
+async def portal_contracts(student: CurrentStudent, db: Db):
+    links = (await db.execute(select(TrustMeContractLink).where(TrustMeContractLink.student_id == student.id,
+        TrustMeContractLink.status != 4).order_by(TrustMeContractLink.linked_at.desc()))).scalars().all()
+    finance = {c.id: c for c in (await db.execute(select(Contract).where(Contract.student_id == student.id))).scalars()}
+    out = []
+    for link in links:
+        profile = cached_profile(link) or {}
+        fields = profile.get("fields", {})
+        money = finance.get(link.financial_contract_id) if link.financial_contract_id else (next(iter(finance.values())) if len(finance) == 1 else None)
+        out.append({"id": str(link.id), "status": link.status, "source": getattr(link, "source", None) or "trustme",
+                    "signed_date": getattr(link, "signed_date", None),
+                    "fields": {k: fields.get(k) for k in PORTAL_CONTRACT_FIELDS if fields.get(k)},
+                    "services": [{"name": x.get("name"), "text": x.get("text")} for x in profile.get("services", []) if x.get("name")],
+                    "amount": str(money.amount) if money and money.amount is not None else None,
+                    "currency": money.currency if money else None})
+    return out
+
+
+@router.get("/portal/contracts/{link_id}/pdf")
+async def portal_contract_pdf(link_id: uuid.UUID, student: CurrentStudent, db: Db):
+    link = await db.get(TrustMeContractLink, link_id)
+    if link is None or link.student_id != student.id or link.status == 4:
+        raise HTTPException(404, "Договор не найден")
+    return await _link_pdf(link)
 
 
 class ContractQuote(BaseModel):

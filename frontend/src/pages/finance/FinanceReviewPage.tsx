@@ -24,9 +24,10 @@ export function FinanceReviewPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: financeKeys.all }); setMailCheck(null); setMailNote('') },
     onError: err => toast({ title: 'Не удалось сохранить проверку', description: getErrorMessage(err), variant: 'destructive' }),
   })
+  const [offset, setOffset] = useState(0)
   const [filter, setFilter] = useState<'new' | 'all'>('new')
   const [confirming, setConfirming] = useState<FinanceChange | null>(null)
-  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: financeKeys.review(), queryFn: financeApi.review })
+  const { data, isLoading, isError, error, refetch } = useQuery({ queryKey: financeKeys.review(filter, offset), queryFn: () => financeApi.review(filter, offset) })
 
   const done = () => queryClient.invalidateQueries({ queryKey: financeKeys.all })
   const accept = useMutation({
@@ -36,12 +37,12 @@ export function FinanceReviewPage() {
   })
   const reject = useMutation({
     mutationFn: (c: FinanceChange) => financeApi.rejectChange(c.id),
-    onSuccess: () => { done(); toast({ title: 'Отклонено' }) },
+    onSuccess: () => { done(); toast({ title: 'Проверено. График оставлен без изменений' }) },
     onError: (err) => toast({ title: 'Не отклонено', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const changes = (data?.changes ?? []).filter((c) => filter === 'all' || c.status === 'new')
-  const pending = data?.changes.filter((c) => c.status === 'new').length ?? 0
+  const pending = data?.pending_total ?? 0
 
   return (
     <div>
@@ -65,12 +66,13 @@ export function FinanceReviewPage() {
           title="Изменения сумм и дат"
           meta={pending ? `${plural(pending, ['ожидает', 'ожидают', 'ожидают'])} проверки` : 'всё проверено'}
           actions={
-            <FinSelect aria-label="Показать" value={filter} onChange={(e) => setFilter(e.target.value as 'new' | 'all')} className="w-48">
+            <FinSelect aria-label="Показать" value={filter} onChange={(e) => { setFilter(e.target.value as 'new' | 'all'); setOffset(0) }} className="w-48">
               <option value="new">Ожидают проверки</option>
               <option value="all">Все изменения</option>
             </FinSelect>
           }
         >
+          <p className="px-5 py-3 text-sm text-p-muted">Изменения из Notion уже отражены в договоре. «Оставить график» закрывает проверку и не возвращает прежние суммы или даты.</p>
           <FinTable minWidth={1040}>
             <thead><tr><Th>Дата и время</Th><Th>Ученик</Th><Th>Что</Th><Th>Было</Th><Th>Стало</Th><Th>Где</Th><Th>Статус</Th><Th right>Решение</Th></tr></thead>
             <tbody>
@@ -91,8 +93,8 @@ export function FinanceReviewPage() {
                   <Td right>
                     {c.status === 'new' ? (
                       canManage && (
-                        <span className="inline-flex gap-2">
-                          <FinButton size="sm" variant="ghost" disabled={reject.isPending} onClick={() => reject.mutate(c)}>Отклонить</FinButton>
+                        <span className="inline-flex flex-col gap-2">
+                          <FinButton size="sm" variant="ghost" disabled={reject.isPending} onClick={() => reject.mutate(c)}>Оставить график</FinButton>
                           <FinButton size="sm" disabled={accept.isPending}
                             onClick={() => (c.field === 'client_remaining_date' ? setConfirming(c) : accept.mutate(c))}>
                             Подтвердить
@@ -101,7 +103,7 @@ export function FinanceReviewPage() {
                       )
                     ) : (
                       <span className="text-[13px] text-p-muted">
-                        {c.status === 'accepted' ? 'Подтвердил' : 'Отклонил'} {c.resolved_by ?? '—'}, {dateTime(c.resolved_at)}
+                        {c.status === 'accepted' ? 'Подтвердил' : 'Оставил график без изменений'} {c.resolved_by ?? '—'}, {dateTime(c.resolved_at)}
                         {c.schedule_item_id && <span className="block">платёж перенесён</span>}
                       </span>
                     )}
@@ -112,6 +114,7 @@ export function FinanceReviewPage() {
           </FinTable>
         </FinCard>
 
+        {data && (data.total ?? 0) > 100 && <div className="flex items-center justify-between gap-3 text-sm"><span>Показаны {offset + 1}–{offset + data.changes.length} из {data.total}</span><div className="flex gap-2"><FinButton disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 100))}>Назад</FinButton><FinButton disabled={offset + data.changes.length >= (data.total ?? 0)} onClick={() => setOffset(offset + 100)}>Вперёд</FinButton></div></div>}
         <FinCard title="Оплаты без чека" meta={data ? plural(data.no_receipt.length, ['оплата', 'оплаты', 'оплат']) : undefined}>
           <FinTable minWidth={820}>
             <thead><tr><Th>Дата оплаты</Th><Th>Ученик</Th><Th>За что</Th><Th>Способ</Th><Th right>Сумма</Th><Th>Отметил</Th><Th right>Действие</Th></tr></thead>

@@ -1,16 +1,15 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { QueryError } from '@/components/shared/QueryState'
-import { toast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/errorMessage'
 import { financeApi, financeKeys, type ScheduleItem } from '@/api/finance'
 import {
-  EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
+  EmptyRow, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
+import { NotionScheduleNotice } from '@/components/finance/NotionScheduleNotice'
 import { PayDialog } from '@/components/finance/dialogs'
-import { METHOD_LABELS, date, dateTime, money, num, parseIso, paymentTitle, payments, plural } from '@/components/finance/format'
+import { METHOD_LABELS, date, dateTime, money, moneyTotals, parseIso, paymentTitle, payments, plural } from '@/components/finance/format'
 
 const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
 const MONTHS = ['январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре']
@@ -23,50 +22,28 @@ export function FinanceTodayPage() {
   const { can } = useAuth()
   const canManage = can('finance_desk', 'manage')
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: financeKeys.today(),
     queryFn: financeApi.today,
     refetchInterval: 60_000,
   })
-  const importNotion = useMutation({
-    mutationFn: financeApi.notionImport,
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: financeKeys.all })
-      toast({ title: `Перенесено в график: ${plural(res.created, ['договор', 'договора', 'договоров'])}` })
-    },
-    onError: (err) => toast({ title: 'Не перенесено', description: getErrorMessage(err), variant: 'destructive' }),
-  })
 
   const open = (contractId: string) => navigate(`/finance/contracts/${contractId}`)
   const acts = useQuery({ queryKey: financeKeys.actsSummary(), queryFn: financeApi.actsSummary, retry: false })
   const waiting = data?.due_today.filter((i) => i.state !== 'paid') ?? []
-  const waitingSum = waiting.reduce((s, i) => s + num(i.left), 0)
   const day = data ? parseIso(data.today) : null
 
   return (
     <div>
       <FinPageHeader
         title="Сегодня"
-        description={day && data ? `${WEEKDAYS[day.getDay()]}, ${date(data.today)}. Поступило в ${MONTHS[day.getMonth()]}: ${money(data.month_received)} из ${money(data.month_planned)} по графику.` : undefined}
-        actions={canManage && waiting.length > 0 && (
-          <FinButton variant="primary" onClick={() => setPaying(waiting[0])}>Отметить оплату</FinButton>
-        )}
+        description={day && data ? `${WEEKDAYS[day.getDay()]}, ${date(data.today)}. Поступило в ${MONTHS[day.getMonth()]}: ${data.month_totals?.map(t => `${money(t.received, t.currency)}; план ${money(t.planned, t.currency)}`).join(' / ') || `${money(data.month_received)}; план ${money(data.month_planned)}`}.` : undefined}
       />
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       {isLoading && <p className="text-p-muted">Загрузка…</p>}
 
-      {data && data.notion_import_count > 0 && canManage && (
-        <FinAlert action={
-          <FinButton size="sm" variant="primary" disabled={importNotion.isPending} onClick={() => importNotion.mutate()}>
-            {importNotion.isPending ? 'Переносим…' : 'Перенести в график'}
-          </FinButton>
-        }>
-          В Notion указаны остаток и дата оплаты по {plural(data.notion_import_count, ['договору', 'договорам', 'договорам'])}, у которых ещё нет графика платежей.
-          Перенести их как первый платёж? Сумму и дату потом можно поправить.
-        </FinAlert>
-      )}
+      {data && <NotionScheduleNotice count={data.notion_import_count} canManage={canManage} />}
 
       {acts.data && (
         <FinCard title="Договоры и акты" meta={`активных договоров: ${acts.data.active_total}`}>
@@ -74,7 +51,7 @@ export function FinanceTodayPage() {
             <FinMetrics items={[
               { label: 'Без договора TrustMe', value: String(acts.data.active_without_trustme), tone: acts.data.active_without_trustme ? 'warn' : undefined,
                 hint: <Link className="underline" to="/finance/contracts?documents=no_contract">Открыть список</Link> },
-              { label: 'Договор есть, актов нет', value: String(acts.data.active_without_acts),
+              { label: 'Нет готовых актов', value: String(acts.data.active_without_acts),
                 hint: <Link className="underline" to="/finance/contracts?documents=no_act">Открыть список</Link> },
               { label: 'Закрыто актами в среднем', value: acts.data.active_average_percent == null ? '—' : `${acts.data.active_average_percent}%`,
                 progress: acts.data.active_average_percent ?? 0, tone: 'ok' },
@@ -95,7 +72,7 @@ export function FinanceTodayPage() {
 
       {data && (
         <div className="grid gap-5">
-          <FinCard title="Оплаты на сегодня" meta={waiting.length ? `ждём ${payments(waiting.length)} на ${money(waitingSum)}` : undefined}>
+          <FinCard title="Оплаты на сегодня" meta={waiting.length ? `ждём ${payments(waiting.length)} на ${moneyTotals(waiting)}` : undefined}>
             <FinTable minWidth={680}>
               <thead><tr><Th>Ученик</Th><Th>За что</Th><Th right>Сумма</Th><Th right> </Th></tr></thead>
               <tbody>
@@ -104,7 +81,7 @@ export function FinanceTodayPage() {
                   <tr key={i.id}>
                     <Td><StudentCell name={i.student_name} sub={i.mzk_name ? `МЗК ${i.mzk_name}` : 'МЗК не указан'} onOpen={() => open(i.contract_id)} /></Td>
                     <Td>{paymentTitle(i)}</Td>
-                    <Td right className="font-semibold">{money(i.state === 'paid' ? i.amount : i.left)}</Td>
+                    <Td right className="font-semibold">{money(i.state === 'paid' ? i.amount : i.left, i.currency)}</Td>
                     <Td right>
                       {i.state === 'paid' ? (
                         <span className="inline-flex items-center gap-2">
@@ -123,7 +100,7 @@ export function FinanceTodayPage() {
 
           <FinCard
             title="Просрочено"
-            meta={data.overdue_count ? `${payments(data.overdue_count)} на ${money(data.overdue_total)}` : undefined}
+            meta={data.overdue_count ? `${payments(data.overdue_count)}; ниже показаны самые ранние просрочки` : undefined}
             actions={data.overdue_count > data.overdue.length && (
               <Link to="/finance/payments?tab=overdue" className="text-sm font-semibold text-p-text underline">Все просроченные</Link>
             )}
@@ -137,7 +114,7 @@ export function FinanceTodayPage() {
                     <Td><StudentCell name={i.student_name} sub={i.mzk_name ? `МЗК ${i.mzk_name}` : 'МЗК не указан'} onOpen={() => open(i.contract_id)} /></Td>
                     <Td className="whitespace-nowrap">{date(i.due_date)}</Td>
                     <Td right><FinBadge tone="bad">{plural(i.days_overdue, ['день', 'дня', 'дней'])}</FinBadge></Td>
-                    <Td right className="font-semibold">{money(i.left)}</Td>
+                    <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
                   </tr>
                 ))}
               </tbody>
