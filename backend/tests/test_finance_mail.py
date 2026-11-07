@@ -71,10 +71,10 @@ async def scenario():
             rows = (await db.execute(select(FinanceMailDelivery).where(FinanceMailDelivery.recipient_id == user.id, FinanceMailDelivery.contract_id == contract.id))).scalars().all()
             assert len(rows) == 1
             row = rows[0]; delivery_id = row.id
-            assert 'Остаток клиента' in row.body and 'Сумма договора' not in row.body
+            assert 'Остаток увеличился' in row.body and 'сумма договора' not in row.body
     calls = []
     async def timeout(**kwargs):
-        if kwargs['to'] != [user.email] or suffix not in kwargs['subject']: return
+        if kwargs['to'] != [user.email] or suffix not in kwargs['text']: return
         async with sessions() as probe:
             row = await probe.get(FinanceMailDelivery, delivery_id)
             assert row.status == 'sending' and row.attempts == 1
@@ -102,7 +102,7 @@ async def scenario():
         await db.commit()
     accepted = []
     async def accept(**kwargs):
-        if kwargs['to'] == [user.email] and suffix in kwargs['subject']:
+        if kwargs['to'] == [user.email] and suffix in kwargs['text']:
             accepted.append(kwargs)
     async with sessions() as db:
         real_commit = db.commit

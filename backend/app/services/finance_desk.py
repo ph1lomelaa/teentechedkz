@@ -263,6 +263,7 @@ class ChangeGroup:
     student_name: str
     events: list[FinanceChangeEvent]
     actors: dict[uuid.UUID, str]
+    notion_page: str | None = None
 
     @property
     def lines(self) -> list[str]:
@@ -293,7 +294,9 @@ class ChangeGroup:
 
     @property
     def notion_url(self) -> str | None:
-        """Страница ученика в Notion — из ссылки снимка «snapshot:<page_id>:…»."""
+        """Страница ученика в Notion: из снимка ученика, иначе из «snapshot:<page_id>:…»."""
+        if self.notion_page:
+            return self.notion_page
         for e in self.events:
             ref = e.source_ref or ""
             if ref.startswith("snapshot:"):
@@ -318,6 +321,13 @@ async def _groups(db: AsyncSession, events: list[tuple[FinanceChangeEvent, str]]
         if key not in groups:
             groups[key] = ChangeGroup(event.student_id, event.contract_id, name, [], actors)
         groups[key].events.append(event)
+    if groups:
+        from app.models.notion_snapshot import NotionSnapshot
+        pages = dict((await db.execute(select(NotionSnapshot.student_id, NotionSnapshot.notion_url).where(
+            NotionSnapshot.student_id.in_({g.student_id for g in groups.values()}),
+            NotionSnapshot.notion_url.is_not(None)))).all())
+        for group in groups.values():
+            group.notion_page = pages.get(group.student_id)
     return list(groups.values())
 
 
@@ -388,29 +398,97 @@ async def flush_notifications(db: AsyncSession) -> int:
 EMAIL_MAX_AGE_HOURS = 24
 
 
+# Письмом — только то, что касается денег клиента. Выплаты менторам,
+# профориентация и экзамен видны в кабинете на «Проверке», но не шлются.
+EMAIL_FIELDS = frozenset({"client_fee", "client_remaining", "client_remaining_date", "pipeline_status",
+                          "english_paid", "up_paid", "payment_added", "payment_changed"})
+
+
+def _num(value: str | None) -> Decimal | None:
+    try:
+        return Decimal(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _money(value: Decimal) -> str:
+    return format_value("client_fee", str(value))
+
+
+def describe_change(e: FinanceChangeEvent) -> str:
+    """Одно изменение — одной фразой, без названий полей Notion."""
+    old, new = format_value(e.field, e.old_value), format_value(e.field, e.new_value)
+    if e.field == "client_remaining":
+        a, b = _num(e.old_value), _num(e.new_value)
+        if a is not None and b is not None and b < a:
+            return f"Остаток уменьшился на {_money(a - b)}: {old} → {new}. Похоже на оплату {_money(a - b)}"
+        if a is not None and b is not None and b > a:
+            return f"Остаток увеличился на {_money(b - a)}: {old} → {new}"
+        return f"Указан остаток {new}" if a is None else f"Остаток очищен (был {old})"
+    if e.field == "client_remaining_date":
+        if e.old_value is None:
+            return f"Назначена дата оплаты {new}"
+        return f"Дата оплаты перенесена: {old} → {new}" if e.new_value else f"Дата оплаты снята (была {old})"
+    if e.field == "payment_added":
+        return f"Внесена оплата {new}"
+    if e.field == "payment_changed":
+        return f"Изменена оплата: {old} → {new}"
+    if e.field == "client_fee":
+        return f"Изменилась сумма договора: {old} → {new}"
+    if e.field == "pipeline_status":
+        return f"Статус договора: {old} → {new}"
+    return f"{FIELD_LABELS.get(e.field, e.field)}: {old} → {new}"
+
+
+def next_steps(group: ChangeGroup) -> list[str]:
+    fields = {e.field for e in group.events}
+    steps = []
+    paid = any(e.field == "client_remaining" and (_num(e.new_value) or 0) < (_num(e.old_value) or 0) for e in group.events)
+    if paid or fields & {"payment_added", "payment_changed", "english_paid", "up_paid"}:
+        steps.append("Проверьте поступление денег и отметьте оплату в кабинете.")
+    if "client_remaining_date" in fields:
+        steps.append("Проверьте, нужно ли сдвинуть график платежей.")
+    if fields & {"client_fee", "pipeline_status"} or ("client_remaining" in fields and not paid):
+        steps.append("Сверьте договор и график платежей.")
+    return steps
+
+
+def _short_name(name: str) -> str:
+    parts = name.split()
+    return f"{parts[0]} {parts[1][0]}." if len(parts) > 1 and parts[1] else name
+
+
+def _who(group: ChangeGroup) -> str:
+    names = sorted({group.actors[e.actor_id] for e in group.events if e.actor_id in group.actors})
+    if names:
+        return ", ".join(names) + (", в Notion" if {e.source for e in group.events} == {"notion"} else "")
+    return "в Notion" if {e.source for e in group.events} == {"notion"} else "в платформе"
+
+
 def email_subject(group: ChangeGroup) -> str:
-    """«Имя — остаток 500 000 → 300 000 ₸»: главное видно, не открывая письмо."""
-    remaining = next((e for e in group.events if e.field == "client_remaining"), None)
-    if remaining is not None:
-        old, new = (format_value("client_remaining", v).replace(" ₸", "") for v in (remaining.old_value, remaining.new_value))
-        return f"{group.student_name} — остаток {old} → {new} ₸"
+    """«Кенес Е. — остаток уменьшился на 200 000 ₸»: суть видна в списке писем."""
     if len(group.events) == 1:
-        e = group.events[0]
-        return f"{group.student_name} — {FIELD_LABELS.get(e.field, e.field).lower()}: {format_value(e.field, e.new_value)}"
-    return f"{group.student_name} — {_changes_word(len(group.events))} {group.where}"
+        head = describe_change(group.events[0]).split(":")[0].split(". ")[0]
+        return f"{_short_name(group.student_name)} — {head[0].lower() + head[1:]}"
+    return f"{_short_name(group.student_name)} — {_changes_word(len(group.events))} по деньгам"
 
 
 def contract_now(contract) -> list[tuple[str, str]]:
-    """Блок «Сейчас по договору»: оплачено = договор − остаток (одно число в договоре)."""
+    """Блок «Сейчас по договору»: только заполненные значения."""
     if contract is None:
         return []
-    money = lambda v: format_value("client_fee", str(v)) if v is not None else "—"
-    paid = contract.amount - contract.client_remaining_amount if contract.amount is not None and contract.client_remaining_amount is not None else None
-    next_payment = "—"
+    rows = []
+    if contract.amount is not None:
+        rows.append(("Договор", _money(contract.amount)))
+    if contract.amount is not None and contract.client_remaining_amount is not None:
+        rows.append(("Оплачено", _money(contract.amount - contract.client_remaining_amount)))
+    if contract.client_remaining_amount is not None:
+        rows.append(("Остаток", _money(contract.client_remaining_amount)))
     if contract.client_remaining_amount and contract.client_remaining_date:
-        next_payment = f"{money(contract.client_remaining_amount)} до {contract.client_remaining_date.strftime('%d.%m.%Y')}"
-    return [("Договор", money(contract.amount)), ("Оплачено", money(paid)),
-            ("Остаток", money(contract.client_remaining_amount)), ("Следующий платёж", next_payment)]
+        rows.append(("Следующий платёж", f"{_money(contract.client_remaining_amount)} до {contract.client_remaining_date.strftime('%d.%m.%Y')}"))
+    if contract.client_remaining_amount is None:
+        rows.append(("Остаток", "в Notion не заполнен"))
+    return rows
 
 
 def changed_at(group: ChangeGroup) -> str:
@@ -420,7 +498,11 @@ def changed_at(group: ChangeGroup) -> str:
 
 
 def email_text(group: ChangeGroup, url: str, now: list[tuple[str, str]]) -> str:
-    lines = [group.student_name, f"Изменения {group.where} · {changed_at(group)} (Алматы)", *group.lines]
+    lines = [group.student_name, "", *(f"• {describe_change(e)}" for e in group.events),
+             f"Кто изменил: {_who(group)} · {changed_at(group)} (Алматы)"]
+    steps = next_steps(group)
+    if steps:
+        lines += ["", "Что сделать:", *steps]
     if now:
         lines += ["", "Сейчас по договору:", *(f"{label}: {value}" for label, value in now)]
     links = [f"Открыть договор: {url}"] + ([f"Открыть в Notion: {group.notion_url}"] if group.notion_url else [])
@@ -430,26 +512,22 @@ def email_text(group: ChangeGroup, url: str, now: list[tuple[str, str]]) -> str:
 def _email_html(group: ChangeGroup, url: str, now: list[tuple[str, str]] | None = None) -> str:
     from html import escape
 
-    rows = "".join(
-        f"<tr><td style='padding:6px 12px 6px 0;color:#555'>{escape(FIELD_LABELS.get(e.field, e.field))}</td>"
-        f"<td style='padding:6px 12px 6px 0;color:#999;text-decoration:line-through'>{escape(format_value(e.field, e.old_value))}</td>"
-        f"<td style='padding:6px 0;font-weight:600'>{escape(format_value(e.field, e.new_value))}</td></tr>"
-        for e in group.events
-    )
-    state = "".join(f"<tr><td style='padding:4px 16px 4px 0;color:#555'>{escape(label)}</td><td style='padding:4px 0;font-weight:600'>{escape(value)}</td></tr>"
+    changes = "".join(f"<li style='margin:0 0 6px'>{escape(describe_change(e))}</li>" for e in group.events)
+    steps = next_steps(group)
+    state = "".join(f"<tr><td style='padding:3px 16px 3px 0;color:#666'>{escape(label)}</td><td style='padding:3px 0'>{escape(value)}</td></tr>"
                     for label, value in (now or []))
+    button = "padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block"
     return (
-        "<div style='font-family:Arial,sans-serif;font-size:15px;color:#111'>"
-        f"<p style='font-size:17px;font-weight:700;margin:0 0 4px'>{escape(group.student_name)}</p>"
-        f"<p style='margin:0 0 16px;color:#555'>Изменения {escape(group.where)} · {escape(changed_at(group))} (Алматы)</p>"
-        f"<table style='border-collapse:collapse'>{rows}</table>"
-        + (f"<p style='margin:20px 0 6px;font-weight:700'>Сейчас по договору</p><table style='border-collapse:collapse'>{state}</table>" if state else "")
-        + f"<p style='margin:20px 0'><a href='{escape(url)}' style='background:#FFD400;color:#111;padding:10px 18px;"
-        "border-radius:8px;text-decoration:none;font-weight:700'>Открыть договор</a>"
-        + (f" <a href='{escape(group.notion_url)}' style='margin-left:8px;border:1px solid #111;color:#111;padding:9px 18px;"
-           "border-radius:8px;text-decoration:none;font-weight:700'>Открыть в Notion</a>" if group.notion_url else "")
-        + "</p>"
-        "<p style='color:#888;font-size:12px'>Письмо из раздела «Финансы» TeenTechEd.</p></div>"
+        "<div style='font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:#111;max-width:560px'>"
+        f"<p style='font-size:18px;font-weight:700;margin:0 0 12px'>{escape(group.student_name)}</p>"
+        f"<ul style='margin:0 0 8px;padding-left:20px;font-size:16px'>{changes}</ul>"
+        f"<p style='margin:0 0 16px;color:#666;font-size:13px'>Кто изменил: {escape(_who(group))} · {escape(changed_at(group))} (Алматы)</p>"
+        + (f"<div style='margin:0 0 16px;padding:10px 14px;background:#FFF8D6;border-left:3px solid #FFD400'>"
+           f"<b>Что сделать</b><br>{'<br>'.join(escape(x) for x in steps)}</div>" if steps else "")
+        + (f"<p style='margin:0 0 4px;font-weight:700'>Сейчас по договору</p><table style='border-collapse:collapse;margin:0 0 20px'>{state}</table>" if state else "")
+        + f"<p style='margin:0 0 20px'><a href='{escape(url)}' style='background:#FFD400;color:#111;{button}'>Открыть договор</a>"
+        + (f" <a href='{escape(group.notion_url)}' style='margin-left:8px;border:1px solid #111;color:#111;{button}'>Открыть в Notion</a>" if group.notion_url else "")
+        + "</p><p style='color:#888;font-size:12px'>Письмо из раздела «Финансы» TeenTechEd.</p></div>"
     )
 
 
