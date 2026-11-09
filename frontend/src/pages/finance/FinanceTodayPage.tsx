@@ -131,7 +131,7 @@ export function FinanceTodayPage() {
                 </ToggleButton>
               )}
             >
-              {opened.has('overdue') ? <OverdueList canManage={canManage} onPay={setPaying} /> : (
+              {opened.has('overdue') ? <div className="p-4"><OverdueList canManage={canManage} onPay={setPaying} /></div> : (
                 <FinTable minWidth={680}>
                   <thead><tr><Th>Ученик</Th><Th>Срок оплаты</Th><Th right>Просрочка</Th><Th right>Сумма</Th></tr></thead>
                   <tbody>
@@ -196,7 +196,7 @@ export function FinanceTodayPage() {
             >
               {opened.has('expected') && (calendar
                 ? <PaymentsCalendar canManage={canManage} onPay={setPaying} />
-                : <ExpectedList canManage={canManage} onPay={setPaying} />)}
+                : <div className="p-4"><ExpectedList canManage={canManage} onPay={setPaying} /></div>)}
             </FinCard>
           </div>
 
@@ -206,7 +206,7 @@ export function FinanceTodayPage() {
               meta={day ? `в ${MONTHS[day.getMonth()]}: ${receivedLine}` : undefined}
               actions={<ToggleButton open={opened.has('received')} onClick={() => toggle('received')}>Показать</ToggleButton>}
             >
-              {opened.has('received') && <ReceivedList canManage={canManage} />}
+              {opened.has('received') && <div className="p-4"><ReceivedList canManage={canManage} /></div>}
             </FinCard>
           </div>
         </div>

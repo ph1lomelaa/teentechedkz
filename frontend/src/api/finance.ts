@@ -114,6 +114,9 @@ export interface FinanceContractRow {
   student_name: string
   intake_year: number | null
   pipeline_status: string | null
+  degree?: string | null
+  /** Остаток не совпадает с графиком (график уже ведётся). */
+  schedule_mismatch?: boolean
   mzk_name: string | null
   currency: string
   amount: string | null
@@ -190,6 +193,7 @@ export interface ContractsQuery {
   /** mismatch — график не равен остатку, none — графика нет. */
   schedule?: '' | 'mismatch' | 'none'
   page?: number
+  size?: number
 }
 
 export interface ActsSummary {
@@ -228,6 +232,7 @@ export const financeApi = {
     (await apiClient.get('/finance/schedule', { params: { date_from: dateFrom, date_to: dateTo } })).data,
   contracts: async (q: ContractsQuery): Promise<ContractsPage> => {
     const params: Record<string, string | number> = { page: q.page ?? 1 }
+    if (q.size) params.size = q.size
     if (q.q) params.q = q.q
     if (q.status) params.status = q.status
     if (q.mzk) params.mzk = q.mzk

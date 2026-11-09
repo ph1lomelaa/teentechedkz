@@ -576,7 +576,7 @@ async def contracts(
     schedule: str | None = Query(None, description="mismatch — график не равен остатку, none — графика нет"),
     documents: Literal["all", "no_contract", "no_act", "open"] = "all",
     page: int = Query(1, ge=1),
-    size: int = Query(25, ge=1, le=100),
+    size: int = Query(25, ge=1, le=2000),  # таблица финансиста грузит все договоры и фильтрует у себя
 ):
     require_access(current_user, "finance_desk", Action.view)
     today = _today()
@@ -711,6 +711,8 @@ def _contract_row(c: Contract, s: Student, mzk_name: str | None, money: Contract
         "student_name": s.full_name,
         "intake_year": s.intake_year,
         "pipeline_status": c.pipeline_status.value if c.pipeline_status else None,
+        "degree": s.degree_level.value if s.degree_level else None,
+        "schedule_mismatch": _is_discrepancy(money),
         "mzk_name": mzk_name,
         "currency": c.currency,
         "amount": str(c.amount) if c.amount is not None else None,

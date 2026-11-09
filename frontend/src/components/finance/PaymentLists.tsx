@@ -5,178 +5,131 @@
  * содержимое карточки (фильтры, таблица, экспорт); заголовок и кнопку
  * «Свернуть» даёт блок, в который список вставлен.
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Download, Search } from 'lucide-react'
-import { QueryError } from '@/components/shared/QueryState'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { financeApi, financeKeys, type PaymentMethod, type ReceivedPayment, type ScheduleItem } from '@/api/finance'
-import {
-  EmptyRow, FinBadge, FinButton, FinFilterBar, FinInput, FinSelect, FinTable, ItemStatus, StudentCell, Td, Th, TotalRow,
-} from './ui'
+import { financeApi, financeKeys, type ReceivedPayment, type ScheduleItem } from '@/api/finance'
+import { FinBadge, FinButton, ItemStatus, StudentCell } from './ui'
+import { NotionTable } from './NotionTable'
 import { AttachReceiptButton } from './dialogs'
 import {
-  METHOD_LABELS, addDays, date, dateTime, downloadCsv, localIso, money, moneyTotals, num, parseIso, paymentTitle, payments, plural,
+  METHOD_LABELS, addDays, date, dateTime, localIso, money, moneyTotals, num, parseIso, paymentTitle, payments, plural, statusLabel,
 } from './format'
 
-const paidCount = (n: number) => plural(n, ['оплата', 'оплаты', 'оплат'])
-
-function SearchBox({ value, onChange, placeholder = 'Имя ученика' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <label className="relative block w-56">
-      <span className="sr-only">{placeholder}</span>
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fin-text-3)]" />
-      <FinInput value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="pl-9" />
-    </label>
-  )
+const PERIOD_OPTS = [['month', 'Этот месяц'], ['prev', 'Прошлый месяц'], ['week', 'Последние 7 дней'], ['custom', 'Свой период']] as const
+const CTRL = 'h-8 rounded-ctl border border-p-line bg-p-panel px-2 text-sm text-p-text'
+const MONTH = (iso: string) => {
+  const d = parseIso(iso)
+  return d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(' г.', '').replace(/^./, (c) => c.toUpperCase())
 }
-
-function MzkSelect({ items, value, onChange }: { items: { mzk_name: string | null }[]; value: string; onChange: (v: string) => void }) {
-  const options = [...new Set(items.map((i) => i.mzk_name).filter(Boolean) as string[])].sort()
-  return (
-    <FinSelect aria-label="МЗК" value={value} onChange={(e) => onChange(e.target.value)} className="w-44">
-      <option value="">Все МЗК</option>
-      {options.map((m) => <option key={m} value={m}>{m}</option>)}
-    </FinSelect>
-  )
-}
-
-function ExportButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
-  return (
-    <FinButton disabled={disabled} onClick={onClick} title="Выгрузить то, что сейчас в списке, в таблицу CSV">
-      <Download className="h-4 w-4" aria-hidden="true" />Экспорт
-    </FinButton>
-  )
-}
-
-const matches = (i: { student_name: string; mzk_name?: string | null }, q: string, mzk: string) =>
-  (!q || i.student_name.toLowerCase().includes(q.toLowerCase())) && (!mzk || i.mzk_name === mzk)
+const AGE_BUCKET = (days: number) => days <= 30 ? 'До 30 дней' : days <= 60 ? '31–60 дней' : 'Более 60 дней'
 
 type ListProps = { canManage: boolean; onPay: (i: ScheduleItem) => void }
 
+// Общие поля строки графика (ожидаются и просрочено).
+function itemValues(i: ScheduleItem, field: string): string[] {
+  if (field === 'МЗК') return i.mzk_name ? [i.mzk_name] : []
+  if (field === 'За что') return [paymentTitle(i)]
+  if (field === 'Срок оплаты') return [i.due_date]
+  if (field === 'Месяц') return [MONTH(i.due_date)]
+  if (field === 'Сумма') return [String(num(i.left))]
+  if (field === 'Просрочка, дн.') return [String(i.days_overdue)]
+  if (field === 'Срок долга') return [AGE_BUCKET(i.days_overdue)]
+  if (field === 'Напоминали МЗК') return i.reminded_at ? [i.reminded_at.slice(0, 10)] : ['Не отправлялось']
+  if (field === 'Статус договора') return i.pipeline_status ? [statusLabel(i.pipeline_status)] : []
+  return []
+}
+
+function itemExport(i: ScheduleItem, field: string): string {
+  if (field === 'Срок оплаты') return date(i.due_date)
+  if (field === 'Сумма') return money(i.left, i.currency)
+  if (field === 'Напоминали МЗК') return i.reminded_at ? dateTime(i.reminded_at) : ''
+  return itemValues(i, field).join(', ')
+}
+
 // ---------------------------------------------------------------- Ожидаются
 
-export function ExpectedList({ canManage, onPay }: ListProps) {
+export function ExpectedList({ canManage, onPay, extraControls }: ListProps & { extraControls?: ReactNode }) {
   const navigate = useNavigate()
   const today = localIso()
   const monthEnd = localIso(new Date(parseIso(today).getFullYear(), parseIso(today).getMonth() + 1, 0))
-  const [q, setQ] = useState('')
-  const [mzk, setMzk] = useState('')
-  const [period, setPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'later'>('all')
-  const { data = [], isLoading, isError, error, refetch } = useQuery({ queryKey: financeKeys.expected(), queryFn: financeApi.expected })
-
-  const inPeriod = (i: ScheduleItem, p: typeof period) =>
-    p === 'all' || (p === 'today' && i.due_date === today) || (p === 'week' && i.due_date <= addDays(today, 6))
-    || (p === 'month' && i.due_date <= monthEnd) || (p === 'later' && i.due_date > addDays(today, 6))
-  const rows = data.filter((i) => matches(i, q, mzk) && inPeriod(i, period))
-  const exportCsv = () => downloadCsv(`ожидаются-${today}.csv`, ['Ученик', 'МЗК', 'Платёж', 'Срок оплаты', 'Сумма'],
-    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), money(i.left, i.currency)]))
-
+  const { data, isPending, error, refetch } = useQuery({ queryKey: financeKeys.expected(), queryFn: financeApi.expected })
   return (
-    <>
-      {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="m-5" />}
-      <FinFilterBar summary={`${payments(rows.length)} · ${moneyTotals(rows)}`}>
-        <SearchBox value={q} onChange={setQ} />
-        <MzkSelect items={data} value={mzk} onChange={setMzk} />
-        <FinSelect aria-label="Период" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="w-44">
-          <option value="all">Весь период</option>
-          <option value="today">Сегодня</option>
-          <option value="week">Ближайшие 7 дней</option>
-          <option value="month">До конца месяца</option>
-          <option value="later">Позже 7 дней</option>
-        </FinSelect>
-        <ExportButton disabled={!rows.length} onClick={exportCsv} />
-      </FinFilterBar>
-      <FinTable minWidth={860}>
-        <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th>За что</Th><Th>Срок оплаты</Th><Th right>Сумма</Th><Th right> </Th></tr></thead>
-        <tbody>
-          {isLoading && <EmptyRow colSpan={6}>Загрузка…</EmptyRow>}
-          {!isLoading && rows.length === 0 && <EmptyRow colSpan={6}>Ожидаемых платежей нет</EmptyRow>}
-          {rows.map((i) => (
-            <tr key={i.id}>
-              <Td><StudentCell name={i.student_name} onOpen={() => navigate(`/finance/contracts/${i.contract_id}`)} /></Td>
-              <Td className="whitespace-nowrap">{i.mzk_name ?? '—'}</Td>
-              <Td>{paymentTitle(i)}</Td>
-              <Td className="whitespace-nowrap">
-                {date(i.due_date)}
-                {i.due_date === today && <span className="ml-2"><FinBadge tone="yellow">сегодня</FinBadge></span>}
-              </Td>
-              <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
-              <Td right>{canManage && <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>}</Td>
-            </tr>
-          ))}
-          {rows.length > 0 && (
-            <TotalRow><Td colSpan={4}>Итого</Td><Td right>{moneyTotals(rows)}</Td><Td /></TotalRow>
-          )}
-        </tbody>
-      </FinTable>
-    </>
+    <NotionTable<ScheduleItem>
+      rows={data} loading={isPending} error={error} onRetry={() => refetch()}
+      rowKey={i => i.id}
+      title={{ field: 'Ученик', text: i => i.student_name, onOpen: i => navigate(`/finance/contracts/${i.contract_id}`) }}
+      base={['МЗК', 'За что', 'Срок оплаты', 'Сумма']}
+      extra={['Месяц', 'Статус договора']}
+      numeric={['Сумма']} dates={['Срок оплаты']}
+      values={itemValues}
+      cell={(i, field) => {
+        if (field === 'Срок оплаты') return <span className="whitespace-nowrap">{date(i.due_date)}{i.due_date === today && <span className="ml-2"><FinBadge tone="yellow">сегодня</FinBadge></span>}</span>
+        if (field === 'Сумма') return <span className="font-semibold">{money(i.left, i.currency)}</span>
+        return undefined
+      }}
+      action={canManage ? (i => <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>) : undefined}
+      quick={[
+        { key: 'today', label: 'Сегодня', test: i => i.due_date === today },
+        { key: 'week', label: 'Ближайшие 7 дней', test: i => i.due_date <= addDays(today, 6) },
+        { key: 'month', label: 'До конца месяца', test: i => i.due_date <= monthEnd },
+      ]}
+      extraControls={extraControls}
+      groupFields={['МЗК', 'Месяц', 'Статус договора']} defaultGroup="Месяц"
+      defaultSort={{ field: 'Срок оплаты', direction: 'asc' }}
+      searchText={i => [i.student_name, i.mzk_name ?? '']}
+      storageKey="finance-expected-fields" countLabel="Платежей"
+      summary={rows => moneyTotals(rows)}
+      exportName={`ожидаются-${today}`} exportValue={itemExport}
+      empty="Ожидаемых платежей нет."
+    />
   )
 }
 
 // ---------------------------------------------------------------- Просрочено
 
-const AGE = {
-  all: { label: 'Любой срок', min: 0, max: Infinity },
-  b30: { label: 'До 30 дней', min: 0, max: 30 },
-  b60: { label: '31–60 дней', min: 31, max: 60 },
-  b61: { label: 'Более 60 дней', min: 61, max: Infinity },
-} as const
-
 export function OverdueList({ canManage, onPay }: ListProps) {
   const navigate = useNavigate()
-  const [q, setQ] = useState('')
-  const [mzk, setMzk] = useState('')
-  const [age, setAge] = useState<keyof typeof AGE>('all')
-  const { data = [], isLoading, isError, error, refetch } = useQuery({ queryKey: financeKeys.overdue(), queryFn: financeApi.overdue })
-  const inAge = (i: ScheduleItem, a: keyof typeof AGE) => i.days_overdue >= AGE[a].min && i.days_overdue <= AGE[a].max
-  const rows = data.filter((i) => matches(i, q, mzk) && inAge(i, age))
-  const today = localIso()
-  const exportCsv = () => downloadCsv(`просрочены-${today}.csv`, ['Ученик', 'МЗК', 'Платёж', 'Срок оплаты', 'Просрочка, дн.', 'Сумма', 'Напоминание'],
-    rows.map((i) => [i.student_name, i.mzk_name, paymentTitle(i), date(i.due_date), i.days_overdue, money(i.left, i.currency), i.reminded_at ? dateTime(i.reminded_at) : '']))
-
+  const { data, isPending, error, refetch } = useQuery({ queryKey: financeKeys.overdue(), queryFn: financeApi.overdue })
   return (
-    <>
-      {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="m-5" />}
-      <FinFilterBar summary={`${payments(rows.length)} · ${moneyTotals(rows)}`}>
-        <SearchBox value={q} onChange={setQ} />
-        <MzkSelect items={data} value={mzk} onChange={setMzk} />
-        <FinSelect aria-label="Срок просрочки" value={age} onChange={(e) => setAge(e.target.value as keyof typeof AGE)} className="w-44">
-          {(Object.keys(AGE) as (keyof typeof AGE)[]).map((a) => <option key={a} value={a}>{AGE[a].label}</option>)}
-        </FinSelect>
-        <ExportButton disabled={!rows.length} onClick={exportCsv} />
-      </FinFilterBar>
-      <FinTable minWidth={1040}>
-        <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th>Платёж</Th><Th>Срок оплаты</Th><Th right>Просрочка</Th><Th right>Сумма</Th><Th>Напоминали МЗК</Th><Th right> </Th></tr></thead>
-        <tbody>
-          {isLoading && <EmptyRow colSpan={8}>Загрузка…</EmptyRow>}
-          {!isLoading && rows.length === 0 && <EmptyRow colSpan={8}>Просроченных платежей нет</EmptyRow>}
-          {rows.map((i) => (
-            <tr key={i.id}>
-              <Td><StudentCell name={i.student_name} onOpen={() => navigate(`/finance/contracts/${i.contract_id}`)} /></Td>
-              <Td className="whitespace-nowrap">{i.mzk_name ?? '—'}</Td>
-              <Td>{paymentTitle(i)}</Td>
-              <Td className="whitespace-nowrap">{date(i.due_date)}</Td>
-              <Td right><FinBadge tone="bad">{plural(i.days_overdue, ['день', 'дня', 'дней'])}</FinBadge></Td>
-              <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
-              <Td className="whitespace-nowrap text-[13px] text-p-muted">{i.reminded_at ? dateTime(i.reminded_at) : 'Не отправлялось'}</Td>
-              {/* «Напомнить МЗК» — в карточке договора: здесь одна кнопка на строку. */}
-              <Td right>{canManage && <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>}</Td>
-            </tr>
-          ))}
-          {rows.length > 0 && (
-            <TotalRow><Td colSpan={5}>Итого</Td><Td right>{moneyTotals(rows)}</Td><Td colSpan={2} /></TotalRow>
-          )}
-        </tbody>
-      </FinTable>
-    </>
+    <NotionTable<ScheduleItem>
+      rows={data} loading={isPending} error={error} onRetry={() => refetch()}
+      rowKey={i => i.id}
+      title={{ field: 'Ученик', text: i => i.student_name, onOpen: i => navigate(`/finance/contracts/${i.contract_id}`) }}
+      base={['МЗК', 'За что', 'Срок оплаты', 'Просрочка, дн.', 'Сумма', 'Напоминали МЗК']}
+      extra={['Срок долга', 'Статус договора', 'Месяц']}
+      numeric={['Сумма', 'Просрочка, дн.']} dates={['Срок оплаты']}
+      values={itemValues}
+      cell={(i, field) => {
+        if (field === 'Срок оплаты') return date(i.due_date)
+        if (field === 'Просрочка, дн.') return <FinBadge tone="bad">{plural(i.days_overdue, ['день', 'дня', 'дней'])}</FinBadge>
+        if (field === 'Сумма') return <span className="font-semibold">{money(i.left, i.currency)}</span>
+        if (field === 'Напоминали МЗК') return i.reminded_at ? dateTime(i.reminded_at) : <span className="text-p-muted2">Не отправлялось</span>
+        return undefined
+      }}
+      action={canManage ? (i => <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>) : undefined}
+      quick={[
+        { key: 'b30', label: 'До 30 дней', test: i => i.days_overdue <= 30 },
+        { key: 'b60', label: '31–60 дней', test: i => i.days_overdue > 30 && i.days_overdue <= 60 },
+        { key: 'b61', label: 'Более 60 дней', test: i => i.days_overdue > 60 },
+        { key: 'no_mzk', label: 'МЗК не указан', test: i => !i.mzk_name },
+      ]}
+      groupFields={['МЗК', 'Срок долга', 'Месяц', 'Статус договора']}
+      defaultSort={{ field: 'Просрочка, дн.', direction: 'desc' }}
+      searchText={i => [i.student_name, i.mzk_name ?? '']}
+      storageKey="finance-overdue-fields" countLabel="Платежей"
+      summary={rows => moneyTotals(rows)}
+      exportName={`просрочены-${localIso()}`} exportValue={itemExport}
+      empty="Просроченных платежей нет."
+    />
   )
 }
 
 // ---------------------------------------------------------------- Поступили
 
-type Period = 'month' | 'prev' | 'week' | 'custom'
+type Period = typeof PERIOD_OPTS[number][0]
 
 function periodRange(p: Period, from: string, to: string): [string, string] {
   const today = localIso()
@@ -187,85 +140,67 @@ function periodRange(p: Period, from: string, to: string): [string, string] {
   return [localIso(new Date(d.getFullYear(), d.getMonth(), 1)), today]
 }
 
+const receivedValues = (p: ReceivedPayment, field: string): string[] => {
+  if (field === 'Дата оплаты') return p.paid_at ? [p.paid_at.slice(0, 10)] : []
+  if (field === 'За что') return [paymentTitle(p)]
+  if (field === 'Способ') return p.method ? [METHOD_LABELS[p.method]] : []
+  if (field === 'Сумма') return [String(num(p.amount))]
+  if (field === 'Чек') return [p.has_receipt ? 'Есть' : 'Нет чека']
+  if (field === 'Отметил') return p.recorded_by ? [p.recorded_by] : []
+  return []
+}
+
 export function ReceivedList({ canManage }: { canManage: boolean }) {
   const navigate = useNavigate()
   const [period, setPeriod] = useState<Period>('month')
   const [customFrom, setCustomFrom] = useState(addDays(localIso(), -30))
   const [customTo, setCustomTo] = useState(localIso())
-  const [method, setMethod] = useState<PaymentMethod | ''>('')
-  const [noReceipt, setNoReceipt] = useState(false)
   const [from, to] = periodRange(period, customFrom, customTo)
-  const { data = [], isLoading, isError, error, refetch } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: financeKeys.received(from, to),
     queryFn: () => financeApi.received(from, to),
   })
-  const rows = data.filter((p) => (!method || p.method === method) && (!noReceipt || !p.has_receipt))
-  const byMethod = (m: PaymentMethod) => rows.filter((p) => p.method === m)
-  const exportCsv = () => downloadCsv(`поступили-${from}-${to}.csv`, ['Дата оплаты', 'Ученик', 'За что', 'Способ', 'Сумма', 'Чек', 'Отметил'],
-    rows.map((p) => [date(p.paid_at), p.student_name, paymentTitle(p), p.method ? METHOD_LABELS[p.method] : '', money(p.amount, p.currency), p.has_receipt ? 'есть' : 'нет', p.recorded_by]))
-
+  const periodControls = <>
+    <select aria-label="Период" value={period} onChange={(e) => setPeriod(e.target.value as Period)} className={CTRL}>
+      {PERIOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+    {period === 'custom' && <>
+      <input type="date" aria-label="С" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} className={CTRL} />
+      <input type="date" aria-label="По" value={customTo} min={customFrom} onChange={(e) => setCustomTo(e.target.value)} className={CTRL} />
+    </>}
+  </>
   return (
-    <>
-      {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="m-5" />}
-      <FinFilterBar summary={
-        <span>
-          {paidCount(rows.length)} · {moneyTotals(rows, 'amount')}
-          <span className="ml-2 font-normal text-p-muted">
-            {(['kaspi', 'bank', 'cash'] as PaymentMethod[]).filter((m) => byMethod(m).length).map((m) => `${METHOD_LABELS[m]} ${moneyTotals(byMethod(m), 'amount')}`).join(' · ')}
-          </span>
-        </span>
-      }>
-        <FinSelect aria-label="Период" value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="w-44">
-          <option value="month">Этот месяц</option>
-          <option value="prev">Прошлый месяц</option>
-          <option value="week">Последние 7 дней</option>
-          <option value="custom">Свой период</option>
-        </FinSelect>
-        {period === 'custom' && (
-          <>
-            <FinInput type="date" aria-label="С" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)} className="w-40" />
-            <FinInput type="date" aria-label="По" value={customTo} min={customFrom} onChange={(e) => setCustomTo(e.target.value)} className="w-40" />
-          </>
-        )}
-        <FinSelect aria-label="Способ" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod | '')} className="w-40">
-          <option value="">Все способы</option>
-          {(['kaspi', 'bank', 'cash'] as PaymentMethod[]).map((m) => <option key={m} value={m}>{METHOD_LABELS[m]}</option>)}
-        </FinSelect>
-        <label className="flex h-[38px] items-center gap-2 px-1 text-sm text-p-text">
-          <input type="checkbox" checked={noReceipt} onChange={(e) => setNoReceipt(e.target.checked)} className="h-4 w-4 accent-black" />
-          Только без чека
-        </label>
-        <ExportButton disabled={!rows.length} onClick={exportCsv} />
-      </FinFilterBar>
-      <FinTable minWidth={960}>
-        <thead><tr><Th>Дата оплаты</Th><Th>Ученик</Th><Th>За что</Th><Th>Способ</Th><Th right>Сумма</Th><Th>Чек</Th><Th>Отметил</Th></tr></thead>
-        <tbody>
-          {isLoading && <EmptyRow colSpan={7}>Загрузка…</EmptyRow>}
-          {!isLoading && rows.length === 0 && <EmptyRow colSpan={7}>За период оплат нет</EmptyRow>}
-          {rows.map((p) => (
-            <tr key={p.id}>
-              <Td className="whitespace-nowrap">{date(p.paid_at)}</Td>
-              <Td><StudentCell name={p.student_name} onOpen={() => navigate(`/finance/contracts/${p.contract_id}`)} /></Td>
-              <Td>{paymentTitle(p)}</Td>
-              <Td>{p.method ? METHOD_LABELS[p.method] : '—'}</Td>
-              <Td right className="font-semibold">{money(p.amount, p.currency)}</Td>
-              <Td>
-                {p.has_receipt ? <FinBadge tone="ok">Есть</FinBadge> : (
-                  <span className="inline-flex items-center gap-2">
-                    <FinBadge tone="yellow">Нет чека</FinBadge>
-                    {canManage && <AttachReceiptButton paymentId={p.id} />}
-                  </span>
-                )}
-              </Td>
-              <Td className="whitespace-nowrap text-[13px] text-p-muted">{p.recorded_by ?? '—'}</Td>
-            </tr>
-          ))}
-          {rows.length > 0 && (
-            <TotalRow><Td colSpan={4}>Итого</Td><Td right>{moneyTotals(rows, 'amount')}</Td><Td colSpan={2} /></TotalRow>
-          )}
-        </tbody>
-      </FinTable>
-    </>
+    <NotionTable<ReceivedPayment>
+      rows={data} loading={isPending} error={error} onRetry={() => refetch()}
+      rowKey={p => p.id}
+      title={{ field: 'Ученик', text: p => p.student_name, onOpen: p => navigate(`/finance/contracts/${p.contract_id}`) }}
+      base={['Дата оплаты', 'За что', 'Способ', 'Сумма', 'Чек', 'Отметил']}
+      numeric={['Сумма']} dates={['Дата оплаты']}
+      values={receivedValues}
+      cell={(p, field) => {
+        if (field === 'Дата оплаты') return date(p.paid_at)
+        if (field === 'Сумма') return <span className="font-semibold">{money(p.amount, p.currency)}</span>
+        if (field === 'Чек') return p.has_receipt ? <FinBadge tone="ok">Есть</FinBadge> : (
+          <span className="inline-flex items-center gap-2"><FinBadge tone="yellow">Нет чека</FinBadge>{canManage && <AttachReceiptButton paymentId={p.id} />}</span>
+        )
+        return undefined
+      }}
+      quick={[
+        { key: 'no_receipt', label: 'Без чека', test: p => !p.has_receipt },
+        { key: 'kaspi', label: METHOD_LABELS.kaspi, test: p => p.method === 'kaspi' },
+        { key: 'bank', label: METHOD_LABELS.bank, test: p => p.method === 'bank' },
+        { key: 'cash', label: METHOD_LABELS.cash, test: p => p.method === 'cash' },
+      ]}
+      extraControls={periodControls}
+      groupFields={['Способ', 'Чек', 'Отметил', 'Дата оплаты']}
+      defaultSort={{ field: 'Дата оплаты', direction: 'desc' }}
+      searchText={p => [p.student_name, p.recorded_by ?? '']}
+      storageKey="finance-received-fields" countLabel="Оплат"
+      summary={rows => moneyTotals(rows, 'amount')}
+      exportName={`поступили-${from}-${to}`}
+      exportValue={(p, f) => f === 'Сумма' ? money(p.amount, p.currency) : f === 'Дата оплаты' ? date(p.paid_at) : receivedValues(p, f).join(', ')}
+      empty="За период оплат нет."
+    />
   )
 }
 

@@ -179,7 +179,7 @@ export function FinMetrics({
 export function FinTable({ children, minWidth = 720 }: { children: React.ReactNode; minWidth?: number }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[15px]" style={{ minWidth }}>{children}</table>
+      <table className="w-full border-collapse text-left text-xs" style={{ minWidth }}>{children}</table>
     </div>
   )
 }
@@ -187,7 +187,8 @@ export function FinTable({ children, minWidth = 720 }: { children: React.ReactNo
 export function Th({ children, right, className }: { children?: React.ReactNode; right?: boolean; className?: string }) {
   return (
     <th className={cn(
-      'h-10 whitespace-nowrap border-b border-p-line bg-[var(--fin-head)] px-4 text-left text-[13px] font-semibold text-p-muted first:pl-5 last:pr-5',
+      // Как в таблице «Договоры и акты»: сетка линий, компактные строки.
+      'whitespace-nowrap border-b border-r border-p-line bg-p-bg px-3 py-2 text-left text-xs font-semibold text-p-text last:border-r-0',
       right && 'text-right',
       className,
     )}>
@@ -199,7 +200,7 @@ export function Th({ children, right, className }: { children?: React.ReactNode;
 export function Td({ children, right, className, colSpan }: { children?: React.ReactNode; right?: boolean; className?: string; colSpan?: number }) {
   return (
     <td colSpan={colSpan} className={cn(
-      'h-12 border-b border-[var(--fin-line-soft)] px-4 py-2.5 align-middle text-p-text first:pl-5 last:pr-5',
+      'border-b border-r border-p-line px-3 py-2 align-middle text-p-text last:border-r-0',
       right && 'whitespace-nowrap text-right',
       className,
     )}>
@@ -211,7 +212,7 @@ export function Td({ children, right, className, colSpan }: { children?: React.R
 export function GroupRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="border-b border-p-line bg-[var(--fin-head)] px-5 py-2 text-[13px] font-semibold text-p-text">
+      <td colSpan={colSpan} className="border-b border-p-line bg-p-panel2 px-3 py-2 text-xs font-semibold text-p-text">
         {children}
       </td>
     </tr>
@@ -219,7 +220,7 @@ export function GroupRow({ colSpan, children }: { colSpan: number; children: Rea
 }
 
 export function TotalRow({ children }: { children: React.ReactNode }) {
-  return <tr className="[&>td]:border-b-0 [&>td]:bg-[var(--fin-head)] [&>td]:font-bold">{children}</tr>
+  return <tr className="[&>td]:border-b-0 [&>td]:bg-p-panel2 [&>td]:font-bold">{children}</tr>
 }
 
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
@@ -235,11 +236,11 @@ export function StudentCell({ name, sub, onOpen }: { name: string; sub?: string 
   return (
     <div className="min-w-0">
       {onOpen ? (
-        <button type="button" onClick={onOpen} className="text-left font-semibold text-p-text hover:underline">{name}</button>
+        <button type="button" onClick={onOpen} className="text-left font-medium text-p-text underline decoration-p-line underline-offset-4 hover:decoration-p-text">{name}</button>
       ) : (
-        <span className="font-semibold">{name}</span>
+        <span className="font-medium">{name}</span>
       )}
-      {sub && <div className="whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">{sub}</div>}
+      {sub && <div className="whitespace-nowrap text-[11px] text-p-muted">{sub}</div>}
     </div>
   )
 }
