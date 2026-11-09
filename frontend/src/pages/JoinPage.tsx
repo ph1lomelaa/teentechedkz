@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { GraduationCap, Users } from 'lucide-react'
+import { Briefcase, GraduationCap, Users, Wallet } from 'lucide-react'
 import { authApi } from '@/api/auth'
 import { publicApi } from '@/api/public'
-import type { JoinResult } from '@/api/public'
+import type { JoinResult, JoinRole } from '@/api/public'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton'
 import { Button } from '@/components/ui/primitives/button'
@@ -15,7 +15,25 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { postLoginPath } from '@/lib/authRouting'
 
-type Role = 'student' | 'mentor'
+type Role = JoinRole
+
+const EYEBROW: Record<Role, string> = {
+  student: 'Регистрация ученика',
+  mentor: 'Регистрация ментора',
+  finance_manager: 'Регистрация финансиста',
+  mzk_manager: 'Регистрация МЗК',
+}
+
+/** Почта из Google-токена — подставить в «Почту для писем», чтобы не вводить заново. */
+function emailFromCredential(credential: string): string {
+  try {
+    const part = credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const json = decodeURIComponent(Array.from(atob(part), (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''))
+    return String(JSON.parse(json).email ?? '')
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Одна публичная ссылка регистрации — и для учеников, и для менторов.
@@ -35,6 +53,8 @@ export function JoinPage() {
   const { setSession } = useAuth()
 
   const [role, setRole] = useState<Role | null>(null)
+  // «Я сотрудник» — промежуточный шаг: выбрать, кем именно.
+  const [staff, setStaff] = useState(false)
   const [credential, setCredential] = useState<string | null>(null)
   const [googleError, setGoogleError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -44,6 +64,7 @@ export function JoinPage() {
     city: '',
     direction: '',
     code: params.get('code') ?? '',
+    contact_email: '',
   })
 
   // Код из ссылки — признак, что человека звали как ментора. Поле показываем,
@@ -70,7 +91,8 @@ export function JoinPage() {
         phone: form.phone.trim(),
         city: form.city.trim() || undefined,
         direction: form.direction.trim() || undefined,
-        code: form.code.trim() || undefined,
+        code: role === 'mentor' ? form.code.trim() || undefined : undefined,
+        contact_email: role !== 'student' ? form.contact_email.trim() || undefined : undefined,
       }),
     onSuccess: (data: JoinResult) => {
       setSession(data.user, data.access_token)
@@ -92,11 +114,50 @@ export function JoinPage() {
     const digits = form.phone.replace(/\D/g, '')
     if (!digits) errors.phone = 'Укажите телефон'
     else if (digits.length < 10) errors.phone = 'Телефон должен начинаться с +7 и содержать 11 цифр'
+    const mail = form.contact_email.trim()
+    if (role === 'finance_manager' && !mail) errors.contact_email = 'Укажите почту — туда будут приходить письма об остатках и оплатах'
+    else if (mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) errors.contact_email = 'Проверьте адрес почты'
     setFieldErrors(errors)
     return Object.keys(errors).length === 0
   }
 
   // --- Шаг 1: кто вы -------------------------------------------------------
+  if (!role && staff) {
+    return (
+      <AuthShell
+        eyebrow="Регистрация сотрудника"
+        title="Кем вы работаете?"
+        description="Выберите свою роль. Доступ откроет администратор после проверки заявки."
+      >
+        <div className="space-y-3">
+          <RoleCard
+            icon={<Users className="h-5 w-5" aria-hidden />}
+            title="Ментор"
+            hint="Работаю с учениками"
+            onClick={() => setRole('mentor')}
+          />
+          <RoleCard
+            icon={<Wallet className="h-5 w-5" aria-hidden />}
+            title="Финансист"
+            hint="Веду оплаты и договоры"
+            onClick={() => setRole('finance_manager')}
+          />
+          <RoleCard
+            icon={<Briefcase className="h-5 w-5" aria-hidden />}
+            title="МЗК"
+            hint="Менеджер по работе с клиентами"
+            onClick={() => setRole('mzk_manager')}
+          />
+          <div className="pt-2 text-center">
+            <button type="button" onClick={() => setStaff(false)} className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]">
+              Назад
+            </button>
+          </div>
+        </div>
+      </AuthShell>
+    )
+  }
+
   if (!role) {
     return (
       <AuthShell
@@ -112,10 +173,10 @@ export function JoinPage() {
             onClick={() => setRole('student')}
           />
           <RoleCard
-            icon={<Users className="h-5 w-5" aria-hidden />}
-            title="Я ментор"
-            hint="Вы работаете с учениками"
-            onClick={() => setRole('mentor')}
+            icon={<Briefcase className="h-5 w-5" aria-hidden />}
+            title="Я сотрудник"
+            hint="Ментор, финансист или МЗК"
+            onClick={() => setStaff(true)}
           />
           <div className="pt-2 text-center">
             <Link to="/login" className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]">
@@ -131,7 +192,7 @@ export function JoinPage() {
   if (!credential) {
     return (
       <AuthShell
-        eyebrow={role === 'student' ? 'Регистрация ученика' : 'Регистрация ментора'}
+        eyebrow={EYEBROW[role]}
         title="Подтвердите почту"
         description="Вход в систему — через Google. Так мы точно знаем, что почта ваша, и вам не придётся запоминать ещё один пароль."
       >
@@ -153,6 +214,7 @@ export function JoinPage() {
               onCredential={(value) => {
                 setGoogleError(null)
                 setCredential(value)
+                setForm((f) => (f.contact_email ? f : { ...f, contact_email: emailFromCredential(value) }))
               }}
               onError={setGoogleError}
             />
@@ -184,12 +246,14 @@ export function JoinPage() {
   // --- Шаг 3: анкета -------------------------------------------------------
   return (
     <AuthShell
-      eyebrow={role === 'student' ? 'Регистрация ученика' : 'Регистрация ментора'}
+      eyebrow={EYEBROW[role]}
       title="Осталось представиться"
       description={
         role === 'student'
           ? 'Укажите телефон, который вы оставляли при записи, — по нему мы найдём вашу карточку и откроем кабинет сразу.'
-          : 'Если куратор дал вам код, введите его — тогда доступ откроется сразу.'
+          : role === 'mentor'
+            ? 'Если куратор дал вам код, введите его — тогда доступ откроется сразу.'
+            : 'После отправки администратор проверит заявку и откроет доступ.'
       }
     >
       <form
@@ -233,9 +297,25 @@ export function JoinPage() {
             </Field>
           </>
         ) : (
-          <Field label={codeFromLink ? 'Код приглашения' : 'Код приглашения (если есть)'}>
-            <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          </Field>
+          <>
+            {role === 'finance_manager' && (
+              <Field label="Почта для писем" error={fieldErrors.contact_email}
+                hint="Сюда будут приходить письма об изменениях остатков и оплат. Можно указать рабочий ящик.">
+                <Input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  value={form.contact_email}
+                  onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
+                />
+              </Field>
+            )}
+            {role === 'mentor' && (
+              <Field label={codeFromLink ? 'Код приглашения' : 'Код приглашения (если есть)'}>
+                <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+              </Field>
+            )}
+          </>
         )}
 
         {mutation.isError && <ErrorBox>{getErrorMessage(mutation.error)}</ErrorBox>}
@@ -308,16 +388,19 @@ function ErrorBox({ children }: { children: React.ReactNode }) {
 function Field({
   label,
   error,
+  hint,
   children,
 }: {
   label: string
   error?: string
+  hint?: string
   children: React.ReactNode
 }) {
   return (
     <div className="space-y-2">
       <Label className="auth-field-label">{label}</Label>
       {children}
+      {hint && !error && <p className="text-xs leading-5 text-white/55">{hint}</p>}
       {/* Ошибка живёт под своим полем, а не в общей плашке: на телефоне общая
           плашка уезжает за экран, и человек не понимает, что именно исправлять. */}
       {error && <p className="text-xs font-medium text-red-300">{error}</p>}

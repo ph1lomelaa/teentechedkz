@@ -66,3 +66,17 @@ describe('права в строке заявки', () => {
     expect(screen.getByRole('alert').textContent).toContain('уже обработана')
   })
 })
+
+describe('заявка сотрудника', () => {
+  const finance: AccessRequestItem = {
+    ...item, requested_role: 'finance_manager', candidates: [], contact_email: 'buh@teenteched.kz',
+  }
+  it('кнопка одобряет с той ролью, которую человек выбрал, и видна почта для писем', () => {
+    const onApproveMentor = vi.fn()
+    render(<ul><RequestRow {...props({ item: finance, group: 'mentor', onApproveMentor })} /></ul>)
+    screen.getByRole('button', { name: /Одобрить как финансиста/ }).click()
+    expect(onApproveMentor).toHaveBeenCalled()
+    expect(screen.getByText(/Заявка на роль финансиста/)).toBeTruthy()
+    expect(screen.getAllByText(/почта для писем: buh@teenteched.kz/).length).toBeGreaterThan(0)
+  })
+})

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+import re
 import uuid
 
 from app.core.database import get_db
@@ -568,6 +569,13 @@ async def update_user(
             revoke_sessions = True
     if "phone" in body:
         user.phone = body["phone"]
+    if "notification_email" in body:
+        # Почта для писем финансисту (если это не адрес входа). Пусто — письма
+        # идут на почту входа.
+        value = (body["notification_email"] or "").strip().lower() or None
+        if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise HTTPException(status_code=422, detail="Проверьте почту для писем: похоже, в адресе ошибка")
+        user.notification_email = value
     if "telegram_username" in body:
         user.telegram_username = body["telegram_username"]
     if "telegram_id" in body:
@@ -757,6 +765,7 @@ def _user_to_dict(u: User, agreement_status: dict | None = None) -> dict:
         "id": str(u.id),
         "name": u.name,
         "email": u.email,
+        "notification_email": u.notification_email,
         "role": u.role.value,
         "telegram_id": u.telegram_id,
         "telegram_username": u.telegram_username,

@@ -355,7 +355,7 @@ export function SettingsAccessRequestsPage() {
                   ownerLastLogin: candidate.portal_owner ? candidate.portal_owner.last_login_at : undefined,
                 })
               }
-              onApproveMentor={() => approve.mutate({ id: item.id, role: 'mentor' })}
+              onApproveMentor={() => approve.mutate({ id: item.id, role: item.requested_role === 'student' ? 'mentor' : item.requested_role })}
               onCreateStudent={() =>
                 item.candidates?.length
                   ? setConfirmCreate({ item, candidates: item.candidates })

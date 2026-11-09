@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Clock, Link2, MoreHorizontal, UserPlus } from 'lucide-react'
-import type { AccessRequestItem, StudentCandidate } from '@/api/accessRequests'
+import { STAFF_ROLE_AS, type AccessRequestItem, type StudentCandidate } from '@/api/accessRequests'
 import { Button } from '@/components/ui/primitives/button'
 import { Avatar } from '@/components/ui'
 import { cn, formatDate } from '@/lib/utils'
@@ -32,7 +32,7 @@ function ReasonLine({ item, group }: { item: AccessRequestItem; group: RequestGr
   const owner = byPhone.find((c) => !c.is_free)?.portal_owner ?? null
   const recent = isRecentLogin(owner?.last_login_at)
 
-  if (group === 'mentor') return <>Заявка на роль ментора</>
+  if (group === 'mentor') return <>Заявка на роль {item.requested_role === 'student' ? 'ученика' : STAFF_ROLE_AS[item.requested_role]}</>
   if (group === 'create')
     return <>{item.phone?.trim() ? 'Совпадений в базе нет' : 'Телефон не указан, совпадений нет'}</>
   if (group === 'linked') return <>Аккаунт уже привязан к карточке</>
@@ -144,9 +144,10 @@ export function RequestRow({
   else if (group === 'create')
     main = { label: 'Создать карточку', icon: <UserPlus className="mr-1.5 h-4 w-4" />, onClick: onCreateStudent }
   else if (group === 'mentor')
-    main = { label: 'Одобрить как ментора', icon: <Check className="mr-1.5 h-4 w-4" />, onClick: onApproveMentor }
+    main = { label: `Одобрить как ${item.requested_role === 'student' ? 'ментора' : STAFF_ROLE_AS[item.requested_role]}`, icon: <Check className="mr-1.5 h-4 w-4" />, onClick: onApproveMentor }
 
-  const details = [item.user.email, item.phone, [item.city, item.direction].filter(Boolean).join(' · ')].filter(Boolean)
+  const details = [item.user.email, item.contact_email && item.contact_email !== item.user.email ? `почта для писем: ${item.contact_email}` : '',
+    item.phone, [item.city, item.direction].filter(Boolean).join(' · ')].filter(Boolean)
   const panelId = `compare-${item.id}`
 
   return (

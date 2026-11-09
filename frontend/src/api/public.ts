@@ -1,14 +1,18 @@
 import apiClient from './client'
 import type { LoginResponse } from './auth'
 
+export type JoinRole = 'student' | 'mentor' | 'mzk_manager' | 'finance_manager'
+
 export interface JoinInput {
   credential: string
-  requested_role: 'student' | 'mentor'
+  requested_role: JoinRole
   full_name: string
   phone: string
   city?: string
   direction?: string
   code?: string
+  /** Почта для писем (у финансиста обязательна). */
+  contact_email?: string
 }
 
 /**

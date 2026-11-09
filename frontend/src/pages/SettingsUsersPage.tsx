@@ -62,6 +62,7 @@ interface UserForm {
   role: UserRole
   phone: string
   telegram_username: string
+  notification_email: string
   mentor_specialties: string[]
 }
 
@@ -143,6 +144,7 @@ export function UserModal({
     role: user?.role ?? 'mentor',
     phone: user?.phone ?? '',
     telegram_username: user?.telegram_username ?? '',
+    notification_email: user?.notification_email ?? '',
     mentor_specialties: user?.mentor_specialties ?? [],
   })
   const [inviteLink, setInviteLink] = useState<string | null>(null)
@@ -175,6 +177,7 @@ export function UserModal({
           phone: form.phone || undefined,
           telegram_username: form.telegram_username || undefined,
           mentor_specialties: form.role === 'mentor' ? form.mentor_specialties : [],
+          ...(form.role === 'finance_manager' ? { notification_email: form.notification_email.trim() || null } : {}),
         }
         await usersApi.update(user.id, payload)
         return null
@@ -335,6 +338,20 @@ export function UserModal({
                   placeholder="+7 777 000 00 00"
                 />
               </div>
+              {isEdit && form.role === 'finance_manager' && (
+                <div>
+                  <Label>Почта для писем</Label>
+                  <Input
+                    type="email"
+                    value={form.notification_email}
+                    onChange={(e) => setForm({ ...form, notification_email: e.target.value })}
+                    placeholder={form.email || 'buh@teenteched.kz'}
+                  />
+                  <p className="text-xs text-p-muted mt-1">
+                    Сюда приходят письма об изменениях сумм, остатков и дат. Пусто — письма идут на почту входа.
+                  </p>
+                </div>
+              )}
               {isEdit && (
                 <>
                   <div>

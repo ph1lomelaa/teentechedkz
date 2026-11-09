@@ -82,7 +82,9 @@ export const PendingApprovalPage: React.FC = () => {
     return () => window.clearInterval(timer)
   }, [refreshUser])
 
-  const isStudent = request?.requested_role !== 'mentor'
+  // Заявки нет (старый аккаунт) — показываем как ученику, как и раньше.
+  const isStudent = !request || request.requested_role === 'student'
+  const ROLE_NAME: Record<string, string> = { student: 'Ученик', mentor: 'Ментор', finance_manager: 'Финансист', mzk_manager: 'МЗК' }
 
   return (
     <div className="portal relative min-h-[100dvh] min-w-0 overflow-x-hidden" data-theme={theme}>
@@ -182,8 +184,9 @@ export const PendingApprovalPage: React.FC = () => {
                   {request?.direction && <Row label="Направление" value={request.direction} />}
                   <Row
                     label="Кто вы"
-                    value={request ? (isStudent ? 'Ученик' : 'Ментор') : undefined}
+                    value={request ? ROLE_NAME[request.requested_role] ?? 'Сотрудник' : undefined}
                   />
+                  {request?.contact_email && <Row label="Почта для писем" value={request.contact_email} />}
                 </dl>
 
                 {isStudent && (

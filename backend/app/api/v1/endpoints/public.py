@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import datetime, timezone
 from typing import Annotated, Literal
@@ -54,12 +55,23 @@ _MIN_PHONE_DIGITS = 10
 
 class JoinRequest(BaseModel):
     credential: str
-    requested_role: Literal["student", "mentor"]
+    requested_role: Literal["student", "mentor", "mzk_manager", "finance_manager"]
     full_name: str
     phone: str
     city: str | None = None
     direction: str | None = None
     code: str | None = None
+    #: Почта для писем. У финансиста обязательна: туда уходят письма об
+    #: изменениях денег. Может отличаться от почты Google (рабочий ящик).
+    contact_email: str | None = None
+
+
+#: Простая проверка формы адреса: доставку всё равно подтверждает письмо
+#: при одобрении, строгий разбор RFC здесь ничего не даёт.
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+#: Кого как называть в уведомлениях и аудите.
+ROLE_WORDS = {"student": "ученика", "mentor": "ментора", "mzk_manager": "МЗК", "finance_manager": "финансиста"}
 
 
 def _mentor_code_matches(code: str | None) -> bool:
@@ -75,12 +87,12 @@ def _mentor_code_matches(code: str | None) -> bool:
 
 
 async def _notify_admins_about_request(db: AsyncSession, *, user: User, role: str) -> None:
-    role_word = "ученика" if role == "student" else "ментора"
+    role_word = ROLE_WORDS.get(role, "сотрудника")
     await _notify_admins(
         db,
         kind="access_request",
         title=f"Заявка на доступ от {role_word}",
-        body=f"{user.name} · {user.email} — ждёт привязки к карточке",
+        body=f"{user.name} · {user.email} — " + ("ждёт привязки к карточке" if role == "student" else f"просит роль {role_word}"),
         link="/settings/access-requests",
     )
 
@@ -157,6 +169,12 @@ async def join(
             detail="Телефон должен начинаться с +7 и содержать 11 цифр",
         )
 
+    contact_email = (body.contact_email or "").strip().lower() or None
+    if contact_email and not _EMAIL_RE.fullmatch(contact_email):
+        raise HTTPException(status_code=422, detail="Проверьте почту для писем: похоже, в адресе ошибка")
+    if body.requested_role == "finance_manager" and not contact_email:
+        raise HTTPException(status_code=422, detail="Укажите почту для писем — туда будут приходить изменения остатков и оплат")
+
     user = await resolve_user_by_email(db, identity.email)
 
     # Уже работающий аккаунт: повторный проход по ссылке — это просто вход.
@@ -214,6 +232,7 @@ async def join(
     req.phone_normalized = phone
     req.city = (body.city or "").strip() or None
     req.direction = (body.direction or "").strip() or None
+    req.contact_email = contact_email if body.requested_role != "student" else None
     req.created_ip = rate_limit.client_ip(request)
     user.name = full_name
     user.phone = phone_raw
@@ -248,7 +267,9 @@ async def join(
         req.suggested_confidence = None
         req.suggested_method = None
 
-        if _mentor_code_matches(body.code):
+        # Код из ссылки открывает доступ только ментору: финансист и МЗК видят
+        # деньги и клиентов, их роль всегда подтверждает админ.
+        if body.requested_role == "mentor" and _mentor_code_matches(body.code):
             user.role = UserRole.mentor
             user.is_active = True
             await ar.decide(db, req=req, actor=None, status_value=STATUS_AUTO_APPROVED)

@@ -142,6 +142,7 @@ def _request_to_dict(
         "phone": req.phone_raw,
         "city": req.city,
         "direction": req.direction,
+        "contact_email": req.contact_email,
         "candidates": [
             _candidate_to_dict(card, reason, owners) for card, reason in (candidates or [])
         ],
@@ -179,6 +180,7 @@ async def my_request(
         "phone": req.phone_raw,
         "city": req.city,
         "direction": req.direction,
+        "contact_email": req.contact_email,
         "status": req.status,
         "created_at": req.created_at.isoformat(),
     }
@@ -290,11 +292,37 @@ async def _load_open(db: AsyncSession, request_id: uuid.UUID) -> AccessRequest:
 
 
 class ApproveRequest(BaseModel):
-    role: Literal["student", "mentor", "mzk_manager"]
+    role: Literal["student", "mentor", "mzk_manager", "finance_manager"]
     student_id: uuid.UUID | None = None
     #: Карточка уже с кабинетом: перепривязать к этому аккаунту, старый
     #: отключить. Только явным решением админа из очереди.
     replace_existing: bool = False
+
+
+def _set_finance_address(user: User, req: AccessRequest, role: str) -> None:
+    """Финансисту — почта для писем из заявки (если указал отдельную)."""
+    if role == "finance_manager" and req.contact_email:
+        user.notification_email = req.contact_email
+
+
+async def _finance_welcome(user: User) -> None:
+    """Приветственное письмо финансисту: сразу видно, что адрес рабочий.
+    Ошибка отправки одобрение не отменяет — только пишется в лог."""
+    import logging
+
+    from app.core.config import settings
+    from app.services import mailer
+
+    to = user.notification_email or user.email
+    if not to or not mailer.is_configured():
+        return
+    url = settings.FRONTEND_URL.rstrip("/") + "/finance"
+    text = (f"Здравствуйте, {user.name}!\n\nДоступ к разделу «Финансы» TeenTechEd открыт: {url}\n\n"
+            "На этот адрес будут приходить письма об изменениях сумм, остатков и дат оплаты по договорам.")
+    try:
+        await mailer.send_mail(to=[to], subject="Доступ к разделу «Финансы» открыт", text=text)
+    except Exception:
+        logging.getLogger(__name__).exception("finance welcome email failed for %s", to)
 
 
 def _grant_staff_role(
@@ -381,9 +409,12 @@ async def approve_request(
         temp_password = _grant_staff_role(
             db, user=user, role=body.role, actor=current_user, request=request, via="queue"
         )
+        _set_finance_address(user, req, body.role)
 
     await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
     await db.commit()
+    if body.role == "finance_manager":
+        await _finance_welcome(user)
     # Пароль возвращается ровно один раз — в ответе на само одобрение. Нигде
     # больше он не хранится в открытом виде; забыли передать — только сброс.
     return {"ok": True, "status": STATUS_APPROVED, "temp_password": temp_password}
@@ -640,7 +671,7 @@ async def bulk_approve(
 
 class BulkApproveStaffRequest(BaseModel):
     ids: list[uuid.UUID]
-    role: Literal["mentor", "mzk_manager"] = "mentor"
+    role: Literal["mentor", "mzk_manager", "finance_manager"] = "mentor"
 
 
 @router.post("/bulk-approve-staff")
@@ -707,6 +738,7 @@ async def bulk_approve_staff(
             request=request,
             via="queue_bulk_staff",
         )
+        _set_finance_address(req.user, req, body.role)
         await decide(db, req=req, actor=current_user, status_value=STATUS_APPROVED)
         approved.append(
             {
@@ -721,4 +753,8 @@ async def bulk_approve_staff(
         )
 
     await db.commit()
+    if body.role == "finance_manager":
+        for req in requests:
+            if req.requested_role != "student":
+                await _finance_welcome(req.user)
     return {"approved": approved, "skipped": skipped}

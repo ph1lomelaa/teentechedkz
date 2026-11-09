@@ -53,6 +53,9 @@ class AccessRequest(Base):
     phone_normalized: Mapped[str] = mapped_column(String(50), index=True)
     city: Mapped[str | None] = mapped_column(String(500), nullable=True)
     direction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Почта для писем, которую сотрудник указал в форме (у финансиста
+    #: обязательна). При одобрении переходит в `users.notification_email`.
+    contact_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
     #: Подсказка матчинга — основание для кнопки «Привязать», а не решение.
     suggested_student_id: Mapped[uuid.UUID | None] = mapped_column(

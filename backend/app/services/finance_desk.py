@@ -143,6 +143,11 @@ def format_value(field: str, value: str | None) -> str:
         return value
 
 
+def finance_address(user: User) -> str | None:
+    """Куда слать письма финансисту: почта для писем из заявки, иначе почта входа."""
+    return (user.notification_email or user.email or None) if user else None
+
+
 async def finance_recipients(db: AsyncSession) -> list[User]:
     """Кому слать: все активные финансисты. Пока роли ни у кого нет — админам,
     иначе изменения копились бы в журнале, о котором никто не знает."""

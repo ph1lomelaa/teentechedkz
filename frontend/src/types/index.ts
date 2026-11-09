@@ -49,6 +49,8 @@ export interface User {
   id: string
   name: string
   email: string
+  /** Почта для служебных писем (финансисту), если это не адрес входа. */
+  notification_email?: string | null
   role: UserRole
   telegram_username?: string
   phone?: string

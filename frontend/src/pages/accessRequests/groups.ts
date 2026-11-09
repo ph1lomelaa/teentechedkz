@@ -99,10 +99,11 @@ export const GROUP_META: Record<RequestGroup, GroupMeta> = {
     badgeClass: 'border-st-create/40 bg-st-create/15 text-st-create',
     dotClass: 'bg-st-create',
   },
+  // Ключ «mentor» исторический: в группе все сотрудники — менторы, финансисты, МЗК.
   mentor: {
-    tab: 'Менторы',
-    badge: 'Ментор',
-    hint: 'Менторы: карточек нет, заявки одобряются по одной.',
+    tab: 'Сотрудники',
+    badge: 'Сотрудник',
+    hint: 'Сотрудники (менторы, финансисты, МЗК): карточек нет, заявки одобряются по одной с той ролью, которую человек выбрал.',
     badgeClass: 'border-st-mentor/40 bg-st-mentor/15 text-st-mentor',
     dotClass: 'bg-st-mentor',
   },

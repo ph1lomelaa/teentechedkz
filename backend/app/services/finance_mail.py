@@ -22,9 +22,9 @@ def failure_status(error):
 
 
 async def enqueue(db):
-    from app.services.finance_desk import finance_recipients, _groups, _email_html, EMAIL_MAX_AGE_HOURS, contract_now, email_subject, email_text, EMAIL_FIELDS
+    from app.services.finance_desk import finance_address, finance_recipients, _groups, _email_html, EMAIL_MAX_AGE_HOURS, contract_now, email_subject, email_text, EMAIL_FIELDS
     from app.models.contract import Contract
-    recipients = [u for u in await finance_recipients(db) if u.role == UserRole.finance_manager and u.email]
+    recipients = [u for u in await finance_recipients(db) if u.role == UserRole.finance_manager and finance_address(u)]
     if not recipients:
         return
     since = datetime.now(timezone.utc) - timedelta(hours=EMAIL_MAX_AGE_HOURS)
@@ -45,7 +45,7 @@ async def enqueue(db):
         for group in await _groups(db, own):
             url = settings.FRONTEND_URL.rstrip('/') + group.link
             now = contract_now(await db.get(Contract, group.contract_id) if group.contract_id else None)
-            delivery = FinanceMailDelivery(recipient_id=recipient.id, recipient=recipient.email,
+            delivery = FinanceMailDelivery(recipient_id=recipient.id, recipient=finance_address(recipient),
                 student_id=group.student_id, contract_id=group.contract_id,
                 subject=email_subject(group), body=email_text(group, url, now), html=_email_html(group, url, now))
             db.add(delivery)
@@ -60,6 +60,7 @@ async def enqueue(db):
 
 
 async def dispatch(db):
+    from app.services.finance_desk import finance_address
     now = datetime.now(timezone.utc)
     await db.execute(update(FinanceMailDelivery).where(FinanceMailDelivery.status == 'sending',
         FinanceMailDelivery.claimed_at < now - timedelta(minutes=5)).values(status='unknown',
@@ -79,7 +80,7 @@ async def dispatch(db):
             await db.commit()
             continue
         recipient = await db.get(User, delivery.recipient_id) if delivery.recipient_id else None
-        if recipient is None or not recipient.is_active or recipient.role != UserRole.finance_manager or recipient.email != delivery.recipient:
+        if recipient is None or not recipient.is_active or recipient.role != UserRole.finance_manager or finance_address(recipient) != delivery.recipient:
             delivery.status = 'failed'
             delivery.last_error = 'Получатель или его права изменились; отправка остановлена'
             await db.commit()

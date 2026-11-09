@@ -27,6 +27,9 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    #: Куда слать служебные письма (финансисту — об изменениях денег), если
+    #: это не адрес входа. Пусто — письма идут на `email`.
+    notification_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, name="user_role"))
     telegram_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

@@ -27,14 +27,25 @@ export interface StudentCandidate extends SuggestedStudent {
   reason_label: string
 }
 
+export type StaffOrStudentRole = 'student' | 'mentor' | 'mzk_manager' | 'finance_manager'
+
+/** Кем одобрить сотрудника — в родительном падеже для кнопки «Одобрить как …». */
+export const STAFF_ROLE_AS: Record<Exclude<StaffOrStudentRole, 'student'>, string> = {
+  mentor: 'ментора',
+  finance_manager: 'финансиста',
+  mzk_manager: 'МЗК',
+}
+
 export interface AccessRequestItem {
   id: string
   user: { id: string; email: string; name: string; is_active: boolean }
-  requested_role: 'student' | 'mentor'
+  requested_role: StaffOrStudentRole
   full_name: string
   phone: string
   city: string | null
   direction: string | null
+  /** Почта для писем из заявки сотрудника (у финансиста обязательна). */
+  contact_email?: string | null
   /** Все похожие карточки: телефон первым, свободные раньше занятых. */
   candidates: StudentCandidate[]
   suggested_student: SuggestedStudent | null
@@ -47,7 +58,8 @@ export interface AccessRequestItem {
 
 export interface MyAccessRequest {
   id: string
-  requested_role: 'student' | 'mentor'
+  requested_role: StaffOrStudentRole
+  contact_email?: string | null
   full_name: string
   phone: string
   city: string | null
@@ -132,7 +144,7 @@ export const accessRequestsApi = {
    */
   bulkApproveStaff: async (
     ids: string[],
-    role: 'mentor' | 'mzk_manager',
+    role: 'mentor' | 'mzk_manager' | 'finance_manager',
   ): Promise<BulkApproveStaffResult> => {
     const response = await apiClient.post('/access-requests/bulk-approve-staff', { ids, role })
     return response.data
