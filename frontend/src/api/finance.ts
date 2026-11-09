@@ -98,10 +98,14 @@ export interface FinanceCounters {
 
 export type NextPaymentKind = 'overdue' | 'today' | 'planned' | 'not_planned' | 'paid_full'
 
+export interface OriginalDocument { kind: 'trustme' | 'scan'; id: string; label: string }
+
 export interface FinanceContractRow {
   trustme_count?: number
   acts_count?: number
   trustme?: { id: string; number: string | null; status: number; source?: string }[]
+  /** Настоящий договор: TrustMe этого договора → TrustMe ученика без привязки → скан договора. */
+  originals?: OriginalDocument[]
   services_total?: number
   services_closed?: number
   closed_percent?: number | null
@@ -232,6 +236,8 @@ export const financeApi = {
     if (q.documents) params.documents = q.documents
     return (await apiClient.get('/finance/contracts', { params })).data
   },
+  contractScan: async (contractId: string, docId: string): Promise<Blob> =>
+    (await apiClient.get(`/finance/contracts/${contractId}/scan/${docId}`, { responseType: 'blob' })).data,
   contract: async (id: string): Promise<FinanceContractDetail> => (await apiClient.get(`/finance/contracts/${id}`)).data,
   review: async (status = 'all', offset = 0): Promise<ReviewView> => (await apiClient.get('/finance/review', { params: { status, offset, limit: 100 } })).data,
   createItem: async (data: ScheduleItemInput): Promise<ScheduleItem> => (await apiClient.post('/finance/schedule', data)).data,

@@ -16,14 +16,6 @@ export function FinanceReviewPage() {
   const queryClient = useQueryClient()
   const { can } = useAuth()
   const canManage = can('finance_desk', 'manage')
-  const [mailCheck, setMailCheck] = useState<string | null>(null)
-  const [mailOutcome, setMailOutcome] = useState('sent')
-  const [mailNote, setMailNote] = useState('')
-  const deliveries = useQuery({ queryKey: ['finance', 'mail-deliveries'], queryFn: financeApi.deliveries, refetchInterval: 15000 })
-  const resolveMail = useMutation({ mutationFn: () => financeApi.resolveDelivery(mailCheck!, mailOutcome, mailNote.trim()),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: financeKeys.all }); setMailCheck(null); setMailNote('') },
-    onError: err => toast({ title: 'Не удалось сохранить проверку', description: getErrorMessage(err), variant: 'destructive' }),
-  })
   const [offset, setOffset] = useState(0)
   const [filter, setFilter] = useState<'new' | 'all'>('new')
   const [confirming, setConfirming] = useState<FinanceChange | null>(null)
@@ -46,22 +38,9 @@ export function FinanceReviewPage() {
 
   return (
     <div>
-      <FinPageHeader title="Проверка" description="Что нужно проверить: изменения сумм и дат в Notion и оплаты без чека. Договоры, где график не совпадает с остатком, — в «Договорах», фильтр «График»." />
+      <FinPageHeader title="Проверка" description="Изменения сумм и дат в Notion и оплаты без чека. Договоры, где график не совпадает с остатком, — в «Договорах», фильтр «График»." />
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       <div className="grid gap-5">
-        <FinCard title="Доставка финансовых писем" meta="Последние 100 отправок">
-          {deliveries.isError && <QueryError colorPrefix="p" error={deliveries.error} onRetry={deliveries.refetch} />}
-          <FinTable minWidth={820}><thead><tr><Th>Дата</Th><Th>Письмо</Th><Th>Получатель</Th><Th>Состояние</Th><Th>Проверка</Th></tr></thead><tbody>
-            {!deliveries.data?.length && <EmptyRow colSpan={5}>{deliveries.isPending ? 'Загрузка…' : 'Отправок пока нет'}</EmptyRow>}
-            {deliveries.data?.map(d => <tr key={d.id}><Td>{dateTime(d.created_at)}</Td><Td>{d.subject}</Td><Td>{d.recipient}</Td><Td>{({ pending: 'Ожидает отправки', sending: 'Отправляется', sent: 'Принято SMTP', unknown: 'Результат неизвестен', failed: 'Не отправлено' } as Record<string, string>)[d.status] || d.status}{d.last_error && <div className="text-xs">{d.last_error}</div>}</Td><Td>{canManage && ['unknown', 'failed', 'sending'].includes(d.status) && <FinButton size="sm" onClick={() => { setMailCheck(d.id); setMailNote(''); setMailOutcome('sent') }}>Проверить</FinButton>}</Td></tr>)}
-          </tbody></FinTable>
-          {mailCheck && <form className="space-y-3 p-4" onSubmit={e => { e.preventDefault(); if (!resolveMail.isPending) resolveMail.mutate() }}>
-            <p className="text-sm">Сначала проверьте корпоративный ящик. Подтверждение отсутствия письма разрешает повторную отправку.</p>
-            <label className="block text-sm">Результат<select className="ml-3 rounded border p-2" value={mailOutcome} onChange={e => setMailOutcome(e.target.value)}><option value="sent">Письмо отправлено</option><option value="not_sent">Не отправлено — повторить</option></select></label>
-            <label className="block text-sm">Как проверили<textarea className="mt-1 block w-full rounded border p-2" required minLength={10} maxLength={1000} value={mailNote} onChange={e => setMailNote(e.target.value)} /></label>
-            <FinButton type="submit" disabled={resolveMail.isPending}>Сохранить проверку</FinButton><FinButton type="button" onClick={() => setMailCheck(null)}>Отмена</FinButton>
-          </form>}
-        </FinCard>
         <FinCard
           title="Изменения сумм и дат"
           meta={pending ? `${plural(pending, ['ожидает', 'ожидают', 'ожидают'])} проверки` : 'всё проверено'}

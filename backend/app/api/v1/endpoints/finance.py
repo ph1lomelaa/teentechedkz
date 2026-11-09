@@ -631,13 +631,70 @@ async def contracts(
         TrustMeContractLink.financial_contract_id.in_(ids), ServiceAct.status == "ready").group_by(TrustMeContractLink.financial_contract_id))).all()) if ids else {}
     from app.services.act_coverage import financial_coverage
     covered = await financial_coverage(db, ids)
+    originals = await _original_documents(db, [(c.id, s.id) for c, s, _ in rows], covered)
     await db.commit()  # состав услуг старых договоров, посчитанный один раз
     return {
         "items": [{**_contract_row(c, s, mzk_name, money[c.id], today), "trustme_count": document_counts.get(c.id, 0),
-                   "acts_count": act_counts.get(c.id, 0), **_coverage_brief(covered.get(c.id))} for c, s, mzk_name in rows],
+                   "acts_count": act_counts.get(c.id, 0), **_coverage_brief(covered.get(c.id)),
+                   "originals": originals[c.id]} for c, s, mzk_name in rows],
         "total": total, "page": page, "size": size,
         "mzk_options": mzk_options, "intake_options": intake_options,
     }
+
+
+async def _original_documents(db: AsyncSession, pairs: list[tuple[uuid.UUID, uuid.UUID]], covered: dict) -> dict:
+    """Настоящий договор ученика, который финансист открывает из «Договоров».
+
+    По порядку: договор TrustMe, привязанный к этому договору; договор TrustMe
+    ученика, ещё не привязанный ни к одному договору; загруженный скан
+    договора (документ «Скан договора»). Первый найденный вид и показывается.
+    Отозванные в TrustMe (status 4) не показываются — как в кабинете студента.
+    """
+    student_ids = {sid for _, sid in pairs}
+    loose: dict[uuid.UUID, list[dict]] = {}
+    scans: dict[uuid.UUID, list[dict]] = {}
+    if student_ids:
+        for link in (await db.execute(select(TrustMeContractLink).where(
+                TrustMeContractLink.student_id.in_(student_ids),
+                TrustMeContractLink.financial_contract_id.is_(None),
+                TrustMeContractLink.status != 4).order_by(TrustMeContractLink.linked_at))).scalars():
+            loose.setdefault(link.student_id, []).append(
+                {"kind": "trustme", "id": str(link.id), "label": f"Договор №{link.number}" if link.number else "Договор TrustMe"})
+        for doc in (await db.execute(select(Document).where(
+                Document.student_id.in_(student_ids), Document.doc_type == DocType.contract_scan)
+                .order_by(Document.uploaded_at))).scalars():
+            scans.setdefault(doc.student_id, []).append(
+                {"kind": "scan", "id": str(doc.id), "label": doc.display_name or doc.file_name})
+    out = {}
+    for contract_id, student_id in pairs:
+        linked = [{"kind": "trustme", "id": c["id"], "label": f"Договор №{c['number']}" if c.get("number") else "Договор TrustMe"}
+                  for c in (covered.get(contract_id) or {}).get("contracts", []) if c.get("status") != 4]
+        out[contract_id] = linked or loose.get(student_id) or scans.get(student_id) or []
+    return out
+
+
+@router.get("/contracts/{contract_id}/scan/{doc_id}")
+async def contract_scan(contract_id: uuid.UUID, doc_id: uuid.UUID, db: Db, current_user: CurrentUser):
+    """Скан договора для финансиста. Отдаётся только документ «Скан договора»
+    того же ученика — карточки учеников и прочие документы финансисту закрыты."""
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    from app.services.minio_service import minio_download
+
+    require_access(current_user, "finance_desk", Action.view)
+    contract = await db.get(Contract, contract_id)
+    doc = await db.get(Document, doc_id)
+    if contract is None or doc is None or doc.student_id != contract.student_id or doc.doc_type != DocType.contract_scan:
+        raise HTTPException(404, "Скан договора не найден")
+    content = await minio_download(doc.storage_path)
+    inline = doc.mime_type in {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+    name = doc.display_name or doc.file_name or "Договор"
+    return Response(content, media_type=doc.mime_type if inline else "application/octet-stream", headers={
+        "Content-Disposition": f'{"inline" if inline else "attachment"}; filename="contract"; filename*=UTF-8\'\'{quote(name)}',
+        "X-Content-Type-Options": "nosniff",
+    })
 
 
 def _coverage_brief(row) -> dict:
@@ -737,10 +794,13 @@ async def contract_detail(contract_id: uuid.UUID, db: Db, current_user: CurrentU
                                      NotionSnapshot.status == NotionMatchStatus.linked).limit(1)
     )).scalar_one_or_none()
     from app.services.act_coverage import financial_coverage
-    covered = (await financial_coverage(db, [c.id])).get(c.id)
+    coverage = await financial_coverage(db, [c.id])
+    covered = coverage.get(c.id)
+    originals = await _original_documents(db, [(c.id, student.id)], coverage)
     await db.commit()
     return {
         **_contract_row(c, student, mzk_name, money, today), **_coverage_brief(covered),
+        "originals": originals[c.id],
         "signed_date": c.signed_date.isoformat() if c.signed_date else None,
         "source": "Notion" if snapshot else "Платформа",
         "synced_at": snapshot.synced_at.isoformat() if snapshot and snapshot.synced_at else None,

@@ -22,7 +22,7 @@ export function NotionScheduleNotice({ count, canManage }: { count: number; canM
     {transfer.isPending ? 'Создаём график…' : 'Создать ожидаемые платежи из Notion'}
   </FinButton>}>
     <p className="font-semibold">График ещё не заполнен по {plural(count, ['договору', 'договорам', 'договорам'])}</p>
-    <p className="mt-1">В Notion есть остатки к оплате и даты. В списках «Сегодня» и «Платежи» эти суммы пока не видны: они показывают оплаты по графику.</p>
+    <p className="mt-1">В Notion есть остатки к оплате и даты. В списках на «Сегодня» эти суммы пока не видны: они показывают оплаты по графику.</p>
     <p className="mt-1">Перенос создаст по одному ожидаемому платежу на сумму остатка и дату из Notion. Он не отметит оплату полученной. Договоры с готовым графиком не изменятся. Суммы и даты можно поправить в договоре.</p>
     <Link to="/finance/contracts?schedule=none" className="mt-2 inline-block font-semibold underline">Проверить договоры без графика</Link>
   </FinAlert>

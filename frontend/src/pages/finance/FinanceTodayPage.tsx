@@ -1,27 +1,45 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { QueryError } from '@/components/shared/QueryState'
 import { financeApi, financeKeys, type ScheduleItem } from '@/api/finance'
 import {
-  EmptyRow, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, StudentCell, Td, Th,
+  EmptyRow, FinBadge, FinButton, FinCard, FinPageHeader, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
 import { NotionScheduleNotice } from '@/components/finance/NotionScheduleNotice'
 import { PayDialog } from '@/components/finance/dialogs'
+import { ExpectedList, OverdueList, PaymentsCalendar, ReceivedList } from '@/components/finance/PaymentLists'
 import { METHOD_LABELS, date, dateTime, money, moneyTotals, parseIso, paymentTitle, payments, plural } from '@/components/finance/format'
 
 const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
 const MONTHS = ['январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре']
 
+/** Блоки, которые раскрываются в полный список. Открытые хранятся в адресе:
+ * `/finance?open=overdue,received&view=calendar` — работают «Назад» и ссылки
+ * со старой страницы «Платежи». */
+export type TodaySection = 'overdue' | 'expected' | 'received'
+const SECTIONS: TodaySection[] = ['overdue', 'expected', 'received']
+
+function ToggleButton({ open, onClick, children }: { open: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <FinButton size="sm" aria-expanded={open} onClick={onClick}>
+      {open ? <>Свернуть<ChevronUp className="h-4 w-4" aria-hidden="true" /></> : <>{children}<ChevronDown className="h-4 w-4" aria-hidden="true" /></>}
+    </FinButton>
+  )
+}
+
 /**
- * «Сегодня» — список дел, а не сводка: что оплатить отметить, кто просрочил,
- * что поменяли в Notion. Подробности — в «Платежах» и «Проверке».
+ * «Сегодня» — единственный экран про платежи (страница «Платежи» убрана
+ * 09.11.2026 как повтор): сверху то, что требует действия сегодня, ниже —
+ * полные списки, раскрываются по кнопке.
  */
 export function FinanceTodayPage() {
   const { can } = useAuth()
   const canManage = can('finance_desk', 'manage')
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const [paying, setPaying] = useState<ScheduleItem | null>(null)
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: financeKeys.today(),
@@ -29,46 +47,51 @@ export function FinanceTodayPage() {
     refetchInterval: 60_000,
   })
 
+  const opened = new Set((params.get('open') ?? '').split(',').filter((s): s is TodaySection => SECTIONS.includes(s as TodaySection)))
+  const calendar = params.get('view') === 'calendar'
+  const update = (patch: { open?: Set<TodaySection>; calendar?: boolean }) => {
+    const next = new URLSearchParams(params)
+    const open = patch.open ?? opened
+    if (open.size) next.set('open', SECTIONS.filter((s) => open.has(s)).join(','))
+    else next.delete('open')
+    if (patch.calendar ?? calendar) next.set('view', 'calendar')
+    else next.delete('view')
+    setParams(next, { replace: true })
+  }
+  const toggle = (s: TodaySection) => {
+    const next = new Set(opened)
+    if (next.has(s)) next.delete(s)
+    else next.add(s)
+    update({ open: next })
+  }
+
+  // Пришли по ссылке на конкретный список (например, со старой «Платежи») —
+  // прокрутить к нему один раз, когда страница загрузилась.
+  const first = SECTIONS.find((s) => opened.has(s))
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    if (scrolled || !data || !first || first === 'overdue') return
+    document.getElementById(`fin-${first}`)?.scrollIntoView({ block: 'start' })
+    setScrolled(true)
+  }, [data, first, scrolled])
+
   const open = (contractId: string) => navigate(`/finance/contracts/${contractId}`)
-  const acts = useQuery({ queryKey: financeKeys.actsSummary(), queryFn: financeApi.actsSummary, retry: false })
   const waiting = data?.due_today.filter((i) => i.state !== 'paid') ?? []
   const day = data ? parseIso(data.today) : null
+  const monthLine = data?.month_totals?.map((t) => `${money(t.received, t.currency)}; план ${money(t.planned, t.currency)}`).join(' / ')
+    || (data ? `${money(data.month_received)}; план ${money(data.month_planned)}` : '')
+  const receivedLine = data?.month_totals?.map((t) => money(t.received, t.currency)).join(' / ') || (data ? money(data.month_received) : '')
 
   return (
     <div>
       <FinPageHeader
         title="Сегодня"
-        description={day && data ? `${WEEKDAYS[day.getDay()]}, ${date(data.today)}. Поступило в ${MONTHS[day.getMonth()]}: ${data.month_totals?.map(t => `${money(t.received, t.currency)}; план ${money(t.planned, t.currency)}`).join(' / ') || `${money(data.month_received)}; план ${money(data.month_planned)}`}.` : undefined}
+        description={day && data ? `${WEEKDAYS[day.getDay()]}, ${date(data.today)}. Поступило в ${MONTHS[day.getMonth()]}: ${monthLine}.` : undefined}
       />
       {isError && <QueryError colorPrefix="p" error={error} onRetry={refetch} className="mb-5" />}
       {isLoading && <p className="text-p-muted">Загрузка…</p>}
 
       {data && <NotionScheduleNotice count={data.notion_import_count} canManage={canManage} />}
-
-      {acts.data && (
-        <FinCard title="Договоры и акты" meta={`активных договоров: ${acts.data.active_total}`}>
-          <div className="px-5 pt-4">
-            <FinMetrics items={[
-              { label: 'Без договора TrustMe', value: String(acts.data.active_without_trustme), tone: acts.data.active_without_trustme ? 'warn' : undefined,
-                hint: <Link className="underline" to="/finance/contracts?documents=no_contract">Открыть список</Link> },
-              { label: 'Нет готовых актов', value: String(acts.data.active_without_acts),
-                hint: <Link className="underline" to="/finance/contracts?documents=no_act">Открыть список</Link> },
-              { label: 'Закрыто актами в среднем', value: acts.data.active_average_percent == null ? '—' : `${acts.data.active_average_percent}%`,
-                progress: acts.data.active_average_percent ?? 0, tone: 'ok' },
-              { label: 'Актов отправлено в этом месяце', value: `${acts.data.month.sent} из ${acts.data.month.created}`,
-                tone: acts.data.month.not_sent ? 'warn' : undefined,
-                hint: acts.data.month.not_sent ? `ждут отправки: ${acts.data.month.not_sent}` : 'все отправлены' },
-            ]} />
-          </div>
-          {acts.data.paid_not_closed_total > 0 && <FinTable minWidth={560}>
-            <thead><tr><Th>Оплачено полностью, но не закрыто актами · {acts.data.paid_not_closed_total}</Th><Th right>Закрыто</Th></tr></thead>
-            <tbody>{acts.data.paid_not_closed.map(r => <tr key={r.contract_id} className="hover:bg-[var(--fin-head)]">
-              <Td><StudentCell name={r.student_name} onOpen={() => open(r.contract_id)} /></Td>
-              <Td right>{r.services_closed} из {r.services_total}{r.closed_percent != null ? ` · ${r.closed_percent}%` : ''}</Td>
-            </tr>)}</tbody>
-          </FinTable>}
-        </FinCard>
-      )}
 
       {data && (
         <div className="grid gap-5">
@@ -98,28 +121,34 @@ export function FinanceTodayPage() {
             </FinTable>
           </FinCard>
 
-          <FinCard
-            title="Просрочено"
-            meta={data.overdue_count ? `${payments(data.overdue_count)}; ниже показаны самые ранние просрочки` : undefined}
-            actions={data.overdue_count > data.overdue.length && (
-              <Link to="/finance/payments?tab=overdue" className="text-sm font-semibold text-p-text underline">Все просроченные</Link>
-            )}
-          >
-            <FinTable minWidth={680}>
-              <thead><tr><Th>Ученик</Th><Th>Срок оплаты</Th><Th right>Просрочка</Th><Th right>Сумма</Th></tr></thead>
-              <tbody>
-                {data.overdue.length === 0 && <EmptyRow colSpan={4}>Просроченных платежей нет</EmptyRow>}
-                {data.overdue.map((i) => (
-                  <tr key={i.id}>
-                    <Td><StudentCell name={i.student_name} sub={i.mzk_name ? `МЗК ${i.mzk_name}` : 'МЗК не указан'} onOpen={() => open(i.contract_id)} /></Td>
-                    <Td className="whitespace-nowrap">{date(i.due_date)}</Td>
-                    <Td right><FinBadge tone="bad">{plural(i.days_overdue, ['день', 'дня', 'дней'])}</FinBadge></Td>
-                    <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </FinTable>
-          </FinCard>
+          <div id="fin-overdue">
+            <FinCard
+              title="Просрочено"
+              meta={data.overdue_count ? `${payments(data.overdue_count)}${!opened.has('overdue') && data.overdue_count > data.overdue.length ? '; ниже самые ранние' : ''}` : undefined}
+              actions={data.overdue_count > 0 && (
+                <ToggleButton open={opened.has('overdue')} onClick={() => toggle('overdue')}>
+                  {data.overdue_count > data.overdue.length ? `Показать все (${data.overdue_count})` : 'Фильтры и экспорт'}
+                </ToggleButton>
+              )}
+            >
+              {opened.has('overdue') ? <OverdueList canManage={canManage} onPay={setPaying} /> : (
+                <FinTable minWidth={680}>
+                  <thead><tr><Th>Ученик</Th><Th>Срок оплаты</Th><Th right>Просрочка</Th><Th right>Сумма</Th></tr></thead>
+                  <tbody>
+                    {data.overdue.length === 0 && <EmptyRow colSpan={4}>Просроченных платежей нет</EmptyRow>}
+                    {data.overdue.map((i) => (
+                      <tr key={i.id}>
+                        <Td><StudentCell name={i.student_name} sub={i.mzk_name ? `МЗК ${i.mzk_name}` : 'МЗК не указан'} onOpen={() => open(i.contract_id)} /></Td>
+                        <Td className="whitespace-nowrap">{date(i.due_date)}</Td>
+                        <Td right><FinBadge tone="bad">{plural(i.days_overdue, ['день', 'дня', 'дней'])}</FinBadge></Td>
+                        <Td right className="font-semibold">{money(i.left, i.currency)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </FinTable>
+              )}
+            </FinCard>
+          </div>
 
           <FinCard
             title="Изменения сумм и дат"
@@ -146,6 +175,40 @@ export function FinanceTodayPage() {
               </ul>
             )}
           </FinCard>
+
+          <div id="fin-expected">
+            <FinCard
+              title="Ожидаются"
+              meta="будущие платежи по графику"
+              actions={<>
+                {opened.has('expected') && (
+                  <div role="group" aria-label="Вид" className="inline-flex rounded-lg border border-p-line bg-white p-0.5">
+                    {([[false, 'Списком'], [true, 'Календарём']] as const).map(([v, label]) => (
+                      <button key={label} type="button" aria-pressed={calendar === v} onClick={() => update({ calendar: v })}
+                        className={calendar === v ? 'h-7 rounded-md bg-black px-3 text-[13px] font-semibold text-white' : 'h-7 rounded-md px-3 text-[13px] font-semibold text-p-muted hover:text-p-text'}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <ToggleButton open={opened.has('expected')} onClick={() => toggle('expected')}>Показать</ToggleButton>
+              </>}
+            >
+              {opened.has('expected') && (calendar
+                ? <PaymentsCalendar canManage={canManage} onPay={setPaying} />
+                : <ExpectedList canManage={canManage} onPay={setPaying} />)}
+            </FinCard>
+          </div>
+
+          <div id="fin-received">
+            <FinCard
+              title="Поступили"
+              meta={day ? `в ${MONTHS[day.getMonth()]}: ${receivedLine}` : undefined}
+              actions={<ToggleButton open={opened.has('received')} onClick={() => toggle('received')}>Показать</ToggleButton>}
+            >
+              {opened.has('received') && <ReceivedList canManage={canManage} />}
+            </FinCard>
+          </div>
         </div>
       )}
       <PayDialog item={paying} onClose={() => setPaying(null)} />

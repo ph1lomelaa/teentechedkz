@@ -134,12 +134,18 @@ const CountriesPage = lazyRoute(() =>
 const FinancesPage = lazyRoute(() =>
   import('@/pages/FinancesPage').then((m) => ({ default: m.FinancesPage }))
 )
+/** Старый адрес «Платежей» (ссылки в письмах и закладках) → нужный блок на
+ * «Сегодня»: `?tab=overdue` → `/finance?open=overdue`. */
+function FinancePaymentsRedirect() {
+  const tab = new URLSearchParams(useLocation().search).get('tab')
+  const to = tab === 'calendar' ? '/finance?open=expected&view=calendar'
+    : tab === 'overdue' || tab === 'received' ? `/finance?open=${tab}`
+    : '/finance?open=expected'
+  return <Navigate to={to} replace />
+}
 const ActsPage = lazyRoute(() => import('@/pages/ActsPage').then((m) => ({ default: m.ActsPage })))
 const FinanceTodayPage = lazyRoute(() =>
   import('@/pages/finance/FinanceTodayPage').then((m) => ({ default: m.FinanceTodayPage }))
-)
-const FinancePaymentsPage = lazyRoute(() =>
-  import('@/pages/finance/FinancePaymentsPage').then((m) => ({ default: m.FinancePaymentsPage }))
 )
 const FinanceContractsPage = lazyRoute(() =>
   import('@/pages/finance/FinanceContractsPage').then((m) => ({ default: m.FinanceContractsPage }))
@@ -687,18 +693,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/finance/payments"
-        element={
-          <ProtectedRoute permission={['finance_desk', 'view']}>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <FinancePaymentsPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      {/* «Платежи» убраны 09.11.2026: все списки — на «Сегодня». */}
+      <Route path="/finance/payments" element={<FinancePaymentsRedirect />} />
       <Route
         path="/finance/contracts"
         element={
@@ -737,9 +733,9 @@ function AppRoutes() {
       />
       {/* Адреса первой версии кабинета ведут на новые разделы: ссылки в
           уведомлениях и закладках продолжают работать. */}
-      <Route path="/finance/calendar" element={<Navigate to="/finance/payments?tab=calendar" replace />} />
-      <Route path="/finance/debtors" element={<Navigate to="/finance/payments?tab=overdue" replace />} />
-      <Route path="/finance/incoming" element={<Navigate to="/finance/payments?tab=received" replace />} />
+      <Route path="/finance/calendar" element={<Navigate to="/finance?open=expected&view=calendar" replace />} />
+      <Route path="/finance/debtors" element={<Navigate to="/finance?open=overdue" replace />} />
+      <Route path="/finance/incoming" element={<Navigate to="/finance?open=received" replace />} />
       <Route path="/finance/changes" element={<Navigate to="/finance/review" replace />} />
 
       {/* Роль, а не право: правила `statistics` в реестре нет. */}

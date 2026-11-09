@@ -80,13 +80,15 @@ export function FinCard({
   title?: string
   meta?: React.ReactNode
   actions?: React.ReactNode
-  children: React.ReactNode
+  /** Без содержимого — только заголовок (свёрнутый блок на «Сегодня»). */
+  children?: React.ReactNode
   className?: string
 }) {
+  const hasBody = children !== undefined && children !== null && children !== false
   return (
     <section className={cn('min-w-0 overflow-hidden rounded-xl border border-p-line bg-white', className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-p-line px-5 py-3.5">
+        <header className={cn('flex flex-wrap items-center justify-between gap-3 px-5 py-3.5', hasBody && 'border-b border-p-line')}>
           <div className="flex items-baseline gap-3">
             {title && <h2 className="text-base font-bold text-p-text">{title}</h2>}
             {meta && <span className="text-[13px] text-p-muted">{meta}</span>}
@@ -233,9 +235,9 @@ export function StudentCell({ name, sub, onOpen }: { name: string; sub?: string 
   return (
     <div className="min-w-0">
       {onOpen ? (
-        <button type="button" onClick={onOpen} className="whitespace-nowrap text-left font-semibold text-p-text hover:underline">{name}</button>
+        <button type="button" onClick={onOpen} className="text-left font-semibold text-p-text hover:underline">{name}</button>
       ) : (
-        <span className="whitespace-nowrap font-semibold">{name}</span>
+        <span className="font-semibold">{name}</span>
       )}
       {sub && <div className="whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">{sub}</div>}
     </div>
@@ -400,24 +402,6 @@ export function FinAlert({ children, action }: { children: React.ReactNode; acti
       <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--fin-warn)]" />
       <div className="min-w-0 w-full flex-1 sm:w-auto">{children}</div>
       {action && <div className="max-w-full shrink-0 [&_button]:whitespace-normal">{action}</div>}
-    </div>
-  )
-}
-
-/** Договор TrustMe и доля услуг, закрытых актами (правило act_coverage на сервере). */
-export function ActsClosure({ row }: { row: { trustme?: { number: string | null }[]; services_total?: number; services_closed?: number; closed_percent?: number | null } }) {
-  const contracts = row.trustme ?? []
-  if (!contracts.length) return <span className="text-[13px] text-[var(--fin-text-3)]">Нет договора TrustMe</span>
-  const pct = row.closed_percent ?? 0
-  return (
-    <div className="min-w-[150px]">
-      <div className="text-[13px] font-medium text-p-text">№{contracts[0].number || '—'}{contracts.length > 1 ? ` +${contracts.length - 1}` : ''}</div>
-      {row.services_total ? <>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--fin-neutral-bg)]" aria-hidden="true">
-          <div className="h-full rounded-full bg-[var(--fin-ok)]" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="mt-1 whitespace-nowrap text-[13px] text-[var(--fin-text-3)]">актами {row.services_closed} из {row.services_total} · {pct}%</div>
-      </> : <div className="mt-1 text-[13px] text-[var(--fin-text-3)]">услуги не распознаны</div>}
     </div>
   )
 }

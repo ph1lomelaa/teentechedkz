@@ -6,8 +6,9 @@ import { QueryError } from '@/components/shared/QueryState'
 import { financeApi, financeKeys, type FinanceContractRow } from '@/api/finance'
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from '@/types'
 import {
-  ActsClosure, EmptyRow, FinBadge, FinButton, FinCard, FinFilterBar, FinInput, FinPageHeader, FinSelect, FinTable, StudentCell, Td, Th,
+  EmptyRow, FinBadge, FinButton, FinCard, FinFilterBar, FinInput, FinPageHeader, FinSelect, FinTable, StudentCell, Td, Th,
 } from '@/components/finance/ui'
+import { ContractDocument } from '@/components/finance/ContractDocument'
 import { date, downloadCsv, money, num, plural, statusLabel } from '@/components/finance/format'
 
 const NEXT_LABELS = {
@@ -94,7 +95,7 @@ export function FinanceContractsPage() {
             {data?.intake_options.map((y) => <option key={y} value={y}>{y}</option>)}
           </FinSelect>
           <FinSelect aria-label="Документы" value={documents} onChange={e => set({ documents: e.target.value })} className="w-52">
-            <option value="all">Документы: все</option><option value="no_contract">Нет договора TrustMe</option><option value="no_act">Нет готовых актов</option><option value="open">Есть незакрытые услуги</option>
+            <option value="all">Все договоры</option><option value="no_contract">Нет договора TrustMe</option>
           </FinSelect>
           {/* Бывшая таблица «Расхождения в графиках» из «Проверки» — теперь фильтр. */}
           <FinSelect aria-label="График платежей" value={schedule} onChange={(e) => set({ schedule: e.target.value })} className="w-60">
@@ -104,18 +105,18 @@ export function FinanceContractsPage() {
           </FinSelect>
         </FinFilterBar>
         <FinTable minWidth={980}>
-          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено по остатку</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Договор TrustMe и акты</Th></tr></thead>
+          <thead><tr><Th>Ученик</Th><Th>МЗК</Th><Th right>Договор</Th><Th>Оплачено по остатку</Th><Th right>Остаток</Th><Th>Следующий платёж</Th><Th>Документ договора</Th></tr></thead>
           <tbody>
             {isLoading && <EmptyRow colSpan={7}>Загрузка…</EmptyRow>}
             {data && rows.length === 0 && <EmptyRow colSpan={7}>Договоров с такими условиями нет</EmptyRow>}
             {rows.map((r) => (
               <tr key={r.contract_id} className="hover:bg-[var(--fin-head)]">
-                <Td><StudentCell name={r.student_name} sub={r.intake_year ? `Поступление ${r.intake_year}` : statusLabel(r.pipeline_status)} onOpen={() => navigate(`/finance/contracts/${r.contract_id}`)} /></Td>
+                <Td className="min-w-[200px] max-w-[300px]"><StudentCell name={r.student_name} sub={r.intake_year ? `Поступление ${r.intake_year}` : statusLabel(r.pipeline_status)} onOpen={() => navigate(`/finance/contracts/${r.contract_id}`)} /></Td>
                 <Td className="whitespace-nowrap">{r.mzk_name ?? '—'}</Td>
                 <Td right>{money(r.amount, r.currency)}</Td>
                 <Td><PaidBar paid={r.paid} amount={r.amount} currency={r.currency} /></Td>
                 <Td right className="font-semibold">{money(r.remaining, r.currency)}</Td>
-                <Td><NextPayment row={r} /></Td><Td><ActsClosure row={r} /></Td>
+                <Td><NextPayment row={r} /></Td><Td><ContractDocument studentId={r.student_id} contractId={r.contract_id} documents={r.originals} /></Td>
               </tr>
             ))}
           </tbody>

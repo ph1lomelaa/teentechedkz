@@ -11,6 +11,7 @@ import {
   EmptyRow, FinAlert, FinBadge, FinButton, FinCard, FinMetrics, FinPageHeader, FinTable, FinTabs, ItemStatus, Td, Th, TotalRow,
 } from '@/components/finance/ui'
 import { AllocatePaymentDialog, AttachReceiptButton, PayDialog, ScheduleItemDialog } from '@/components/finance/dialogs'
+import { ContractDocument } from '@/components/finance/ContractDocument'
 import { METHOD_LABELS, date, dateTime, money, num, paymentTitle, statusLabel } from '@/components/finance/format'
 
 type Tab = 'schedule' | 'payments' | 'history' | 'documents'
@@ -93,11 +94,11 @@ export function FinanceContractPage() {
         { label: 'Оплачено по остатку', value: money(c.paid, c.currency), tone: 'ok', progress: amount > 0 ? (paid / amount) * 100 : 0,
           hint: `Записано оплатами: ${money(c.recorded_paid, c.currency)}. Исторически по остатку: ${money(c.historical_paid, c.currency)}` },
         { label: 'Осталось оплатить', value: money(c.remaining, c.currency) },
-        c.trustme?.length
-          ? { label: 'Закрыто актами', value: c.services_total ? `${c.services_closed} из ${c.services_total}` : '—', tone: 'ok',
-              progress: c.closed_percent ?? 0, hint: `Договор TrustMe №${c.trustme[0].number || '—'}${c.trustme.length > 1 ? ` +${c.trustme.length - 1}` : ''}` }
-          : { label: 'Закрыто актами', value: '—', hint: 'Договор TrustMe не привязан — «Документы и акты»' },
       ]} />
+      <div className="-mt-2 mb-5 flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-[13px] text-p-muted">Документ договора</span>
+        <ContractDocument studentId={c.student_id} contractId={c.contract_id} documents={c.originals} />
+      </div>
 
       <div className="mt-6">
         <FinTabs<Tab>

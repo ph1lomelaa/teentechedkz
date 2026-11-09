@@ -28,7 +28,6 @@ import {
   ShieldCheck,
   UserPlus,
   CalendarDays,
-  Wallet,
   FileText,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -132,8 +131,9 @@ const baseNavGroups: NavGroup[] = [
 // Кабинет финансиста. Право finance_desk:view есть у управления и финансиста —
 // ментор группу не увидит.
 const FINANCE_ITEMS: NavItem[] = [
-  { label: 'Сегодня', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_due_today' },
-  { label: 'Платежи', path: '/finance/payments', icon: <Wallet className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_overdue' },
+  // «Платежи» убраны 09.11.2026: их списки раскрываются на «Сегодня», поэтому
+  // и счётчик просрочек теперь здесь.
+  { label: 'Сегодня', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_overdue' },
   { label: 'Договоры', path: '/finance/contracts', icon: <FileText className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
   // Счётчик — непроверенные правки из Notion + оплаты без чека + расхождения.
   // «финансов» — потому что в кабинете уже есть «Проверка» (задач), а одно
@@ -144,7 +144,8 @@ const FINANCE_ITEMS: NavItem[] = [
 // У финансиста своё меню: карточки учеников, чаты и задачи ему закрыты,
 // поэтому общие группы CRM он не получает вовсе.
 const FINANCE_ROLE_GROUPS: NavGroup[] = [
-  { group: 'ДОКУМЕНТЫ', items: [{ label: 'Договоры и акты', path: '/acts', icon: <FileText className="w-4 h-4" />, permission: ['acts', 'view'] }] },
+  // «Договоры и акты» убраны 09.11.2026: финансисту нужен только PDF
+  // договора — он открывается прямо в «Договорах».
   // «Вознаграждение менторам» и «Сводка по договорам» убраны из меню
   // бухгалтера 01.11.2026: сводка дублирует «Договоры» и «Платежи», выплаты
   // менторам бухгалтер не ведёт. Страницы остаются у админа и МЗК.
@@ -232,7 +233,6 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/statistics': 'Статистика',
     '/finances': 'Финансы',
     '/finance': 'Сегодня',
-    '/finance/payments': 'Платежи',
     '/finance/contracts': 'Договоры',
     '/finance/review': 'Проверка финансов',
     '/settings/users': 'Пользователи',
