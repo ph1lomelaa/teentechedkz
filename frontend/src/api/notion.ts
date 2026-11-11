@@ -174,7 +174,43 @@ export interface NotionFinanceSummary {
   by_status: { status: string; count: number }[]
 }
 
+export interface NotionReconcileRow {
+  student_id: string
+  full_name: string
+  status: string
+  intake_year: number | null
+  degree_level: string
+  phone: string
+  created_at: string | null
+  forms: string
+  reason?: string
+  similar?: { name: string; state: string; url: string | null }[]
+  notion_url?: string | null
+  diffs?: { field: string; platform: string | number | null; notion: string | number | null }[]
+}
+
+export interface NotionReconcileReport {
+  platform_total: number
+  notion_total: number
+  waiting_status: number
+  unmatched: number
+  by_status: { status: string; label: string; platform: number; notion: number; difference: number }[]
+  platform_only: NotionReconcileRow[]
+  notion_only: { name: string; status: string; url: string | null; phone: string | null; intake_year: number | null; state: string }[]
+  notion_hidden: { name: string; status: string; url: string | null; phone: string | null; intake_year: number | null; state: string }[]
+  mismatched: NotionReconcileRow[]
+  multi_linked: (NotionReconcileRow & { pages: string[] })[]
+}
+
 export const notionApi = {
+  reconcile: async () => {
+    const res = await apiClient.get<NotionReconcileReport>('/notion/reconcile')
+    return res.data
+  },
+  createPageForStudent: async (studentId: string) => {
+    const res = await apiClient.post<{ state: string; url?: string; similar?: { name: string }[] }>(`/notion/reconcile/create-page/${studentId}`)
+    return res.data
+  },
   pipelineTable: async (sourceOnly = false) => {
     const res = await apiClient.get<NotionPipelineTable>('/notion/pipeline-table', { params: sourceOnly ? { source_only: true } : undefined })
     return res.data

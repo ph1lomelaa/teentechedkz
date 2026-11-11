@@ -100,8 +100,36 @@ class IntakeIdentitySafetyTests(unittest.TestCase):
         result = pair_cross_source_submissions([package, cases])
         self.assertEqual(result, {package.id: cases.id, cases.id: package.id})
 
+        # Identical full name with another number: student vs parent phone.
         cases.phone_normalized = "+77000000001"
+        self.assertEqual(pair_cross_source_submissions([package, cases]), {package.id: cases.id, cases.id: package.id})
+
+        # Only a fuzzy/partial name plus different numbers still waits for a human.
+        cases.full_name = "Алия Садыкова Ерлановна"
         self.assertEqual(pair_cross_source_submissions([package, cases]), {})
+
+    def test_email_in_phone_field_is_not_a_phone(self):
+        from migration.transformers.normalize import normalize_phone
+        self.assertEqual(normalize_phone("kamserikzhan@gmail.com"), "")
+        self.assertEqual(normalize_phone("нет"), "")
+        self.assertEqual(normalize_phone("\u202a+7 705 259 0627\u202c"), "77052590627")
+        package = SimpleNamespace(
+            id=uuid.uuid4(), source=IntakeSource.package, full_name="Серикжан Камилла Серикжанқызы",
+            phone_normalized="kamserikzhan@gmail.com", status=IntakeStatus.new,
+        )
+        cases = SimpleNamespace(
+            id=uuid.uuid4(), source=IntakeSource.cases, full_name="Серикжан Камилла",
+            phone_normalized="77778514343", status=IntakeStatus.new,
+        )
+        self.assertEqual(pair_cross_source_submissions([package, cases]), {package.id: cases.id, cases.id: package.id})
+
+    def test_earlier_review_mark_does_not_block_stable_rows(self):
+        from app.services.intake_identity import source_identity_uncertain
+        stable = SimpleNamespace(source_key="cases:timestamp:10/27/2026 22:39:43", identity_review_required=True)
+        self.assertFalse(source_identity_uncertain(stable))
+        for key in ("cases:content:abc", "cases:timestamp:x:duplicate:abc", "cases:timestamp:x:ambiguous:abc"):
+            self.assertTrue(source_identity_uncertain(SimpleNamespace(source_key=key, identity_review_required=False)))
+        self.assertTrue(source_identity_uncertain(SimpleNamespace(source_key=None, identity_review_required=True)))
 
     def test_same_source_duplicate_makes_cross_form_pair_ambiguous(self):
         package1 = SimpleNamespace(
@@ -125,7 +153,7 @@ class IntakeIdentitySafetyTests(unittest.TestCase):
             created_at=first_seen,
             content_changed_at=first_seen,
         )
-        now = first_seen + timedelta(hours=24)
+        now = first_seen + timedelta(minutes=60)
         self.assertFalse(automatic_creation_ready(
             submission, first_seen, now, now=now
         ))
@@ -142,13 +170,13 @@ class IntakeIdentitySafetyTests(unittest.TestCase):
 
     def test_content_revision_restarts_wait_window(self):
         first_seen = datetime(2026, 10, 1, tzinfo=timezone.utc)
-        changed_at = first_seen + timedelta(hours=23)
+        changed_at = first_seen + timedelta(minutes=30)
         submission = SimpleNamespace(
             first_seen_at=first_seen,
             created_at=first_seen,
             content_changed_at=changed_at,
         )
-        now = first_seen + timedelta(hours=24)
+        now = first_seen + timedelta(minutes=60)
         self.assertFalse(automatic_creation_ready(
             submission, now, now, now=now
         ))

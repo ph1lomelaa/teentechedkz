@@ -112,7 +112,14 @@ def countries_set(raw: str) -> set[str]:
 def normalize_phone(phone: str) -> str:
     if not phone:
         return ""
-    cleaned = re.sub(r"[\s\-\(\)\+]", "", str(phone))
+    text = str(phone)
+    # В поле телефона иногда пишут email или «нет» — это не номер, иначе
+    # такая строка сравнивается как телефон и даёт ложный «конфликт номеров».
+    if "@" in text or not any(ch.isdigit() for ch in text):
+        return ""
+    # Невидимые символы направления текста из копипаста (‪+7 705…‬).
+    text = re.sub(r"[​-‏‪-‮⁠﻿]", "", text)
+    cleaned = re.sub(r"[\s\-\(\)\+]", "", text)
     if cleaned.startswith("8") and len(cleaned) == 11:
         cleaned = "7" + cleaned[1:]
     return cleaned

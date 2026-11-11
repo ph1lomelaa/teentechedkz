@@ -21,6 +21,9 @@ export type OperationalFilter =
   | 'open_complaints'
   | 'renewal'
   | 'name_only_mentor'
+  | 'notion_unlinked'
+  | 'notion_linked'
+  | 'created_30d'
 
 export const OPERATIONAL_FILTER_LABELS: Record<OperationalFilter, string> = {
   all: 'Все',
@@ -33,6 +36,9 @@ export const OPERATIONAL_FILTER_LABELS: Record<OperationalFilter, string> = {
   docs_review: 'Документы на проверке',
   renewal: 'Контракт 500 (перепродление)',
   name_only_mentor: 'Ментор только по имени',
+  notion_unlinked: 'Нет в Notion',
+  notion_linked: 'Есть в Notion',
+  created_30d: 'Создан за 30 дней',
 }
 
 /**
@@ -82,6 +88,13 @@ export function matchesOperationalFilter(s: StudentListItem, filter: Operational
     // нормально назначенного, поэтому нужен способ собрать весь бэклог разом.
     case 'name_only_mentor':
       return activeResponsibles(s).length === 0 && (s.mentors?.length ?? 0) > 0
+    // Связь с Notion — та же, что видит сверка: ровно одна привязанная страница.
+    case 'notion_unlinked':
+      return s.notion_linked === false
+    case 'notion_linked':
+      return s.notion_linked === true
+    case 'created_30d':
+      return !!s.created_at && Date.now() - new Date(s.created_at).getTime() <= 30 * 24 * 3600 * 1000
     default:
       return true
   }

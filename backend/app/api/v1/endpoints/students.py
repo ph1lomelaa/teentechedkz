@@ -3,7 +3,7 @@ import uuid
 import math
 import re
 from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -55,7 +55,7 @@ from app.models.telegram_message import TelegramMessage
 from app.models.telegram_pairing_code import TelegramPairingCode
 from app.models.intake_submission import IntakeSubmission
 from app.models.access_request import AccessRequest
-from app.models.notion_snapshot import NotionSnapshot
+from app.models.notion_snapshot import NotionMatchStatus, NotionSnapshot
 from app.models.user import User, UserRole
 from app.schemas.student import StudentCreate, StudentUpdate
 
@@ -624,6 +624,9 @@ async def list_students(
     responsible_names: str | None = None,
     assignment_roles: str | None = None,
     service_types: str | None = None,
+    notion_link: str | None = Query(None, pattern="^(linked|unlinked)$"),
+    created_from: date | None = None,
+    created_to: date | None = None,
 ):
     from app.models.application import Application
 
@@ -714,6 +717,16 @@ async def list_students(
         else:
             condition = Student.id.in_(matching)
         query = query.where(condition if status_operator == "is" else ~condition)
+
+    if notion_link:
+        # «Есть в Notion» = ровно та же связь, что видит карточка и сверка.
+        linked_ids = select(NotionSnapshot.student_id).where(
+            NotionSnapshot.status == NotionMatchStatus.linked, NotionSnapshot.student_id.is_not(None))
+        query = query.where(Student.id.in_(linked_ids) if notion_link == "linked" else Student.id.not_in(linked_ids))
+    if created_from:
+        query = query.where(Student.created_at >= datetime.combine(created_from, time.min, tzinfo=timezone.utc))
+    if created_to:
+        query = query.where(Student.created_at < datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=timezone.utc))
 
     selected_countries = csv(countries) or ([country] if country else [])
     if selected_countries:
@@ -1113,6 +1126,7 @@ async def list_students(
             "id": str(s.id),
             "full_name": s.full_name,
             "phone": s.phone,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
             "city": s.city,
             "degree_level": s.degree_level.value,
             "intake_year": s.intake_year,

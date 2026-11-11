@@ -679,6 +679,10 @@ async def field_sync_loop() -> None:
                 async with AsyncSessionLocal() as db:
                     await process_outbox_batch(db, limit=50, dry_run=settings.NOTION_FIELD_SYNC_DRY_RUN)
                     await finance_desk.flush_notifications(db)
+            if settings.ENABLE_NOTION_CREATE_PAGES and is_configured():
+                from app.services.notion_create import process_pending
+                async with AsyncSessionLocal() as db:
+                    await process_pending(db)
         except asyncio.CancelledError:
             raise
         except Exception:

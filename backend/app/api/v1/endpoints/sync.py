@@ -330,6 +330,32 @@ async def create_student_from_submission(
         submission.full_name or "", raw_phone,
         [{"id": row.id, "full_name": row.full_name or "", "phone": row.phone_normalized or ""} for row in pending],
     )
+    if len(pending_match.student_ids) == 1:
+        # Ровно одна похожая анкета из ДРУГОЙ формы с тем же именем — это пара
+        # «Пакет + Кейс» одного человека (телефоны часто разные: ученик/родитель).
+        # Менеджер сам нажал «Создать», поэтому создаём одну карточку и
+        # привязываем к ней обе анкеты, а не отправляем его в обход через «Скрыть».
+        from app.services.intake_identity import is_strong_unique_name_match
+        from app.services.intake_promote import link_submission_to_student
+        peer = next((row for row in pending if row.id == pending_match.student_ids[0]), None)
+        if (
+            peer is not None and peer.source != submission.source
+            and is_strong_unique_name_match(plausible_student_candidates(
+                submission.full_name or "", None,
+                [{"id": peer.id, "full_name": peer.full_name or "", "phone": ""}],
+            ))
+            and not plausible_student_candidates(
+                peer.full_name or "", peer.phone_normalized or "", students_index
+            ).student_ids
+            and _valid_auto_create_name(submission.full_name)
+        ):
+            primary = submission if submission.source == IntakeSource.package else peer
+            secondary = peer if primary is submission else submission
+            student = await _create_student_from_intake(db, primary, current_user.id)
+            await link_submission_to_student(db, secondary, student, actor_id=current_user.id)
+            await db.commit()
+            return {"student_id": str(student.id), "submission": _submission_to_dict(submission),
+                    "linked_pair": str(peer.id)}
     if pending_match.student_ids:
         raise HTTPException(
             status_code=409,

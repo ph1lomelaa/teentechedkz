@@ -1,6 +1,7 @@
 import { catalogCounts, type CatalogFilters, type CatalogDimension } from '@/lib/studentCatalogFilters'
 import { BulkStudentStatus } from '@/components/students/BulkStudentStatus'
 import { NotionPeopleDialog } from '@/components/students/NotionPeopleDialog'
+import { NotionReconcilePanel } from '@/components/students/NotionReconcilePanel'
 import { MultiFilter, csvValues } from '@/components/shared/MultiFilter'
 import { PIPELINE_COLUMNS } from '@/types'
 import React, { useEffect, useState, useMemo, useRef } from 'react'
@@ -985,6 +986,7 @@ const CrmStudentsListView: React.FC = () => {
   }
   const showInbox = searchParams.get('inbox') === '1'
   const showNotion = searchParams.get('notion') === '1'
+  const showReconcile = searchParams.get('reconcile') === '1'
 
   // Приход с доски распределения: «показать в базе» у колонки. Эти три
   // параметра живут только в адресе, а не в localStorage, как остальные
@@ -1059,6 +1061,13 @@ const CrmStudentsListView: React.FC = () => {
     const params = new URLSearchParams(searchParams)
     if (next) params.set('inbox', '1')
     else params.delete('inbox')
+    setSearchParams(params, { replace: true })
+  }
+
+  const setShowReconcile = (next: boolean) => {
+    const params = new URLSearchParams(searchParams)
+    if (next) params.set('reconcile', '1')
+    else params.delete('reconcile')
     setSearchParams(params, { replace: true })
   }
 
@@ -1589,6 +1598,9 @@ const CrmStudentsListView: React.FC = () => {
       docs_review: 'Документы на проверке',
       renewal: 'Контракт 500',
       name_only_mentor: 'Ментор только по имени',
+      notion_unlinked: 'Нет в Notion',
+      notion_linked: 'Есть в Notion',
+      created_30d: 'Создан за 30 дней',
     }
     activeFilterChips.push({
       key: 'operational',
@@ -1656,6 +1668,7 @@ const CrmStudentsListView: React.FC = () => {
               {isManager && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowInbox(true) }}>Входящие анкеты · {newCount}<span className="block text-xs text-ds-muted">Ответы Google Sheets</span></button>}
               {canSeeNotion && <Link to="/dashboard" className="block rounded-lg px-3 py-2 text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => setDataMenuOpen(false)}>Обзор Notion<span className="block text-xs text-ds-muted">Пайплайн клиентов</span></Link>}
               {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setFieldSyncReviewOpen(true) }}>Сверка полей CRM ↔ Notion<span className="block text-xs text-ds-muted">Очередь проверок и конфликтов</span></button>}
+              {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowReconcile(true) }}>Сверка с Notion<span className="block text-xs text-ds-muted">Количество по статусам, кого не хватает</span></button>}
               {canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowNotion(true) }}>Привязки Notion · {notionStatus?.needs_review ?? 0}<span className="block text-xs text-ds-muted">Страницы без студента CRM</span></button>}
             </div>}
           </div>}
@@ -1685,6 +1698,9 @@ const CrmStudentsListView: React.FC = () => {
 
       {/* Notion без привязки */}
       {canSeeNotion && showNotion && <NotionInbox onClose={() => setShowNotion(false)} />}
+
+      {/* Сверка платформа ↔ Notion */}
+      {canSeeNotion && showReconcile && <NotionReconcilePanel onClose={() => setShowReconcile(false)} canCreate={can('notion', 'create')} />}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">

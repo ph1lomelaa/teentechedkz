@@ -131,6 +131,9 @@ def build_property(ptype: str, value: Any) -> dict:
         return {"date": {"start": str(value)[:10]}}
     if ptype in ("select", "status"):
         return {ptype: {"name": str(value)}}
+    if ptype == "multi_select":
+        values = value if isinstance(value, (list, tuple)) else [value]
+        return {"multi_select": [{"name": str(item)} for item in values if item]}
     raise ValueError(f"Тип свойства не поддерживается для записи: {ptype}")
 
 
@@ -176,6 +179,36 @@ def update_page(page_id: str, properties: dict[str, dict], verify: bool = True) 
     _raise_for_status(resp)
     if verify:
         _verify_written(page_id, properties)
+
+
+def find_pages_by_title(title: str) -> list[dict]:
+    """Страницы основной базы с точно таким заголовком (до 10 штук)."""
+    schema = get_schema()
+    title_name, _ = find_title_property(schema)
+    if not title_name or not str(title or "").strip():
+        return []
+    resp = _request(
+        "POST", f"{_API}/data_sources/{settings.NOTION_DATABASE_ID}/query",
+        json={"filter": {"property": title_name, "title": {"equals": str(title).strip()}}, "page_size": 10},
+    )
+    _raise_for_status(resp)
+    return [page for page in resp.json().get("results", []) if not page.get("in_trash") and not page.get("archived")]
+
+
+def create_page(properties: dict[str, dict], template_id: str | None = None) -> dict:
+    """POST /v1/pages в основную базу. Возвращает созданную страницу целиком.
+
+    template_id — шаблон базы Notion (его блоки/иконку Notion применит сам);
+    свойства, переданные явно, имеют приоритет над значениями шаблона."""
+    body: dict[str, Any] = {
+        "parent": {"type": "data_source_id", "data_source_id": settings.NOTION_DATABASE_ID},
+        "properties": properties,
+    }
+    if template_id:
+        body["template"] = {"type": "template_id", "template_id": template_id}
+    resp = _request("POST", f"{_API}/pages", json=body)
+    _raise_for_status(resp)
+    return resp.json()
 
 
 def _verify_written(page_id: str, properties: dict[str, dict]) -> None:

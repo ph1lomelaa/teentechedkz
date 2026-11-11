@@ -106,17 +106,30 @@ class Settings(BaseSettings):
     NOTION_FIELD_SYNC_DRY_RUN: bool = True
     # Optional pilot allowlist. An empty list processes all linked students.
     NOTION_FIELD_SYNC_STUDENT_IDS: list[UUID] = []
+    # Создание страницы в Notion для студента платформы без связи, когда у него
+    # появился статус (не «Без статуса»). Перед созданием ищется похожая строка —
+    # при находке страница не создаётся, а студент ждёт ручной привязки.
+    ENABLE_NOTION_CREATE_PAGES: bool = False
+    # Автоматически — только когда СОТРУДНИК поставил статус после этой даты
+    # (ISO, напр. 2026-11-12). Статус из договора/скрипта не считается. Остальные —
+    # только по списку NOTION_CREATE_PAGES_STUDENT_IDS после ручной проверки.
+    NOTION_CREATE_PAGES_SINCE: str = ""
+    NOTION_CREATE_PAGES_STUDENT_IDS: list[UUID] = []
+    # Шаблон базы Notion, который применяется к новой странице (пусто — без шаблона).
+    NOTION_CREATE_PAGES_TEMPLATE_ID: str = ""
 
     # Google Sheets — автосинк анкет: либо JSON одной строкой, либо путь к файлу ключа
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_SERVICE_ACCOUNT_FILE: str = ""
     SHEETS_SYNC_INTERVAL_SECONDS: int = 300
-    # Создание карточек из Google Forms требует 24ч ожидания и успешной
+    # Создание карточек из Google Forms ждёт INTAKE_AUTO_CREATE_WAIT_MINUTES и успешной
     # синхронизации обеих форм плюс Notion. Включать отдельно после dry-run.
     ENABLE_INTAKE_AUTO_CREATE: bool = False
     # Автопривязка анкет к CRM допустима только для единственного сильного
     # совпадения по имени; совпадения только по телефону остаются на проверку.
     ENABLE_INTAKE_AUTO_LINK: bool = False
+    # Сколько ждать после появления/правки анкеты перед автосозданием карточки.
+    INTAKE_AUTO_CREATE_WAIT_MINUTES: int = 60
 
     # AI / transcription
     DEEPGRAM_API_KEY: str = ""

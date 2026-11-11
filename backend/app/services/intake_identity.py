@@ -67,6 +67,25 @@ def _canon_name(value: str | None) -> str:
     return " ".join(text.split())
 
 
+def same_full_name(a: str | None, b: str | None) -> bool:
+    """Identical name of at least two words (surname + given name)."""
+    left, right = _canon_name(a), _canon_name(b)
+    return bool(left) and left == right and len(left.split()) >= 2
+
+
+def source_identity_uncertain(submission: object) -> bool:
+    """True when the sheet row itself has no stable identity.
+
+    Rows keyed only by content, or that collided with another row on one
+    timestamp/ID, must stay manual. Other review marks (an earlier ambiguous
+    pass) are re-evaluated on every pass instead of blocking forever.
+    """
+    key = str(getattr(submission, "source_key", None) or "")
+    if not key:
+        return bool(getattr(submission, "identity_review_required", False))
+    return ":content:" in key or ":duplicate:" in key or ":ambiguous:" in key
+
+
 @dataclass(frozen=True)
 class CandidateSet:
     student_ids: tuple[uuid.UUID, ...]
@@ -93,8 +112,11 @@ def pair_cross_source_submissions(submissions: Iterable[object]) -> dict[uuid.UU
     ]
     partners: dict[uuid.UUID, uuid.UUID] = {}
     for row in rows:
+        # Pairing is by name; phones are checked separately below because the
+        # package form often carries a parent's number and the cases form the
+        # student's own one.
         candidate_set = plausible_student_candidates(
-            getattr(row, "full_name", None), getattr(row, "phone_normalized", None),
+            getattr(row, "full_name", None), None,
             [
                 {"id": other.id, "full_name": other.full_name, "phone": other.phone_normalized}
                 for other in rows if other.id != row.id
@@ -111,7 +133,11 @@ def pair_cross_source_submissions(submissions: Iterable[object]) -> dict[uuid.UU
             continue
         row_phone = normalize_phone(getattr(row, "phone_normalized", None) or "")
         peer_phone = normalize_phone(getattr(peer, "phone_normalized", None) or "")
-        if row_phone and peer_phone and row_phone != peer_phone:
+        if row_phone and peer_phone and row_phone != peer_phone and not same_full_name(
+            getattr(row, "full_name", None), getattr(peer, "full_name", None)
+        ):
+            # Different numbers are fine only for an identical full name
+            # (student vs parent phone); a fuzzy name with other phones waits.
             continue
         partners[row.id] = peer.id
 

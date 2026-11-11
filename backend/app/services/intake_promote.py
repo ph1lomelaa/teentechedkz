@@ -34,7 +34,12 @@ AUTO_ACTOR = "sheets_sync"
 # Primary rows are locked in this batch; at most one paired response is locked
 # for each primary row.
 MAX_PER_RUN = 100
-AUTO_CREATE_WAIT = timedelta(hours=24)
+
+
+def auto_create_wait() -> timedelta:
+    """Пауза после появления/правки анкеты: менеджер успевает поправить форму."""
+    from app.core.config import settings
+    return timedelta(minutes=max(0, settings.INTAKE_AUTO_CREATE_WAIT_MINUTES))
 
 
 def norm_cmp(v: str | None) -> str:
@@ -90,6 +95,12 @@ def portfolio_directions_count(v) -> int | None:
     return None
 
 
+def _phone_or_empty(value) -> str:
+    from migration.transformers.normalize import normalize_phone
+    text = str(value or "").strip()
+    return text if normalize_phone(text) else ""
+
+
 def backfill_student_fields(student: Student, mapped: dict) -> list[str]:
     """Дозаполняет ТОЛЬКО пустые поля профиля значениями из анкеты — никогда
     не перезаписывает то, что уже внесено вручную или из другой анкеты того
@@ -107,7 +118,7 @@ def backfill_student_fields(student: Student, mapped: dict) -> list[str]:
     backfill("gpa", mapped.get("gpa"))
     backfill("achievements_text", mapped.get("achievements"))
     backfill("budget_per_year", mapped.get("budget"))
-    backfill("phone", mapped.get("phone"))
+    backfill("phone", _phone_or_empty(mapped.get("phone")))
 
     raw_age = str(mapped.get("age", "")).split(".")[0]
     if raw_age.isdigit() and 10 <= int(raw_age) <= 80 and not student.age:
@@ -217,7 +228,9 @@ async def create_student_from_intake(
 
     student = Student(
         full_name=(submission.full_name or "Без имени")[:500],
-        phone=mapped.get("phone", "")[:100],
+        # Email или «нет» в поле телефона не переносим: номер дозаполнится из
+        # второй анкеты (backfill), а не останется мусором в карточке.
+        phone=_phone_or_empty(mapped.get("phone"))[:100],
         degree_level=parse_degree(mapped.get("degree_level", "")),
         intake_year=parse_intake_year(mapped.get("intake_year")) or datetime.now(timezone.utc).year + 1,
     )
@@ -295,6 +308,7 @@ async def promote_new_submissions(
     from app.services.sheets_sync import load_students_index
     from app.services.intake_identity import (
         plausible_student_candidates, is_strong_unique_name_match, pair_cross_source_submissions,
+        source_identity_uncertain,
     )
 
     notion_completed_at = None
@@ -386,7 +400,7 @@ async def promote_new_submissions(
         if matches.student_ids and automatic:
             if (
                 settings.ENABLE_INTAKE_AUTO_LINK
-                and not submission.identity_review_required
+                and not source_identity_uncertain(submission)
                 and _valid_auto_create_name(submission.full_name)
                 and is_strong_unique_name_match(matches)
             ):
@@ -417,7 +431,8 @@ async def promote_new_submissions(
             elif automatic and not settings.ENABLE_INTAKE_AUTO_CREATE:
                 waiting += 2
                 continue
-            elif submission.identity_review_required or peer.identity_review_required:
+            elif source_identity_uncertain(submission) or source_identity_uncertain(peer):
+                submission.identity_review_required = peer.identity_review_required = True
                 skipped += 2
                 continue
             elif not _valid_auto_create_name(submission.full_name) or not _valid_auto_create_name(peer.full_name):
@@ -479,7 +494,7 @@ async def promote_new_submissions(
             ):
                 waiting += 1
                 continue
-            if submission.identity_review_required:
+            if source_identity_uncertain(submission):
                 submission.identity_review_required = True
                 skipped += 1
                 continue
@@ -516,7 +531,7 @@ def automatic_creation_ready(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """True only after 24h plus successful source reads newer than first_seen."""
+    """True only after the wait plus successful source reads newer than first_seen."""
     first_seen = submission.first_seen_at or submission.created_at
     if first_seen is None or notion_completed_at is None or sheets_completed_at is None:
         return False
@@ -532,7 +547,7 @@ def automatic_creation_ready(
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return (
-        now - readiness_from >= AUTO_CREATE_WAIT
+        now - readiness_from >= auto_create_wait()
         and notion_completed_at > readiness_from
         and sheets_completed_at >= readiness_from
     )

@@ -177,6 +177,34 @@ async def pipeline_report(db: Annotated[AsyncSession, Depends(get_db)], current_
     return await build_report(db)
 
 
+@router.get("/reconcile")
+async def reconcile(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    """Сверка «платформа ↔ Notion» по статусам и списки расхождений (только чтение)."""
+    require_access(current_user, "notion", Action.manage)
+    from app.services.notion_reconcile import build_reconcile
+    return await build_reconcile(db)
+
+
+@router.post("/reconcile/create-page/{student_id}")
+async def reconcile_create_page(
+    student_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser,
+    dry_run: bool = False,
+):
+    """Создать (или привязать найденную по заголовку) страницу Notion одному студенту вручную."""
+    require_access(current_user, "notion", Action.create)
+    from app.services.notion_create import create_page_for_student
+    from app.services.notion_sync import is_configured
+    if not is_configured():
+        raise HTTPException(status_code=409, detail="Notion не настроен")
+    student = await db.get(Student, student_id)
+    if student is None or student.is_archived:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    result = await create_page_for_student(db, student, dry_run=dry_run)
+    if not dry_run:
+        await db.commit()
+    return result
+
+
 @router.post("/pipeline-apply")
 async def pipeline_apply(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
     require_access(current_user, "notion", Action.create)
