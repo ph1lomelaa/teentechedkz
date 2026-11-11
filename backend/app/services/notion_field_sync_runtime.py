@@ -56,14 +56,22 @@ _FIELD_PROPERTY = {
     "client_remaining": "Остаток клиента",
     "client_remaining_date": "Остаток клиента (дата)",
     "mentor_total": "TOTAL (Mentors)",
+    "up_sum": "Сумм УП",
+    "up_paid": "PAID УП",
+    "proforientation_sum": "Сумм Профориентация",
+    "ielts_exam_fee": "IELTS exam fee",
+    "mentor_paid": "PAID (Mentors)",
 }
 CONTRACT_FIELD_ATTR = {
     "pipeline_status": "pipeline_status", "signed_date": "signed_date",
     "client_fee": "amount", "english_sum": "english_sum", "english_paid": "english_paid",
     "client_remaining": "client_remaining_amount", "client_remaining_date": "client_remaining_date",
     "mentor_total": "mentor_total_owed",
+    "up_sum": "up_sum", "up_paid": "up_paid", "proforientation_sum": "proforientation_sum",
+    "ielts_exam_fee": "ielts_exam_fee", "mentor_paid": "mentor_paid",
 }
-MONEY_FIELDS = frozenset({"client_fee", "english_sum", "english_paid", "client_remaining", "mentor_total"})
+MONEY_FIELDS = frozenset({"client_fee", "english_sum", "english_paid", "client_remaining", "mentor_total",
+                          "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"})
 DATE_FIELDS = frozenset({"signed_date", "client_remaining_date"})
 
 _SNAPSHOT_VALUE_KEY = {
@@ -75,6 +83,8 @@ _SNAPSHOT_VALUE_KEY = {
     "client_fee": "client_fee", "english_sum": "english_sum", "english_paid": "english_paid",
     "client_remaining": "client_remaining", "client_remaining_date": "client_remaining_date",
     "mentor_total": "mentor_total",
+    "up_sum": "up_sum", "up_paid": "up_paid", "proforientation_sum": "proforientation_sum",
+    "ielts_exam_fee": "ielts_exam_fee", "mentor_paid": "mentor_paid",
 }
 
 

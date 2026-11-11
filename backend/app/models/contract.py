@@ -49,6 +49,13 @@ class Contract(Base):
     client_remaining_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     client_remaining_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     mentor_total_owed: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # Колонки Notion «Сумм УП», «PAID УП», «Сумм Профориентация», «IELTS exam fee»,
+    # «PAID (Mentors)» — вписываются на платформе и уходят в Notion (миграция 138).
+    up_sum: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    up_paid: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    proforientation_sum: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    ielts_exam_fee: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    mentor_paid: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

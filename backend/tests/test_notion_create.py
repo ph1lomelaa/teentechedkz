@@ -78,7 +78,10 @@ async def _run(monkeypatch):
 
     engine = create_async_engine(URL)
     sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
-    suffix = uuid.uuid4().hex[:6]
+    # Отдельное «слово» из случайных букв: имена прошлых прогонов в той же
+    # тестовой БД не должны считаться похожими на новые.
+    base_phone = 87000000000 + int.from_bytes(uuid.uuid4().bytes[:4], "big") % 9_000_000 * 10
+    suffix = " " + "".join("бвгджзклмнпрстфхцчшщ"[b % 20] for b in uuid.uuid4().bytes[:8])
     created_payloads = []
     remote_titles: dict[str, list] = {}
 
@@ -102,22 +105,22 @@ async def _run(monkeypatch):
     monkeypatch.setattr(settings, "NOTION_CREATE_PAGES_STUDENT_IDS", [])
 
     async with sessions() as db:
-        mzk = User(name=f"Амина Тест{suffix}", email=f"mzk-{suffix}@example.test", hashed_password="x",
+        mzk = User(name=f"Амина Тест{suffix}", email=f"mzk-{uuid.uuid4().hex[:8]}@example.test", hashed_password="x",
                    role=UserRole.mzk_manager, is_active=True)
         db.add(mzk)
         await db.flush()
-        new = Student(full_name=f"Новый Студент{suffix}", phone="87001112233",
+        new = Student(full_name=f"Новый Студент{suffix}", phone=str(base_phone + 3),
                       degree_level=DegreeLevel.undergraduate, intake_year=2027)
-        nostatus = Student(full_name=f"Без Статуса{suffix}", phone="87001112234",
+        nostatus = Student(full_name=f"Без Статуса{suffix}", phone=str(base_phone + 4),
                            degree_level=DegreeLevel.undergraduate, intake_year=2027)
-        similar = Student(full_name=f"Похожий Человек{suffix}", phone="87001112235",
+        similar = Student(full_name=f"Похожий Человек{suffix}", phone=str(base_phone + 5),
                           degree_level=DegreeLevel.masters, intake_year=2027)
-        remote = Student(full_name=f"Уже Внесён{suffix}", phone="87001112236",
+        remote = Student(full_name=f"Уже Внесён{suffix}", phone=str(base_phone + 6),
                          degree_level=DegreeLevel.undergraduate, intake_year=2026)
-        old = Student(full_name=f"Старый Студент{suffix}", phone="87001112237",
+        old = Student(full_name=f"Старый Студент{suffix}", phone=str(base_phone + 7),
                       degree_level=DegreeLevel.undergraduate, intake_year=2026,
                       created_at=datetime.now(timezone.utc) - timedelta(days=30))
-        trustme = Student(full_name=f"Договор Без Менеджера{suffix}", phone="87001112238",
+        trustme = Student(full_name=f"Договор Без Менеджера{suffix}", phone=str(base_phone + 8),
                           degree_level=DegreeLevel.undergraduate, intake_year=2027)
         db.add_all([new, nostatus, similar, remote, old, trustme])
         await db.flush()
@@ -144,11 +147,11 @@ async def _run(monkeypatch):
         db.add_all([
             Application(student_id=new.id, country="Южная Корея", is_primary=True),
             Application(student_id=new.id, country="Гонконг", is_primary=False),
-            NotionSnapshot(notion_page_id=f"ignored-{suffix}", full_name=f"Похожий Человек{suffix}",
+            NotionSnapshot(notion_page_id=f"ignored-{uuid.uuid4().hex[:8]}", full_name=f"Похожий Человек{suffix}",
                            raw_properties={}, normalized_data={}, status=NotionMatchStatus.ignored),
         ])
         await db.commit()
-        remote_titles[remote.full_name] = [_page(f"remote{suffix}", remote.full_name)]
+        remote_titles[remote.full_name] = [_page(f"remote{uuid.uuid4().hex[:8]}", remote.full_name)]
 
         counts = await notion_create.process_pending(db, limit=50)
         # The test DB may hold rows from other runs; only check our students.

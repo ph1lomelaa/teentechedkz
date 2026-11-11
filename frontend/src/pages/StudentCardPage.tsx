@@ -569,6 +569,11 @@ const CONTRACT_PUSH_FIELDS: Record<string, { field: string; label: string }> = {
   english_paid: { field: 'english_paid', label: 'Оплачено (англ)' },
   client_remaining_amount: { field: 'client_remaining', label: 'Остаток клиента' },
   client_remaining_date: { field: 'client_remaining_date', label: 'Остаток (дата)' },
+  up_sum: { field: 'up_sum', label: 'Сумм УП' },
+  up_paid: { field: 'up_paid', label: 'PAID УП' },
+  proforientation_sum: { field: 'proforientation_sum', label: 'Сумм Профориентация' },
+  ielts_exam_fee: { field: 'ielts_exam_fee', label: 'IELTS exam fee' },
+  mentor_paid: { field: 'mentor_paid', label: 'PAID (Mentors)' },
 }
 
 const WORKSPACE_HASH_ALIASES = { notes: 'confidential', 'meeting-notes': 'notes' }
@@ -1664,6 +1669,21 @@ export const StudentCardPage: React.FC = () => {
               <EditableInfoRow label="Ментору итого" display={contract.mentor_total_owed}
                 canEdit={canEditContract} type="number"
                 onSave={(v) => updateContractFieldMutation.mutate({ mentor_total_owed: v || null })} />
+              <EditableInfoRow label="Сумм УП" display={contract.up_sum}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ up_sum: v || null })} />
+              <EditableInfoRow label="PAID УП" display={contract.up_paid}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ up_paid: v || null })} />
+              <EditableInfoRow label="Сумм Профориентация" display={contract.proforientation_sum}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ proforientation_sum: v || null })} />
+              <EditableInfoRow label="IELTS exam fee" display={contract.ielts_exam_fee}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ ielts_exam_fee: v || null })} />
+              <EditableInfoRow label="PAID (Mentors)" display={contract.mentor_paid}
+                canEdit={canEditContract} type="number"
+                onSave={(v) => updateContractFieldMutation.mutate({ mentor_paid: v || null })} />
               <EditableInfoRow label="Примечания" display={contract.notes} canEdit={canEditContract} type="textarea"
                 onSave={(v) => updateContractFieldMutation.mutate({ notes: v || null })} />
               <ContractAddendaSection studentId={student.id} contractId={contract.id} canEdit={canEditContract} />

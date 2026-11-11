@@ -268,6 +268,11 @@ PUSH_FIELDS: dict[str, str | None] = {
     "client_remaining": "Остаток клиента",
     "client_remaining_date": "Остаток клиента (дата)",
     "mentor_total": "TOTAL (Mentors)",
+    "up_sum": "Сумм УП",
+    "up_paid": "PAID УП",
+    "proforientation_sum": "Сумм Профориентация",
+    "ielts_exam_fee": "IELTS exam fee",
+    "mentor_paid": "PAID (Mentors)",
 }
 
 # Поля-select: запись только по существующей опции Notion — подбираем ту, что
@@ -300,11 +305,17 @@ _SNAPSHOT_KEY = {
     "client_remaining": "client_remaining",
     "client_remaining_date": "client_remaining_date",
     "mentor_total": "mentor_total",
+    "up_sum": "up_sum",
+    "up_paid": "up_paid",
+    "proforientation_sum": "proforientation_sum",
+    "ielts_exam_fee": "ielts_exam_fee",
+    "mentor_paid": "mentor_paid",
 }
 
 _PUSH_CONTRACT_FIELDS = {
     "pipeline_status", "signed_date", "client_fee", "english_sum",
     "english_paid", "client_remaining", "client_remaining_date", "mentor_total",
+    *("up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"),
 }
 
 
@@ -337,6 +348,8 @@ def _crm_push_value(field: str, student: Student, contract: "Contract | None"):
         return contract.client_remaining_date
     if field == "mentor_total":
         return contract.mentor_total_owed
+    if field in ("up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"):
+        return getattr(contract, field)
     return None
 
 
@@ -868,6 +881,11 @@ async def _create_student_from_snapshot(
         client_remaining_amount=dec(d.get("client_remaining")),
         client_remaining_date=_parse_date(d.get("client_remaining_date")),
         mentor_total_owed=dec(d.get("mentor_total")),
+        up_sum=dec(d.get("up_sum")),
+        up_paid=dec(d.get("up_paid")),
+        proforientation_sum=dec(d.get("proforientation_sum")),
+        ielts_exam_fee=dec(d.get("ielts_exam_fee")),
+        mentor_paid=dec(d.get("mentor_paid")),
     )
     db.add(contract)
     await db.flush()
@@ -1171,6 +1189,11 @@ async def student_notion(
     comparison.append(money_row("english_sum", "Сумма (англ)", d.get("english_sum"), contract.english_sum if contract else None))
     comparison.append(money_row("english_paid", "Оплачено (англ)", d.get("english_paid"), contract.english_paid if contract else None))
     comparison.append(money_row("mentor_total", "TOTAL (Mentors)", d.get("mentor_total"), contract.mentor_total_owed if contract else None))
+    comparison.append(money_row("up_sum", "Сумм УП", d.get("up_sum"), contract.up_sum if contract else None))
+    comparison.append(money_row("up_paid", "PAID УП", d.get("up_paid"), contract.up_paid if contract else None))
+    comparison.append(money_row("proforientation_sum", "Сумм Профориентация", d.get("proforientation_sum"), contract.proforientation_sum if contract else None))
+    comparison.append(money_row("ielts_exam_fee", "IELTS exam fee", d.get("ielts_exam_fee"), contract.ielts_exam_fee if contract else None))
+    comparison.append(money_row("mentor_paid", "PAID (Mentors)", d.get("mentor_paid"), contract.mentor_paid if contract else None))
     comparison.append(money_row(
         "client_remaining", "Остаток клиента", d.get("client_remaining"),
         contract.client_remaining_amount if contract else None,
@@ -1318,6 +1341,7 @@ async def apply_field(
     contract_fields = {
         "pipeline_status", "signed_date", "client_fee", "english_sum",
         "english_paid", "mentor_total", "client_remaining", "client_remaining_date",
+        "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid",
     }
     contract: Contract | None = None
     if field in contract_fields:
@@ -1391,6 +1415,9 @@ async def apply_field(
             raise HTTPException(status_code=400, detail="В Notion нет даты остатка")
         await audit("contract", contract.id, contract.client_remaining_date, new_date)
         contract.client_remaining_date = new_date
+    elif field in ("up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"):
+        await audit("contract", contract.id, getattr(contract, field), d.get(field))
+        setattr(contract, field, dec(d.get(field)))
     else:
         raise HTTPException(status_code=400, detail=f"Поле не переносится из Notion: {field}")
 

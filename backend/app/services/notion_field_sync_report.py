@@ -28,6 +28,11 @@ FIELD_LABELS = {
     "english_sum": "Сумма английского", "english_paid": "Оплачено за английский",
     "mentor_total": "Всего ментору", "client_remaining": "Остаток клиента",
     "client_remaining_date": "Дата остатка клиента",
+    "up_sum": "УП: сумма",
+    "up_paid": "УП: оплачено",
+    "proforientation_sum": "Профориентация",
+    "ielts_exam_fee": "Экзамен IELTS",
+    "mentor_paid": "Менторам выплачено",
 }
 
 

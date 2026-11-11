@@ -84,6 +84,7 @@ EDITABLE_FIELDS = (
     "full_name", "phone", "degree_level", "intake_year", "pipeline_status",
     "signed_date", "client_fee", "english_sum", "english_paid", "mentor_total",
     "client_remaining", "client_remaining_date",
+    "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid",
 )
 
 
@@ -152,6 +153,11 @@ def editable_canon(d: dict, student, contract) -> dict[str, tuple[str | None, st
         "mentor_total": (_money_canon(d.get("mentor_total")), _money_canon(crm("mentor_total_owed", contract))),
         "client_remaining": (_money_canon(d.get("client_remaining")), _money_canon(crm("client_remaining_amount", contract))),
         "client_remaining_date": (_date_canon(d.get("client_remaining_date")), _date_canon(crm("client_remaining_date", contract))),
+        "up_sum": (_money_canon(d.get("up_sum")), _money_canon(crm("up_sum", contract))),
+        "up_paid": (_money_canon(d.get("up_paid")), _money_canon(crm("up_paid", contract))),
+        "proforientation_sum": (_money_canon(d.get("proforientation_sum")), _money_canon(crm("proforientation_sum", contract))),
+        "ielts_exam_fee": (_money_canon(d.get("ielts_exam_fee")), _money_canon(crm("ielts_exam_fee", contract))),
+        "mentor_paid": (_money_canon(d.get("mentor_paid")), _money_canon(crm("mentor_paid", contract))),
     }
 
 

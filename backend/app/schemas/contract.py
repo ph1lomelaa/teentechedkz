@@ -25,6 +25,11 @@ class ContractCreate(BaseModel):
     client_remaining_amount: Decimal | None = None
     client_remaining_date: date | None = None
     mentor_total_owed: Decimal | None = None
+    up_sum: Decimal | None = None
+    up_paid: Decimal | None = None
+    proforientation_sum: Decimal | None = None
+    ielts_exam_fee: Decimal | None = None
+    mentor_paid: Decimal | None = None
     notes: str | None = None
 
 
@@ -43,6 +48,11 @@ class ContractUpdate(BaseModel):
     client_remaining_amount: Decimal | None = None
     client_remaining_date: date | None = None
     mentor_total_owed: Decimal | None = None
+    up_sum: Decimal | None = None
+    up_paid: Decimal | None = None
+    proforientation_sum: Decimal | None = None
+    ielts_exam_fee: Decimal | None = None
+    mentor_paid: Decimal | None = None
     notes: str | None = None
 
 
@@ -66,5 +76,10 @@ class ContractResponse(BaseModel):
     client_remaining_amount: Decimal | None = None
     client_remaining_date: date | None = None
     mentor_total_owed: Decimal | None = None
+    up_sum: Decimal | None = None
+    up_paid: Decimal | None = None
+    proforientation_sum: Decimal | None = None
+    ielts_exam_fee: Decimal | None = None
+    mentor_paid: Decimal | None = None
     notes: str | None = None
     created_at: datetime

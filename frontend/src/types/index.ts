@@ -367,6 +367,11 @@ export interface Contract {
   client_remaining_amount?: string
   client_remaining_date?: string
   mentor_total_owed?: string
+  up_sum?: string | null
+  up_paid?: string | null
+  proforientation_sum?: string | null
+  ielts_exam_fee?: string | null
+  mentor_paid?: string | null
   notes?: string
   payments: Payment[]
 }

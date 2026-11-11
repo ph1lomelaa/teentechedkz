@@ -1722,6 +1722,11 @@ async def get_student(
                 "client_remaining_amount": str(c.client_remaining_amount) if c.client_remaining_amount else None,
                 "client_remaining_date": c.client_remaining_date.isoformat() if c.client_remaining_date else None,
                 "mentor_total_owed": str(c.mentor_total_owed) if c.mentor_total_owed else None,
+                "up_sum": str(c.up_sum) if c.up_sum is not None else None,
+                "up_paid": str(c.up_paid) if c.up_paid is not None else None,
+                "proforientation_sum": str(c.proforientation_sum) if c.proforientation_sum is not None else None,
+                "ielts_exam_fee": str(c.ielts_exam_fee) if c.ielts_exam_fee is not None else None,
+                "mentor_paid": str(c.mentor_paid) if c.mentor_paid is not None else None,
                 "notes": c.notes,
                 "created_at": c.created_at.isoformat(),
                 "payments": [

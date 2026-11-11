@@ -49,6 +49,7 @@ CREATE_FIELDS = (
     "full_name", "phone", "degree_level", "intake_year", "pipeline_status",
     "signed_date", "client_fee", "english_sum", "english_paid",
     "client_remaining", "client_remaining_date",
+    "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid",
 )
 
 # Страна платформы → ключ опции Notion (опции вида «🇰🇷 Korea»).

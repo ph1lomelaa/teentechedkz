@@ -12,7 +12,7 @@ import { toast } from '@/hooks/use-toast'
 
 const FIELD_LABELS: Record<string, string> = {
   full_name: 'ФИО', phone: 'Телефон', degree_level: 'Ступень', intake_year: 'Набор', pipeline_status: 'Статус работы',
-  signed_date: 'Дата договора', client_fee: 'Сумма договора', english_sum: 'Сумма английского', english_paid: 'Оплата английского', mentor_total: 'Сумма менторов', client_remaining: 'Остаток клиента', client_remaining_date: 'Дата остатка клиента',
+  signed_date: 'Дата договора', client_fee: 'Сумма договора', english_sum: 'Сумма английского', english_paid: 'Оплата английского', mentor_total: 'Сумма менторов', client_remaining: 'Остаток клиента', client_remaining_date: 'Дата остатка клиента', up_sum: 'УП: сумма', up_paid: 'УП: оплачено', proforientation_sum: 'Профориентация', ielts_exam_fee: 'Экзамен IELTS', mentor_paid: 'Менторам выплачено',
 }
 const STATUS_LABELS: Record<string, string> = {
   conflict: 'Нужно выбрать источник', dry_run: 'Проверено без записи', pending: 'Ожидает обработки',
