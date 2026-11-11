@@ -44,6 +44,13 @@ def _year(raw):
     return None
 
 
+def _stem_name(value) -> str:
+    """«Рақашевой Медеи» ≈ «Рақашева Медея»: первые 4 буквы двух первых слов."""
+    from migration.transformers.normalize import squash_name
+    words = squash_name(value or "").split()[:2]
+    return " ".join(sorted(w[:4] for w in words)) if len(words) == 2 and min(map(len, words)) >= 4 else ""
+
+
 def _same_name(a, b) -> bool:
     return " ".join(str(a or "").casefold().split()) == " ".join(str(b or "").casefold().split())
 
@@ -87,8 +94,19 @@ async def build_reconcile(db: AsyncSession) -> dict:
                 if names_probably_same(n["full_name"], s["full_name"]) or _same_name(n["full_name"], s["full_name"])
                 or (normalize_phone(s["phone"] or "") and n["phone_normalized"] == normalize_phone(s["phone"] or ""))
             ][:3]
+            # Похожая строка Notion уже привязана к ДРУГОЙ карточке — значит, на
+            # платформе две карточки одного человека (другое написание/падеж).
+            twins = [
+                {"name": n["full_name"], "state": "дубль карточки", "url": n["notion_url"]}
+                for n in snaps
+                if n["st"] == "linked" and n["alive"] and n["alive"] != s["id"] and n["full_name"]
+                and (names_probably_same(n["full_name"], s["full_name"]) or _same_name(n["full_name"], s["full_name"])
+                     or _stem_name(n["full_name"]) == _stem_name(s["full_name"]))
+            ][:3]
+            hints = hints + twins
             reason = (
                 "ждёт статуса" if crm == "no_status"
+                else "дубль карточки на платформе — объединить" if twins
                 else "похожая строка в Notion — привязать вручную" if hints
                 else "проверить и подтвердить статус — тогда уйдёт в Notion"
             )
