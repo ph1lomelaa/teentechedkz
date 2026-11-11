@@ -7,7 +7,8 @@ worker создаёт в Notion страницу с теми же колонка
 платформе уходит в Notion сама.
 
 Защита от дублей, по порядку:
-0. только если статус поставил сотрудник (см. students_with_manual_status) —
+0. только если статус поставил сотрудник (см. students_with_manual_status, без
+   ограничения по дате) —
    статус из договора TrustMe или скрипта страницу не создаёт;
 1. в зеркале Notion (`notion_snapshots`) есть похожая строка (ФИО или телефон)
    → страница НЕ создаётся, студент ждёт ручной привязки;
@@ -287,8 +288,8 @@ async def create_page_for_student(db: AsyncSession, student: Student, *, dry_run
     return {"state": "created", "url": snapshot.notion_url}
 
 
-async def students_with_manual_status(db: AsyncSession, student_ids, since: datetime) -> set:
-    """Кому статус поставил СОТРУДНИК (в карточке/списке) после `since`.
+async def students_with_manual_status(db: AsyncSession, student_ids, since: datetime | None = None) -> set:
+    """Кому статус поставил СОТРУДНИК (в карточке/списке) — когда угодно.
 
     Статус, проставленный скриптом, договором TrustMe или синком, страницу в
     Notion не создаёт: сначала карточку проверяет менеджер и сам ставит статус.
@@ -304,7 +305,7 @@ async def students_with_manual_status(db: AsyncSession, student_ids, since: date
                                   StatusHistory.entity_type == "contract",
                                   # «created» — договор создан сразу со статусом (contracts.py).
                                   StatusHistory.field_changed.in_(("pipeline_status", "created"))))
-        .where(Contract.id.in_(contract_ids), StatusHistory.changed_at >= since)
+        .where(Contract.id.in_(contract_ids))
     )).all()
     out = set()
     for student_id, changed_by, new_value in rows:
@@ -321,12 +322,11 @@ async def process_pending(db: AsyncSession, *, limit: int = 10) -> dict:
     """Проход worker: создать страницы для подходящих студентов."""
     if not settings.ENABLE_NOTION_CREATE_PAGES:
         return {"state": "disabled"}
-    since = _since()
     allow = {uuid.UUID(str(v)) for v in settings.NOTION_CREATE_PAGES_STUDENT_IDS}
-    if since is None and not allow:
-        return {"state": "no_scope"}
     candidates = await eligible_students(db, limit=200)
-    manual = await students_with_manual_status(db, [s.id for s in candidates], since) if since else set()
+    # Граница по дате убрана (12.11): статус, поставленный сотрудником, отправляет
+    # студента в Notion всегда — иначе правка «на стыке» дат терялась молча.
+    manual = await students_with_manual_status(db, [s.id for s in candidates])
     picked = [s for s in candidates if s.id in allow or s.id in manual]
     counts: dict[str, int] = {}
     for student in picked[:limit]:
@@ -341,3 +341,62 @@ async def process_pending(db: AsyncSession, *, limit: int = 10) -> dict:
         if result["state"] in ("created", "linked_existing"):
             logger.info("Notion: %s → %s (%s)", student.full_name, result.get("url"), result["state"])
     return counts
+
+
+def mzk_option_for(user_name: str | None, options: list[str]) -> str | None:
+    """«Тулегенова Зере» → опция «Зере»: любое слово имени совпало с опцией."""
+    words = {w.casefold() for w in (user_name or "").split()}
+    return next((o for o in options if o.casefold() in words), None)
+
+
+async def sync_mzk_assignments(db: AsyncSession, *, limit: int = 20) -> dict:
+    """Назначенный на платформе МЗК → колонка «МЗК» в Notion.
+
+    Берутся только назначения, сделанные после NOTION_CREATE_PAGES_SINCE: старые
+    расхождения массово не перезаписываются. Направление одно — платформа →
+    Notion; снятие МЗК Notion не очищает. Повторный проход ничего не пишет:
+    значение сравнивается с последним прочитанным из Notion.
+    """
+    from app.models.mentor_assignment import MentorAssignment, MentorRole
+    since = _since()
+    if since is None:
+        return {"state": "no_scope"}
+    rows = (await db.execute(
+        select(MentorAssignment.student_id, User.name, NotionSnapshot)
+        .join(User, User.id == MentorAssignment.mentor_id)
+        .join(NotionSnapshot, and_(NotionSnapshot.student_id == MentorAssignment.student_id,
+                                   NotionSnapshot.status == NotionMatchStatus.linked))
+        .where(MentorAssignment.role == MentorRole.mzk, MentorAssignment.is_active.is_(True),
+               MentorAssignment.assigned_at >= since)
+        .order_by(MentorAssignment.assigned_at.desc())
+    )).all()
+    if not rows:
+        return {"state": "nothing"}
+    loop = asyncio.get_running_loop()
+    schema = await loop.run_in_executor(None, notion_write.get_schema)
+    real_name, ptype = notion_write.resolve_property(schema, "МЗК")
+    if not real_name or ptype != "select":
+        return {"state": "no_property"}
+    options = notion_write.select_options(schema, real_name)
+    seen, written = set(), 0
+    for student_id, user_name, snapshot in rows:
+        if student_id in seen or written >= limit:
+            continue
+        seen.add(student_id)
+        links = (await db.execute(select(func.count()).select_from(NotionSnapshot).where(
+            NotionSnapshot.student_id == student_id, NotionSnapshot.status == NotionMatchStatus.linked))).scalar_one()
+        if links != 1:
+            continue
+        option = mzk_option_for(user_name, options)
+        current = (snapshot.normalized_data or {}).get("mzk")
+        if option is None or current == option:
+            continue
+        await loop.run_in_executor(None, notion_write.update_page, snapshot.notion_page_id,
+                                   {real_name: notion_write.build_property("select", option)})
+        data = dict(snapshot.normalized_data or {}); data["mzk"] = option
+        snapshot.normalized_data = data
+        await log_change(db, "student", student_id, "notion_push:mzk", current, option, ACTOR, "notion")
+        await db.commit()
+        written += 1
+        logger.info("Notion МЗК: %s → %s", student_id, option)
+    return {"state": "ok", "written": written}

@@ -44,6 +44,13 @@ def test_country_options_match_flags_and_russian_names():
     assert notion_create.country_option("Марс", opts) is None
 
 
+def test_mzk_option_matches_any_name_word():
+    opts = ["не передали", "Аружан", "Амина", "Зере", "Мерей"]
+    assert notion_create.mzk_option_for("Тулегенова Зере", opts) == "Зере"
+    assert notion_create.mzk_option_for("Амина Насирдинова", opts) == "Амина"
+    assert notion_create.mzk_option_for("Иван Петров", opts) is None
+
+
 def test_multi_select_payload():
     assert notion_write.build_property("multi_select", ["🇰🇷 Korea"]) == {"multi_select": [{"name": "🇰🇷 Korea"}]}
 
@@ -176,4 +183,18 @@ async def _run(monkeypatch):
         await notion_create.process_pending(db, limit=50)
         linked_old = (await db.execute(select(NotionSnapshot).where(NotionSnapshot.student_id == old.id))).scalars().all()
         assert len(linked_old) == 1
+
+        # Назначение МЗК после NOTION_CREATE_PAGES_SINCE уходит в колонку «МЗК».
+        from app.models.mentor_assignment import MentorAssignment, MentorRole
+        pushed = []
+        monkeypatch.setattr(notion_write, "update_page", lambda page_id, props, verify=True: pushed.append((page_id, props)))
+        snap_new = (await db.execute(select(NotionSnapshot).where(NotionSnapshot.student_id == new.id))).scalar_one()
+        db.add(MentorAssignment(student_id=new.id, mentor_id=mzk.id, role=MentorRole.mzk, is_active=True))
+        await db.commit()
+        result = await notion_create.sync_mzk_assignments(db)
+        mine = [p for p in pushed if p[0] == snap_new.notion_page_id]
+        assert mine and mine[0][1] == {"МЗК": {"select": {"name": "Амина"}}}, (result, pushed)
+        before = len(pushed)
+        await notion_create.sync_mzk_assignments(db)
+        assert not [p for p in pushed[before:] if p[0] == snap_new.notion_page_id]
     await engine.dispose()
