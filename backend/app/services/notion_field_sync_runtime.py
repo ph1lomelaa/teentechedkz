@@ -447,10 +447,11 @@ async def process_profile_field(
         await session.flush()
         # Деньги и даты оплаты финансист должен узнать сразу: сам синк молча
         # переписывает договор, а график платежей двигает человек.
-        await finance_desk.record_notion_change(
-            session, student=student, contract=contract, field=field, old=old_crm, new=new_crm,
-            source_ref=f"field-sync:{item.id}",
-        )
+        if field not in finance_desk.SNAPSHOT_FIELDS:
+            await finance_desk.record_notion_change(
+                session, student=student, contract=contract, field=field, old=old_crm, new=new_crm,
+                source_ref=f"field-sync:{item.id}",
+            )
         actual_notion_after = current_notion_raw
 
     # Only after read/write/readback (or the staged CRM update + flush) agree do

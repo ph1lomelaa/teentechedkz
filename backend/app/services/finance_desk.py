@@ -60,10 +60,12 @@ def aging_bucket(days_overdue: int) -> str:
 SYNCED_FIELDS = frozenset({
     "client_fee", "client_remaining", "client_remaining_date", "pipeline_status",
     "english_sum", "english_paid", "mentor_total",
-    # С 12.11.2026 (миграция 138) — поля договора с обменом в обе стороны.
-    "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid",
 })
-SNAPSHOT_FIELDS: frozenset[str] = frozenset()
+# С 12.11.2026 (миграция 138) эти поля есть и в договоре, с обменом в обе
+# стороны. Финансист по-прежнему узнаёт о правке в Notion по снимку строки —
+# сразу, без ожидания согласования; обмен полями для них уведомление не пишет,
+# чтобы не было двух уведомлений об одной правке.
+SNAPSHOT_FIELDS = frozenset({"up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"})
 # Оплаты, внесённые не в разделе «Финансы» (старая страница /payments).
 PLATFORM_FIELDS = frozenset({"payment_added", "payment_changed"})
 WATCHED_FIELDS = SYNCED_FIELDS | SNAPSHOT_FIELDS | PLATFORM_FIELDS
