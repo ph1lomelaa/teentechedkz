@@ -691,6 +691,9 @@ async def field_sync_loop() -> None:
                     await process_pending(db)
                 async with AsyncSessionLocal() as db:
                     await sync_mzk_assignments(db)
+                from app.services.notion_create import adopt_manual_duplicates
+                async with AsyncSessionLocal() as db:
+                    await adopt_manual_duplicates(db)
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -401,3 +401,115 @@ async def sync_mzk_assignments(db: AsyncSession, *, limit: int = 20) -> dict:
         written += 1
         logger.info("Notion МЗК: %s → %s", student_id, option)
     return {"state": "ok", "written": written}
+
+
+def _is_empty(value) -> bool:
+    return value in (None, "", [], {}) or (isinstance(value, str) and not value.strip())
+
+
+async def _created_by_platform(db: AsyncSession, student_id, snapshot: NotionSnapshot) -> bool:
+    """Страницу создала сама платформа (notion_create), а не человек."""
+    from app.models.status_history import StatusHistory
+    page_key = (snapshot.notion_page_id or "").replace("-", "")
+    rows = (await db.execute(select(StatusHistory.new_value).where(
+        StatusHistory.entity_type == "student", StatusHistory.entity_id == student_id,
+        StatusHistory.field_changed == "notion_page_created",
+    ))).scalars().all()
+    return any(page_key and page_key in (value or "").replace("-", "") for value in rows)
+
+
+async def adopt_manual_duplicates(db: AsyncSession, *, limit: int = 10) -> dict:
+    """Менеджер завёл в Notion строку для студента, у которого уже есть наша
+    автостраница → связь переходит на его строку.
+
+    1. Пустые колонки новой строки дополняются значениями платформы (суммы,
+       год, страны, МЗК…); заполненное менеджером не перезаписывается.
+    2. Пустые денежные поля договора на платформе дополняются из его строки.
+    3. Наша автостраница уходит в корзину Notion (её создал не человек, и все
+       её значения уже есть на платформе) и скрывается на платформе.
+    Сомнительные случаи (несколько похожих студентов, разные телефоны, наша
+    страница уже правилась вручную) не трогаются — остаются в «Привязках Notion».
+    """
+    from app.services.notion_field_sync_runtime import CONTRACT_FIELD_ATTR, _notion_to_crm_value
+    from app.services.notion_sync import editable_canon, reconcile_baseline
+    new_rows = (await db.execute(select(NotionSnapshot).where(
+        NotionSnapshot.status == NotionMatchStatus.new, NotionSnapshot.full_name.is_not(None),
+        NotionSnapshot.manual_unlink.is_(False),
+    ))).scalars().all()
+    if not new_rows:
+        return {"state": "nothing"}
+    linked = (await db.execute(select(NotionSnapshot, Student).join(Student, Student.id == NotionSnapshot.student_id).where(
+        NotionSnapshot.status == NotionMatchStatus.linked, Student.is_archived.is_(False),
+    ))).all()
+    loop = asyncio.get_running_loop()
+    schema = None
+    adopted = 0
+    for fresh in new_rows:
+        if adopted >= limit:
+            break
+        same = [
+            (snap, st) for snap, st in linked
+            if " ".join((st.full_name or "").casefold().split()) == " ".join((fresh.full_name or "").casefold().split())
+            or names_probably_same(st.full_name or "", fresh.full_name or "")
+        ]
+        if len(same) != 1:
+            continue
+        ours, student = same[0]
+        phone = normalize_phone(student.phone or "")
+        if fresh.phone_normalized and phone and fresh.phone_normalized != phone and fresh.phone_normalized != ours.phone_normalized:
+            continue
+        if not await _created_by_platform(db, student.id, ours):
+            continue
+        contract = (await db.execute(
+            select(Contract).where(Contract.student_id == student.id)
+            .order_by(Contract.created_at.desc(), Contract.id.desc()).limit(1)
+        )).scalar_one_or_none()
+        if schema is None:
+            schema = await loop.run_in_executor(None, notion_write.get_schema)
+        # 1. Дополнить пустые колонки строки менеджера значениями платформы.
+        wanted = await build_properties(db, student, contract, schema)
+        raw = fresh.raw_properties or {}
+        title_name, _ = notion_write.find_title_property(schema)
+        fill = {name: payload for name, payload in wanted.items()
+                if name != title_name and _is_empty(raw.get(name))}
+        if fill:
+            await loop.run_in_executor(None, notion_write.update_page, fresh.notion_page_id, fill, False)
+        # 2. Дополнить пустые поля договора из строки менеджера.
+        filled_crm = []
+        if contract is not None:
+            canon = editable_canon(fresh.normalized_data or {}, student, contract)
+            for field, attr in CONTRACT_FIELD_ATTR.items():
+                if field == "pipeline_status" or field not in canon:
+                    continue
+                notion_value, crm_value = canon[field]
+                if crm_value is None and notion_value is not None:
+                    value = _notion_to_crm_value(field, notion_value)
+                    if value is not None:
+                        setattr(contract, attr, value)
+                        filled_crm.append(field)
+                        await log_change(db, "contract", contract.id, attr, None, str(value), ACTOR, "notion")
+        # 3. Связь → строка менеджера; наша пустая — в корзину Notion.
+        now = datetime.now(timezone.utc)
+        ours.status = NotionMatchStatus.ignored
+        ours.student_id = None
+        await db.flush()
+        fresh.student_id = student.id
+        fresh.status = NotionMatchStatus.linked
+        fresh.suggested_student_id = student.id
+        fresh.suggested_confidence = 1.0
+        fresh.linked_at = now
+        if fill:
+            page = await loop.run_in_executor(None, notion_write.get_page, fresh.notion_page_id)
+            row, raw_new = _page_to_snapshot_row(page)
+            fresh.normalized_data, fresh.raw_properties = row, raw_new
+        reconcile_baseline(fresh, student, contract)
+        try:
+            await loop.run_in_executor(None, notion_write.trash_page, ours.notion_page_id)
+        except Exception:
+            logger.exception("Не удалось убрать в корзину автостраницу %s", ours.notion_page_id)
+        await log_change(db, "student", student.id, "notion_page_adopted", ours.notion_url, fresh.notion_url, ACTOR, "notion")
+        await db.commit()
+        adopted += 1
+        logger.info("Notion: %s → строка менеджера %s (дополнено в Notion: %s, на платформе: %s)",
+                    student.full_name, fresh.notion_url, sorted(fill), filled_crm)
+    return {"state": "ok", "adopted": adopted}

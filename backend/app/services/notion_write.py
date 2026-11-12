@@ -211,6 +211,12 @@ def create_page(properties: dict[str, dict], template_id: str | None = None) -> 
     return resp.json()
 
 
+def trash_page(page_id: str) -> None:
+    """Убрать страницу в корзину Notion (восстанавливается из корзины 30 дней)."""
+    resp = _request("PATCH", f"{_API}/pages/{page_id}", json={"in_trash": True})
+    _raise_for_status(resp)
+
+
 def _verify_written(page_id: str, properties: dict[str, dict]) -> None:
     """Перечитать страницу и убедиться, что записанные свойства совпали с намерением."""
     written = get_page(page_id).get("properties", {})

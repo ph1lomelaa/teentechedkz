@@ -201,3 +201,69 @@ async def _run(monkeypatch):
         await notion_create.sync_mzk_assignments(db)
         assert not [p for p in pushed[before:] if p[0] == snap_new.notion_page_id]
     await engine.dispose()
+
+
+@pytest.mark.skipif(not URL, reason="Requires an isolated test database")
+def test_manual_notion_row_replaces_our_empty_page(monkeypatch):
+    assert "_check_" in URL
+    asyncio.run(_run_adopt(monkeypatch))
+
+
+async def _run_adopt(monkeypatch):
+    from app.core.audit import log_change
+    from app.models.contract import Contract, PipelineStatus
+    from app.models.notion_snapshot import NotionMatchStatus, NotionSnapshot
+    from app.models.student import DegreeLevel, Student
+
+    engine = create_async_engine(URL)
+    sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    tag = "".join("бвгджзклмнпрстфхцчшщ"[b % 20] for b in uuid.uuid4().bytes[:8])
+    trashed, patched = [], []
+    monkeypatch.setattr(notion_write, "get_schema", lambda force=False: SCHEMA)
+    monkeypatch.setattr(notion_write, "trash_page", lambda page_id: trashed.append(page_id))
+    monkeypatch.setattr(notion_write, "update_page", lambda page_id, props, verify=True: patched.append((page_id, props)))
+    monkeypatch.setattr(notion_write, "get_page", lambda page_id: _page(page_id, f"Ручная Строка {tag}", {
+        "Client fee": {"type": "number", "number": 1300000},
+        "Intake": {"type": "select", "select": {"name": "2027"}},
+    }))
+    async with sessions() as db:
+        st = Student(full_name=f"Ручная Строка {tag}", phone="87005554433",
+                     degree_level=DegreeLevel.undergraduate, intake_year=2027)
+        db.add(st); await db.flush()
+        contract = Contract(student_id=st.id, pipeline_status=PipelineStatus.active_work)
+        db.add(contract)
+        ours_id, fresh_id = uuid.uuid4().hex, uuid.uuid4().hex
+        ours = NotionSnapshot(notion_page_id=ours_id, notion_url=f"https://notion.so/{ours_id}", full_name=st.full_name,
+                              raw_properties={}, normalized_data={}, status=NotionMatchStatus.linked, student_id=st.id)
+        fresh = NotionSnapshot(notion_page_id=fresh_id, notion_url=f"https://notion.so/{fresh_id}", full_name=st.full_name,
+                               phone_normalized="77005554433", raw_properties={"Client fee": 1300000},
+                               normalized_data={"full_name": st.full_name, "client_fee": 1300000}, status=NotionMatchStatus.new)
+        db.add_all([ours, fresh]); await db.flush()
+        await log_change(db, "student", st.id, "notion_page_created", None, ours.notion_url, "notion_create", "notion")
+        await db.commit()
+
+        await notion_create.adopt_manual_duplicates(db)
+
+        await db.refresh(ours); await db.refresh(fresh); await db.refresh(contract)
+        assert fresh.status == NotionMatchStatus.linked and fresh.student_id == st.id
+        assert ours.status == NotionMatchStatus.ignored and ours.student_id is None
+        assert trashed == [ours_id]
+        fills = [props for pid, props in patched if pid == fresh_id]
+        assert fills and "Client fee" not in fills[0] and fills[0]["Статус выплат"] == {"select": {"name": "Активная работа"}}
+        assert contract.amount == Decimal("1300000")
+
+        # Чужую (не нашу) страницу не трогаем.
+        st2 = Student(full_name=f"Чужая Строка {tag}", phone="87005554434",
+                      degree_level=DegreeLevel.undergraduate, intake_year=2027)
+        db.add(st2); await db.flush()
+        p1, p2 = uuid.uuid4().hex, uuid.uuid4().hex
+        db.add_all([
+            NotionSnapshot(notion_page_id=p1, full_name=st2.full_name, raw_properties={}, normalized_data={},
+                           status=NotionMatchStatus.linked, student_id=st2.id),
+            NotionSnapshot(notion_page_id=p2, full_name=st2.full_name, raw_properties={}, normalized_data={},
+                           status=NotionMatchStatus.new),
+        ])
+        await db.commit()
+        await notion_create.adopt_manual_duplicates(db)
+        assert p1 not in trashed
+    await engine.dispose()
