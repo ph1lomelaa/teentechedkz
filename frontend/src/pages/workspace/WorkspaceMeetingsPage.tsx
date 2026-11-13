@@ -13,6 +13,7 @@ import { useLocalState } from '@/lib/use-local-state'
 import { AppButton, AppInput, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/primitives/dialog'
 import { QueryState } from '@/components/shared/QueryState'
+import { PastMeetingDialog } from '@/components/workspace/PastMeetingDialog'
 
 const MEETING_TYPE_LABELS: Record<MeetingType, string> = {
   intro: 'Первичный',
@@ -33,6 +34,8 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   const { params } = useWorkspaceScope()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<WorkspaceMeeting | null>(null)
+  // Прошедшая встреча открывается в окне: итог, запись, транскрипт, конспект.
+  const [viewingId, setViewingId] = useState<string | null>(null)
   const [duration, setDuration] = useState('60')
   const [withoutNotes, setWithoutNotes] = useState(false)
   const [now, setNow] = useState(Date.now())
@@ -41,6 +44,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   const [title, setTitle] = useState('')
   const [meetingType, setMeetingType] = useState<MeetingType>('regular')
   const [description, setDescription] = useState('')
+  const [outcome, setOutcome] = useState('')
   const [startsAt, setStartsAt] = useState('')
   const [dateFocused, setDateFocused] = useState(false)
   const [link, setLink] = useState('')
@@ -97,7 +101,13 @@ export const WorkspaceMeetingsPage: React.FC = () => {
     const label = date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')
     return label.charAt(0).toUpperCase() + label.slice(1)
   }
-  const openCreate = (id = '') => { setEditing(null); setStudentId(id); setTitle(''); setMeetingType('regular'); setStartsAt(''); setDuration('60'); setLink(''); setDescription(''); setDialogOpen(true) }
+  const openCreate = (id = '') => { setEditing(null); setStudentId(id); setTitle(''); setMeetingType('regular'); setStartsAt(''); setDuration('60'); setLink(''); setDescription(''); setOutcome(''); setDialogOpen(true) }
+  // Созвон уже был (в Zoom, по телефону, без бота) — вносим задним числом с итогом.
+  const openPastCall = (id = '') => {
+    openCreate(id)
+    const start = new Date(now - 60 * 60000); start.setMinutes(0, 0, 0)
+    setStartsAt(new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 16)); setDuration('40')
+  }
   useEffect(() => {
     const id = searchParams.get('student_id')
     if (!id && searchParams.get('new') !== '1') return
@@ -105,10 +115,11 @@ export const WorkspaceMeetingsPage: React.FC = () => {
     const next = new URLSearchParams(searchParams); next.delete('student_id'); next.delete('new'); setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
   const editMeeting = (m: WorkspaceMeeting) => {
-    setEditing(m); setStudentId(m.student_id); setTitle(m.title); setMeetingType(m.meeting_type); setDescription(m.description); setLink(m.meeting_link)
+    setEditing(m); setStudentId(m.student_id); setTitle(m.title); setMeetingType(m.meeting_type); setDescription(m.description); setOutcome(m.outcome || ''); setLink(m.meeting_link)
     const date = new Date(m.starts_at); setStartsAt(new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16))
     setDuration(String(Math.max(1, Math.round((Date.parse(m.ends_at) - Date.parse(m.starts_at))/60000)))); setDialogOpen(true)
   }
+  const held = Boolean(startsAt) && Number.isFinite(Date.parse(startsAt)) && Date.parse(startsAt) + Math.max(1, Number(duration) || 0) * 60000 <= now
   const missing = [!studentId && 'студента', (!startsAt || !Number.isFinite(Date.parse(startsAt))) && 'дату и время', (!Number.isFinite(Number(duration)) || !Number.isInteger(Number(duration)) || Number(duration) < 1) && 'длительность в целых минутах', normalizeMeetingLink(link) === null && 'ссылку в формате https://…'].filter(Boolean)
   const cancelMutation = useMutation({ mutationFn: (id: string) => meetingsApi.update(id, { status: 'cancelled' }), onSuccess: () => refresh(), onError: () => toast({ title: 'Не удалось отменить встречу', variant: 'destructive' }) })
 
@@ -158,6 +169,8 @@ export const WorkspaceMeetingsPage: React.FC = () => {
         starts_at: start.toISOString(),
         ends_at: end.toISOString(),
         meeting_link: normalizeMeetingLink(link) ?? '',
+        ...(held ? { outcome: outcome.trim() } : {}),
+        ...(held && editing ? { status: 'completed' as MeetingStatus } : {}),
       }
       return editing ? meetingsApi.update(editing.id, body) : meetingsApi.create(body)
     },
@@ -167,11 +180,12 @@ export const WorkspaceMeetingsPage: React.FC = () => {
       setTitle('')
       setMeetingType('regular')
       setDescription('')
+      setOutcome('')
       setStartsAt('')
       setDuration('60')
       setLink('')
       refresh()
-      toast({ title: editing ? 'Встреча изменена' : 'Встреча создана' })
+      toast({ title: held ? 'Созвон сохранён' : editing ? 'Встреча изменена' : 'Встреча создана' })
     },
     onError: () => toast({ title: 'Не удалось создать встречу', variant: 'destructive' }),
   })
@@ -192,6 +206,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
     onError: () => toast({ title: 'Не удалось создать конспект', variant: 'destructive' }),
   })
 
+  const viewing = (meetingsData?.items ?? []).find((item) => item.id === viewingId) ?? null
   const loading = studentsLoading || meetingsLoading || notesLoading
   // Экран собран из двух запросов: упади любой — список неполон. Повтор дёргает
   // оба: разбираться, какой именно не дошёл, человеку ни к чему.
@@ -202,12 +217,15 @@ export const WorkspaceMeetingsPage: React.FC = () => {
   return (
     <>
       <div className="fade-in">
-        <PageHeader colorPrefix="w" title="Встречи" description="Планируйте встречи и открывайте конспекты звонков." action={meetings.length > 0 ? <AppButton colorPrefix="w" aria-label="Новая встреча" title="Новая встреча" className="h-11 w-11 rounded-full !p-0" onClick={() => openCreate(studentFilter)}><Plus className="h-5 w-5" /></AppButton> : undefined} />
+        <PageHeader colorPrefix="w" title="Встречи" description="Планируйте встречи и открывайте конспекты звонков." action={meetings.length > 0 ? <AppButton colorPrefix="w" aria-label={activeScope === 'completed' ? 'Внести прошедший созвон' : 'Новая встреча'} title={activeScope === 'completed' ? 'Внести прошедший созвон' : 'Новая встреча'} className="h-11 w-11 rounded-full !p-0" onClick={() => activeScope === 'completed' ? openPastCall(studentFilter) : openCreate(studentFilter)}><Plus className="h-5 w-5" /></AppButton> : undefined} />
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <SegmentedTabs colorPrefix="w" value={activeScope} onChange={(value) => { setScope(value as typeof scope); setWithoutNotes(false) }} tabs={[
             { value: 'upcoming', label: 'Предстоящие' }, { value: 'completed', label: 'Прошедшие' }, { value: 'cancelled', label: 'Отменённые' },
           ].map((tab) => { const count = filtered.filter((m) => category(m) === tab.value).length; return { ...tab, label: <span>{tab.label}{count > 0 && <span className="ml-2 rounded-full bg-w-ink/10 px-1.5 py-0.5 text-[10px]">{count}</span>}</span> } })} />
           <div className="flex flex-wrap gap-2">
+            {activeScope === 'completed' && <AppSelect colorPrefix="w" value={withoutNotes ? 'no-notes' : 'all'} onChange={(e) => setWithoutNotes(e.target.value === 'no-notes')} aria-label="Конспект">
+              <option value="all">С конспектом и без</option><option value="no-notes">Без конспекта ({noNotesCount})</option>
+            </AppSelect>}
             <AppSelect colorPrefix="w" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)} aria-label="Тип встречи">
               <option value="all">Все типы</option><option value="ielts">Только IELTS</option>
               {Object.entries(MEETING_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
@@ -217,8 +235,7 @@ export const WorkspaceMeetingsPage: React.FC = () => {
             </AppSelect>
           </div>
         </div>
-        {activeScope === 'completed' && noNotesCount > 0 && <AppButton colorPrefix="w" size="sm" variant={withoutNotes ? 'primary' : 'subtle'} aria-pressed={withoutNotes} className="mb-4" onClick={() => setWithoutNotes(!withoutNotes)}>Без конспекта ({noNotesCount})</AppButton>}
-        <QueryState colorPrefix="w" isLoading={loading} isError={failed} error={loadError} onRetry={retry} isEmpty={meetings.length === 0} empty={<EmptyState colorPrefix="w" icon={<Calendar className="h-6 w-6" />} title="Встреч пока нет" action={<AppButton colorPrefix="w" onClick={() => openCreate(studentFilter)}>Новая встреча</AppButton>} />}>
+        <QueryState colorPrefix="w" isLoading={loading} isError={failed} error={loadError} onRetry={retry} isEmpty={meetings.length === 0} empty={<EmptyState colorPrefix="w" icon={<Calendar className="h-6 w-6" />} title={activeScope === 'completed' ? 'Прошедших встреч нет' : 'Встреч пока нет'} action={activeScope === 'completed' ? <AppButton colorPrefix="w" onClick={() => openPastCall(studentFilter)}>Внести прошедший созвон</AppButton> : <AppButton colorPrefix="w" onClick={() => openCreate(studentFilter)}>Новая встреча</AppButton>} />}>
           <div className="space-y-6">
             {[...groups].map(([day, items]) => <section key={day}>
               <h2 className="mb-2 text-sm font-bold text-w-muted">{dayLabel(items[0].starts_at)}</h2>
@@ -228,19 +245,17 @@ export const WorkspaceMeetingsPage: React.FC = () => {
                   const href = normalizeMeetingLink(m.meeting_link) || '', join = Boolean(href) && now >= Date.parse(m.starts_at) - 600000
                   return <div key={m.id} className="flex flex-wrap items-center gap-3 py-4">
                     <div className="w-24 shrink-0"><div className="text-sm font-bold text-w-ink">{new Date(m.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div><div className="text-xs text-w-muted">{Math.round((Date.parse(m.ends_at)-Date.parse(m.starts_at))/60000)} мин</div></div>
-                    <div className="min-w-0 flex-1"><Link className="text-sm font-bold text-w-accentText hover:underline" to={`/workspace/students/${m.student_id}#meetings`}>{m.student_name}</Link><div className="break-words text-sm text-w-ink">{m.title}</div></div>
+                    <div className="min-w-0 flex-1"><Link className="text-sm font-bold text-w-accentText hover:underline" to={`/workspace/students/${m.student_id}#meetings`}>{m.student_name}</Link><div className="break-words text-sm text-w-ink">{m.title}</div>{activeScope === 'completed' && m.outcome && <div className="mt-1 line-clamp-2 break-words text-xs text-w-muted"><span className="font-bold text-w-good">Итог:</span> {m.outcome}</div>}</div>
                     <Pill colorPrefix="w">{MEETING_TYPE_LABELS[m.meeting_type]}</Pill>
                     {activeScope === 'upcoming' && <>
                       <AppButton colorPrefix="w" size="sm" variant="subtle" disabled={createNoteSessionMutation.isPending} title="Начать конспект: запись, бот или загрузка аудио" onClick={() => (session || m.note_session_id) ? navigate(`/workspace/meetings/session/${session?.id ?? m.note_session_id}${href ? `?url=${encodeURIComponent(href)}` : ''}`) : createNoteSessionMutation.mutate({ ...m, meeting_link: href })}>{(session || m.note_session_id) ? 'Продолжить конспект' : 'Конспект'}</AppButton>
                       <span title={m.meeting_link && !href ? 'Ссылка указана неверно. Откройте «⋯ → Изменить» и исправьте' : !m.meeting_link ? 'Добавьте ссылку Zoom/Meet' : !join ? 'Вход доступен за 10 минут до начала' : undefined}><AppButton colorPrefix="w" size="sm" disabled={!join} onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}>Войти</AppButton></span>
                       <details className="relative"><summary aria-label="Действия встречи" className="cursor-pointer list-none rounded-ctl px-3 py-1 text-xl text-w-muted">⋯</summary><div className="absolute right-0 z-20 grid w-44 gap-1 rounded-ctl border border-w-line bg-w-panel p-2 shadow-lg"><AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => editMeeting(m)}>Изменить</AppButton><AppButton colorPrefix="w" size="sm" variant="danger" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate(m.id)}>Отменить</AppButton><AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => m.note_session_id ? navigate(`/workspace/meetings/session/${m.note_session_id}`) : createNoteSessionMutation.mutate(m)}>Записать встречу</AppButton></div></details>
                     </>}
-                    {activeScope === 'completed' && <div className="flex flex-wrap items-center gap-2">
-                      <Pill colorPrefix="w" tone={m.recording_url || session?.has_audio ? 'good' : 'neutral'}>Запись: {m.recording_url || session?.has_audio ? 'есть' : processing ? 'в обработке' : 'нет'}</Pill>
-                      <Pill colorPrefix="w" tone={m.transcript_url || session?.transcript_count ? 'good' : 'neutral'}>Транскрипт: {m.transcript_url || session?.transcript_count ? 'есть' : processing ? 'в обработке' : 'нет'}</Pill>
-                      <Pill colorPrefix="w" tone={hasNote(m) ? 'good' : 'neutral'}>Конспект: {hasNote(m) ? 'есть' : processing ? 'в обработке' : 'нет'}</Pill>
-                      <AppButton colorPrefix="w" size="sm" variant="subtle" disabled={createNoteSessionMutation.isPending} onClick={() => session ? navigate(session.note_id ? `/workspace/meetings/notes/${session.note_id}` : `/workspace/meetings/session/${session.id}`) : createNoteSessionMutation.mutate(m)}>{hasNote(m) ? 'Открыть конспект' : 'Создать конспект'}</AppButton>
-                    </div>}
+                    {activeScope === 'completed' && <>
+                      <Pill colorPrefix="w" tone={hasNote(m) ? 'good' : 'neutral'}>{hasNote(m) ? 'Конспект есть' : processing ? 'Конспект готовится' : 'Без конспекта'}</Pill>
+                      <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => setViewingId(m.id)}>Открыть</AppButton>
+                    </>}
                   </div>
                 })}
               </div>
@@ -249,18 +264,29 @@ export const WorkspaceMeetingsPage: React.FC = () => {
         </QueryState>
       </div>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent><DialogTitle>{editing ? 'Изменить встречу' : 'Новая встреча'}</DialogTitle><DialogDescription>Выберите студента и время встречи.</DialogDescription>
+        <DialogContent><DialogTitle>{held ? (editing ? 'Итог созвона' : 'Прошедший созвон') : editing ? 'Изменить встречу' : 'Новая встреча'}</DialogTitle><DialogDescription>{held ? 'Созвон уже прошёл: запишите, что обсудили. Студенту уведомление не придёт.' : 'Выберите студента и время встречи.'}</DialogDescription>
           <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (!missing.length && !createMutation.isPending) createMutation.mutate() }}>
             <label className="grid gap-1.5 text-sm">Студент *<AppSelect aria-label="Студент" colorPrefix="w" value={studentId} disabled={Boolean(editing)} onChange={(e) => setStudentId(e.target.value)}><option value="">Выберите студента</option>{students.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}</AppSelect></label>
             <label className="grid gap-1.5 text-sm">Тип встречи<AppSelect colorPrefix="w" value={meetingType} onChange={(e) => setMeetingType(e.target.value as MeetingType)}>{Object.entries(MEETING_TYPE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</AppSelect></label>
             <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3"><label className="grid gap-1.5 text-sm">Дата и время *<span className="relative block rounded-ctl focus-within:ring-2 focus-within:ring-w-accentDim"><span aria-hidden="true" className={`flex min-h-10 items-center rounded-ctl border border-w-line bg-w-panel2 px-4 text-sm ${startsAt ? 'text-w-ink' : 'text-w-muted2'}`}>{startsAt ? new Date(startsAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Выберите дату и время'}</span><AppInput aria-label="Дата и время" colorPrefix="w" type="datetime-local" className={`absolute inset-0 z-10 h-full w-full cursor-pointer ${dateFocused || startsAt ? 'opacity-100' : 'opacity-0'}`} onFocus={() => setDateFocused(true)} onBlur={() => setDateFocused(false)} value={startsAt} onInput={(e) => setStartsAt(e.currentTarget.value)} onChange={(e) => setStartsAt(e.target.value)} /></span></label><label className="grid gap-1.5 text-sm">Минут *<AppInput aria-label="Длительность в минутах" colorPrefix="w" type="number" min="1" value={duration} onChange={(e) => setDuration(e.target.value)} /></label></div>
             <div className="grid gap-1.5 text-sm"><label className="grid gap-1.5">Ссылка на встречу<AppInput colorPrefix="w" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://meet.google.com/…" /></label><span className="text-xs text-w-muted">Для конспекта ботом — Google Meet: <CreateGoogleMeetLink className="text-w-ink" /></span></div>
             <label className="grid gap-1.5 text-sm">Название (необязательно)<AppInput aria-label="Название встречи" colorPrefix="w" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Подставим тип встречи и имя студента" /></label>
-            <label className="grid gap-1.5 text-sm">Повестка<textarea aria-label="Повестка" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-20 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" /></label>
-            <div className="flex justify-end gap-2"><AppButton colorPrefix="w" variant="subtle" onClick={() => setDialogOpen(false)}>Отмена</AppButton><span title={missing.length ? `Укажите ${missing.join(', ')}` : undefined}><AppButton colorPrefix="w" type="submit" disabled={Boolean(missing.length) || createMutation.isPending}>{createMutation.isPending ? 'Сохраняем...' : editing ? 'Сохранить' : 'Создать'}</AppButton></span></div>
+            <label className="grid gap-1.5 text-sm">{held ? 'Тема / повестка' : 'Повестка'}<textarea aria-label="Повестка" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-20 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" /></label>
+            {held && <label className="grid gap-1.5 text-sm">Итог: что обсудили и решили<textarea aria-label="Итог созвона" value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="Например: обсудили Activity List, выбрали 8 активностей, к пятнице — черновик эссе" className="min-h-24 rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" /><span className="text-xs text-w-muted">Подробный конспект можно добавить потом кнопкой «Создать конспект».</span></label>}
+            <div className="flex justify-end gap-2"><AppButton colorPrefix="w" variant="subtle" onClick={() => setDialogOpen(false)}>Отмена</AppButton><span title={missing.length ? `Укажите ${missing.join(', ')}` : undefined}><AppButton colorPrefix="w" type="submit" disabled={Boolean(missing.length) || createMutation.isPending}>{createMutation.isPending ? 'Сохраняем...' : held ? 'Сохранить созвон' : editing ? 'Сохранить' : 'Создать'}</AppButton></span></div>
           </form>
         </DialogContent>
       </Dialog>
+      {viewing && (() => {
+        const session = sessionFor(viewing)
+        return <PastMeetingDialog key={viewing.id} meeting={viewing} typeLabel={MEETING_TYPE_LABELS[viewing.meeting_type]}
+          materials={{ hasRecording: Boolean(viewing.recording_url || session?.has_audio), hasTranscript: Boolean(viewing.transcript_url || session?.transcript_count), noteId: session?.note_id ?? null, processing: session?.bot_status === 'processing' }}
+          noteBusy={createNoteSessionMutation.isPending}
+          onClose={() => setViewingId(null)}
+          onEdit={() => { setViewingId(null); editMeeting(viewing) }}
+          onNote={() => session ? navigate(session.note_id ? `/workspace/meetings/notes/${session.note_id}` : `/workspace/meetings/session/${session.id}`) : createNoteSessionMutation.mutate(viewing)}
+          onSaved={refresh} />
+      })()}
     </>
   )
 }

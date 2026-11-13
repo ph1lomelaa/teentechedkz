@@ -65,6 +65,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
   const { total, done, pct } = useMemo(() => taskCounts(roadmap), [roadmap])
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
+  const [dragTask, setDragTask] = useState<string | null>(null)
   const [qTask, setQTask] = useState<{ id: string; title: string } | null>(null)
   const [returnTask, setReturnTask] = useState<RoadmapTask | null>(null)
   const [uncheckTask, setUncheckTask] = useState<RoadmapTask | null>(null)
@@ -278,6 +279,23 @@ export const WorkspaceRoadmapEditor: React.FC<{
     }
   }
 
+  // Порядок задач меняется только в roadmap этого ученика, шаблон Notion не трогаем.
+  // Этапы ментор не двигает — их порядок задаёт шаблон.
+  const placeTask = (taskId: string, stage: RoadmapStage, beforeId: string | null) => {
+    if (taskId === beforeId) return
+    const ids = stage.tasks.map((task) => task.id).filter((id) => id !== taskId)
+    const at = beforeId ? ids.indexOf(beforeId) : -1
+    ids.splice(at < 0 ? ids.length : at, 0, taskId)
+    run(() => roadmapApi.reorderTasks(stage.id, ids))
+  }
+  const dropTask = (event: React.DragEvent, stage: RoadmapStage, beforeId: string | null) => {
+    if (!dragTask) return
+    event.preventDefault()
+    event.stopPropagation()
+    placeTask(dragTask, stage, beforeId)
+    setDragTask(null)
+  }
+
   return (
     <>
     <div className={cn('roadmap-ui transition-opacity', busy && 'pointer-events-none opacity-60')}>
@@ -318,8 +336,11 @@ export const WorkspaceRoadmapEditor: React.FC<{
               />
 
               <div
-                className="flex cursor-pointer select-none flex-wrap items-center gap-x-2.5 gap-y-1 py-1"
+                className={cn('flex cursor-pointer select-none flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md py-1', dragTask && 'outline-dashed outline-1 outline-w-line')}
                 onClick={() => setOpen((o) => ({ ...o, [s.id]: !o[s.id] }))}
+                onDragOver={(event) => { if (canManage && dragTask) event.preventDefault() }}
+                onDrop={(event) => dropTask(event, s, null)}
+                title={dragTask ? 'Отпустите, чтобы перенести задачу в конец этапа' : undefined}
               >
                 <span
                   className={cn(
@@ -361,9 +382,22 @@ export const WorkspaceRoadmapEditor: React.FC<{
               <div className="expandable" data-open={isOpen}>
                 <div>
                   <div className="space-y-2 pt-2">
-                    {s.tasks.map((t) => (
+                    {s.tasks.map((t, taskIndex) => (
+                      <div key={t.id} className={cn('flex items-start gap-1', dragTask === t.id && 'opacity-40')}
+                        onDragOver={(event) => { if (canManage && dragTask) event.preventDefault() }}
+                        onDrop={(event) => dropTask(event, s, t.id)}>
+                      {canManage && (
+                        <div className="flex shrink-0 flex-col items-center pt-3">
+                          <span draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; setDragTask(t.id) }} onDragEnd={() => setDragTask(null)}
+                            className="cursor-grab text-w-muted2 hover:text-w-ink" title="Перетащить задачу (можно в другой этап)" aria-hidden="true"><GripVertical className="h-4 w-4" /></span>
+                          <button type="button" disabled={taskIndex === 0} onClick={() => placeTask(t.id, s, s.tasks[taskIndex - 1].id)} aria-label="Переместить задачу выше" title="Выше"
+                            className="text-w-muted2 hover:text-w-ink disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
+                          <button type="button" disabled={taskIndex === s.tasks.length - 1} onClick={() => placeTask(t.id, s, s.tasks[taskIndex + 2]?.id ?? null)} aria-label="Переместить задачу ниже" title="Ниже"
+                            className="text-w-muted2 hover:text-w-ink disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
                       <TaskCard
-                        key={t.id}
                         task={t}
                         canManage={canManage}
                         onToggle={() => toggleTask(t)}
@@ -390,6 +424,8 @@ export const WorkspaceRoadmapEditor: React.FC<{
                           setReturnTask(t)
                         }}
                       />
+                      </div>
+                      </div>
                     ))}
                     {s.tasks.length === 0 && (
                       <p className="py-1 text-sm text-w-muted2">Задач пока нет</p>

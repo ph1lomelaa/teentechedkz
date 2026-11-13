@@ -288,6 +288,9 @@ export const roadmapApi = {
     body: { status?: ItemStatus; name?: string; description?: string; visible_to_student?: boolean },
   ) =>
     data<Roadmap>(apiClient.patch(`/stages/${stageId}`, body)),
+  // Задача из другого этапа в списке переносится в этот этап.
+  reorderTasks: (stageId: string, ids: string[]) =>
+    data<Roadmap>(apiClient.put(`/stages/${stageId}/task-order`, { ids })),
   createTask: (body: {
     activity_participation_id?: string
     stage_id: string

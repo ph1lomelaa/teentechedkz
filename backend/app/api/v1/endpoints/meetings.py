@@ -6,6 +6,7 @@ meetings, recording/transcript links.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
@@ -39,6 +40,8 @@ from app.schemas.student_note import StudentNoteResponse
 from app.services.ws_hub import manager
 
 ALMATY = ZoneInfo("Asia/Almaty")
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["meetings"])
 
@@ -242,14 +245,22 @@ async def create_meeting(body: MeetingCreate, current_user: CurrentUser, db: Ann
         mentor_id = await primary_mentor_id(db, body.student_id)
     if mentor_id is not None:
         await ensure_assignment_exists(db, body.student_id, mentor_id)
+    # Созвон, который уже прошёл, ментор вносит задним числом: он сразу
+    # «Завершена», и ни студенту, ни в Telegram не уходит «Назначена встреча».
+    held = body.ends_at <= datetime.now(timezone.utc)
     meeting = Meeting(
         student_id=body.student_id, service_id=body.service_id, mentor_id=mentor_id, title=body.title,
         meeting_type=body.meeting_type, description=body.description, outcome=body.outcome,
         starts_at=body.starts_at, ends_at=body.ends_at, meeting_link=body.meeting_link,
         created_by=current_user.id,
+        status=MeetingStatus.completed if held else MeetingStatus.scheduled,
     )
     db.add(meeting)
     await db.flush()
+    if held:
+        await db.commit()
+        await db.refresh(meeting)
+        return meeting
     if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS:
         from app.services.meeting_telegram import queue_meeting_notices
         await queue_meeting_notices(db, meeting)
@@ -282,6 +293,11 @@ async def update_meeting(meeting_id: uuid.UUID, body: MeetingUpdate, current_use
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(meeting, field, value)
+    # Правка уже прошедшего созвона (итог, тема) — не повод писать студенту.
+    if meeting.ends_at <= datetime.now(timezone.utc) and meeting.status != MeetingStatus.cancelled:
+        await db.commit()
+        await db.refresh(meeting)
+        return meeting
     if settings.ENABLE_MEETING_TELEGRAM_NOTIFICATIONS and {"starts_at", "meeting_link", "status"} & changes.keys():
         from app.services.meeting_telegram import queue_meeting_notices
         await queue_meeting_notices(
@@ -439,7 +455,12 @@ async def create_meeting_follow_up_draft(
 Укажи только то, что подтверждено контекстом.
 Если есть следующие шаги — оформи их коротким списком.
 Если конкретных следующих шагов нет — попроси подтвердить, всё ли верно зафиксировано."""
-        message = (await complete_with_fallback(FOLLOW_UP_SYSTEM, user_message)).strip()
+        try:
+            message = (await complete_with_fallback(FOLLOW_UP_SYSTEM, user_message)).strip()
+        except Exception:  # noqa: BLE001 — ИИ недоступен (квота, сеть): ментор всё равно получает черновик
+            logger.warning("follow-up draft: AI unavailable, using template", exc_info=True)
+            message = ""
+        message = message or _fallback_follow_up(meeting, student_name, source_text)
     else:
         message = _fallback_follow_up(meeting, student_name, source_text)
 

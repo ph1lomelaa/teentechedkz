@@ -715,6 +715,43 @@ async def update_stage(stage_id: uuid.UUID, body: StageUpdate, current_user: Cur
     return await _load_roadmap(db, stage.roadmap_id)
 
 
+class OrderIn(BaseModel):
+    ids: list[uuid.UUID]
+
+
+@router.put("/stages/{stage_id}/task-order", response_model=RoadmapOut)
+async def reorder_tasks(stage_id: uuid.UUID, body: OrderIn, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Порядок задач внутри этапа. Задача из другого этапа того же roadmap,
+    попавшая в список, переносится в этот этап."""
+    stage = await db.get(Stage, stage_id)
+    if not stage:
+        raise _NOT_FOUND
+    student_id = await _student_of_roadmap(db, stage.roadmap_id)
+    await _assert_staff(db, student_id, current_user)
+    if len(set(body.ids)) != len(body.ids):
+        raise HTTPException(422, "Задача указана дважды")
+    tasks = {t.id: t for t in (await db.execute(select(RoadmapTask).where(
+        RoadmapTask.id.in_(body.ids), RoadmapTask.roadmap_id == stage.roadmap_id, RoadmapTask.deleted_at.is_(None),
+    ))).scalars()}
+    if len(tasks) != len(body.ids):
+        raise HTTPException(422, "Задача не из этого roadmap")
+    here = set((await db.execute(select(RoadmapTask.id).where(
+        RoadmapTask.stage_id == stage.id, RoadmapTask.deleted_at.is_(None)))).scalars())
+    if not here <= set(body.ids):
+        raise HTTPException(422, "Передайте все задачи этапа")
+    for index, task_id in enumerate(body.ids):
+        task = tasks[task_id]
+        if task.stage_id != stage.id:
+            await log_change(db, "roadmap_task", task.id, "stage_id", str(task.stage_id), str(stage.id), str(current_user.id), source="workspace")
+            task.stage_id = stage.id
+        task.position = index
+    roadmap_id = stage.roadmap_id
+    await db.commit()
+    # Иначе selectinload вернёт закешированные коллекции этапов со старым порядком.
+    db.expire_all()
+    return await _load_roadmap(db, roadmap_id)
+
+
 @router.post("/roadmap-tasks", response_model=RoadmapOut, status_code=201)
 async def create_task(body: TaskCreate, current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
     stage = await db.get(Stage, body.stage_id)

@@ -68,3 +68,35 @@ describe('редактирование задачи roadmap', () => {
     expect(screen.getByRole('dialog')).toHaveAttribute('data-theme', 'light')
   })
 })
+
+describe('порядок задач', () => {
+  const task = roadmap.stages[0].tasks[0]
+  const two: Roadmap = {
+    ...roadmap,
+    stages: [
+      { ...roadmap.stages[0], tasks: [task, { ...task, id: 'task-2', title: 'Вторая', position: 1 }] },
+      { ...roadmap.stages[0], id: 'stage-2', name: 'Эссе', position: 1, tasks: [] },
+    ],
+  }
+  const show = () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<ThemeProvider><QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={two} onChanged={vi.fn()} /></QueryClientProvider></ThemeProvider>)
+  }
+
+  it('двигает задачу кнопками, этапы не двигаются', async () => {
+    const tasks = vi.spyOn(roadmapApi, 'reorderTasks').mockResolvedValue(two)
+    show()
+    expect(screen.queryByRole('button', { name: 'Опустить этап ниже' })).toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Переместить задачу ниже' })[0])
+    await waitFor(() => expect(tasks).toHaveBeenCalledWith('stage-1', ['task-2', 'task-1']))
+  })
+
+  it('перетаскивает задачу в другой этап', async () => {
+    const tasks = vi.spyOn(roadmapApi, 'reorderTasks').mockResolvedValue(two)
+    show()
+    const grip = screen.getAllByTitle('Перетащить задачу (можно в другой этап)')[1]
+    fireEvent.dragStart(grip, { dataTransfer: { effectAllowed: '' } })
+    fireEvent.drop(screen.getByText('Эссе'))
+    await waitFor(() => expect(tasks).toHaveBeenCalledWith('stage-2', ['task-2']))
+  })
+})

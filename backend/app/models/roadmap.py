@@ -163,7 +163,7 @@ class Roadmap(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     stages: Mapped[list["Stage"]] = relationship(
-        back_populates="roadmap", cascade="all, delete-orphan", order_by="Stage.position"
+        back_populates="roadmap", cascade="all, delete-orphan", order_by="[Stage.position, Stage.id]"
     )
 
 
@@ -186,7 +186,9 @@ class Stage(Base):
 
     roadmap: Mapped["Roadmap"] = relationship(back_populates="stages")
     tasks: Mapped[list["RoadmapTask"]] = relationship(
-        back_populates="stage", cascade="all, delete-orphan", order_by="RoadmapTask.position"
+        back_populates="stage", cascade="all, delete-orphan",
+        # При равной позиции (старые копии, задачи Portfolio UP) порядок не должен прыгать.
+        order_by="[RoadmapTask.position, RoadmapTask.created_at, RoadmapTask.id]"
     )
 
     @property
