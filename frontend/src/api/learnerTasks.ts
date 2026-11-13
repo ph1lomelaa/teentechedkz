@@ -25,7 +25,10 @@ export const learnerTasksApi = {
   review: async (id: string, action: 'approve' | 'return', comment: string) => (await apiClient.post<FlatTask>(`/learner-tasks/${id}/review`, { action, comment })).data,
   checklist: async (id: string, subId: string, done: boolean) => apiClient.patch(`/learner-tasks/${id}/checklist/${subId}?done=${done}`),
 }
-export type DocumentTarget = { task_id: string; participation_id?: never } | { participation_id: string; task_id?: never }
+export type DocumentTarget =
+  | { task_id: string; participation_id?: never; stage_id?: never }
+  | { participation_id: string; task_id?: never; stage_id?: never }
+  | { stage_id: string; task_id?: never; participation_id?: never }
 export const portfolioDocumentsApi = {
   list: async (target: DocumentTarget, available = false) => (await apiClient.get<Document[]>('/portfolio-documents', { params: { ...target, available } })).data,
   link: async (target: DocumentTarget, document_id: string) => (await apiClient.post<Document>('/portfolio-documents/link', { ...target, document_id })).data,

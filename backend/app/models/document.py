@@ -72,7 +72,8 @@ class PortfolioDocumentLink(Base):
     """A stored document may be reused for multiple steps and participation results."""
     __tablename__ = "portfolio_document_links"
     __table_args__ = (
-        CheckConstraint("(purpose = 'evidence' AND task_id IS NOT NULL AND participation_id IS NULL) OR (purpose = 'result' AND task_id IS NULL AND participation_id IS NOT NULL)", name='ck_portfolio_document_target'),
+        CheckConstraint("(purpose = 'evidence' AND task_id IS NOT NULL AND participation_id IS NULL AND stage_id IS NULL) OR (purpose = 'result' AND task_id IS NULL AND participation_id IS NOT NULL AND stage_id IS NULL) OR (purpose = 'stage' AND stage_id IS NOT NULL AND task_id IS NULL AND participation_id IS NULL)", name='ck_portfolio_document_target'),
+        Index('uq_portfolio_document_stage', 'document_id', 'stage_id', unique=True, postgresql_where=text('stage_id IS NOT NULL')),
         Index('uq_portfolio_document_task', 'document_id', 'task_id', unique=True, postgresql_where=text('task_id IS NOT NULL')),
         Index('uq_portfolio_document_participation', 'document_id', 'participation_id', unique=True, postgresql_where=text('participation_id IS NOT NULL')),
     )
@@ -80,4 +81,6 @@ class PortfolioDocumentLink(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("roadmap_tasks.id", ondelete="CASCADE"), nullable=True, index=True)
     participation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("student_activities.id", ondelete="CASCADE"), nullable=True, index=True)
+    # Материалы этапа роудмапа (миграция 139).
+    stage_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("stages.id", ondelete="CASCADE"), nullable=True, index=True)
     purpose: Mapped[str] = mapped_column(String(20))

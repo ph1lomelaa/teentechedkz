@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, GripVertical, Pencil, Plus, Video, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronRight, ClipboardList, Clock, Eye, EyeOff, FileUp, GripVertical, Paperclip, Pencil, Plus, Video, X } from 'lucide-react'
 import {
   roadmapApi,
   Roadmap,
@@ -29,6 +29,7 @@ import { withViewTransition } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { DeadlineField } from '@/components/shared/DeadlineField'
 import { InlineField } from '@/components/shared/InlineField'
+import { PortfolioFiles } from '@/components/activities/PortfolioFiles'
 import { overdueDaysOf } from '@/lib/roadmapDeadline'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -382,6 +383,7 @@ export const WorkspaceRoadmapEditor: React.FC<{
               <div className="expandable" data-open={isOpen}>
                 <div>
                   <div className="space-y-2 pt-2">
+                    <StageMaterials stage={s} canManage={canManage} onSave={(materials_text) => run(() => roadmapApi.updateStage(s.id, { materials_text }))} />
                     {s.tasks.map((t, taskIndex) => (
                       <div key={t.id} className={cn('flex items-start gap-1', dragTask === t.id && 'opacity-40')}
                         onDragOver={(event) => { if (canManage && dragTask) event.preventDefault() }}
@@ -930,6 +932,56 @@ const TaskCard: React.FC<{
             </button>
           )}
           {canManage && <button type="button" onClick={onAddSub} className="ml-3 text-2xs text-w-muted2 hover:text-w-accentText">+ подзадача со сроком</button>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/** Материалы этапа: список или заметка текстом и файлы. Видит только команда ученика.
+ *  Один блок на этап, а не на каждую задачу; файлы грузятся только при раскрытии. */
+const StageMaterials: React.FC<{ stage: RoadmapStage; canManage: boolean; onSave: (text: string) => void }> = ({ stage, canManage, onSave }) => {
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  if (!canManage && !stage.materials_text) return null
+  return (
+    <div className="rounded-[13px] border border-dashed border-w-line px-[18px] py-2.5">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1.5 text-xs font-bold text-w-muted transition hover:text-w-ink">
+        <Paperclip className="h-3.5 w-3.5" />Материалы этапа{stage.materials_text ? ' · есть запись' : ''}
+        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')} />
+      </button>
+      {open && (
+        <div className="mt-3 space-y-4 pb-1">
+          <div>
+            <div className="mb-1 text-2xs font-bold uppercase tracking-wide text-w-muted2">Текст</div>
+            {editing ? (
+              <div className="space-y-2">
+                {/* Enter — новая строка (удобно писать список, в том числе с телефона);
+                    сохраняем только кнопкой, по клику мимо поля ничего не теряется. */}
+                <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Материалы этапа «${stage.name}»`}
+                  placeholder={'Можно списком:\n- первый пункт\n- второй пункт'}
+                  className="min-h-40 w-full rounded-ctl border border-w-accentDim bg-w-panel px-3 py-2 text-sm leading-6 text-w-ink outline-none focus:border-w-accent" />
+                <div className="flex justify-end gap-2">
+                  <AppButton colorPrefix="w" size="sm" variant="subtle" onClick={() => { setDraft(stage.materials_text ?? ''); setEditing(false) }}>Отмена</AppButton>
+                  <AppButton colorPrefix="w" size="sm" disabled={draft === (stage.materials_text ?? '')} onClick={() => { onSave(draft.trim()); setEditing(false) }}>Сохранить</AppButton>
+                </div>
+              </div>
+            ) : stage.materials_text ? (
+              <div>
+                <p className="whitespace-pre-line text-sm leading-6 text-w-ink">{stage.materials_text}</p>
+                {canManage && <button type="button" onClick={() => { setDraft(stage.materials_text ?? ''); setEditing(true) }} className="mt-1 text-xs font-bold text-w-accentText hover:underline">Изменить текст</button>}
+              </div>
+            ) : canManage ? (
+              <button type="button" onClick={() => { setDraft(''); setEditing(true) }} className="text-sm text-w-muted hover:text-w-ink hover:underline">+ написать список или заметку</button>
+            ) : null}
+          </div>
+          <div>
+            <div className="mb-1 text-2xs font-bold uppercase tracking-wide text-w-muted2">Файлы</div>
+            <PortfolioFiles target={{ stage_id: stage.id }} editable={canManage} />
+          </div>
         </div>
       )}
     </div>

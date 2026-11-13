@@ -144,9 +144,9 @@ export const notesApi = {
     const response = await apiClient.post<NoteSessionDraft>(`/note-sessions/${sessionId}/draft`)
     return response.data
   },
-  finalizeSession: async (sessionId: string): Promise<{ session: NoteSession; note: StudentNote }> => {
+  finalizeSession: async (sessionId: string, options?: { use_ai: boolean }): Promise<{ session: NoteSession; note: StudentNote }> => {
     const response = await apiClient.post<{ session: NoteSession; note: StudentNote }>(
-      `/note-sessions/${sessionId}/finalize`,
+      `/note-sessions/${sessionId}/finalize`, options,
     )
     return response.data
   },

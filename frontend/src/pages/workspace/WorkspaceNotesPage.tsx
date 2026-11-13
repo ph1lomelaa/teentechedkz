@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookText, CheckCircle2, Mic, Plus, Sparkles } from 'lucide-react'
+import { PenLine, Mic, Plus, Sparkles } from 'lucide-react'
 import { notesApi } from '@/api/notes'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceScope } from '@/hooks/useWorkspaceScope'
@@ -10,7 +10,7 @@ import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { useLocalState } from '@/lib/use-local-state'
 import { NoteSession, NoteSessionStatus, StudentNote, StudentNoteStatus } from '@/types'
-import { AppButton, AppCard, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs, StatCard } from '@/components/ui'
+import { AppButton, AppCard, AppSelect, EmptyState, PageHeader, Pill, SegmentedTabs } from '@/components/ui'
 import { QueryState } from '@/components/shared/QueryState'
 import { botBarLabel, botNeedsAttention } from '@/lib/meetingBotUi'
 
@@ -78,9 +78,6 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
   })
 
   const students = (studentsData?.items ?? []).map((item) => item.student)
-  const allSessions = data?.sessions ?? []
-  const allNotes = data?.notes ?? []
-  const draftNotes = allNotes.filter((note) => note.status === 'draft').length
   const loading = isLoading || studentsLoading
 
   // Sessions with a note are represented by their note below — showing both
@@ -102,19 +99,20 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
   }, [data?.sessions, data?.notes, studentFilter, combinedStatus])
 
   const createSessionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (mode: 'record' | 'text') => {
       const student = students.find((item) => item.id === studentId)
       const session = await notesApi.createSession({
         student_id: studentId,
-        title: student ? `Конспект ${student.full_name}` : 'Новая сессия конспекта',
+        title: student ? `${mode === 'text' ? 'Заметки' : 'Конспект'}: ${student.full_name}` : 'Новая сессия конспекта',
         source: 'workspace',
       })
       return session
     },
-    onSuccess: (session) => {
+    onSuccess: (session, mode) => {
       setStudentId('')
       queryClient.invalidateQueries({ queryKey: ['workspace', 'notes'] })
-      navigate(`/workspace/meetings/session/${session.id}`)
+      // «Вручную» сразу открывает вкладку «Написать текстом» — без ссылок и записей.
+      navigate(`/workspace/meetings/session/${session.id}${mode === 'text' ? '?mode=text' : ''}`)
     },
     onError: () => toast({ title: 'Не удалось создать сессию', variant: 'destructive' }),
   })
@@ -128,20 +126,15 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
             title="Конспекты"
             description="Запишите встречу, проверьте итог и отправьте его ученику."
           />
-          <div className="mb-5 grid gap-4 md:grid-cols-3">
-            <StatCard colorPrefix="w" label="Сессии" value={loading ? '…' : String(data?.total_sessions ?? allSessions.length)} icon={<Mic className="h-5 w-5" />} />
-            <StatCard colorPrefix="w" label="AI-конспекты" value={loading ? '…' : String(data?.total_notes ?? allNotes.length)} icon={<BookText className="h-5 w-5" />} />
-            <StatCard colorPrefix="w" label="На проверке" value={loading ? '…' : String(draftNotes)} icon={<CheckCircle2 className="h-5 w-5" />} warn={draftNotes > 0} />
-          </div>
         </>
       )}
 
       <AppCard colorPrefix="w" className="mb-5 p-5">
         <div className="mb-3 flex items-center gap-2 font-display text-lg font-black text-w-ink">
           <Plus className="h-4 w-4 text-w-accentText" />
-          Записать встречу
+          Новый конспект
         </div>
-        <p className="mb-4 text-sm text-w-muted">Выберите студента. Ссылку на встречу добавьте на следующем экране.</p><div className="grid gap-2 md:grid-cols-[minmax(260px,1fr)_180px]">
+        <p className="mb-4 text-sm text-w-muted">Выберите студента, затем — записать встречу (бот, Google Drive, файл) или написать конспект вручную.</p><div className="grid gap-2 md:grid-cols-[minmax(260px,1fr)_auto_auto]">
           <AppSelect colorPrefix="w"
             value={studentId}
             disabled={createSessionMutation.isPending}
@@ -156,10 +149,17 @@ export const WorkspaceNotesPage: React.FC<{ embedded?: boolean }> = ({ embedded 
 
           <AppButton colorPrefix="w"
             disabled={!studentId || createSessionMutation.isPending}
-            onClick={() => createSessionMutation.mutate()}
+            onClick={() => createSessionMutation.mutate('record')}
           >
             <Mic className="h-4 w-4" />
-            {createSessionMutation.isPending ? 'Открываем…' : 'Продолжить'}
+            {createSessionMutation.isPending && createSessionMutation.variables === 'record' ? 'Открываем…' : 'Записать встречу'}
+          </AppButton>
+          <AppButton colorPrefix="w" variant="subtle"
+            disabled={!studentId || createSessionMutation.isPending}
+            onClick={() => createSessionMutation.mutate('text')}
+          >
+            <PenLine className="h-4 w-4" />
+            {createSessionMutation.isPending && createSessionMutation.variables === 'text' ? 'Открываем…' : 'Написать вручную'}
           </AppButton>
         </div>
       </AppCard>

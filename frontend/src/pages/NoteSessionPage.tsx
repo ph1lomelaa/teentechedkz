@@ -19,6 +19,7 @@ import { integrationsApi } from '@/api/integrations'
 import { BotRecordPanel } from '@/components/notes/BotRecordPanel'
 import { BotSessionView } from '@/components/notes/BotSessionView'
 import { UploadRecordPanel } from '@/components/notes/UploadRecordPanel'
+import { TextNotePanel } from '@/components/notes/TextNotePanel'
 import { UploadStatusView } from '@/components/notes/UploadStatusView'
 import { isBotActive } from '@/lib/meetingBotUi'
 import { Button } from '@/components/ui/primitives/button'
@@ -82,7 +83,9 @@ export const NoteSessionPage: React.FC = () => {
   )
   const sessionId = id ?? ''
 
-  const [recordingSource, setRecordingSource] = useState<'meeting' | 'drive' | 'file'>('meeting')
+  const [recordingSource, setRecordingSource] = useState<'meeting' | 'drive' | 'file' | 'text'>(
+    () => new URLSearchParams(location.search).get('mode') === 'text' ? 'text' : 'meeting',
+  )
   const [transcripts, setTranscripts] = useState<NoteTranscript[]>([])
   const [interimText, setInterimText] = useState('')
   const [interimSpeaker, setInterimSpeaker] = useState<string | null>(null)
@@ -696,13 +699,13 @@ export const NoteSessionPage: React.FC = () => {
             <CardTitle className={cn(cardTitleClass, 'text-xl')}>Записать встречу</CardTitle>
             <CardDescription className={cardDescriptionClass}>
               {botAvailable
-                ? 'Подключите бота к встрече или создайте конспект из готовой записи.'
+                ? 'Подключите бота к встрече, создайте конспект из готовой записи или напишите его текстом.'
                 : 'Запись встречи по ссылке.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="flex flex-wrap gap-2" aria-label="Источник записи">
-              {([['meeting', 'Встреча по ссылке'], ['drive', 'Из Google Drive'], ['file', 'Загрузить запись']] as const).map(([value, label]) => <Button key={value} variant={recordingSource === value ? 'default' : 'outline'} aria-pressed={recordingSource === value} onClick={() => setRecordingSource(value)}>{label}</Button>)}
+              {([['meeting', 'Встреча по ссылке'], ['drive', 'Из Google Drive'], ['file', 'Загрузить запись'], ['text', 'Написать текстом']] as const).map(([value, label]) => <Button key={value} variant={recordingSource === value ? 'default' : 'outline'} aria-pressed={recordingSource === value} onClick={() => setRecordingSource(value)}>{label}</Button>)}
             </div>
             {session.student_name && (
               <p className={cn('text-sm', mutedClass)}>Встреча со студентом · <span className={cn('font-semibold', titleClass)}>{session.student_name}</span></p>
@@ -718,7 +721,8 @@ export const NoteSessionPage: React.FC = () => {
             ) : (
               <p className={mutedClass}>Подключение бота пока недоступно. Можно импортировать готовую запись.</p>
             )}</div>
-            <div hidden={recordingSource === 'meeting'}><UploadRecordPanel session={session} inWorkspace={inWorkspace} source={recordingSource === 'drive' ? 'drive' : 'file'} onUploaded={() => void refetch()} /></div>
+            <div hidden={recordingSource !== 'text'}><TextNotePanel session={session} inWorkspace={inWorkspace} onDone={(note) => navigate(notePath(note.id))} /></div>
+            <div hidden={recordingSource !== 'drive' && recordingSource !== 'file'}><UploadRecordPanel session={session} inWorkspace={inWorkspace} source={recordingSource === 'drive' ? 'drive' : 'file'} onUploaded={() => void refetch()} /></div>
           </CardContent>
         </Card>
       ) : (

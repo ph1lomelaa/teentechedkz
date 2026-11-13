@@ -178,6 +178,8 @@ class Stage(Base):
     status: Mapped[RoadmapItemStatus] = mapped_column(
         SAEnum(RoadmapItemStatus, name="roadmap_item_status"), default=RoadmapItemStatus.planned
     )
+    # Материалы этапа текстом: список или заметка ментора.
+    materials_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Скрытый этап не виден студенту целиком, вместе со всеми задачами внутри.
     # Дефолт true: существующие роадмапы остаются видимыми как были.
     visible_to_student: Mapped[bool] = mapped_column(

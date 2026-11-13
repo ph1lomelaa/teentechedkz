@@ -880,11 +880,17 @@ async def draft_session(
     )
 
 
+class FinalizeOptions(BaseModel):
+    # False — пометки ментора сохраняются как написаны, без обработки ИИ.
+    use_ai: bool = True
+
+
 @router.post("/{session_id}/finalize", response_model=NoteSessionFinalizeResponse)
 async def finalize_session(
     session_id: uuid.UUID,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
+    options: FinalizeOptions | None = None,
 ):
     session, student_name = await _session_context(db, session_id, current_user)
     locked_session = await db.scalar(
@@ -933,6 +939,7 @@ async def finalize_session(
         student=student,
         student_name=student_name,
         actor_id=current_user.id,
+        use_ai=options.use_ai if options else True,
     )
 
     await db.commit()

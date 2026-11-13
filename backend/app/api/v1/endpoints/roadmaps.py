@@ -1110,9 +1110,13 @@ def _strip_hidden_for_student(roadmaps: list[Roadmap]) -> list[Roadmap]:
     сериализуется в ответ. Скрытый этап уходит целиком, чтобы студент не видел
     даже его название и прогресс.
     """
+    from sqlalchemy.orm.attributes import set_committed_value
     for roadmap in roadmaps:
         roadmap.stages = [s for s in roadmap.stages if s.visible_to_student]
         for stage in roadmap.stages:
+            # Материалы этапа — рабочие записи команды, ученику их не показываем.
+            # set_committed_value: не помечать объект изменённым (никакого UPDATE).
+            set_committed_value(stage, "materials_text", None)
             stage.tasks = [
                 t
                 for t in stage.tasks

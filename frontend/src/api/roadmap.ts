@@ -56,6 +56,8 @@ export interface RoadmapStage {
   position: number
   status: ItemStatus
   visible_to_student: boolean
+  /** Материалы этапа текстом: список или заметка. */
+  materials_text?: string | null
   tasks_total: number
   required_total: number
   required_done: number
@@ -285,7 +287,7 @@ export const roadmapApi = {
 
   updateStage: (
     stageId: string,
-    body: { status?: ItemStatus; name?: string; description?: string; visible_to_student?: boolean },
+    body: { status?: ItemStatus; name?: string; description?: string; visible_to_student?: boolean; materials_text?: string | null },
   ) =>
     data<Roadmap>(apiClient.patch(`/stages/${stageId}`, body)),
   // Задача из другого этапа в списке переносится в этот этап.

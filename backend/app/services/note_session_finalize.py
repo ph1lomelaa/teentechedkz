@@ -77,9 +77,30 @@ async def build_note_for_session(
     student: Student | None,
     student_name: str | None,
     actor_id: uuid.UUID | None,
+    use_ai: bool = True,
 ) -> StudentNote:
-    """Создаёт черновик конспекта и закрывает сессию. Без commit."""
+    """Создаёт черновик конспекта и закрывает сессию. Без commit.
+
+    `use_ai=False` — ментор написал пометки сам и хочет сохранить их как есть:
+    текст становится конспектом без переписывания, предложений по профилю нет.
+    """
     snapshot = snapshot_student(student) if student else {}
+    if not use_ai:
+        text = source_text.strip()
+        note = StudentNote(
+            student_id=session.student_id, title=session.title or "Конспект встречи", source_text=text,
+            summary_markdown=text, student_summary_markdown=text, profile_snapshot=snapshot,
+            suggested_changes={}, applied_changes={}, status=StudentNoteStatus.draft,
+            created_by=actor_id, reviewed_by=None, created_at=datetime.now(timezone.utc),
+        )
+        db.add(note)
+        await db.flush()
+        now = datetime.now(timezone.utc)
+        session.note_id = note.id
+        session.status = NoteSessionStatus.completed
+        session.ended_at = session.ended_at or now
+        session.last_heartbeat_at = now
+        return note
     draft = await generate_note_draft(
         transcript=source_text,
         title=session.title,

@@ -260,7 +260,26 @@ async def resume(participation_id: uuid.UUID, db: DB, user: CurrentUser):
     await commit_note(db, await participation_notify(db, item, user, 'activity_resumed', 'План участия возобновлён'))
     return {'ok': True}
 
-async def document_target(db, user, task_id, participation_id, *, write=False):
+async def stage_target(db, user, stage_id, *, write=False):
+    """Материалы этапа роудмапа — только для команды ученика. Сам ученик их
+    не видит (решение владельца 13.11.2026)."""
+    from app.models.roadmap import Roadmap, Stage
+    from app.services.mentor_scope import require_student_access
+    stage = await db.get(Stage, stage_id)
+    roadmap = await db.get(Roadmap, stage.roadmap_id) if stage else None
+    if not stage or not roadmap:
+        raise HTTPException(404, 'Этап не найден')
+    if user.role == UserRole.student:
+        raise HTTPException(404, 'Этап не найден')
+    require_access(user, 'roadmaps', Action.edit if write else Action.view)
+    await require_student_access(db, roadmap.student_id, user)
+    return roadmap.student_id, 'stage'
+
+
+async def document_target(db, user, task_id, participation_id, *, write=False, stage_id=None):
+    if stage_id is not None:
+        if task_id or participation_id: raise HTTPException(422, 'Выберите один шаг, участие или этап')
+        return await stage_target(db, user, stage_id, write=write)
     if bool(task_id) == bool(participation_id): raise HTTPException(422, 'Выберите один шаг или участие')
     if task_id:
         task = await task_service.get_task(db, task_id, user, actionable=write)
@@ -275,28 +294,33 @@ class LinkInput(BaseModel):
     document_id: uuid.UUID
     task_id: uuid.UUID | None = None
     participation_id: uuid.UUID | None = None
+    stage_id: uuid.UUID | None = None
 
 async def link_document(db, user, body):
-    sid, purpose = await document_target(db, user, body.task_id, body.participation_id, write=True)
+    sid, purpose = await document_target(db, user, body.task_id, body.participation_id, write=True, stage_id=body.stage_id)
     doc = await db.get(Document, body.document_id)
-    if not doc or doc.student_id != sid or not doc.visible_to_student:
+    # Шаги и итоги видит ученик — туда только открытые ему документы. Материалы
+    # этапа видит лишь команда, туда подходит любой документ ученика.
+    if not doc or doc.student_id != sid or (purpose != 'stage' and not doc.visible_to_student):
         raise HTTPException(404, 'Доступный ученику документ не найден')
-    query = select(PortfolioDocumentLink).where(PortfolioDocumentLink.document_id == doc.id, PortfolioDocumentLink.task_id == body.task_id, PortfolioDocumentLink.participation_id == body.participation_id)
+    query = select(PortfolioDocumentLink).where(PortfolioDocumentLink.document_id == doc.id, PortfolioDocumentLink.task_id == body.task_id, PortfolioDocumentLink.participation_id == body.participation_id, PortfolioDocumentLink.stage_id == body.stage_id)
     if not (await db.execute(query)).scalar_one_or_none():
         async with db.begin_nested():
-            db.add(PortfolioDocumentLink(document_id=doc.id, task_id=body.task_id, participation_id=body.participation_id, purpose=purpose))
+            db.add(PortfolioDocumentLink(document_id=doc.id, task_id=body.task_id, participation_id=body.participation_id, stage_id=body.stage_id, purpose=purpose))
             try: await db.flush()
             except IntegrityError: raise HTTPException(409, 'Документ уже прикреплён; обновите список')
-        await log_change(db, 'document', doc.id, 'portfolio_link', None, str(body.task_id or body.participation_id), str(user.id), source='portfolio')
+        await log_change(db, 'document', doc.id, 'portfolio_link', None, str(body.task_id or body.participation_id or body.stage_id), str(user.id), source='portfolio')
     await db.commit()
     return _doc_to_dict(doc)
 
 @router.get('/portfolio-documents')
-async def files(db: DB, user: CurrentUser, task_id: uuid.UUID | None = None, participation_id: uuid.UUID | None = None, available: bool = False):
-    sid, _ = await document_target(db, user, task_id, participation_id)
-    query = select(Document).where(Document.student_id == sid, Document.visible_to_student.is_(True))
+async def files(db: DB, user: CurrentUser, task_id: uuid.UUID | None = None, participation_id: uuid.UUID | None = None, available: bool = False, stage_id: uuid.UUID | None = None):
+    sid, purpose = await document_target(db, user, task_id, participation_id, stage_id=stage_id)
+    query = select(Document).where(Document.student_id == sid)
+    if purpose != 'stage':
+        query = query.where(Document.visible_to_student.is_(True))
     if not available:
-        query = query.join(PortfolioDocumentLink, PortfolioDocumentLink.document_id == Document.id).where(PortfolioDocumentLink.task_id == task_id, PortfolioDocumentLink.participation_id == participation_id)
+        query = query.join(PortfolioDocumentLink, PortfolioDocumentLink.document_id == Document.id).where(PortfolioDocumentLink.task_id == task_id, PortfolioDocumentLink.participation_id == participation_id, PortfolioDocumentLink.stage_id == stage_id)
     return [_doc_to_dict(doc) for doc in (await db.execute(query.order_by(Document.uploaded_at.desc()))).scalars().all()]
 
 @router.post('/portfolio-documents/link')
@@ -304,17 +328,19 @@ async def link(body: LinkInput, db: DB, user: CurrentUser):
     return await link_document(db, user, body)
 
 @router.post('/portfolio-documents/upload')
-async def upload(db: DB, user: CurrentUser, file: UploadFile = File(...), task_id: uuid.UUID | None = Form(None), participation_id: uuid.UUID | None = Form(None), doc_type: Literal['certificate', 'achievement', 'other'] = Form('other')):
-    sid, _ = await document_target(db, user, task_id, participation_id, write=True)
+async def upload(db: DB, user: CurrentUser, file: UploadFile = File(...), task_id: uuid.UUID | None = Form(None), participation_id: uuid.UUID | None = Form(None), doc_type: Literal['certificate', 'achievement', 'other'] = Form('other'), stage_id: uuid.UUID | None = Form(None)):
+    sid, _ = await document_target(db, user, task_id, participation_id, write=True, stage_id=stage_id)
     if user.role == UserRole.student:
         result = await portal_upload(db, user, doc_type, file)
     else:
         require_access(user, 'documents', Action.manage)
         result = await upload_document(sid, db, user, doc_type, file, None)
-        doc = await db.get(Document, uuid.UUID(str(result['id'])))
-        doc.visible_to_student = True
-        await db.commit()
-    return await link_document(db, user, LinkInput(document_id=result['id'], task_id=task_id, participation_id=participation_id))
+        if stage_id is None:
+            # Файл шага ученик должен видеть; файл материалов этапа — только команда.
+            doc = await db.get(Document, uuid.UUID(str(result['id'])))
+            doc.visible_to_student = True
+            await db.commit()
+    return await link_document(db, user, LinkInput(document_id=result['id'], task_id=task_id, participation_id=participation_id, stage_id=stage_id))
 
 
 @router.get('/activities/staff/mentors')

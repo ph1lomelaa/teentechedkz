@@ -130,7 +130,7 @@ jobs:
           PGPASSWORD=tte psql -h localhost -U tte -d tte_finance_check_ci -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS pg_trgm;'
           (cd backend && python -m app.core.bootstrap_db)
           python backend/tests/e2e_finance_notion_sync.py
-          python -m pytest backend/tests/test_finance_desk.py backend/tests/test_finance_documents.py backend/tests/test_finance_mail.py backend/tests/test_finance_originals.py backend/tests/test_staff_join.py backend/tests/test_contract_documents.py backend/tests/test_contract_discovery.py -q
+          python -m pytest backend/tests/test_finance_desk.py backend/tests/test_finance_documents.py backend/tests/test_finance_mail.py backend/tests/test_finance_originals.py backend/tests/test_staff_join.py backend/tests/test_stage_materials.py backend/tests/test_contract_documents.py backend/tests/test_contract_discovery.py -q
 
       - name: Live E2E (auth + role access matrix + telegram)
         working-directory: backend

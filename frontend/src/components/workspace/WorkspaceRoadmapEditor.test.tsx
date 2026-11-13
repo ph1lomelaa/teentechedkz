@@ -6,6 +6,8 @@ import { ThemeProvider, THEME_STORAGE_KEY } from '@/contexts/ThemeContext'
 import { WorkspaceRoadmapEditor } from './WorkspaceRoadmapEditor'
 
 vi.mock('@/lib/motion', () => ({ withViewTransition: (fn: () => void) => fn() }))
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'mentor', role: 'mentor' } }) }))
+vi.mock('@/api/learnerTasks', () => ({ portfolioDocumentsApi: { list: () => Promise.resolve([]), link: vi.fn(), upload: vi.fn() } }))
 
 const roadmap: Roadmap = {
   id: 'roadmap-1', student_id: 'student-1', mentor_id: null, template_id: 'template-1',
@@ -98,5 +100,24 @@ describe('порядок задач', () => {
     fireEvent.dragStart(grip, { dataTransfer: { effectAllowed: '' } })
     fireEvent.drop(screen.getByText('Эссе'))
     await waitFor(() => expect(tasks).toHaveBeenCalledWith('stage-2', ['task-2']))
+  })
+})
+
+describe('материалы этапа', () => {
+  it('один блок на этап, текст сохраняется в этап, у задач блока нет', async () => {
+    const updateStage = vi.spyOn(roadmapApi, 'updateStage').mockResolvedValue(roadmap)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<ThemeProvider><QueryClientProvider client={client}><WorkspaceRoadmapEditor roadmap={roadmap} onChanged={vi.fn()} /></QueryClientProvider></ThemeProvider>)
+    expect(screen.getAllByRole('button', { name: /Материалы этапа/ })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Список и файлы/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Материалы этапа/ }))
+    fireEvent.click(screen.getByRole('button', { name: '+ написать список или заметку' }))
+    const box = screen.getByLabelText('Материалы этапа «Подготовка»')
+    fireEvent.change(box, { target: { value: '- Олимпиада\n- Волонтёрство' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    fireEvent.blur(box)
+    expect(updateStage).not.toHaveBeenCalled()   // Enter и клик мимо поля не сохраняют
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    await waitFor(() => expect(updateStage).toHaveBeenCalledWith('stage-1', { materials_text: '- Олимпиада\n- Волонтёрство' }))
   })
 })

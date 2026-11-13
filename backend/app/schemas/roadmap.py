@@ -230,6 +230,7 @@ class StageOut(BaseModel):
     position: int
     status: str
     visible_to_student: bool = True
+    materials_text: str | None = None
     tasks_total: int = 0
     required_total: int = 0
     required_done: int = 0
@@ -375,6 +376,8 @@ class SubtaskUpdate(BaseModel):
 
 class StageUpdate(BaseModel):
     name: str | None = None
+    # Материалы этапа текстом: список или заметка ментора.
+    materials_text: str | None = Field(default=None, max_length=20000)
     description: str | None = None
     visible_to_student: bool | None = None
     status: RoadmapItemStatus | None = None
