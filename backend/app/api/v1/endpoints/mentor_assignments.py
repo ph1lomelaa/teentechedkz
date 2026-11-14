@@ -204,7 +204,9 @@ async def _load_assignable_mentor(db: AsyncSession, mentor_id: uuid.UUID) -> Use
     # «Кто за что отвечает», то есть система начинает записывать то, что и
     # так происходит. На деньги не влияет: вознаграждение заводится вручную
     # с явным mentor_id (mentor_rewards.py), а не выводится из назначений.
-    if mentor.role not in (UserRole.admin, UserRole.mentor, UserRole.mzk_manager):
+    # Академ-хед тоже ведёт учеников сама (на 13.11.2026 Аружан — МЗК у десятков
+    # учеников в Notion), поэтому назначать её можно наравне с МЗК.
+    if mentor.role not in (UserRole.admin, UserRole.mentor, UserRole.mzk_manager, UserRole.academic_head):
         raise HTTPException(
             status_code=422, detail="Назначить можно только сотрудника"
         )

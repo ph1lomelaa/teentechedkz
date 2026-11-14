@@ -1,6 +1,7 @@
 import { catalogCounts, type CatalogFilters, type CatalogDimension } from '@/lib/studentCatalogFilters'
 import { BulkStudentStatus } from '@/components/students/BulkStudentStatus'
 import { NotionPeopleDialog } from '@/components/students/NotionPeopleDialog'
+import { NotionTeamCheckDialog } from '@/components/students/NotionTeamCheckDialog'
 import { NotionReconcilePanel } from '@/components/students/NotionReconcilePanel'
 import { MultiFilter, csvValues } from '@/components/shared/MultiFilter'
 import { PIPELINE_COLUMNS } from '@/types'
@@ -66,6 +67,7 @@ import { debounce } from '@/lib/utils'
 import { fuzzyStudentMatch } from '@/lib/fuzzyName'
 import { toast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { StudentTeamSection } from '@/components/students/StudentTeamSection'
 import { ReplacementReasonDialog } from '@/components/students/ReplacementReasonDialog'
 import { StudentExportDialog } from '@/components/students/StudentExportDialog'
 import { BaseStudentDrawer } from '@/components/students/base/BaseStudentDrawer'
@@ -905,6 +907,7 @@ const CrmStudentsListView: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const [exportOpen, setExportOpen] = useState(false)
   const [peopleLinksOpen, setPeopleLinksOpen] = useState(false)
+  const [teamCheckOpen, setTeamCheckOpen] = useState(false)
   const [fieldSyncReviewOpen, setFieldSyncReviewOpen] = useState(false)
   const [dataMenuOpen, setDataMenuOpen] = useState(false)
   const dataMenuRef = useRef<HTMLDivElement>(null)
@@ -914,7 +917,8 @@ const CrmStudentsListView: React.FC = () => {
   const [baseGrouping, setBaseGrouping] = useLocalState<BaseGrouping>(viewKey('baseGrouping'), 'intake')
   const [groupRole, setGroupRole] = useLocalState<string>(viewKey('groupRole'), 'mzk')
   const [openStudent, setOpenStudent] = useState<StudentListItem | null>(null)
-  const [roleStudent, setRoleStudent] = useState<StudentListItem | null>(null)
+  // Команда ученика из списка: та же секция, что в карточке — все роли, замена и снятие.
+  const [teamStudentId, setTeamStudentId] = useState<string | null>(null)
   const [sortAscending, setSortAscending] = useLocalState(viewKey('sortAscending'), true)
   const [showCountries, setShowCountries] = useLocalState(viewKey('columnCountries'), true)
   const [showForms, setShowForms] = useLocalState(viewKey('columnForms'), true)
@@ -1378,6 +1382,7 @@ const CrmStudentsListView: React.FC = () => {
   })
 
   const allStudents = useMemo(() => data?.items ?? [], [data?.items])
+  const teamStudent = teamStudentId ? allStudents.find((student) => student.id === teamStudentId) ?? null : null
   const students = useMemo(() => {
     const searched = debouncedSearch.trim()
       ? allStudents.filter((s) => fuzzyStudentMatch(debouncedSearch, s.full_name, s.phone))
@@ -1639,6 +1644,7 @@ const CrmStudentsListView: React.FC = () => {
         ],
       }} />
       {peopleLinksOpen && <NotionPeopleDialog onClose={() => setPeopleLinksOpen(false)} />}
+      {teamCheckOpen && <NotionTeamCheckDialog onClose={() => setTeamCheckOpen(false)} onOpenPeople={can('students', 'manage') ? () => { setTeamCheckOpen(false); setPeopleLinksOpen(true) } : undefined} />}
       {fieldSyncReviewOpen && <NotionFieldSyncReviewDialog open onOpenChange={setFieldSyncReviewOpen} />}
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-0">
@@ -1663,6 +1669,7 @@ const CrmStudentsListView: React.FC = () => {
             </Button>
             {dataMenuOpen && <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-ds-line bg-ds-panel p-1.5 shadow-lg">
               {can('students', 'manage') && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setPeopleLinksOpen(true) }}>Имена Notion ↔ сотрудники<span className="block text-xs text-ds-muted">Подтвердить соответствия аккаунтов</span></button>}
+              {can('assignment_overview', 'view') && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setTeamCheckOpen(true) }}>Сверка команды с Notion<span className="block text-xs text-ds-muted">Кто добавится из Notion, кого не сопоставили</span></button>}
               {canRunSync && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={syncMutation.isPending} onClick={() => { setDataMenuOpen(false); syncMutation.mutate() }}>Синхронизировать анкеты Google Sheets<span className="block text-xs text-ds-muted">Забрать новые ответы</span></button>}
               {canRunSync && canSeeNotion && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" disabled={notionSyncMutation.isPending} onClick={() => { setDataMenuOpen(false); notionSyncMutation.mutate() }}>Обновить данные Notion<span className="block text-xs text-ds-muted">Обновить локальную копию</span></button>}
               {isManager && <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm text-ds-ink hover:bg-ds-panel2" onClick={() => { setDataMenuOpen(false); setShowInbox(true) }}>Входящие анкеты · {newCount}<span className="block text-xs text-ds-muted">Ответы Google Sheets</span></button>}
@@ -1911,7 +1918,7 @@ const CrmStudentsListView: React.FC = () => {
           return next
         })}
         onOpen={setOpenStudent}
-        onRole={(student, role) => { changeAssignRole(role); setRoleStudent(student) }}
+        onRole={(student) => setTeamStudentId(student.id)}
         onSelf={(student) => student.is_mine ? unassignSelfMutation.mutate(student.id) : assignSelfMutation.mutate(student.id)}
         canAssign={canAssign}
         isManager={isManager}
@@ -1936,19 +1943,12 @@ const CrmStudentsListView: React.FC = () => {
           : `Показано студентов: ${viewedStudents.length}${incompleteResult ? ` из ${data?.total}` : ''}`}
       </p>
 
-      {openStudent && <BaseStudentDrawer student={allStudents.find((student) => student.id === openStudent.id) ?? openStudent} intake={intakeOverview[openStudent.id]} canSeeNotion={canSeeNotion} canAssign={canAssign} onClose={() => setOpenStudent(null)} onRole={(role) => { changeAssignRole(role); setRoleStudent(allStudents.find((student) => student.id === openStudent.id) ?? openStudent) }} />}
+      {openStudent && <BaseStudentDrawer student={allStudents.find((student) => student.id === openStudent.id) ?? openStudent} intake={intakeOverview[openStudent.id]} canSeeNotion={canSeeNotion} canAssign={canAssign} onClose={() => setOpenStudent(null)} onRole={() => setTeamStudentId(openStudent.id)} />}
 
-      {roleStudent && <Dialog open onOpenChange={(open) => { if (!open) setRoleStudent(null) }}>
-        <DialogContent className="max-w-[420px]">
-          <DialogHeader><p className="text-xs font-bold uppercase tracking-[.16em] text-ds-accentText">{MENTOR_ROLE_LABELS[assignRole]}</p><DialogTitle>{roleStudent.full_name}</DialogTitle><DialogDescription>Набор {roleStudent.intake_year} · {roleStudent.countries?.map((country) => country.country).join(', ') || 'Страна не указана'}</DialogDescription></DialogHeader>
-          <div className="max-h-[50vh] space-y-2 overflow-y-auto">
-            {assignCandidateGroups.flatMap((group) => group.users).map((user) => {
-              const current = activeResponsibles(roleStudent).some((responsible) => responsible.role === assignRole && responsible.id === user.id)
-              return <button key={user.id} type="button" disabled={assignMutation.isPending} onClick={() => { assignMutation.mutate({ studentIds: [roleStudent.id], mentorId: user.id, role: assignRole }); setRoleStudent(null) }} className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${current ? 'border-ds-accent bg-ds-accent/15' : 'border-ds-line bg-ds-panel hover:bg-ds-panel2'}`}>{user.name}{current && <span className="ml-2 text-xs font-normal text-ds-muted">· сейчас ведёт</span>}</button>
-            })}
-            {assignableUsers.length === 0 && <p className="text-sm text-ds-muted">Сотрудники для этой роли не найдены.</p>}
-          </div>
-          <DialogFooter><Button variant="outline" type="button" onClick={() => setRoleStudent(null)}>Отмена</Button></DialogFooter>
+      {teamStudent && <Dialog open onOpenChange={(open) => { if (!open) setTeamStudentId(null) }}>
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
+          <DialogHeader><p className="text-xs font-bold uppercase tracking-[.16em] text-ds-accentText">Команда ученика</p><DialogTitle>{teamStudent.full_name}</DialogTitle><DialogDescription>Набор {teamStudent.intake_year} · {teamStudent.countries?.map((country) => country.country).join(', ') || 'Страна не указана'}</DialogDescription></DialogHeader>
+          <StudentTeamSection studentId={teamStudent.id} responsibles={teamStudent.responsibles ?? []} canManage={canAssign} />
         </DialogContent>
       </Dialog>}
 

@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     NOTION_QUICK_SYNC_SECONDS: int = 60
     # Enable only after a production dry run and a checked backup.
     ENABLE_NOTION_PIPELINE_APPLY: bool = False
+    # Менторы из Notion (Lead-Mentor, Mentors, МЗК) добавляются в команду ученика.
+    # Только добавление: снятых на портале не возвращает, никого не снимает.
+    ENABLE_NOTION_ASSIGNMENT_IMPORT: bool = False
+    # Ученики раньше этого набора уже поступили — их команды из Notion не трогаем.
+    NOTION_ASSIGNMENT_MIN_INTAKE_YEAR: int = 2026
     # Verified profile/work-status synchronization; enable after production dry-run.
     ENABLE_NOTION_FIELD_SYNC: bool = False
     # Validates queued work without mutating CRM or Notion. Keep true until

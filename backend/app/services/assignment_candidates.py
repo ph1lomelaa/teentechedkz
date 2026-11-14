@@ -59,6 +59,8 @@ def candidates_query(role: MentorRole) -> Select:
                 User.mentor_specialties.any(role.value),
                 User.role == staff_role_for(role),
                 User.role == UserRole.admin,
+                # Академ-хед ведёт учеников и как МЗК, и как ментор.
+                User.role == UserRole.academic_head,
             ),
         )
         .order_by(User.name)

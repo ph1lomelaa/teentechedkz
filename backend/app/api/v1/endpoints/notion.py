@@ -177,6 +177,16 @@ async def pipeline_report(db: Annotated[AsyncSession, Depends(get_db)], current_
     return await build_report(db)
 
 
+@router.get("/assignments-check")
+async def assignments_check(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
+    """Сверка команды с Notion: кто добавится, кто уже добавлен, кого не сопоставили.
+
+    Только чтение. Видят те, кто распределяет учеников (админ, МЗК-менеджер, академ-хед)."""
+    require_access(current_user, "assignment_overview", Action.view)
+    from app.services.notion_assignments import build_check
+    return await build_check(db)
+
+
 @router.get("/reconcile")
 async def reconcile(db: Annotated[AsyncSession, Depends(get_db)], current_user: CurrentUser):
     """Сверка «платформа ↔ Notion» по статусам и списки расхождений (только чтение)."""

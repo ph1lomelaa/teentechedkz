@@ -56,3 +56,20 @@ it('поиск сужает список, на узком экране клик 
   fireEvent.click(screen.getByRole('button', { name: /Борис/ }))
   expect(location).toBe('/workspace/students/b')
 })
+
+it('фильтр по году набора: чипы с количеством, выбор сужает список', async () => {
+  localStorage.clear()
+  mocks.students.mockResolvedValue({ items: [...items, { ...items[0], student: { ...items[0].student, id: 'c', full_name: 'Вера Восьмая', intake_year: 2027 } }], total: 3 })
+  open()
+  const group = await screen.findByRole('group', { name: 'Год набора' })
+  expect(within(group).getByRole('button', { name: /Набор 2026 · 2/ })).toBeTruthy()
+  fireEvent.click(within(group).getByRole('button', { name: /Набор 2027 · 1/ }))
+  await waitFor(() => expect(screen.queryByText('Анна Активная')).toBeNull())
+  expect(screen.getAllByText('Вера Восьмая').length).toBeGreaterThan(0)
+})
+
+it('одного года — фильтр не показываем', async () => {
+  open()
+  await screen.findAllByText('Анна Активная')
+  expect(screen.queryByRole('group', { name: 'Год набора' })).toBeNull()
+})

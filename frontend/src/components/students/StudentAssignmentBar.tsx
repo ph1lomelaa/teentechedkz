@@ -63,7 +63,7 @@ export function StudentAssignmentBar({
   // Админ здесь наравне с остальными: в небольшой команде он ведёт студентов
   // сам, и бэкенд это теперь разрешает (mentor_assignments.py).
   const availableAssignees = assignmentUsers.filter(
-    (candidate) => candidate.is_active && ['admin', 'mentor', 'mzk_manager'].includes(candidate.role)
+    (candidate) => candidate.is_active && ['admin', 'mentor', 'mzk_manager', 'academic_head'].includes(candidate.role)
   )
 
   const assign = useMutation({

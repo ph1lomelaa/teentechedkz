@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { within, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -133,16 +133,18 @@ describe('назначение ответственных из общей баз
     expect(await screen.findByText('Айгерим К.')).toBeTruthy()
   })
 
-  it('строчное назначение называет роль, а не молчит про неё', async () => {
-    // Кнопка в строке раньше жёстко ставила «Ментор по УП» и никак этого не
-    // показывала: выбрав в панели «Профориентолог», сотрудник всё равно
-    // назначил бы ментора по УП и не увидел бы подвоха.
+  it('кнопка в строке открывает всю команду: все роли, а не только «Ментор по УП»', async () => {
+    // Раньше строка открывала окно с одной ролью «Ментор по УП» без замены и
+    // снятия — академ-хед не мог поменять ментора по стране или убрать лишнего.
     renderPage()
     await enterAssignMode()
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Назначить' }).at(-1)!)
-    expect(await screen.findByText('Ментор Один')).toBeInTheDocument()
-    expect(screen.getAllByText('Ментор по УП').length).toBeGreaterThan(0)
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText('Команда ученика')).toBeInTheDocument()
+    for (const label of ['Ментор по УП', 'Профориентолог', 'Ментор по стране', 'Портфолио', 'Учитель IELTS', 'МЗК']) {
+      expect(dialog.getAllByText(label).length).toBeGreaterThan(0)
+    }
   })
 
   it('панель массового назначения появляется после выбора студентов', async () => {

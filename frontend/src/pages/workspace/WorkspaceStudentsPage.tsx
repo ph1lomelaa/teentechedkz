@@ -10,6 +10,7 @@ import { QueryState } from '@/components/shared/QueryState'
 import { StudentListRow } from '@/components/workspace/StudentListRow'
 import { StudentQuickPanel } from '@/components/workspace/StudentQuickPanel'
 import { sortByUrgency } from '@/lib/studentSignals'
+import { useLocalState } from '@/lib/use-local-state'
 
 // Панель справа помещается рядом со списком только с lg; на телефоне клик
 // ведёт в полную карточку — урезанный дубль карточки там ни к чему.
@@ -34,7 +35,18 @@ export const WorkspaceStudentsPage: React.FC = () => {
   })
 
   const all = useMemo(() => sortByUrgency(data?.items ?? []), [data?.items])
-  const students = all.filter((item) => {
+  // Фильтр по году набора: у ментора бывают ученики нескольких наборов сразу.
+  const [year, setYear] = useLocalState<string>('workspace:students:year', 'all')
+  const years = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of all) {
+      const key = item.student.intake_year ? String(item.student.intake_year) : 'none'
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort(([a], [b]) => (a === 'none' ? 1 : b === 'none' ? -1 : Number(a) - Number(b)))
+  }, [all])
+  const activeYear = year !== 'all' && years.some(([key]) => key === year) ? year : 'all'
+  const students = all.filter((item) => activeYear === 'all' || (item.student.intake_year ? String(item.student.intake_year) : 'none') === activeYear).filter((item) => {
     const q = debouncedSearch.trim().toLowerCase()
     if (!q) return true
     return [
@@ -107,6 +119,16 @@ export const WorkspaceStudentsPage: React.FC = () => {
             )}
           </div>
 
+          {years.length > 1 && (
+            <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Год набора">
+              {[['all', 'Все годы', all.length] as const, ...years.map(([key, count]) => [key, key === 'none' ? 'Без года' : `Набор ${key}`, count] as const)].map(([key, label, count]) => (
+                <button key={key} type="button" aria-pressed={activeYear === key} onClick={() => setYear(key)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${activeYear === key ? 'border-w-accent bg-w-accent text-black' : 'border-w-line text-w-muted hover:text-w-ink'}`}>
+                  {label} <span className="opacity-70">· {count}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <QueryState
             colorPrefix="w"

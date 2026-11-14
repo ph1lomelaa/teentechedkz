@@ -555,8 +555,14 @@ async def run_sync(db: AsyncSession, *, quick: bool = False) -> dict:
             # записаны: одно на договор, сколько бы полей ни поменялось.
             await finance_desk.flush_notifications(db)
 
-            # Creating/deleting students, assignments and accounts remains
-            # separate from verified synchronization of mapped fields.
+            # Менторы из Notion: только добавление в команду (решение 13.11.2026).
+            # Карточки и аккаунты по-прежнему не создаются и не удаляются.
+            try:
+                from app.services.notion_assignments import import_from_notion
+                await import_from_notion(db)
+            except Exception:
+                await db.rollback()
+                logger.exception("Notion assignment import failed; will retry next sync")
 
             needs_review = await unmatched_count(db)
             counters = {

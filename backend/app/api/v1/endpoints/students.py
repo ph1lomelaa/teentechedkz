@@ -328,6 +328,11 @@ async def person_links(db: Annotated[AsyncSession, Depends(get_db)], current_use
     rows = []
     for key, label in sorted(labels.items(), key=lambda item: item[1].casefold()):
         candidates = [str(u.id) for u in users if canon_person(u.name) == key]
+        if not candidates and key:
+            # В Notion пишут коротко («Амина», «Bibinur»), аккаунт — полным именем.
+            # Подсказываем, только если первое имя есть ровно у одного сотрудника.
+            first = key.split()[0]
+            candidates = [str(u.id) for u in users if first in canon_person(u.name).split()]
         student_ids = index.mentor_students.get(key, set()) | index.manager_students.get(key, set())
         rows.append({"key": key, "label": label, "count": len(student_ids),
             "user_id": str(index.confirmed_links[key]) if key in index.confirmed_links else None,

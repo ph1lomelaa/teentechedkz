@@ -14,7 +14,7 @@ function PersonRow({ person, users }: { person: Person; users: Directory['users'
     mutationFn: () => apiClient.put('/students/people-links', { notion_key: person.key, user_id: userId || null }),
     onSuccess: () => {
       for (const key of ['notion-people-links', 'students']) qc.invalidateQueries({ queryKey: [key] })
-      toast({ title: 'Соответствие сохранено', description: 'Поиск по аккаунту учитывает подтверждённое имя Notion. Назначения команды не изменены.' })
+      toast({ title: 'Соответствие сохранено', description: 'Поиск учитывает подтверждённое имя Notion. Если этот человек вписан ученику в Notion, он добавится в команду при синхронизации.' })
     },
     onError: error => toast({ title: 'Не удалось сохранить', description: getErrorMessage(error), variant: 'destructive' }),
   })
@@ -24,7 +24,7 @@ export function NotionPeopleDialog({ onClose }: { onClose: () => void }) {
   const [search, setSearch] = useState('')
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ['notion-people-links'], queryFn: async () => (await apiClient.get<Directory>('/students/people-links')).data })
   const items = data?.items.filter(person => person.label.toLocaleLowerCase().includes(search.toLocaleLowerCase())) ?? []
-  return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>Имена Notion и аккаунты сотрудников</DialogTitle><DialogDescription>Подтверждённые связи объединяют поиск. Они сохраняются после переименования аккаунта. Команда ученика и права доступа здесь не меняются.</DialogDescription></DialogHeader>
+  return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>Имена Notion и аккаунты сотрудников</DialogTitle><DialogDescription>Подтверждённые связи объединяют поиск и помогают добавлять менторов из Notion в команду ученика (только добавление — снятых на платформе не возвращаем). Связи сохраняются после переименования аккаунта.</DialogDescription></DialogHeader>
     <input aria-label="Найти имя Notion" placeholder="Найти имя…" value={search} onChange={event => setSearch(event.target.value)} className="h-9 rounded-ctl border border-p-line bg-p-panel px-3 text-sm" />
     {isLoading && <p>Загружаем имена…</p>}{error && <div role="alert">{getErrorMessage(error)} <button type="button" onClick={() => refetch()} className="underline">Повторить</button></div>}
     {data && <><p className="text-xs text-p-muted">Сопоставлено {data.items.filter(person => person.user_id).length} из {data.items.length} имён.</p><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Имя в Notion</th><th className="p-2">Аккаунт платформы</th><th /></tr></thead><tbody>{items.map(person => <PersonRow key={`${person.key}:${person.user_id}`} person={person} users={data.users} />)}</tbody></table>{!items.length && <p>Имена не найдены.</p>}</>}
