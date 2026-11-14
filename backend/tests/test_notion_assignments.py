@@ -90,8 +90,8 @@ async def run(monkeypatch):
     assert (name('Zarina'), 'removed') in rows              # снята на портале — не возвращаем
     assert (name('Timur'), 'unmatched') in rows             # два аккаунта с таким именем
     assert (name('Nobody'), 'unmatched') in rows
-    assert (name('Madina'), 'ambiguous') in rows            # две специализации
-    assert (name('Saule'), 'ambiguous') in rows             # ментор по стране без страны
+    assert (name('Madina'), 'will_add') in rows             # две специализации — ментором по стране
+    assert (name('Saule'), 'will_add') in rows              # ментор по стране
     assert not any(r['notion_name'] in ('none', 'No') for r in check['items'])
     assert not any(r['student_id'] == str(old.id) for r in check['items'])   # 2025 не показываем и не добавляем
     assert check['min_intake_year'] == 2026 and all(r['intake_year'] == 2027 for r in check['items'] if r['student_id'] == str(a.id))
@@ -106,7 +106,7 @@ async def run(monkeypatch):
     monkeypatch.setattr(settings, 'ENABLE_NOTION_ASSIGNMENT_IMPORT', True)
     async with sessions() as db:
         added = await notion_assignments.import_from_notion(db)
-    assert added == 6  # A: Бибинур, Аружан, Дарья, Айгерим; B: Бибинур, Нурай (академ-хед, МЗК)
+    assert added == 8  # A: Бибинур, Аружан, Дарья, Айгерим, Мадина, Сауле; B: Бибинур, Нурай
     async with sessions() as db:
         assert await notion_assignments.import_from_notion(db) == 0
         active = {(ma.student_id, ma.mentor_id, ma.role) for ma in (await db.execute(
@@ -116,6 +116,8 @@ async def run(monkeypatch):
         assert (a.id, mzk.id, MentorRole.mzk) in active
         assert (a.id, ielts.id, MentorRole.ielts) in active
         assert (a.id, linked.id, MentorRole.portfolio) in active
+        assert (a.id, many.id, MentorRole.country) in active and (a.id, country.id, MentorRole.country) in active
+        assert (a.id, many.id, MentorRole.country) in active and (a.id, country.id, MentorRole.country) in active
         assert (b.id, lead.id, MentorRole.lead) in active
         assert (b.id, head.id, MentorRole.mzk) in active
         assert (a.id, removed.id, MentorRole.ielts) not in active   # снятая не вернулась

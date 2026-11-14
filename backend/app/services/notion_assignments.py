@@ -142,15 +142,12 @@ def _wanted(data: dict, people: _People) -> list[tuple[str, User | None, MentorR
         if _MZK_MARK.search(name):
             why = why or "в колонке Mentors указан МЗК — назначьте вручную"
         elif user is not None:
-            specialties = [s for s in (user.mentor_specialties or []) if s in MENTORS_ROLES | {"country"}]
-            if len(specialties) == 1 and specialties[0] in MENTORS_ROLES:
-                role = MentorRole(specialties[0])
-            elif specialties == ["country"]:
-                why = "ментор по стране — страну назначьте на платформе"
-            elif not specialties:
-                why = "роль непонятна: у сотрудника не указана специализация (Настройки → Пользователи)"
-            else:
-                why = "роль непонятна: у сотрудника несколько специализаций"
+            # Решение 14.11.2026: в колонке Mentors обычно менторы по стране —
+            # их так и добавляем. Если у сотрудника ровно одна другая
+            # специализация (IELTS, профориентация, портфолио, УП) — ставим её.
+            # Страну можно уточнить в команде ученика.
+            specialties = [s for s in (user.mentor_specialties or []) if s in MENTORS_ROLES]
+            role = MentorRole(specialties[0]) if len(specialties) == 1 else MentorRole.country
         out.append((name, user, role, why))
     return out
 
