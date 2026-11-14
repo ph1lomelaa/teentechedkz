@@ -4,9 +4,18 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import field_validator, BaseModel, ConfigDict
 
 from app.models.contract import PipelineStatus, PaymentPlan
+
+def _only_kzt(value: str | None) -> str | None:
+    """Договоры ведутся только в тенге: денежный обмен с Notion и отчёты
+    финансиста считают в KZT. Доллары в форме приводили к застрявшим правкам."""
+    if value is None:
+        return None
+    if value.strip().upper() != "KZT":
+        raise ValueError("Договор ведётся только в тенге (KZT)")
+    return "KZT"
 
 
 class ContractCreate(BaseModel):
@@ -17,6 +26,8 @@ class ContractCreate(BaseModel):
     amount: Decimal | None = None
     currency: str = "KZT"
     payment_plan: PaymentPlan | None = None
+
+    _v_currency = field_validator("currency")(_only_kzt)
     pipeline_status: PipelineStatus = PipelineStatus.no_status
     mzk_manager_id: uuid.UUID | None = None
     ielts_payment_included: bool = False
@@ -40,6 +51,8 @@ class ContractUpdate(BaseModel):
     amount: Decimal | None = None
     currency: str | None = None
     payment_plan: PaymentPlan | None = None
+
+    _v_currency = field_validator("currency")(_only_kzt)
     pipeline_status: PipelineStatus | None = None
     mzk_manager_id: uuid.UUID | None = None
     ielts_payment_included: bool | None = None

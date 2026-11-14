@@ -116,7 +116,7 @@ export const NewStudentPage: React.FC = () => {
   const [contractForm, setContractForm] = useState<ContractForm>({
     signed_date: new Date().toISOString().slice(0, 10),
     amount: '',
-    currency: 'USD',
+    currency: 'KZT',
     pipeline_status: 'active_work',
     payment_plan: '',
     ielts_payment_included: false,
@@ -475,14 +475,8 @@ export const NewStudentPage: React.FC = () => {
               </div>
               <div>
                 <Label>Валюта</Label>
-                <Select value={contractForm.currency} onValueChange={(v) => setContractForm({ ...contractForm, currency: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="KZT">KZT</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Договоры ведутся только в тенге — так считает обмен с Notion и финансист. */}
+                <div className="flex h-10 items-center rounded-md border border-input px-3 text-sm text-muted-foreground">Тенге (KZT)</div>
               </div>
               <div>
                 <Label>Статус пайплайна</Label>

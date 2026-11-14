@@ -1,208 +1,143 @@
-import React, { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import React, { Fragment, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Users } from 'lucide-react'
+import { ChevronRight, Search, SlidersHorizontal, Users, X } from 'lucide-react'
 import { studentsApi } from '@/api/students'
+import { useAuth } from '@/contexts/AuthContext'
 import {
-  DEGREE_LEVEL_LABELS,
   DEGREE_LEVEL_COLORS,
+  DEGREE_LEVEL_LABELS,
+  MENTOR_ROLE_LABELS,
+  PIPELINE_STATUS_LABELS,
   SERVICE_TYPE_LABELS,
-  PipelineStatus,
-  ServiceType,
+  type PipelineStatus,
+  type ServiceType,
+  type StudentListItem,
 } from '@/types'
-import { FilterChips, FilterField, FilterPopover, type FilterChip } from '@/components/shared/FilterPopover'
-// Те же фильтры, что в общей базе: обе страницы отбирают один список.
-import {
-  matchesOperationalFilter,
-  OPERATIONAL_FILTER_LABELS,
-  type OperationalFilter,
-} from '@/lib/studentFilters'
+import { matchesOperationalFilter, OPERATIONAL_FILTER_LABELS, type OperationalFilter } from '@/lib/studentFilters'
 import { useLocalState } from '@/lib/use-local-state'
 import { Input } from '@/components/ui/primitives/input'
 import { Button } from '@/components/ui/primitives/button'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/primitives/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/primitives/select'
-import { debounce } from '@/lib/utils'
 import { PageHeader } from '@/components/ui'
 import { getErrorMessage } from '@/lib/errorMessage'
-import {
-  PipelineStatusFilter,
-  PipelineStatusTag,
-  pipelineStatusChipLabel,
-  type PipelineStatusOperator,
-} from '@/components/shared/PipelineStatusFilter'
+import { PipelineStatusTag } from '@/components/shared/PipelineStatusFilter'
+import { cn } from '@/lib/utils'
 
-/** Те же программы, что в фильтре общей базы. */
-const SERVICE_FILTER_OPTIONS: ServiceType[] = [
-  'proforientation',
-  'ielts_mock',
-  'ielts_prep',
-  'sat_prep',
-  'portfolio_improvement',
-  'english_general',
-]
+/**
+ * «Мои студенты» в CRM: как общая база — фильтры колонкой слева, справа таблица
+ * по наборам. Список грузится целиком (у сотрудника десятки учеников), фильтры
+ * считаются на месте — так у каждого варианта виден честный счётчик.
+ */
+type Filters = {
+  years: string[]; statuses: string[]; degrees: string[]; countries: string[]
+  services: string[]; roles: string[]; operational: OperationalFilter
+}
+const EMPTY: Filters = { years: [], statuses: [], degrees: [], countries: [], services: [], roles: [], operational: 'all' }
+
+const yearOf = (s: StudentListItem) => (s.intake_year ? String(s.intake_year) : 'none')
+const statusOf = (s: StudentListItem) => s.pipeline_status ?? 'no_status'
+const countriesOf = (s: StudentListItem) => {
+  const list = (s.countries ?? []).map((c) => c.country).filter(Boolean)
+  return list.length ? list : ['none']
+}
+const servicesOf = (s: StudentListItem) => [...new Set((s.services_summary?.items ?? []).map((i) => i.service_type))]
+
+function tally(items: StudentListItem[], pick: (s: StudentListItem) => string | string[]) {
+  const counts = new Map<string, number>()
+  for (const item of items) for (const key of new Set(([] as string[]).concat(pick(item)))) counts.set(key, (counts.get(key) ?? 0) + 1)
+  return counts
+}
+
+const byYear = ([a]: [string, number], [b]: [string, number]) => (a === 'none' ? 1 : b === 'none' ? -1 : Number(a) - Number(b))
+const byName = ([a]: [string, number], [b]: [string, number]) => (a === 'none' ? 1 : b === 'none' ? -1 : a.localeCompare(b, 'ru'))
+
+const FilterGroup: React.FC<{
+  title: string
+  options: [string, string, number][]
+  selected: string[]
+  onChange: (next: string[]) => void
+}> = ({ title, options, selected, onChange }) => {
+  if (options.length < 2 && !selected.length) return null
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="mb-1.5 text-2xs font-bold uppercase tracking-wide text-p-muted2">{title}</legend>
+      {options.map(([value, label, count]) => (
+        <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-p-text">
+          <input type="checkbox" checked={selected.includes(value)}
+            onChange={(e) => onChange(e.target.checked ? [...selected, value] : selected.filter((v) => v !== value))} />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span className="text-xs text-p-muted2">{count}</span>
+        </label>
+      ))}
+    </fieldset>
+  )
+}
 
 export const MyStudentsPage: React.FC = () => {
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [stored, setStored] = useLocalState<Filters>('my-students:filters', EMPTY)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const f: Filters = { ...EMPTY, ...stored }
+  const set = (patch: Partial<Filters>) => setStored({ ...f, ...patch })
 
-  // Выбор переживает переход в карточку и обратно — как в общей базе. Разбор
-  // списка идёт студент за студентом, и слетающий на каждом возврате фильтр
-  // означал бы заново выставлять его десятки раз.
-  // Раньше здесь хранился один статус строкой — читаем и его, чтобы
-  // сохранённый фильтр не слетел после обновления.
-  const [storedStatusFilters, setStoredStatusFilters] = useLocalState<PipelineStatus[] | string>('my-students:status', [])
-  const statusFilters = Array.isArray(storedStatusFilters)
-    ? storedStatusFilters
-    : storedStatusFilters ? [storedStatusFilters as PipelineStatus] : []
-  const setStatusFilters = (values: PipelineStatus[]) => setStoredStatusFilters(values)
-  const [statusFilterOperator, setStatusFilterOperator] = useLocalState<PipelineStatusOperator>('my-students:statusOperator', 'is')
-  const [intakeYearFilter, setIntakeYearFilter] = useLocalState('my-students:year', '')
-  const [degreeFilter, setDegreeFilter] = useLocalState('my-students:degree', '')
-  const [countryFilter, setCountryFilter] = useLocalState('my-students:country', '')
-  const [countryPrimaryOnly, setCountryPrimaryOnly] = useLocalState('my-students:countryPrimary', false)
-  const [serviceTypeFilter, setServiceTypeFilter] = useLocalState('my-students:service', '')
-  const [operationalFilter, setOperationalFilter] = useLocalState<OperationalFilter>(
-    'my-students:operational',
-    'all',
-  )
-
-  const debouncedSetSearch = useMemo(
-    () => debounce((value: string) => setDebouncedSearch(value), 300),
-    []
-  )
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearch(e.target.value)
-    debouncedSetSearch(e.target.value)
-  }
-
-  // Грузим разом, без постраничности: у сотрудника десятки студентов, и
-  // пагинация по 20 не окупалась, зато мешала — «Контроль работы» считается по
-  // данным карточки, и на одной странице он отбирал бы из двадцати вместо всех.
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: [
-      'my-students',
-      debouncedSearch,
-      statusFilters,
-      statusFilterOperator,
-      intakeYearFilter,
-      degreeFilter,
-      countryFilter,
-      countryPrimaryOnly,
-      serviceTypeFilter,
-    ],
-    queryFn: () =>
-      studentsApi.list({
-        search: debouncedSearch || undefined,
-        pipeline_statuses: statusFilters.length ? statusFilters.join(',') : undefined,
-        pipeline_status_operator: statusFilters.length ? statusFilterOperator : undefined,
-        intake_year: intakeYearFilter ? Number.parseInt(intakeYearFilter, 10) : undefined,
-        degree_level: degreeFilter || undefined,
-        country: countryFilter.trim() || undefined,
-        country_primary_only: countryFilter.trim() ? countryPrimaryOnly : undefined,
-        service_type: serviceTypeFilter || undefined,
-        scope: 'mine',
-        page: 1,
-        size: 2000,
-      }),
+    queryKey: ['my-students', 'all'],
+    queryFn: () => studentsApi.list({ scope: 'mine', page: 1, size: 2000 }),
   })
+  const all = useMemo(() => data?.items ?? [], [data?.items])
+  const myRoles = (s: StudentListItem) => (s.responsibles ?? []).filter((r) => r.id === user?.id && r.is_active !== false && r.role).map((r) => r.role as string)
 
-  // Опции фильтров — только то, что есть в данных, со счётчиками.
-  const { data: facets } = useQuery({
-    queryKey: ['students', 'facets'],
-    queryFn: studentsApi.facets,
-    staleTime: 60_000,
-  })
+  const options = useMemo(() => ({
+    years: [...tally(all, yearOf)].sort(byYear).map(([k, n]) => [k, k === 'none' ? 'Без года' : `Набор ${k}`, n] as [string, string, number]),
+    statuses: [...tally(all, statusOf)].map(([k, n]) => [k, PIPELINE_STATUS_LABELS[k as PipelineStatus] ?? k, n] as [string, string, number]),
+    degrees: [...tally(all, (s) => s.degree_level)].map(([k, n]) => [k, DEGREE_LEVEL_LABELS[k as keyof typeof DEGREE_LEVEL_LABELS] ?? k, n] as [string, string, number]),
+    countries: [...tally(all, countriesOf)].sort(byName).map(([k, n]) => [k, k === 'none' ? 'Страна не указана' : k, n] as [string, string, number]),
+    services: [...tally(all, servicesOf)].map(([k, n]) => [k, SERVICE_TYPE_LABELS[k as ServiceType] ?? k, n] as [string, string, number]),
+    roles: [...tally(all, (s) => (s.responsibles ?? []).filter((r) => r.id === user?.id && r.is_active !== false && r.role).map((r) => r.role as string))]
+      .map(([k, n]) => [k, MENTOR_ROLE_LABELS[k] ?? k, n] as [string, string, number]),
+  }), [all, user?.id])
 
-  // «Контроль работы» считается по полям карточки, которых нет в запросе —
-  // поэтому он клиентский, как и в общей базе.
-  const students = useMemo(
-    () => (data?.items ?? []).filter((s) => matchesOperationalFilter(s, operationalFilter)),
-    [data, operationalFilter],
+  const q = search.trim().toLowerCase()
+  const students = all.filter((s) =>
+    (!f.years.length || f.years.includes(yearOf(s)))
+    && (!f.statuses.length || f.statuses.includes(statusOf(s)))
+    && (!f.degrees.length || f.degrees.includes(s.degree_level))
+    && (!f.countries.length || countriesOf(s).some((c) => f.countries.includes(c)))
+    && (!f.services.length || servicesOf(s).some((t) => f.services.includes(t)))
+    && (!f.roles.length || myRoles(s).some((r) => f.roles.includes(r)))
+    && matchesOperationalFilter(s, f.operational)
+    && (!q || [s.full_name, s.phone, s.city, ...countriesOf(s)].some((v) => String(v || '').toLowerCase().includes(q))))
+  const groups = useMemo(() => {
+    const map = new Map<string, StudentListItem[]>()
+    for (const s of students) map.set(yearOf(s), [...(map.get(yearOf(s)) ?? []), s])
+    return [...map].sort(([a], [b]) => (a === 'none' ? 1 : b === 'none' ? -1 : Number(a) - Number(b)))
+  }, [students])
+  const active = f.years.length + f.statuses.length + f.degrees.length + f.countries.length + f.services.length + f.roles.length + (f.operational !== 'all' ? 1 : 0)
+
+  const panel = (
+    <div className="space-y-5">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-p-muted2" />
+        <Input aria-label="Поиск студентов" placeholder="Имя, телефон, страна" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 pr-9" />
+        {search && <button type="button" aria-label="Очистить поиск" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-p-muted2 hover:text-p-text"><X className="h-4 w-4" /></button>}
+      </div>
+      <label className="grid gap-1.5 text-2xs font-bold uppercase tracking-wide text-p-muted2">Контроль работы
+        <select aria-label="Контроль работы" value={f.operational} onChange={(e) => set({ operational: e.target.value as OperationalFilter })}
+          className="h-9 w-full min-w-0 rounded-ctl border border-p-line bg-white px-2 text-sm font-normal normal-case tracking-normal text-p-text">
+          {Object.entries(OPERATIONAL_FILTER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <FilterGroup title="Набор" options={options.years} selected={f.years} onChange={(years) => set({ years })} />
+      <FilterGroup title="Статус" options={options.statuses} selected={f.statuses} onChange={(statuses) => set({ statuses })} />
+      <FilterGroup title="Моя роль" options={options.roles} selected={f.roles} onChange={(roles) => set({ roles })} />
+      <FilterGroup title="Страна" options={options.countries} selected={f.countries} onChange={(countries) => set({ countries })} />
+      <FilterGroup title="Ступень" options={options.degrees} selected={f.degrees} onChange={(degrees) => set({ degrees })} />
+      <FilterGroup title="Программа" options={options.services} selected={f.services} onChange={(services) => set({ services })} />
+      {active > 0 && <button type="button" onClick={() => setStored(EMPTY)} className="text-xs font-bold text-p-text underline">Сбросить фильтры ({active})</button>}
+    </div>
   )
-  const total = students.length
-
-  const activeFilterCount =
-    (statusFilters.length ? 1 : 0) +
-    (intakeYearFilter ? 1 : 0) +
-    (degreeFilter ? 1 : 0) +
-    (countryFilter ? 1 : 0) +
-    (serviceTypeFilter ? 1 : 0) +
-    (operationalFilter !== 'all' ? 1 : 0)
-
-  // Активные фильтры видно без открытия панели, и каждый снимается крестиком:
-  // иначе «студентов нет» читается как пустой список, а не как выбранный год.
-  const filterChips: FilterChip[] = []
-  statusFilters.forEach((status) => {
-    filterChips.push({
-      key: `status-${status}`,
-      label: pipelineStatusChipLabel(status, statusFilterOperator),
-      onRemove: () => setStatusFilters(statusFilters.filter((value) => value !== status)),
-    })
-  })
-  if (operationalFilter !== 'all') {
-    filterChips.push({
-      key: 'operational',
-      label: OPERATIONAL_FILTER_LABELS[operationalFilter],
-      onRemove: () => setOperationalFilter('all'),
-    })
-  }
-  if (intakeYearFilter) {
-    filterChips.push({
-      key: 'year',
-      label: `Год: ${intakeYearFilter}`,
-      onRemove: () => setIntakeYearFilter(''),
-    })
-  }
-  if (degreeFilter) {
-    filterChips.push({
-      key: 'degree',
-      label: `Ступень: ${DEGREE_LEVEL_LABELS[degreeFilter as keyof typeof DEGREE_LEVEL_LABELS] ?? degreeFilter}`,
-      onRemove: () => setDegreeFilter(''),
-    })
-  }
-  if (countryFilter) {
-    filterChips.push({
-      key: 'country',
-      label: `Страна: ${countryFilter}${countryPrimaryOnly ? ' (основная)' : ''}`,
-      onRemove: () => {
-        setCountryFilter('')
-        setCountryPrimaryOnly(false)
-      },
-    })
-  }
-  if (serviceTypeFilter) {
-    filterChips.push({
-      key: 'service',
-      label: SERVICE_TYPE_LABELS[serviceTypeFilter as ServiceType] ?? serviceTypeFilter,
-      onRemove: () => setServiceTypeFilter(''),
-    })
-  }
-
-  const resetFilters = () => {
-    setStatusFilters([])
-    setStatusFilterOperator('is')
-    setIntakeYearFilter('')
-    setDegreeFilter('')
-    setCountryFilter('')
-    setCountryPrimaryOnly(false)
-    setServiceTypeFilter('')
-    setOperationalFilter('all')
-  }
 
   return (
     <div>
@@ -212,235 +147,81 @@ export const MyStudentsPage: React.FC = () => {
         description="Студенты с активным назначением в CRM. Эти же студенты будут открываться в личном кабинете ментора."
         action={(
           <div className="flex items-center gap-3">
-          <span className="label-caps">Всего: {total}</span>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/students?scope=unassigned">
-              <Users className="w-4 h-4 mr-2" />
-              Назначить студентов
-            </Link>
-          </Button>
+            <span className="label-caps">Всего: {all.length}</span>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/students?scope=unassigned"><Users className="mr-2 h-4 w-4" />Назначить студентов</Link>
+            </Button>
           </div>
         )}
       />
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-p-muted2 w-4 h-4" />
-          <Input
-            placeholder="Поиск..."
-            value={search}
-            onChange={handleSearchChange}
-            className="pl-9"
-          />
+      <div className="grid items-start gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <details className="rounded-card border border-p-line p-4 lg:hidden">
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-bold text-p-text"><SlidersHorizontal className="h-4 w-4" />Фильтры{active ? ` · ${active}` : ''}</summary>
+          <div className="mt-4">{panel}</div>
+        </details>
+        <aside aria-label="Фильтры студентов" className="sticky top-6 hidden rounded-card border border-p-line p-4 lg:block">{panel}</aside>
+
+        <div className="min-w-0">
+          {isError ? (
+            <div role="alert" className="rounded-card border border-p-line p-8 text-center">
+              <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
+              <p className="mt-1 text-sm text-p-muted">{getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>Повторить</Button>
+            </div>
+          ) : isLoading ? (
+            <p className="py-8 text-center text-p-muted">Загрузка...</p>
+          ) : students.length === 0 ? (
+            <div className="rounded-card border border-p-line bg-p-bg px-4 py-6 text-center text-sm text-p-muted">
+              {all.length
+                ? 'Под выбранные фильтры никто не подходит — измените или сбросьте их.'
+                : 'У вас нет активных назначений. Откройте студента и назначьте себя в «Команде ученика» или нажмите «Взять» в общей базе.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-card border border-p-line">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead className="whitespace-nowrap bg-p-bg text-left text-xs text-p-muted">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Имя</th>
+                    <th className="px-3 py-2.5 font-semibold">Ступень</th>
+                    <th className="px-3 py-2.5 font-semibold">Статус</th>
+                    <th className="px-3 py-2.5 font-semibold">Страна</th>
+                    <th className="px-3 py-2.5 font-semibold">Моя роль</th>
+                    <th className="px-3 py-2.5 font-semibold">Дней в работе</th>
+                    <th className="w-8" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map(([year, items]) => (
+                    <Fragment key={year}>
+                      <tr className="border-t border-p-line bg-p-bg/60">
+                        <td colSpan={7} className="px-3 py-2">
+                          <button type="button" aria-expanded={!collapsed.has(year)} onClick={() => setCollapsed((prev) => { const next = new Set(prev); if (next.has(year)) next.delete(year); else next.add(year); return next })}
+                            className="flex items-center gap-2 text-sm font-bold text-p-text hover:underline">
+                            <ChevronRight className={cn('h-4 w-4 text-p-muted transition-transform', !collapsed.has(year) && 'rotate-90')} />
+                            {year === 'none' ? 'Без года' : `Набор ${year}`}<span className="text-xs font-normal text-p-muted2">· {items.length}</span>
+                          </button>
+                        </td>
+                      </tr>
+                      {!collapsed.has(year) && items.map((s) => (
+                        <tr key={s.id} onClick={() => navigate(`/students/${s.id}`)} className="cursor-pointer border-t border-p-line transition hover:bg-p-bg">
+                          <td className="px-3 py-2.5 font-medium"><Link to={`/students/${s.id}`} onClick={(e) => e.stopPropagation()} className="text-p-text hover:underline">{s.full_name}</Link></td>
+                          <td className="px-3 py-2.5"><span className={`rounded-pill px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[s.degree_level]}`}>{DEGREE_LEVEL_LABELS[s.degree_level]}</span></td>
+                          <td className="px-3 py-2.5">{s.pipeline_status ? <PipelineStatusTag status={s.pipeline_status} /> : <span className="text-xs text-p-muted2">—</span>}</td>
+                          <td className="px-3 py-2.5 text-p-muted">{(s.countries ?? []).map((c) => c.country).join(', ') || '—'}</td>
+                          <td className="px-3 py-2.5 text-xs text-p-muted">{myRoles(s).map((r) => MENTOR_ROLE_LABELS[r] ?? r).join(', ') || '—'}</td>
+                          <td className="px-3 py-2.5 text-p-muted">{s.days_in_work ?? '—'}</td>
+                          <td className="px-2 text-p-muted2"><ChevronRight className="h-4 w-4" /></td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-
-        <FilterPopover activeCount={activeFilterCount} onReset={resetFilters}>
-          <FilterField label="Статус выплат">
-            <PipelineStatusFilter
-              value={statusFilters}
-              onChange={setStatusFilters}
-              operator={statusFilterOperator}
-              onOperatorChange={setStatusFilterOperator}
-            />
-          </FilterField>
-
-          <FilterField label="Контроль работы">
-            <Select
-              value={operationalFilter}
-              onValueChange={(v) => setOperationalFilter(v as OperationalFilter)}
-            >
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все сигналы" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(OPERATIONAL_FILTER_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FilterField>
-
-          <FilterField label="Год набора">
-            <Select
-              value={intakeYearFilter || 'all'}
-              onValueChange={(v) => setIntakeYearFilter(v === 'all' ? '' : v)}
-            >
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все годы" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все годы</SelectItem>
-                {(facets?.years ?? []).map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.value} · {opt.count}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FilterField>
-
-          <FilterField label="Ступень">
-            <Select value={degreeFilter || 'all'} onValueChange={(v) => setDegreeFilter(v === 'all' ? '' : v)}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все ступени" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все ступени</SelectItem>
-                {(facets?.degrees ?? []).map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {DEGREE_LEVEL_LABELS[opt.value as keyof typeof DEGREE_LEVEL_LABELS] ?? opt.value} · {opt.count}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FilterField>
-
-          <FilterField label="Страна поступления">
-            <Select value={countryFilter || 'all'} onValueChange={(v) => setCountryFilter(v === 'all' ? '' : v)}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все страны" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все страны</SelectItem>
-                {(facets?.countries ?? []).map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.value} · {opt.count}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Ученик подаётся в несколько стран: «основная» отвечает на вопрос
-                «куда он едет», «любая» — «куда вообще подавался». */}
-            {countryFilter.trim() && (
-              <div className="flex rounded-full border border-p-line bg-p-bg p-0.5 text-2xs">
-                <button
-                  type="button"
-                  onClick={() => setCountryPrimaryOnly(false)}
-                  className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${!countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
-                >
-                  Любая
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCountryPrimaryOnly(true)}
-                  className={`flex-1 rounded-full px-2 py-1 font-semibold transition-colors ${countryPrimaryOnly ? 'bg-white text-p-text shadow-sm' : 'text-p-muted'}`}
-                >
-                  Основная
-                </button>
-              </div>
-            )}
-          </FilterField>
-
-          <FilterField label="Программа / услуга">
-            <Select
-              value={serviceTypeFilter || 'all'}
-              onValueChange={(v) => setServiceTypeFilter(v === 'all' ? '' : v)}
-            >
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Все программы" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все программы</SelectItem>
-                {SERVICE_FILTER_OPTIONS.map((type) => (
-                  <SelectItem key={type} value={type}>{SERVICE_TYPE_LABELS[type]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FilterField>
-        </FilterPopover>
       </div>
-
-      {filterChips.length > 0 && (
-        <div className="mb-4">
-          <FilterChips chips={filterChips} onResetAll={resetFilters} />
-        </div>
-      )}
-
-      <div className="border-y border-p-line">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-p-line hover:bg-transparent">
-              <TableHead>Имя</TableHead>
-              <TableHead>Степень</TableHead>
-              <TableHead>Статус</TableHead>
-              <TableHead>Год</TableHead>
-              <TableHead>Дней в работе</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isError ? (
-              /* Строкой, а не карточкой: карточка внутри tbody сломала бы таблицу. */
-              <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center" role="alert">
-                  <p className="text-sm font-bold text-p-text">Не удалось загрузить</p>
-                  <p className="mt-1 text-sm text-p-muted">
-                    {getErrorMessage(error, 'Данные не пришли. Проверьте связь и повторите.')}
-                  </p>
-                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
-                    Повторить
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ) : isLoading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
-                  Загрузка...
-                </TableCell>
-              </TableRow>
-            ) : students.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-p-muted">
-                  У вас пока нет студентов. Откройте общий список и назначьте себя или нужного ментора ответственным.
-                </TableCell>
-              </TableRow>
-            ) : (
-              students.map((student) => (
-                <TableRow key={student.id} className="border-p-line hover:bg-p-bg">
-                  <TableCell className="font-medium">
-                    <Link
-                      to={`/students/${student.id}`}
-                      className="text-p-text hover:text-black hover:underline underline-offset-4"
-                    >
-                      {student.full_name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-wide ${DEGREE_LEVEL_COLORS[student.degree_level]}`}>
-                      {DEGREE_LEVEL_LABELS[student.degree_level]}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {student.pipeline_status ? (
-                      <PipelineStatusTag status={student.pipeline_status} />
-                    ) : (
-                      <span className="text-p-muted2 text-xs">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-p-muted">{student.intake_year}</TableCell>
-                  <TableCell className="text-p-muted">{student.days_in_work ?? '—'}</TableCell>
-                  <TableCell>
-                    <Link
-                      to={`/students/${student.id}`}
-                      className="label-caps text-p-muted hover:text-black transition-colors"
-                    >
-                      Открыть →
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {!isLoading && students.length === 0 && (
-        <div className="mt-4 rounded-card border border-p-line bg-p-bg px-4 py-3 text-sm text-p-muted">
-          У вас нет активных ответственных назначений. В CRM откройте студента и назначьте ментора в блоке «Ответственные»
-          или нажмите «Взять» в общем списке.
-        </div>
-      )}
-
     </div>
   )
 }

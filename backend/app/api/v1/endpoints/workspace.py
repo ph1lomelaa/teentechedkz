@@ -451,6 +451,9 @@ async def _student_summaries(
     if not students:
         return []
     student_ids = [student.id for student in students]
+    # Статус работы — тот же, что в общей базе (договор + Notion), для таблицы «Мои студенты».
+    from app.services.student_work_status import load_work_statuses
+    work_statuses = await load_work_statuses(db, student_ids)
 
     portal_user_ids = [student.user_id for student in students if student.user_id]
     portal_users: dict[uuid.UUID, User] = {}
@@ -623,6 +626,7 @@ async def _student_summaries(
                 "city": student.city,
                 "has_portal_access": bool(student.user_id),
                 "portal_email": portal_user.email if portal_user else None,
+                "pipeline_status": (work_statuses.get(student.id) or {}).get("pipeline_status"),
             },
             "primary_mentor": {"id": str(mentor.id), "name": mentor.name} if mentor else None,
             "my_roles": viewer_roles.get(student.id, []),

@@ -17,6 +17,8 @@ export interface WorkspaceStudentBrief {
   city?: string | null
   has_portal_access: boolean
   portal_email?: string | null
+  /** Статус работы, как в общей базе. */
+  pipeline_status?: string | null
 }
 
 export interface WorkspaceStudentSummary {

@@ -57,19 +57,30 @@ it('поиск сужает список, на узком экране клик 
   expect(location).toBe('/workspace/students/b')
 })
 
-it('фильтр по году набора: чипы с количеством, выбор сужает список', async () => {
+it('фильтр по набору сверху: выбор сужает список, у вариантов есть счётчики', async () => {
   localStorage.clear()
   mocks.students.mockResolvedValue({ items: [...items, { ...items[0], student: { ...items[0].student, id: 'c', full_name: 'Вера Восьмая', intake_year: 2027 } }], total: 3 })
   open()
-  const group = await screen.findByRole('group', { name: 'Год набора' })
-  expect(within(group).getByRole('button', { name: /Набор 2026 · 2/ })).toBeTruthy()
-  fireEvent.click(within(group).getByRole('button', { name: /Набор 2027 · 1/ }))
+  const select = await screen.findByLabelText('Набор')
+  expect(within(select).getByRole('option', { name: 'Набор 2026 · 2' })).toBeTruthy()
+  fireEvent.change(select, { target: { value: '2027' } })
   await waitFor(() => expect(screen.queryByText('Анна Активная')).toBeNull())
   expect(screen.getAllByText('Вера Восьмая').length).toBeGreaterThan(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+  await waitFor(() => expect(screen.getAllByText('Анна Активная').length).toBeGreaterThan(0))
 })
 
-it('одного года — фильтр не показываем', async () => {
+it('фильтры строкой сверху: «Ждёт меня», моя роль, статус', async () => {
+  localStorage.clear()
+  const withStatus = [
+    { ...items[0], my_roles: ['lead'], student: { ...items[0].student, pipeline_status: 'active_work' } },
+    { ...items[1], my_roles: ['country'], student: { ...items[1].student, pipeline_status: 'paused' } },
+  ]
+  mocks.students.mockResolvedValue({ items: withStatus, total: 2 })
   open()
-  await screen.findAllByText('Анна Активная')
-  expect(screen.queryByRole('group', { name: 'Год набора' })).toBeNull()
+  fireEvent.change(await screen.findByLabelText('Моя роль'), { target: { value: 'country' } })
+  await waitFor(() => expect(screen.queryAllByText('Анна Активная')).toHaveLength(0))
+  fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+  fireEvent.change(screen.getByLabelText('Статус'), { target: { value: 'active_work' } })
+  await waitFor(() => expect(screen.queryAllByText('Борис Безроудмапа')).toHaveLength(0))
 })

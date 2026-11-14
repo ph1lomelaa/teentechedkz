@@ -1642,8 +1642,7 @@ export const StudentCardPage: React.FC = () => {
               <EditableInfoRow label="Сумма" display={formatCurrency(contract.amount, contract.currency)}
                 editValue={contract.amount ?? ''} canEdit={canEditContract} type="number"
                 onSave={(v) => updateContractFieldMutation.mutate({ amount: v || null })} />
-              <EditableInfoRow label="Валюта" display={contract.currency} canEdit={canEditContract}
-                onSave={(v) => v && updateContractFieldMutation.mutate({ currency: v.toUpperCase() })} />
+              <InfoRow label="Валюта" value="Тенге (KZT)" />
               <EditableInfoRow label="Статус"
                 display={contract.pipeline_status ? PIPELINE_STATUS_LABELS[contract.pipeline_status] : '—'}
                 editValue={contract.pipeline_status ?? ''} canEdit={canEditContract} type="select"
