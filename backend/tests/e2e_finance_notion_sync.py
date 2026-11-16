@@ -113,11 +113,14 @@ async def counts(student_id, user_id):
 
 
 async def main():
+    finance_desk.EMAIL_QUIET_SECONDS = 0  # склейку проверяет test_finance_mail_matrix
     async with AsyncSessionLocal() as db:
         for old in (await db.execute(select(User).where(User.role == UserRole.finance_manager))).scalars():
             old.is_active = False
+        # Остаток в Notion — не срочное по матрице 14.11; этот бухгалтер включил его в настройках.
         fin = User(name="Бухгалтер", email=f"{PAGE[:6]}@fin.test", hashed_password="x",
-                   role=UserRole.finance_manager, is_active=True)
+                   role=UserRole.finance_manager, is_active=True,
+                   finance_prefs={"urgent": ["offer", "client_fee", "status", "remaining"]})
         st = Student(full_name=NAME, phone="+77005550001", degree_level=DegreeLevel.undergraduate, intake_year=2027)
         db.add_all([fin, st])
         await db.flush()
@@ -169,9 +172,14 @@ async def main():
                                 due_date=date(2027, 1, 10), label="2 из 2")
         db.add_all([a, b])
         await db.flush()
-        db.add(Payment(contract_id=contract.id, type=PaymentType.client_payment, amount=Decimal("450000"),
-                       status=PaymentStatus.paid, paid_at=date(2026, 11, 1), recorded_by=fin_id,
-                       schedule_item_id=a.id, method=PaymentMethod.kaspi))
+        pay = Payment(contract_id=contract.id, type=PaymentType.client_payment, amount=Decimal("450000"),
+                      status=PaymentStatus.paid, paid_at=date(2026, 11, 1), recorded_by=fin_id,
+                      schedule_item_id=a.id, method=PaymentMethod.kaspi)
+        db.add(pay)
+        await db.flush()
+        # С миграции 141 строку закрывает распределение оплаты, а не schedule_item_id.
+        from app.models.finance import PaymentAllocation
+        db.add(PaymentAllocation(payment_id=pay.id, schedule_item_id=a.id, amount=Decimal("450000")))
         await db.flush()
         await finance_desk.sync_contract_to_notion(db, contract, today=date(2026, 11, 1), user=fin,
                                                    paid_now=Decimal("450000"))

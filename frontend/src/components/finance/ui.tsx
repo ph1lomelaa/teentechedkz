@@ -60,7 +60,7 @@ export function FinPageHeader({
       <div className="min-w-0">
         {crumbs && <nav aria-label="Путь" className="mb-2 text-[13px] text-p-muted">{crumbs}</nav>}
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.01em] text-p-text">{title}</h1>
+          <h1 className="text-[24px] font-semibold leading-tight text-p-text">{title}</h1>
           {badges}
         </div>
         {description && <p className="mt-1 text-sm text-p-muted">{description}</p>}
@@ -69,6 +69,9 @@ export function FinPageHeader({
     </header>
   )
 }
+
+/** Таблица внутри карточки рисуется без своей рамки: никакой «рамки в рамке». */
+export const InCardContext = React.createContext(false)
 
 export function FinCard({
   title,
@@ -90,13 +93,13 @@ export function FinCard({
       {(title || actions) && (
         <header className={cn('flex flex-wrap items-center justify-between gap-3 px-5 py-3.5', hasBody && 'border-b border-p-line')}>
           <div className="flex items-baseline gap-3">
-            {title && <h2 className="text-base font-bold text-p-text">{title}</h2>}
+            {title && <h2 className="text-base font-semibold text-p-text">{title}</h2>}
             {meta && <span className="text-[13px] text-p-muted">{meta}</span>}
           </div>
           {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
         </header>
       )}
-      {children}
+      <InCardContext.Provider value={true}>{children}</InCardContext.Provider>
     </section>
   )
 }
@@ -179,7 +182,7 @@ export function FinMetrics({
 export function FinTable({ children, minWidth = 720 }: { children: React.ReactNode; minWidth?: number }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xs" style={{ minWidth }}>{children}</table>
+      <table className="w-full border-collapse text-left text-sm" style={{ minWidth }}>{children}</table>
     </div>
   )
 }
@@ -187,8 +190,8 @@ export function FinTable({ children, minWidth = 720 }: { children: React.ReactNo
 export function Th({ children, right, className }: { children?: React.ReactNode; right?: boolean; className?: string }) {
   return (
     <th className={cn(
-      // Как в таблице «Договоры и акты»: сетка линий, компактные строки.
-      'whitespace-nowrap border-b border-r border-p-line bg-p-bg px-3 py-2 text-left text-xs font-semibold text-p-text last:border-r-0',
+      // Правила дизайна 14.11: только горизонтальные линии, строка 44 px.
+      'h-11 whitespace-nowrap border-b border-p-line bg-[var(--fin-head)] px-3 py-2 text-left text-xs font-semibold text-p-muted',
       right && 'text-right',
       className,
     )}>
@@ -200,7 +203,7 @@ export function Th({ children, right, className }: { children?: React.ReactNode;
 export function Td({ children, right, className, colSpan }: { children?: React.ReactNode; right?: boolean; className?: string; colSpan?: number }) {
   return (
     <td colSpan={colSpan} className={cn(
-      'border-b border-r border-p-line px-3 py-2 align-middle text-p-text last:border-r-0',
+      'h-11 border-b border-p-line px-3 py-2 align-middle text-p-text',
       right && 'whitespace-nowrap text-right',
       className,
     )}>
@@ -251,10 +254,12 @@ export type BadgeTone = 'ok' | 'yellow' | 'neutral' | 'bad' | 'dashed'
 
 const BADGE: Record<BadgeTone, string> = {
   ok: 'bg-[var(--fin-ok-bg)] text-[var(--fin-ok)]',
-  yellow: 'bg-[var(--fin-warn-bg)] text-[var(--fin-warn)]',
+  // Жёлтый — только активный пункт меню и главная кнопка (правила 14.11):
+  // «жёлтые» метки теперь серые, цвет несут только просрочка и «оплачено».
+  yellow: 'bg-[var(--fin-neutral-bg)] text-p-muted',
   neutral: 'bg-[var(--fin-neutral-bg)] text-p-muted',
   bad: 'bg-[var(--fin-bad-bg)] text-[var(--fin-bad)]',
-  dashed: 'border border-dashed border-[#D9A800] bg-transparent text-[var(--fin-warn)]',
+  dashed: 'border border-dashed border-p-line bg-transparent text-p-muted',
 }
 
 export function FinBadge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
@@ -267,6 +272,8 @@ export function FinBadge({ tone, children }: { tone: BadgeTone; children: React.
 
 export function ItemStatus({ item }: { item: ScheduleItem; today?: string }) {
   switch (item.state) {
+    case 'cancelled':
+      return <FinBadge tone="neutral">Отменён</FinBadge>
     case 'paid':
       return <FinBadge tone="ok">Оплачено</FinBadge>
     case 'today':
@@ -399,8 +406,8 @@ export function FinModal({
 
 export function FinAlert({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div role="status" className="mb-5 flex flex-col items-start gap-3 rounded-xl border border-[#F2D675] sm:flex-row sm:flex-wrap sm:items-center bg-[var(--fin-warn-bg)] px-4 py-3 text-sm text-p-text">
-      <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--fin-warn)]" />
+    <div role="status" className="mb-5 flex flex-col items-start gap-3 rounded-xl border border-p-line sm:flex-row sm:flex-wrap sm:items-center bg-white px-4 py-3 text-sm text-p-text">
+      <AlertTriangle className="h-4 w-4 shrink-0 text-p-muted" />
       <div className="min-w-0 w-full flex-1 sm:w-auto">{children}</div>
       {action && <div className="max-w-full shrink-0 [&_button]:whitespace-normal">{action}</div>}
     </div>

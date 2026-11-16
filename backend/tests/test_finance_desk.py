@@ -98,6 +98,7 @@ def test_finance_flow(monkeypatch):
 
 async def run(sent):
     pushed = sent.pop()
+    finance_desk.EMAIL_QUIET_SECONDS = 0  # склейку проверяет test_finance_mail_matrix
     engine = create_async_engine(URL)
     sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     suffix = uuid.uuid4().hex[:8]
@@ -112,6 +113,8 @@ async def run(sent):
             for role in ('admin', 'finance_manager', 'mzk_manager', 'mentor')
         }
         users['finance_manager'].telegram_id = f'tg-{suffix}'
+        # Остаток — не срочное по матрице 14.11: этот финансист включил его в настройках.
+        users['finance_manager'].finance_prefs = {'urgent': ['offer', 'client_fee', 'status', 'remaining']}
         db.add_all(users.values())
         await db.flush()
         student = Student(full_name=f'Айгерим Финансовая {suffix}', phone=f'+7700{suffix[:7]}',
@@ -199,7 +202,8 @@ async def run(sent):
                 Notification.kind == 'finance_change', Notification.user_id == ids['finance_manager']))).scalars().all()
             assert len(notes) == 1, [n.title for n in notes]
             note = notes[0]
-            assert note.title.startswith(f'Айгерим Финансовая {suffix}: 3 изменения'), note.title
+            # Суть первой строкой, как тема письма (задание 6): короткое имя и что случилось.
+            assert note.title.startswith('Айгерим Ф.: 3 изменения'), note.title
             assert 'Остаток клиента: 800 000 ₸ → 900 000 ₸' in note.body
             assert 'УП: оплачено' in note.body and 'Дата оплаты' in note.body
             assert note.link == f'/finance/contracts/{contract_id}'
@@ -237,9 +241,9 @@ async def run(sent):
             await db.commit()
             await finance_desk.flush_notifications(db)
             notes = (await db.execute(select(Notification).where(
-                Notification.kind == 'finance_change', Notification.title.contains(f'Тимур Очередь {suffix}')))).scalars().all()
+                Notification.kind == 'finance_change', Notification.link.contains(str(other_contract_id))))).scalars().all()
             assert {n.user_id for n in notes} == {ids['finance_manager']}, 'Автору правки (МЗК) не шлём'
-            assert any('в платформе' in n.title for n in notes)
+            assert any(', МЗК)' in n.body for n in notes), 'Кто изменил — имя и роль'
             assert all(fin.name not in n.body for n in notes), 'Собственную правку исключаем отдельно'
             assert any('Остаток клиента' in n.body for n in notes), 'Чужая правка в смешанной сводке сохраняется'
 
@@ -275,12 +279,12 @@ async def run(sent):
         ours = [l for l in letters if suffix in l[2]]
         assert ours and all(l[0] == [f'finance_manager-{suffix}@example.test'] for l in ours)
         assert any('Остаток увеличился на 100\u00a0000 ₸: 800\u00a0000 ₸ → 900\u00a0000 ₸' in l[2] for l in ours)
-        assert any(l[1].startswith('Айгерим Ф. — ') for l in ours)
+        assert any(l[1].startswith('Айгерим Ф.: ') for l in ours)
         assert any(f'/finance/contracts/{contract_id}' in l[2] for l in ours)
 
         # Колокольчик CRM читает data/unread_count.
         bell = await call('GET', '/notifications?limit=50')
-        assert [n['link'] for n in bell['data'] if f'Айгерим Финансовая {suffix}' in n['title']] == [f'/finance/contracts/{contract_id}']
+        assert [n['title'] for n in bell['data'] if n['link'] == f'/finance/contracts/{contract_id}'][0].startswith('Айгерим Ф.: ')
         assert bell['unread_count'] >= 1 and bell['items'] == bell['data']
 
         # ------------------------------------------------ права
@@ -397,8 +401,22 @@ async def run(sent):
         assert (await call('POST', '/finance/notion-import'))['created'] == 0, 'Повтор ничего не дублирует'
 
         # Расхождение: убрали платёж из графика — остаток больше графика.
-        await call('DELETE', f"/finance/schedule/{today['id']}", expected=409)
-        await call('DELETE', f"/finance/schedule/{later['id']}", expected=204)
+        # Ничего не удаляем: строка отменяется с причиной (решение 14.11).
+        await call('DELETE', f"/finance/schedule/{later['id']}", expected=405)
+        await call('POST', f"/finance/schedule/{today['id']}/cancel", json={'reason': 'клиент оплатил одним платежом'}, expected=409)
+        await call('POST', f"/finance/schedule/{later['id']}/cancel", json={'reason': ''}, expected=422)
+        await call('POST', f"/finance/schedule/{later['id']}/cancel", role='mzk_manager', json={'reason': 'ошибка'}, expected=403)
+        cancelled = await call('POST', f"/finance/schedule/{later['id']}/cancel", json={'reason': 'договорились перенести в допсоглашение'})
+        assert cancelled['state'] == 'cancelled' and cancelled['cancel_reason'] == 'договорились перенести в допсоглашение'
+        await call('POST', f"/finance/schedule/{later['id']}/cancel", json={'reason': 'ещё раз'}, expected=409)
+        await call('POST', f"/finance/schedule/{later['id']}/pay", json={'amount': '1000', 'paid_at': TODAY.isoformat(), 'method': 'kaspi'}, expected=409)
+        await call('PATCH', f"/finance/schedule/{later['id']}", json={'amount': '1000'}, expected=409)
+        detail = await call('GET', f'/finance/contracts/{contract_id}')
+        assert next(i for i in detail['schedule'] if i['id'] == later['id'])['state'] == 'cancelled', 'Осталась в истории'
+        assert later['id'] not in [i['id'] for i in await call('GET', '/finance/expected')]
+        async with sessions() as db:
+            from app.models.finance import PaymentScheduleItem
+            assert await db.get(PaymentScheduleItem, uuid.UUID(later['id'])) is not None, 'Строка не удалена из базы'
         rv = await call('GET', '/finance/review')
         disc = [d for d in rv['discrepancies'] if d['contract_id'] == str(contract_id)]
         assert disc and Decimal(disc[0]['undistributed']) == Decimal('450000')

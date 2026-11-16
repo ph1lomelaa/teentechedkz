@@ -72,6 +72,8 @@ def _to_dict(c: RefundCase) -> dict:
         "approved_by": str(c.approved_by) if c.approved_by else None,
         "approved_at": c.approved_at.isoformat() if c.approved_at else None,
         "execution_confirmation": c.execution_confirmation,
+        "approved_amount": str(c.approved_amount) if c.approved_amount is not None else None,
+        "payout_payment_id": str(c.payout_payment_id) if c.payout_payment_id else None,
         "bonus_paid_at": c.bonus_paid_at.isoformat() if c.bonus_paid_at else None,
     }
 
@@ -118,11 +120,29 @@ async def create_refund_case(
         calculation=body.get("calculation"),
     )
     db.add(case)
+    await db.flush()
+    await _finance_event(db, case, "refund_requested", case.amount, current_user)
     await db.commit()
     result = await db.execute(
         select(RefundCase).options(selectinload(RefundCase.mzk_manager)).where(RefundCase.id == case.id)
     )
     return _to_dict(result.scalar_one())
+
+
+async def _finance_event(db, case: RefundCase, field: str, amount, actor) -> None:
+    """Возврат — денежное событие для финансиста (задание 9): колокольчик и
+    срочное письмо по матрице. Без ученика событие не пишется."""
+    from app.models.contract import Contract
+    from app.models.student import Student
+    from app.services import finance_desk
+    contract = await db.get(Contract, case.contract_id) if case.contract_id else None
+    student_id = case.student_id or (contract.student_id if contract else None)
+    student = await db.get(Student, student_id) if student_id else None
+    if student is None:
+        return
+    await finance_desk.record_change(db, student=student, contract=contract, field=field, old=None,
+                                     new=str(amount) if amount is not None else "сумма не указана",
+                                     source="platform", actor=actor, source_ref=f"{field}:{case.id}")
 
 
 @router.patch("/{case_id}/bonus-paid")
@@ -266,9 +286,22 @@ async def approve_refund_case(case_id: uuid.UUID, body: dict, db: Annotated[Asyn
         approval_note = f"{approval_note}\nОснование изменения: {written_approval}"
     case.decision = decision
     case.approval_note = approval_note
+    # Сумма к возврату может отличаться от запрошенной (задание 9).
+    if body.get("approved_amount") not in (None, ""):
+        from decimal import Decimal, InvalidOperation
+        try:
+            approved = Decimal(str(body["approved_amount"]))
+        except InvalidOperation:
+            raise HTTPException(status_code=422, detail="Сумма к возврату — число")
+        if approved < 0:
+            raise HTTPException(status_code=422, detail="Сумма к возврату не может быть отрицательной")
+        case.approved_amount = approved
+    elif case.approved_amount is None:
+        case.approved_amount = case.amount
     case.approved_by = current_user.id
     case.approved_at = datetime.now(timezone.utc)
     case.status = RefundCaseStatus.awaiting_execution
+    await _finance_event(db, case, "refund_approved", case.approved_amount, current_user)
     await db.commit()
     result = await db.execute(select(RefundCase).options(selectinload(RefundCase.mzk_manager)).where(RefundCase.id == case.id))
     return _to_dict(result.scalar_one())

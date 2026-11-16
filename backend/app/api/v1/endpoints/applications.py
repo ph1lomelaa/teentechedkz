@@ -14,6 +14,7 @@ from app.models.student import Student
 from app.models.university import University
 from app.models.user import UserRole
 from app.schemas.application import ApplicationCreate, ApplicationUpdate, StudentApplicationOut
+from app.services import finance_desk
 from app.services.admission_guard import require_portal_credentials
 from app.services.country_flags import attach_flags
 from app.services.mentor_scope import require_student_access
@@ -68,6 +69,64 @@ async def list_student_applications(
     apps = await _load_for_student(db, student_id)
     await attach_flags(db, [a.university_ref for a in apps if a.university_ref])
     return {"items": [_app_to_dict(a) for a in apps]}
+
+
+@router.get("/students/{student_id}/offers")
+async def student_offers(
+    student_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    """Блок «Оффер» в карточке ученика (15.11.2026): заявки с оффером или
+    зачислением, когда и кто отметил, остаток и срок оплаты после оффера.
+    Хранится всё в заявках — это только выборка для карточки."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+    from app.models.contract import Contract
+    from app.models.finance import FinanceChangeEvent
+    from app.models.user import User
+    from app.services.admission_guard import GUARDED_STATUSES
+
+    await _assert_read(db, student_id, current_user)
+    apps = [a for a in await _load_for_student(db, student_id) if a.submission_status in GUARDED_STATUSES]
+    marks: dict[str, tuple] = {}
+    if apps:
+        ids = {str(a.id) for a in apps}
+        for ref, at, actor in (await db.execute(
+            select(FinanceChangeEvent.source_ref, FinanceChangeEvent.created_at, User)
+            .outerjoin(User, User.id == FinanceChangeEvent.actor_id)
+            .where(FinanceChangeEvent.student_id == student_id,
+                   FinanceChangeEvent.field == finance_desk.OFFER_FIELD)
+        )).all():
+            app_id = (ref or "").split(":")[1] if (ref or "").startswith("offer:") else None
+            if app_id in ids and (app_id not in marks or at > marks[app_id][0]):
+                marks[app_id] = (at, actor)
+    almaty = ZoneInfo("Asia/Almaty")
+    items = []
+    for a in apps:
+        at, actor = marks.get(str(a.id), (None, None))
+        items.append({
+            "application_id": str(a.id), "university": a.university, "country": a.country,
+            "status": a.submission_status.value,
+            "marked_at": at.isoformat() if at else None,
+            "marked_by": finance_desk.actor_label(actor) if actor else None,
+        })
+    items.sort(key=lambda i: i["marked_at"] or "", reverse=True)
+    contract = (await db.execute(select(Contract).where(Contract.student_id == student_id)
+                                 .order_by(Contract.created_at.desc()).limit(1))).scalar_one_or_none()
+    # Срок оплаты — от первого оффера: остаток платят после любого из них.
+    first = min((at for at, _ in marks.values()), default=None)
+    due = (first.astimezone(almaty).date() + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS)) if first else None
+    remaining = contract.client_remaining_amount if contract is not None else None
+    return {
+        "items": items,
+        "remaining": str(remaining) if remaining is not None else None,
+        "currency": (contract.currency if contract is not None else None) or "KZT",
+        "due_date": due.isoformat() if due and remaining and remaining > 0 else None,
+        "after_offer_days": settings.FINANCE_AFTER_OFFER_DAYS,
+    }
 
 
 @router.get("/portal/applications", response_model=list[StudentApplicationOut])
@@ -126,6 +185,8 @@ async def create_application(
     )
     await require_portal_credentials(db, app, None, app.submission_status)
     db.add(app)
+    await db.flush()
+    await finance_desk.record_offer(db, app, actor=current_user, old_status=None)
     await db.commit()
     await db.refresh(app)
     return _app_to_dict(app)
@@ -160,6 +221,8 @@ async def update_application(
             setattr(app, field, updates[field])
     # После присвоения: вуз мог смениться в том же запросе, что и статус.
     await require_portal_credentials(db, app, old_status, app.submission_status)
+    # Оффер — сигнал финансисту: остаток по договору платится после него.
+    await finance_desk.record_offer(db, app, actor=current_user, old_status=old_status)
 
     await db.commit()
     await db.refresh(app)
@@ -179,6 +242,8 @@ async def delete_application(
     # Скоуп проверяем после загрузки: иначе ментор мог удалить заявку чужого
     # студента, зная только её id.
     await _assert_manage(db, app.student_id, current_user)
+    # Удалили заявку с оффером — для финансиста это отмена оффера.
+    await finance_desk.record_offer(db, app, actor=current_user, old_status=app.submission_status, deleted=True)
     await db.delete(app)
     await db.commit()
     return {"message": "Deleted"}

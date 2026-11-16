@@ -3,7 +3,7 @@
 График — то, чего не было ни в Notion, ни в CRM: у договора была одна «дата
 остатка», и в день оплаты финансисту не на что было смотреть. Строка графика —
 один ожидаемый платёж (сумма + срок). Статус не хранится, а считается из
-привязанных платежей (`payments.schedule_item_id`): хранимый статус пришлось бы
+распределённых на строку оплат (`payment_allocations`): хранимый статус пришлось бы
 синхронизировать с каждым внесением и правкой платежа.
 
 Журнал изменений — след того, что МЗК поменял в пайплайне Notion деньги или
@@ -17,7 +17,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -48,14 +48,68 @@ class PaymentScheduleItem(Base):
     label: Mapped[str | None] = mapped_column(String(200), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     currency: Mapped[str] = mapped_column(String(10), default="KZT")
-    due_date: Mapped[date] = mapped_column(Date, index=True)
+    # Пусто у строки «после оффера», пока оффера нет: при отметке оффера срок
+    # = дата оффера + FINANCE_AFTER_OFFER_DAYS (миграция 141).
+    due_date: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
+    after_offer: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    # Строка не удаляется, а отменяется с причиной (миграция 140): остаётся
+    # в истории договора, но не входит в суммы, списки и календарь.
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     contract: Mapped["Contract"] = relationship()
     student: Mapped["Student"] = relationship()
+
+
+class PaymentAllocation(Base):
+    """Сколько из оплаты закрыло строку графика (миграция 141). Одна оплата
+    может закрыть несколько строк или часть строки; нераспределённая часть
+    оплаты — аванс клиента. Считаются только оплаты со status == paid."""
+    __tablename__ = "payment_allocations"
+    __table_args__ = (
+        UniqueConstraint("payment_id", "schedule_item_id", name="uq_payment_allocation"),
+        CheckConstraint("amount > 0", name="ck_payment_allocation_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    payment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payments.id", ondelete="CASCADE"), index=True)
+    schedule_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_schedule_items.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DebtAction(Base):
+    """Действие по просроченному платежу (задание 8, миграция 144): контакт,
+    обещание оплатить, напоминание МЗК и его ответ, передача руководителю,
+    перенос срока, нарушенное обещание. Лента не редактируется и не удаляется."""
+    __tablename__ = "debt_actions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    schedule_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_schedule_items.id", ondelete="CASCADE"), index=True)
+    contract_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contracts.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    channel: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    with_whom: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promise_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    promise_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class FinanceClosedMonth(Base):
+    """Закрытый месяц (миграция 146): оплаты за него меняет только админ с причиной."""
+    __tablename__ = "finance_closed_months"
+
+    month: Mapped[date] = mapped_column(Date, primary_key=True)  # первое число месяца
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class FinanceChangeStatus(str, enum.Enum):

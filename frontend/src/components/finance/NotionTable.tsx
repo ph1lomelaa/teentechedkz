@@ -5,15 +5,15 @@
  * «Договоры» и списки на «Сегодня» выглядели и работали одинаково.
  * Данные приходят целиком, фильтрация — здесь же, без ожидания сервера.
  */
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Download } from 'lucide-react'
-import { PipelineToolbar, type OptionCount } from '@/components/students/pipeline/PipelineToolbar'
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronDown, Download, Search } from 'lucide-react'
+import { MultiFilter } from '@/components/shared/MultiFilter'
 import { EMPTY, NO_GROUP, type Filters } from '@/components/students/pipeline/viewState'
 import { getErrorMessage } from '@/lib/errorMessage'
-import { FinButton } from './ui'
+import { FinButton, InCardContext } from './ui'
 import { downloadCsv } from './format'
 
-export type QuickFilter<T> = { key: string; label: string; test: (row: T) => boolean }
+export type QuickFilter<T> = { key: string; label: string; test: (row: T) => boolean; /** Виден только когда выбран (переход по ссылке). */ hidden?: boolean }
 
 export interface NotionTableProps<T> {
   rows: T[] | undefined
@@ -22,7 +22,7 @@ export interface NotionTableProps<T> {
   onRetry?: () => void
   rowKey: (row: T) => string
   /** Первая колонка: имя ученика, всегда видна, по нажатию открывает договор. */
-  title: { field: string; text: (row: T) => string; onOpen?: (row: T) => void }
+  title: { field: string; text: (row: T) => string; onOpen?: (row: T) => void; /** Страница ученика в Notion — ссылка рядом с именем. */ notion?: (row: T) => string | null | undefined }
   /** Поля, видимые по умолчанию, и те, что можно включить в «Поля». */
   base: string[]
   extra?: string[]
@@ -35,8 +35,16 @@ export interface NotionTableProps<T> {
   /** Кнопка в конце строки («Отметить оплату»). */
   action?: (row: T) => ReactNode
   quick?: QuickFilter<T>[]
+  /** Вкладки сверху: по умолчанию выбрана одна. false — можно включить несколько. */
+  exclusiveQuick?: boolean
+  /** Поля с выпадающим фильтром «МЗК: все» в строке поиска (по умолчанию — поля группировки). */
+  filterFields?: string[]
+  /** Итоговая строка по текущему фильтру: значения по полям («Сумма» → «12 000 000 ₸»). */
+  totals?: (rows: T[]) => Partial<Record<string, ReactNode>>
   initialQuick?: string[]
   groupFields: string[]
+  /** Порядок групп, если он не по алфавиту: «Месяц» — по дате, а не «Декабрь» раньше «Ноября». */
+  groupSortKey?: (row: T, group: string) => string | undefined
   defaultGroup?: string
   defaultSort?: { field: string; direction: 'asc' | 'desc' }
   searchText: (row: T) => string[]
@@ -61,6 +69,7 @@ function readFields(key: string): string[] | null {
 
 export function NotionTable<T>(props: NotionTableProps<T>) {
   const { values, title } = props
+  const inCard = useContext(InCardContext)
   const numeric = useMemo(() => new Set(props.numeric ?? []), [props.numeric])
   const dates = useMemo(() => new Set(props.dates ?? []), [props.dates])
   const [search, setSearch] = useState(props.initialSearch ?? '')
@@ -108,9 +117,14 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [all, needle, quick, filters, sort, direction])
   const groupOf = (row: T) => group === NO_GROUP ? '' : valuesOf(row, group)[0] || 'Не заполнено'
-  const rows = group === NO_GROUP ? filtered : [...filtered].sort((a, b) => groupOf(a).localeCompare(groupOf(b), 'ru', { numeric: true }))
+  const groupKey = (row: T) => props.groupSortKey?.(row, group) ?? groupOf(row)
+  // Группы идут в том же направлении, что и сортировка таблицы.
+  const rows = group === NO_GROUP ? filtered : [...filtered].sort((a, b) => {
+    const order = groupKey(a).localeCompare(groupKey(b), 'ru', { numeric: true })
+    return direction === 'desc' && props.groupSortKey?.(a, group) !== undefined ? -order : order
+  })
   const counts = rows.reduce((m, r) => m.set(groupOf(r), (m.get(groupOf(r)) ?? 0) + 1), new Map<string, number>())
-  const optionCounts = (field: string): { options: OptionCount[]; empty: number } => {
+  const optionCounts = (field: string): { options: { value: string; count: number }[]; empty: number } => {
     const tally = new Map<string, number>(); let empty = 0
     for (const row of all) { const list = valuesOf(row, field); if (!list.length) empty++; list.forEach(v => tally.set(v, (tally.get(v) ?? 0) + 1)) }
     return { options: [...tally].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count), empty }
@@ -127,33 +141,60 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
   }
   const columns = fields.length + (props.action ? 1 : 0)
 
+  const pad = inCard ? 'px-5' : ''
+  // Вкладки как в «Общей базе»: выбран ровно один вид, рядом число строк.
+  const given = props.quick ?? []
+  const tabs: QuickFilter<T>[] = !given.length || given.some(q => q.key === 'all') ? given : [{ key: 'all', label: 'Все', test: () => true }, ...given]
+  const isOn = (key: string) => quick.has(key) || (key === 'all' && quick.size === 0)
+  const tabCount = (q: QuickFilter<T>) => all.filter(q.test).length
+  const filterFields = (props.filterFields ?? props.groupFields).filter(f => !numeric.has(f) && !dates.has(f))
+  const chosen = (field: string) => filters[field]?.values ?? []
+  const setChosen = (field: string, list: string[]) => setFilters(old => {
+    const next = { ...old }
+    if (list.length) next[field] = { operator: 'is', values: list }; else delete next[field]
+    return next
+  })
+  const hasFilters = !!search || Object.keys(filters).length > 0
   return <div className="space-y-3">
-    <div className="flex flex-wrap items-center gap-2">
-      {(props.quick ?? []).map(q => <button key={q.key} type="button" aria-pressed={quick.has(q.key)} onClick={() => setQuick(old => toggle(old, q.key))}
-        className={`h-8 rounded-pill border px-3 text-sm ${quick.has(q.key) ? 'border-p-text bg-p-chip text-p-chip-text' : 'border-dashed border-p-line text-p-muted hover:text-p-text'}`}>{q.label}</button>)}
+    <div className={`flex flex-wrap items-center gap-2 ${pad}`}>
+      <div className="relative w-full sm:w-[260px]">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-p-muted2" aria-hidden="true" />
+        <input aria-label="Поиск" placeholder="Имя, телефон" value={search} onChange={e => setSearch(e.target.value)}
+          className="h-9 w-full rounded-ctl border border-p-line bg-p-panel pl-8 pr-2 text-sm text-p-text placeholder:text-p-muted2" />
+      </div>
+      {tabs.length > 0 && <ViewSelect options={tabs.filter(q => !q.hidden || quick.has(q.key)).map(q => ({ key: q.key, label: q.label, count: props.rows ? tabCount(q) : undefined }))}
+        value={tabs.find(q => isOn(q.key))?.key ?? 'all'} onChange={key => setQuick(new Set([key]))} />}
+      {filterFields.map(field => <MultiFilter key={field} label={field} value={chosen(field)} onChange={list => setChosen(field, list)}
+        options={optionCounts(field).options.map(o => ({ value: o.value, label: o.value, count: o.count }))} />)}
       {props.extraControls}
-      <span className="ml-auto"><FinButton size="sm" disabled={!rows.length} onClick={exportCsv}><Download className="h-4 w-4" aria-hidden="true" />Экспорт</FinButton></span>
+      {hasFilters && <button type="button" className="h-9 px-2 text-xs text-p-muted underline underline-offset-2 hover:text-p-text"
+        onClick={() => { setSearch(''); setFilters({}) }}>Сбросить</button>}
+      <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+        {props.groupFields.length > 0 && <>
+          <span className="text-xs font-semibold text-p-muted">Группировка</span>
+          <div className="flex rounded-[10px] bg-p-panel2 p-[3px]">
+            {[NO_GROUP, ...props.groupFields].map(f => <button key={f} type="button" aria-pressed={group === f} onClick={() => setGroup(f)}
+              className={`min-h-8 rounded-lg px-2.5 text-xs font-semibold ${group === f ? 'bg-white text-p-text shadow-sm' : 'text-p-muted hover:text-p-text'}`}>{f === NO_GROUP ? 'Нет' : f}</button>)}
+          </div>
+        </>}
+        {toggleable.length > shown.length || (props.extra ?? []).length > 0 ? <ColumnsMenu fields={toggleable} shown={shown} onChange={setVisible} /> : null}
+        <FinButton size="sm" disabled={!rows.length} onClick={exportCsv}><Download className="h-4 w-4" aria-hidden="true" />Экспорт</FinButton>
+      </div>
     </div>
-    <PipelineToolbar view="table" search={search} onSearch={setSearch} filters={filters} onFiltersChange={setFilters}
-      fields={[title.field, ...toggleable]} optionCounts={optionCounts}
-      inputType={f => dates.has(f) ? 'date' : numeric.has(f) ? 'number' : 'text'}
-      group={group} groupFields={props.groupFields} onGroup={setGroup}
-      sort={sort} direction={direction} onSort={(f, d) => { setSort(f); setDirection(d) }}
-      toggleableFields={toggleable} visibleFields={shown} onVisibleFields={setVisible}
-      onReset={() => { setSearch(''); setFilters({}); setQuick(new Set()) }} />
-    {props.loading && <p role="status" className="text-sm text-p-muted">Загрузка…</p>}
-    {!!props.error && <p role="alert" className="text-sm">{getErrorMessage(props.error, 'Не удалось загрузить список')} {props.onRetry && <button className="underline" onClick={props.onRetry}>Повторить</button>}</p>}
-    {props.rows && <p className="text-sm text-p-muted">
+    {props.loading && <p role="status" className={`text-sm text-p-muted ${pad}`}>Загрузка…</p>}
+    {!!props.error && <p role="alert" className={`text-sm ${pad}`}>{getErrorMessage(props.error, 'Не удалось загрузить список')} {props.onRetry && <button className="underline" onClick={props.onRetry}>Повторить</button>}</p>}
+    {props.rows && <p className={`text-sm text-p-muted ${pad}`}>
       {props.countLabel}: {rows.length}{rows.length !== all.length ? ` из ${all.length}` : ''}
       {props.summary && rows.length > 0 && <span className="ml-2 font-semibold text-p-text">{props.summary(rows)}</span>}
     </p>}
-    {props.rows && !!rows.length && <div className="overflow-x-auto rounded-panel border border-p-line bg-p-bg">
-      <table className="min-w-max border-collapse text-left text-xs">
-        <thead><tr className="bg-p-bg">
-          {fields.map(field => <th key={field} className={`whitespace-nowrap border-b border-r border-p-line px-3 py-2 ${field === title.field ? 'sticky left-0 z-20 bg-p-bg' : ''} ${numeric.has(field) ? 'text-right' : ''}`}>
+    {/* Один вид таблиц во всём разделе: белая карточка, серая шапка, только горизонтальные линии. */}
+    {props.rows && !!rows.length && <div className={inCard ? 'overflow-x-auto border-y border-p-line bg-white' : 'overflow-x-auto rounded-xl border border-p-line bg-white'}>
+      <table className="w-full min-w-max border-collapse text-left text-sm">
+        <thead><tr className="bg-[var(--fin-head)]">
+          {fields.map(field => <th key={field} className={`h-11 whitespace-nowrap border-b border-p-line px-3 py-2 text-xs font-semibold text-p-muted ${field === title.field ? 'sticky left-0 z-20 bg-[var(--fin-head)]' : ''} ${numeric.has(field) ? 'text-right' : ''}`}>
             <button type="button" onClick={() => { setSort(field); setDirection(sort === field && direction === 'asc' ? 'desc' : 'asc') }}>{field} {sort === field ? direction === 'asc' ? '↑' : '↓' : ''}</button>
           </th>)}
-          {props.action && <th className="border-b border-p-line px-3 py-2"><span className="sr-only">Действие</span></th>}
+          {props.action && <th className="sticky right-0 z-20 border-b border-l border-p-line bg-[var(--fin-head)] px-3 py-2"><span className="sr-only">Действие</span></th>}
         </tr></thead>
         <tbody>{rows.map((row, index) => {
           const key = groupOf(row)
@@ -165,19 +206,80 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
                 <span aria-hidden="true" className="w-3 text-center">{collapsed.has(key) ? '+' : '−'}</span>{key} <span className="font-normal text-p-muted">· {counts.get(key) ?? 0}</span>
               </button></th></tr>}
             {!collapsed.has(key) && <tr className="group border-b border-p-line hover:bg-p-panel">
-              {fields.map(field => <td key={field} className={`whitespace-nowrap border-r border-p-line px-3 py-2 align-middle ${field === title.field ? 'sticky left-0 z-10 bg-p-bg font-medium group-hover:bg-p-panel' : ''} ${numeric.has(field) ? 'text-right tabular-nums' : ''}`}>
+              {fields.map(field => <td key={field} className={`h-11 whitespace-nowrap px-3 py-2 align-middle ${field === title.field ? 'sticky left-0 z-10 bg-white font-medium group-hover:bg-p-panel' : ''} ${numeric.has(field) ? 'text-right tabular-nums' : ''}`}>
                 {field === title.field
                   ? (title.onOpen
                     ? <button type="button" className="underline decoration-p-line underline-offset-4 hover:decoration-p-text" onClick={() => title.onOpen!(row)}>{title.text(row)}</button>
                     : title.text(row))
                   : render(row, field)}
+                {field === title.field && title.notion?.(row) && <a href={title.notion(row)!} target="_blank" rel="noreferrer"
+                  className="ml-2 text-xs font-normal text-p-muted underline underline-offset-2 hover:text-p-text" title="Открыть страницу ученика в Notion">Notion ↗</a>}
               </td>)}
-              {props.action && <td className="whitespace-nowrap px-3 py-1.5 text-right align-middle">{props.action(row)}</td>}
+              {/* Кнопка действия всегда видна: колонка закреплена справа. */}
+              {props.action && <td className="sticky right-0 z-10 whitespace-nowrap border-l border-p-line bg-white px-3 py-1.5 text-right align-middle group-hover:bg-p-panel">{props.action(row)}</td>}
             </tr>}
           </Fragment>
         })}</tbody>
+        {props.totals && (() => {
+          const t = props.totals(rows)
+          return <tfoot><tr className="bg-p-panel2 font-semibold">
+            {fields.map(field => <td key={field} className={`h-11 whitespace-nowrap border-t border-p-line px-3 py-2 ${field === title.field ? 'sticky left-0 z-10 bg-p-panel2' : ''} ${numeric.has(field) ? 'text-right tabular-nums' : ''}`}>
+              {field === title.field ? `Итого: ${rows.length}` : t[field] ?? ''}
+            </td>)}
+            {props.action && <td className="border-t border-p-line" />}
+          </tr></tfoot>
+        })()}
       </table>
     </div>}
-    {props.rows && !rows.length && <p className="text-sm text-p-muted">{props.empty ?? 'По выбранным условиям ничего нет.'}</p>}
+    {props.rows && !rows.length && <p className={`text-sm text-p-muted ${pad}`}>{props.empty ?? 'По выбранным условиям ничего нет.'}</p>}
+  </div>
+}
+
+/** «Столбцы · N»: какие колонки показывать. Как в «Общей базе». */
+function ColumnsMenu({ fields, shown, onChange }: { fields: string[]; shown: string[]; onChange: (list: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [])
+  return <div ref={root} className="relative">
+    <FinButton size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>Столбцы · {shown.length + 1}</FinButton>
+    {open && <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-xl border border-p-line bg-white p-3 text-sm text-p-text shadow-lg">
+      <p className="mb-2 text-xs font-bold text-p-muted">Показывать столбцы</p>
+      {fields.map(f => <label key={f} className="flex min-h-8 cursor-pointer items-center gap-2">
+        <input type="checkbox" checked={shown.includes(f)} onChange={() => onChange(shown.includes(f) ? shown.filter(x => x !== f) : fields.filter(x => x === f || shown.includes(x)))} />{f}
+      </label>)}
+    </div>}
+  </div>
+}
+
+/** Вид списка («Активные», «С просрочкой», «Все») — одной выпадашкой в строке фильтров. */
+function ViewSelect({ options, value, onChange }: { options: { key: string; label: string; count?: number }[]; value: string; onChange: (key: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false) }
+    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [])
+  const current = options.find(o => o.key === value) ?? options[0]
+  const isAll = current?.key === 'all'
+  return <div ref={root} className="relative">
+    <button type="button" aria-label="Показать" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}
+      className={`flex min-h-9 items-center gap-2 rounded-ctl border px-3 text-xs ${isAll ? 'border-p-line bg-p-panel text-p-text' : 'border-p-accent-dim bg-p-chip text-p-chip-text'}`}>
+      <span>Показать: <b className="font-semibold">{current?.label}</b>{current?.count != null && <span className="ml-1 tabular-nums opacity-70">{current.count}</span>}</span>
+      <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+    </button>
+    {open && <div role="listbox" aria-label="Показать" className="absolute left-0 top-full z-40 mt-2 w-64 rounded-xl border border-p-line bg-white p-1.5 text-sm text-p-text shadow-lg">
+      {options.map(o => <button key={o.key} type="button" role="option" aria-selected={o.key === current?.key} onClick={() => { onChange(o.key); setOpen(false) }}
+        className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-p-panel2 ${o.key === current?.key ? 'font-semibold' : ''}`}>
+        <Check className={`h-3.5 w-3.5 shrink-0 ${o.key === current?.key ? '' : 'invisible'}`} aria-hidden="true" />
+        <span className="flex-1">{o.label}</span>{o.count != null && <span className="text-xs tabular-nums text-p-muted">{o.count}</span>}
+      </button>)}
+    </div>}
   </div>
 }

@@ -36,7 +36,7 @@ type Props = {
 }
 
 const sourceNames: Record<string, string> = { telegram: 'Telegram', whatsapp: 'WhatsApp', manual_upload: 'Загрузка' }
-const order: DocType[] = ['certificate', 'achievement', 'transcript', 'offer_letter', 'id_scan', 'resume', 'contract_scan', 'onboarding', 'other']
+const order: DocType[] = ['certificate', 'achievement', 'transcript', 'offer_letter', 'id_scan', 'resume', 'contract_scan', 'addendum_scan', 'onboarding', 'other']
 const forbidden = /[/\\:*?"<>|]/g
 
 export function documentName(doc: Doc) {

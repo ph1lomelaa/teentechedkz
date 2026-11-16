@@ -37,11 +37,15 @@ def test_durable_claim_mixed_authors_unknown_timeout_and_restart():
 
 
 async def scenario():
+    from app.services import finance_desk
+    finance_desk.EMAIL_QUIET_SECONDS = 0  # склейку проверяет test_finance_mail_matrix
     engine = create_async_engine(URL)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     suffix = uuid.uuid4().hex
     async with sessions() as db:
-        user = User(name='Финансист Очередь', email=f'outbox-{suffix}@example.test', role=UserRole.finance_manager, hashed_password='x', is_active=True)
+        # Остаток — не срочное по матрице 14.11: финансист включил его в настройках.
+        user = User(name='Финансист Очередь', email=f'outbox-{suffix}@example.test', role=UserRole.finance_manager, hashed_password='x', is_active=True,
+                    finance_prefs={'urgent': ['offer', 'client_fee', 'status', 'remaining']})
         other = User(name='МЗК Очередь', email=f'author-{suffix}@example.test', role=UserRole.mzk_manager, hashed_password='x', is_active=True)
         student = Student(full_name=f'Очередь Студент {suffix}', degree_level=DegreeLevel.undergraduate, intake_year=2027, phone=f"+7700{uuid.uuid4().int % 10000000:07d}")
         db.add_all([user, other, student]); await db.flush()

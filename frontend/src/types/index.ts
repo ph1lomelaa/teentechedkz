@@ -354,6 +354,8 @@ export interface Payment {
 export interface Contract {
   id: string
   student_id?: string
+  /** Номер договора (миграция 142). */
+  number?: string | null
   signed_date?: string
   amount?: string
   currency: string
@@ -450,6 +452,7 @@ export type DocType =
   | 'id_scan'
   | 'offer_letter'
   | 'contract_scan'
+  | 'addendum_scan'
   | 'transcript'
   | 'resume'
   | 'onboarding'
@@ -482,6 +485,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   id_scan: 'Скан документа',
   offer_letter: 'Оффер',
   contract_scan: 'Скан договора',
+  addendum_scan: 'Скан допсоглашения',
   transcript: 'Транскрипт',
   resume: 'Резюме',
   onboarding: 'Онбординг',
@@ -952,7 +956,7 @@ export interface StudentFull extends StudentListItem {
 
 export interface StudentAlert {
   level: 'danger' | 'warning' | 'info'
-  kind: 'payment_due' | 'payment_overdue' | 'mentor_unpaid'
+  kind: 'payment_due' | 'payment_overdue' | 'payment_after_offer' | 'mentor_unpaid'
   title: string
   amount: number | null
   currency: string

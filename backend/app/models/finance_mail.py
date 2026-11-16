@@ -15,7 +15,10 @@ class FinanceMailDelivery(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     recipient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     recipient: Mapped[str] = mapped_column(String(320))
-    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('students.id', ondelete='CASCADE'), index=True)
+    # Пусто у утренней сводки и письма «Пока не было связи» (миграция 143).
+    student_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('students.id', ondelete='CASCADE'), index=True, nullable=True)
+    # change — срочное письмо по договору, summary — утренняя сводка, backlog — накопившееся без связи.
+    kind: Mapped[str] = mapped_column(String(20), default='change', server_default='change')
     contract_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('contracts.id', ondelete='SET NULL'), nullable=True)
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
@@ -27,6 +30,8 @@ class FinanceMailDelivery(Base):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Админу сообщили, что письмо не доставлено (миграция 143).
+    failure_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

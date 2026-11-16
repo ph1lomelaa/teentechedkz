@@ -84,6 +84,9 @@ class RefundCase(Base):
     resolution_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     decision: Mapped[str | None] = mapped_column(Text, nullable=True)
     approval_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Сумма к возврату при согласовании (миграция 145) и выплата.
+    approved_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    payout_payment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     execution_confirmation: Mapped[str | None] = mapped_column(Text, nullable=True)

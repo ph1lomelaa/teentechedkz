@@ -57,6 +57,11 @@ class Contract(Base):
     ielts_exam_fee: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     mentor_paid: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Номер договора для всех договоров, не только TrustMe (миграция 142).
+    number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    # Финансист отметил «Документы проверены» (миграция 142).
+    documents_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    documents_checked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

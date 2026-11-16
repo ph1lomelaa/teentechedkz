@@ -277,9 +277,8 @@ async def payment_notifier_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 await check_upcoming_payments(db)
-            async with AsyncSessionLocal() as db:
-                if await finance_desk.notify_due_today(db, date.today()):
-                    await db.commit()
+            # «Сегодня ждём N оплат» заменено утренней сводкой (finance_summary,
+            # задание 7 плана 14.11.2026) — она в finance_notify_loop.
         except Exception as e:
             logger.error(f"Payment notifier job failed: {e}", exc_info=True)
 

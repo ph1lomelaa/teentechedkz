@@ -26,6 +26,7 @@ import { meetingsApi } from '@/api/meetings'
 import { documentsApi } from '@/api/documents'
 import { emergencyContactsApi } from '@/api/emergencyContacts'
 import { ShortlistSection } from '@/components/portal/ShortlistSection'
+import { OfferBlock } from '@/components/students/OfferBlock'
 import { ApplicationsSection } from '@/components/portal/ApplicationsSection'
 import { PortalCredentialsSection } from '@/components/portal/PortalCredentialsSection'
 import { getErrorMessage, getErrorStatus } from '@/lib/errorMessage'
@@ -604,6 +605,8 @@ export const StudentCardPage: React.FC = () => {
     else navigate(-1)
   }
   const { can, hasRole, user } = useAuth()
+  // Блок «Оффер» (15.11.2026): видят все, кто видит заявки ученика.
+  const showOffer = can('applications', 'view') && !hasRole('student')
   const taskQueryClient = useQueryClient()
   const [creatingTask, setCreatingTask] = useState(false)
   const canEditContract = can('contracts', 'manage')
@@ -1149,7 +1152,8 @@ export const StudentCardPage: React.FC = () => {
         />
       )}
 
-      {((student.alerts?.length ?? 0) > 0 || nextMeeting || (hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {(showOffer || (student.alerts?.length ?? 0) > 0 || nextMeeting || (hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {showOffer && <OfferBlock studentId={student.id} />}
         {(student.alerts ?? []).map((a, i) => {
           const tone = a.level === 'danger'
             ? 'text-red-700 dark:text-red-300'
@@ -1161,7 +1165,9 @@ export const StudentCardPage: React.FC = () => {
             ? `просрочка ${Math.abs(a.days ?? 0)} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
             : a.kind === 'payment_due'
               ? `через ${a.days ?? 0} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
-              : 'осталось выплатить'
+              : a.kind === 'payment_after_offer'
+                ? 'оплатят после оффера'
+                : 'осталось выплатить'
           return (
             <div key={`${a.kind}-${i}`} className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
               <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">{label}</p>
@@ -1635,6 +1641,10 @@ export const StudentCardPage: React.FC = () => {
               </span>
             </AccordionTrigger>
             <AccordionContent>
+              {/* Номер договора для всех договоров (задание 11): ведут МЗК и админ, финансист ищет по нему. */}
+              <EditableInfoRow label="Номер договора" display={contract.number || '—'}
+                editValue={contract.number ?? ''} canEdit={canEditContract}
+                onSave={(v) => updateContractFieldMutation.mutate({ number: v || null })} />
               <EditableInfoRow label="Дата подписания" display={formatDate(contract.signed_date)}
                 editValue={contract.signed_date ? String(contract.signed_date).slice(0, 10) : ''}
                 canEdit={canEditContract} type="date"

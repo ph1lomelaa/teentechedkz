@@ -1066,6 +1066,28 @@ html[data-crm-theme] :where([role='dialog'], [role='listbox'], [role='menu']) :w
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+/* Светлая регистрация /join (14.11): шрифт и поля как в кабинете финансов. */
+.auth-light {
+  color-scheme: light;
+  font-family: 'Golos Text', system-ui, -apple-system, sans-serif;
+}
+.auth-light :where(h1, h2, p, span, div, button, input, select, label) { font-family: inherit; }
+.auth-light input,
+.auth-light textarea,
+.auth-light select {
+  border-color: #E7E5DF !important;
+  background-color: #FFFFFF !important;
+  color: #141414 !important;
+}
+.auth-light input:focus,
+.auth-light textarea:focus,
+.auth-light select:focus {
+  border-color: #141414 !important;
+  box-shadow: 0 0 0 3px rgb(20 20 20 / 0.08) !important;
+  outline: none;
+}
+.auth-light .auth-field-label { color: #3A3D42 !important; text-transform: none !important; letter-spacing: 0 !important; font-size: 13px !important; font-weight: 600 !important; }
+
 .auth-primary-button {
   display: inline-flex;
   align-items: center;

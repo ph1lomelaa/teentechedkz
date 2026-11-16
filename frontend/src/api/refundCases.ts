@@ -29,6 +29,8 @@ export interface RefundCase {
   resolution_summary: string | null
   decision: string | null
   approval_note: string | null
+  /** Сумма к возврату при согласовании (может отличаться от запрошенной). */
+  approved_amount?: string | null
   approved_by: string | null
   approved_at: string | null
   execution_confirmation: string | null
@@ -52,8 +54,8 @@ export const refundCasesApi = {
     const response = await apiClient.patch<RefundCase>(`/refund-cases/${id}/resolve`, { resolution_summary, decision, execution_confirmation })
     return response.data
   },
-  approve: async (id: string, decision: string, approval_note: string): Promise<RefundCase> => {
-    const response = await apiClient.patch<RefundCase>(`/refund-cases/${id}/approve`, { decision, approval_note })
+  approve: async (id: string, decision: string, approval_note: string, approved_amount?: string | null): Promise<RefundCase> => {
+    const response = await apiClient.patch<RefundCase>(`/refund-cases/${id}/approve`, { decision, approval_note, approved_amount: approved_amount || null })
     return response.data
   },
   markBonusPaid: async (id: string): Promise<RefundCase> => {

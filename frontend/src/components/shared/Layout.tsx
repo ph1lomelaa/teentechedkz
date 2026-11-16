@@ -29,6 +29,9 @@ import {
   UserPlus,
   CalendarDays,
   FileText,
+  AlertCircle,
+  RotateCcw,
+  Mail,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useWsEvent } from '@/lib/ws'
@@ -68,13 +71,14 @@ interface NavItem {
   exact?: boolean
 }
 
-type NavBadge = 'access_requests' | 'finance_due_today' | 'finance_overdue' | 'finance_review'
+type NavBadge = 'access_requests' | 'finance_due_today' | 'finance_overdue' | 'finance_review' | 'finance_today'
 
 const BADGE_LABELS: Record<NavBadge, (n: number) => string> = {
   access_requests: (n) => `${n} ждут одобрения`,
   finance_due_today: (n) => `Срок сегодня: ${n}`,
   finance_overdue: (n) => `Просрочено: ${n}`,
-  finance_review: (n) => `Требует проверки: ${n}`,
+  finance_review: (n) => `Ждут проверки: ${n} (изменения сумм и дат, оплаты без чека)`,
+  finance_today: (n) => `Дел на сегодня: ${n} (оплаты со сроком сегодня и офферы, где нужно выставить остаток)`,
 }
 
 interface NavGroup {
@@ -131,14 +135,19 @@ const baseNavGroups: NavGroup[] = [
 // Кабинет финансиста. Право finance_desk:view есть у управления и финансиста —
 // ментор группу не увидит.
 const FINANCE_ITEMS: NavItem[] = [
-  // «Платежи» убраны 09.11.2026: их списки раскрываются на «Сегодня», поэтому
-  // и счётчик просрочек теперь здесь.
-  { label: 'Сегодня', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_overdue' },
+  // «Платежи» (14.11.2026) — бывшее «Сегодня»: отдельной страницы платежей нет,
+  // дела на сегодня сверху, полные списки ниже. Счётчик — дел на сегодня.
+  { label: 'Платежи', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_today' },
   { label: 'Договоры', path: '/finance/contracts', icon: <FileText className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
+  { label: 'Долги', path: '/finance/debts', icon: <AlertCircle className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
+  { label: 'Возвраты', path: '/finance/refunds', icon: <RotateCcw className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
+  { label: 'Отчёты', path: '/finance/reports', icon: <BarChart3 className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
   // Счётчик — непроверенные правки из Notion + оплаты без чека + расхождения.
   // «финансов» — потому что в кабинете уже есть «Проверка» (задач), а одно
   // имя на два экрана запрещено (navPermissions.test.ts).
   { label: 'Проверка финансов', path: '/finance/review', icon: <ListChecks className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_review' },
+  // 15.11: отдельным пунктом, чтобы финансист не искала ссылку на «Платежах».
+  { label: 'Настройки писем', path: '/finance/settings', icon: <Mail className="w-4 h-4" />, permission: ['finance_desk', 'manage'] },
 ]
 
 // У финансиста своё меню: карточки учеников, чаты и задачи ему закрыты,
@@ -205,7 +214,15 @@ export function getNavGroups(role: string): NavGroup[] {
   const withoutDuplicates = (items: NavItem[]) =>
     role === 'mentor' ? items.filter((item) => !MENTOR_DUPLICATE_PATHS.has(item.path)) : items
   const groups = [...baseNavGroups.slice(0, -1), { group: 'ФИНАНСЫ', items: FINANCE_ITEMS }, baseNavGroups[baseNavGroups.length - 1]]
-  return groups.map((group) => ({ ...group, items: withoutDuplicates(group.items) })).map((group) => {
+  // Меню админа (задание 6, 14.11): старая «Финансы» — временно «Сводка (старая)»
+  // до раздела «Отчёты»; «Договоры и акты» — «Акты». У МЗК названия прежние.
+  // 15.11: у руководства два «Финансов» путали — старая сводка (выплаты менторам,
+  // английский, УП из Notion) теперь «Сводка Notion»; офферы и остатки — в «ФИНАНСЫ».
+  const ADMIN_LABELS: Record<string, string> = { '/finances': 'Сводка Notion', '/acts': 'Акты' }
+  const MANAGER_LABELS: Record<string, string> = { '/finances': 'Сводка Notion' }
+  const labels = role === 'admin' ? ADMIN_LABELS : role === 'mzk_manager' || role === 'academic_head' ? MANAGER_LABELS : {}
+  const relabel = (items: NavItem[]) => items.map((i) => labels[i.path] ? { ...i, label: labels[i.path] } : i)
+  return groups.map((group) => ({ ...group, items: relabel(withoutDuplicates(group.items)) })).map((group) => {
     if (group.group !== 'АДМИНИСТРАЦИЯ') return group
     return {
       ...group,
@@ -232,8 +249,12 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/countries': 'Справочник стран',
     '/statistics': 'Статистика',
     '/finances': 'Финансы',
-    '/finance': 'Сегодня',
+    '/finance': 'Платежи',
     '/finance/contracts': 'Договоры',
+    '/finance/debts': 'Долги',
+    '/finance/refunds': 'Возвраты',
+    '/finance/reports': 'Отчёты',
+    '/finance/settings': 'Настройки писем',
     '/finance/review': 'Проверка финансов',
     '/settings/users': 'Пользователи',
     '/settings/access-requests': 'Заявки на доступ',
@@ -323,6 +344,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     access_requests: accessRequestCount?.total ?? 0,
     finance_due_today: financeCounters?.due_today ?? 0,
     finance_overdue: financeCounters?.overdue ?? 0,
+    finance_today: financeCounters?.today_tasks ?? financeCounters?.due_today ?? 0,
     finance_review: financeCounters?.review ?? 0,
   }
   const breadcrumb = getBreadcrumb(location.pathname, user?.role ?? '')
@@ -405,7 +427,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                       <span className={isActive ? 'text-black' : 'text-white/50'}>
                         {item.icon}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      <span className={cn('min-w-0 flex-1', isFinance ? 'leading-tight' : 'truncate')}>{item.label}</span>
                       {item.badge && badgeCounts[item.badge] > 0 && (
                         <span
                           className={cn(
@@ -413,11 +435,14 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
                             // У активного пункта (жёлтая плашка) счётчик наоборот —
                             // чёрный с жёлтой цифрой; цвет держит nav-badge-inverse
                             // в index.css: общее правило красит всё на жёлтом в чёрный.
-                            isActive ? 'nav-badge-inverse bg-black' : 'bg-brand text-black',
+                            isActive ? 'nav-badge-inverse bg-black'
+                              // В финансах жёлтый — только активный пункт (правила дизайна 14.11).
+                              : item.badge.startsWith('finance_') ? 'bg-white/15 text-white' : 'bg-brand text-black',
                           )}
                           // Цвет не единственный носитель смысла: число рядом
-                          // с пунктом читается и без него.
+                          // с пунктом читается и без него. Подсказка — что считается.
                           aria-label={BADGE_LABELS[item.badge](badgeCounts[item.badge])}
+                          title={BADGE_LABELS[item.badge](badgeCounts[item.badge])}
                         >
                           {badgeCounts[item.badge]}
                         </span>
@@ -466,7 +491,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
             {!isFinance && <ThemeToggle />}
-            <NotificationsBell countTone={isFinance ? 'danger' : 'brand'} />
+            <NotificationsBell countTone={isFinance ? 'danger' : 'brand'} finance={isFinance} />
           </div>
         </header>
         {/* Content */}

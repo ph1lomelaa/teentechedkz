@@ -92,6 +92,8 @@ export const METHOD_LABELS: Record<PaymentMethod, string> = {
 
 export function paymentTitle(item: { kind: ScheduleKind | null; label: string | null }): string {
   if (!item.kind) return item.label || 'Вне графика'
+  // Режим «только просмотр»: строка из Notion называется сама.
+  if (item.label === 'Остаток по Notion') return item.label
   return item.label ? `${KIND_LABELS[item.kind]} · ${item.label}` : KIND_LABELS[item.kind]
 }
 

@@ -125,6 +125,7 @@ export function JoinPage() {
   if (!role && staff) {
     return (
       <AuthShell
+        light
         eyebrow="Регистрация сотрудника"
         title="Кем вы работаете?"
         description="Выберите свою роль. Доступ откроет администратор после проверки заявки."
@@ -149,7 +150,7 @@ export function JoinPage() {
             onClick={() => setRole('mzk_manager')}
           />
           <div className="pt-2 text-center">
-            <button type="button" onClick={() => setStaff(false)} className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]">
+            <button type="button" onClick={() => setStaff(false)} className="text-sm font-semibold text-[#6B6F76] underline-offset-4 hover:text-[#141414] hover:underline">
               Назад
             </button>
           </div>
@@ -161,6 +162,7 @@ export function JoinPage() {
   if (!role) {
     return (
       <AuthShell
+        light
         eyebrow="Регистрация"
         title="Кто вы?"
         description="Выберите, как вы участвуете в программе — от этого зависит, что вы увидите внутри."
@@ -179,7 +181,7 @@ export function JoinPage() {
             onClick={() => setStaff(true)}
           />
           <div className="pt-2 text-center">
-            <Link to="/login" className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]">
+            <Link to="/login" className="text-sm font-semibold text-[#6B6F76] underline-offset-4 hover:text-[#141414] hover:underline">
               Уже есть доступ? Войти
             </Link>
           </div>
@@ -192,14 +194,15 @@ export function JoinPage() {
   if (!credential) {
     return (
       <AuthShell
+        light
         eyebrow={EYEBROW[role]}
         title="Подтвердите почту"
         description="Вход в систему — через Google. Так мы точно знаем, что почта ваша, и вам не придётся запоминать ещё один пароль."
       >
         <div className="space-y-5">
           {googleOff ? (
-            <div className="rounded-ctl border border-[#FFD400]/25 bg-[#FFD400]/[0.08] p-4 text-sm leading-6 text-white/75">
-              <p className="font-semibold text-white">Регистрация пока закрыта</p>
+            <div className="rounded-lg border border-[#E7E5DF] bg-[#FAFAF7] p-4 text-sm leading-6 text-[#3A3D42]">
+              <p className="font-semibold text-[#141414]">Регистрация пока закрыта</p>
               <p className="mt-1">
                 Вход через Google в этой системе ещё не включён.{' '}
                 {role === 'mentor'
@@ -223,18 +226,18 @@ export function JoinPage() {
           {/* Раньше здесь была ссылка на регистрацию по паролю — третий способ
               завести аккаунт мимо Google. Теперь такого человека заводит админ
               приглашением, и об этом надо сказать, а не оставлять в тупике. */}
-          <p className="text-center text-[13px] leading-5 text-white/55">
+          <p className="text-center text-[13px] leading-5 text-[#6B6F76]">
             Нет Google-аккаунта? Напишите куратору — он пришлёт ссылку для входа.
           </p>
           <div className="flex flex-wrap justify-center gap-4 text-sm">
             <button
               type="button"
               onClick={() => setRole(null)}
-              className="font-bold text-white/60 transition hover:text-[#FFD400]"
+              className="font-semibold text-[#141414] underline underline-offset-4"
             >
               Назад
             </button>
-            <Link to="/login" className="font-bold text-white/60 transition hover:text-[#FFD400]">
+            <Link to="/login" className="font-semibold text-[#141414] underline underline-offset-4">
               У меня уже есть доступ
             </Link>
           </div>
@@ -246,6 +249,7 @@ export function JoinPage() {
   // --- Шаг 3: анкета -------------------------------------------------------
   return (
     <AuthShell
+        light
       eyebrow={EYEBROW[role]}
       title="Осталось представиться"
       description={
@@ -327,7 +331,7 @@ export function JoinPage() {
           <Button
             type="submit"
             disabled={mutation.isPending}
-            className="auth-primary-button h-12 w-full rounded-ctl border-0 text-[13px] uppercase tracking-[0.14em] hover:bg-[#E9C200]"
+            className="h-11 w-full rounded-lg border-0 bg-[#FFD400] text-sm font-semibold text-black hover:bg-[#F0C800] disabled:cursor-not-allowed disabled:opacity-55"
           >
             {mutation.isPending ? 'Отправляем…' : 'Продолжить →'}
           </Button>
@@ -335,7 +339,7 @@ export function JoinPage() {
             <button
               type="button"
               onClick={() => setCredential(null)}
-              className="text-sm font-bold text-white/60 transition hover:text-[#FFD400]"
+              className="text-sm font-semibold text-[#6B6F76] underline-offset-4 hover:text-[#141414] hover:underline"
             >
               Назад
             </button>
@@ -361,14 +365,14 @@ function RoleCard({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-4 rounded-ctl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-[#FFD400]/40 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFD400]"
+      className="flex w-full items-center gap-4 rounded-lg border border-[#E7E5DF] bg-white p-4 text-left hover:border-[#141414] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#141414]"
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-ctl bg-[#FFD400]/10 text-[#FFD400]">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#F2F1EC] text-[#141414]">
         {icon}
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-bold text-white">{title}</span>
-        <span className="block text-xs leading-5 text-white/60">{hint}</span>
+        <span className="block text-sm font-semibold text-[#141414]">{title}</span>
+        <span className="block text-xs leading-5 text-[#6B6F76]">{hint}</span>
       </span>
     </button>
   )
@@ -378,7 +382,7 @@ function ErrorBox({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="alert"
-      className="rounded-ctl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-300"
+      className="rounded-lg border border-[#F3C9C4] bg-[#FDEEEC] px-4 py-3 text-sm text-[#B42318]"
     >
       {children}
     </div>
@@ -400,10 +404,10 @@ function Field({
     <div className="space-y-2">
       <Label className="auth-field-label">{label}</Label>
       {children}
-      {hint && !error && <p className="text-xs leading-5 text-white/55">{hint}</p>}
+      {hint && !error && <p className="text-xs leading-5 text-[#6B6F76]">{hint}</p>}
       {/* Ошибка живёт под своим полем, а не в общей плашке: на телефоне общая
           плашка уезжает за экран, и человек не понимает, что именно исправлять. */}
-      {error && <p className="text-xs font-medium text-red-300">{error}</p>}
+      {error && <p className="text-xs font-medium text-[#B42318]">{error}</p>}
     </div>
   )
 }

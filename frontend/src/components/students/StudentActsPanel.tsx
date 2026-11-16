@@ -113,9 +113,8 @@ function StudentActsWorkspace({ studentId, financialContractId }: PanelProps) {
   return <div className="min-w-0 space-y-6 text-p-text">
     {can('contracts', 'manage') && !financialContractId && <AutomaticContracts studentId={studentId} onChanged={refresh} linkedShortUrls={contracts.map(c => c.short_url)} />}
     {!current && !choosing ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-p-line p-5">
-      <p className="text-sm text-p-muted">Договор пока не привязан. После привязки здесь можно будет создавать акты.</p>
+      <p className="text-sm text-p-muted">Договор пока не привязан.{can('contracts','manage') && ' После привязки здесь можно будет создавать акты.'}</p>
       {can('contracts','manage') && <AppButton colorPrefix="p" variant="subtle" size="sm" aria-expanded={choosing} onClick={() => setChoosing(true)} disabled={choosing}>Добавить вручную</AppButton>}
-      {!can('contracts','manage') && <p className="text-xs text-p-muted">Договор привяжет сотрудник с правом управления договорами.</p>}
     </div> : current ? <section aria-label="Договор" className="rounded-xl border border-p-line bg-p-panel p-4 sm:p-5">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-p-muted">Договор для актов</p>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="min-w-0 break-words text-base font-semibold">{recordNumber(current.legal_number || current.number)}</h3><ContractStatus status={currentStatus} source={current.source} /></div>

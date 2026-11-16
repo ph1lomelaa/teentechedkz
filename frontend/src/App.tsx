@@ -153,6 +153,18 @@ const FinanceContractsPage = lazyRoute(() =>
 const FinanceContractPage = lazyRoute(() =>
   import('@/pages/finance/FinanceContractPage').then((m) => ({ default: m.FinanceContractPage }))
 )
+const FinanceReportsPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage }))
+)
+const FinanceRefundsPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceRefundsPage').then((m) => ({ default: m.FinanceRefundsPage }))
+)
+const FinanceDebtsPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceDebtsPage').then((m) => ({ default: m.FinanceDebtsPage }))
+)
+const FinanceSettingsPage = lazyRoute(() =>
+  import('@/pages/finance/FinanceSettingsPage').then((m) => ({ default: m.FinanceSettingsPage }))
+)
 const FinanceReviewPage = lazyRoute(() =>
   import('@/pages/finance/FinanceReviewPage').then((m) => ({ default: m.FinanceReviewPage }))
 )
@@ -731,10 +743,58 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/finance/settings"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'manage']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceSettingsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
       {/* Адреса первой версии кабинета ведут на новые разделы: ссылки в
           уведомлениях и закладках продолжают работать. */}
       <Route path="/finance/calendar" element={<Navigate to="/finance?open=expected&view=calendar" replace />} />
-      <Route path="/finance/debtors" element={<Navigate to="/finance?open=overdue" replace />} />
+      <Route path="/finance/debtors" element={<Navigate to="/finance/debts" replace />} />
+      <Route
+        path="/finance/reports"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceReportsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/refunds"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceRefundsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance/debts"
+        element={
+          <ProtectedRoute permission={['finance_desk', 'view']}>
+            <AppLayout>
+              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
+                <FinanceDebtsPage />
+              </React.Suspense>
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
       <Route path="/finance/incoming" element={<Navigate to="/finance?open=received" replace />} />
       <Route path="/finance/changes" element={<Navigate to="/finance/review" replace />} />
 

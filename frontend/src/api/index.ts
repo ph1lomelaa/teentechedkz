@@ -94,6 +94,26 @@ export const applicationsApi = {
   remove: async (id: string): Promise<void> => {
     await apiClient.delete(`/applications/${id}`)
   },
+  /** Блок «Оффер» в карточке: заявки с оффером, кто и когда отметил, остаток и срок. */
+  offers: async (studentId: string): Promise<StudentOffers> =>
+    (await apiClient.get<StudentOffers>(`/students/${studentId}/offers`)).data,
+}
+
+export interface StudentOffer {
+  application_id: string
+  university: string | null
+  country: string | null
+  status: 'offer_received' | 'enrolled'
+  marked_at: string | null
+  marked_by: string | null
+}
+
+export interface StudentOffers {
+  items: StudentOffer[]
+  remaining: string | null
+  currency: string
+  due_date: string | null
+  after_offer_days: number
 }
 
 export const servicesApi = {

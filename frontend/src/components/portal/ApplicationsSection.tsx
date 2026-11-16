@@ -8,7 +8,7 @@ import { credentialsApi, hasCredentialFor, PortalCredentialPayload } from '@/api
 import { toast } from '@/hooks/use-toast'
 import { getErrorCode, getErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/utils'
-import { Application, SUBMISSION_STATUS_LABELS, VISA_STATUS_LABELS } from '@/types'
+import { Application, SUBMISSION_STATUS_LABELS, SubmissionStatus, VISA_STATUS_LABELS } from '@/types'
 import { UniversityPicker } from './UniversityPicker'
 import { ApplicationFormDialog, ApplicationFormValues } from './ApplicationFormDialog'
 import { CredentialFormDialog } from './CredentialFormDialog'
@@ -59,12 +59,26 @@ export const ApplicationsSection: React.FC<{
   })
   // Заявка, для которой открыта форма доступа после отказа сменить статус.
   const [credentialsFor, setCredentialsFor] = useState<Application | null>(null)
+  // Новая заявка сразу с оффером: сохранена как «Подано», статус, который
+  // выбрали, ставится сам, как только добавят доступ к порталу.
+  const [pendingStatus, setPendingStatus] = useState<{ id: string; status: SubmissionStatus } | null>(null)
   const credentialMutation = useMutation({
-    mutationFn: (values: PortalCredentialPayload) => credentialsApi.create({ ...values, student_id: studentId! }),
-    onSuccess: () => {
+    mutationFn: async (values: PortalCredentialPayload) => {
+      await credentialsApi.create({ ...values, student_id: studentId! })
+      const pending = pendingStatus && pendingStatus.id === credentialsFor?.id ? pendingStatus : null
+      if (pending) await applicationsApi.update(pending.id, { submission_status: pending.status })
+      return pending
+    },
+    onSuccess: (pending) => {
       queryClient.invalidateQueries({ queryKey: credsKey })
       setCredentialsFor(null)
-      toast({ title: 'Доступ добавлен', description: 'Теперь можно снова сменить статус заявки.' })
+      setPendingStatus(null)
+      if (pending) {
+        invalidate()
+        toast({ title: 'Доступ добавлен', description: `Статус заявки: ${SUBMISSION_STATUS_LABELS[pending.status]}.` })
+      } else {
+        toast({ title: 'Доступ добавлен', description: 'Теперь можно снова сменить статус заявки.' })
+      }
     },
     onError: (err) =>
       toast({ title: 'Не удалось сохранить доступ', description: getErrorMessage(err), variant: 'destructive' }),
@@ -72,6 +86,8 @@ export const ApplicationsSection: React.FC<{
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey })
+    // Блок «Оффер» в карточке читает те же заявки.
+    if (studentId) queryClient.invalidateQueries({ queryKey: ['student-offers', studentId] })
     // Карточка студента читает заявки ещё и внутри объекта студента.
     invalidateStudent(queryClient, studentId)
   }
@@ -87,17 +103,45 @@ export const ApplicationsSection: React.FC<{
       setEditing(null)
       toast({ title: wasEditing ? 'Заявка обновлена' : 'Заявка добавлена' })
     },
-    onError: (err) => {
+    onError: (err, values) => {
+      if (getErrorCode(err) === 'PORTAL_CREDENTIALS_REQUIRED' && editing === undefined) {
+        // Новая заявка сразу с оффером: доступ привязывается к заявке, а её
+        // ещё нет. Сохраняем как «Подано» и открываем форму доступа, как при правке.
+        draftMutation.mutate(values)
+        return
+      }
       if (getErrorCode(err) === 'PORTAL_CREDENTIALS_REQUIRED' && editing) {
         // Сразу ведём к исправлению: форма доступа уже привязана к заявке.
         // Открываем её после анимации закрытия формы заявки, иначе два диалога
         // на мгновение лежат друг на друге.
+        // Выбранный статус («Оффер») ставится сам после сохранения доступа —
+        // на проде 15.11 ментор вносил доступ, а заявка оставалась «Подготовка».
         const app = editing
         setEditing(null)
+        if (values.submission_status) setPendingStatus({ id: app.id, status: values.submission_status as SubmissionStatus })
         window.setTimeout(() => setCredentialsFor(app), 250)
+        toast({ title: 'Нужен доступ к порталу вуза', description: 'Внесите логин и пароль портала — статус заявки поставится сам.' })
+        return
       }
       toast({ title: 'Не удалось сохранить заявку', description: getErrorMessage(err), variant: 'destructive' })
     },
+  })
+
+  const draftMutation = useMutation({
+    mutationFn: (values: ApplicationFormValues) =>
+      applicationsApi.create({ ...values, submission_status: 'submitted', student_id: studentId! }),
+    onSuccess: (app, values) => {
+      invalidate()
+      setEditing(null)
+      setPendingStatus({ id: app.id, status: values.submission_status })
+      window.setTimeout(() => setCredentialsFor(app), 250)
+      toast({
+        title: 'Заявка сохранена со статусом «Подано»',
+        description: `Добавьте доступ к порталу вуза, и статус «${SUBMISSION_STATUS_LABELS[values.submission_status]}» поставится сам.`,
+      })
+    },
+    onError: (err) =>
+      toast({ title: 'Не удалось сохранить заявку', description: getErrorMessage(err), variant: 'destructive' }),
   })
 
   const deleteMutation = useMutation({
@@ -139,7 +183,7 @@ export const ApplicationsSection: React.FC<{
         onOpenChange={(open) => { if (!open) setEditing(null) }}
         initial={editing ?? null}
         onSubmit={(values) => saveMutation.mutate(values)}
-        isPending={saveMutation.isPending}
+        isPending={saveMutation.isPending || draftMutation.isPending}
       />
       <UniversityPicker
         open={Boolean(linking)}
@@ -149,7 +193,7 @@ export const ApplicationsSection: React.FC<{
       />
       <CredentialFormDialog
         open={credentialsFor !== null}
-        onOpenChange={(open) => { if (!open) setCredentialsFor(null) }}
+        onOpenChange={(open) => { if (!open) { setCredentialsFor(null); setPendingStatus(null) } }}
         presetApplication={credentialsFor}
         applications={items}
         onSubmit={(values) => credentialMutation.mutate(values)}

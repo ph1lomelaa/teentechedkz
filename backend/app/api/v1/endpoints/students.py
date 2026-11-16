@@ -1578,7 +1578,7 @@ async def get_student_timeline(
     return {"items": events[offset:offset + limit], "total": len(events), "limit": limit, "offset": offset}
 
 
-def _compute_student_alerts(contracts: list[Contract], today: date) -> list[dict]:
+def _compute_student_alerts(contracts: list[Contract], today: date, due_override: "dict | None" = None) -> list[dict]:
     """Активные финансовые предупреждения по студенту для баннера в профиле.
     Считаем по последнему договору из фактических платежей (contract_finance):
     - оплата клиента близко/просрочена (по client_remaining_date + остаток > 0);
@@ -1601,7 +1601,12 @@ def _compute_student_alerts(contracts: list[Contract], today: date) -> list[dict
         contract.amount, _paid(PaymentType.client_payment),
         manual_remaining=contract.client_remaining_amount,
     )
-    due = contract.client_remaining_date
+    # Режим «только просмотр» (15.11): срок — после оффера, а не «Остаток клиента
+    # (дата)» из Notion (там одна дата на всех). Без оффера — «оплата после оффера».
+    due = due_override[contract.id] if due_override is not None and contract.id in due_override else contract.client_remaining_date
+    if due_override is not None and remaining is not None and remaining > 0 and due is None:
+        alerts.append({"level": "info", "kind": "payment_after_offer", "title": "Остаток оплатят после оффера",
+                       "amount": float(remaining), "currency": currency, "due_date": None, "days": None})
     if remaining is not None and remaining > 0 and due is not None:
         days = (due - today).days
         if days < 0:
@@ -1755,7 +1760,13 @@ async def get_student(
         data["confidential_notes"] = []
 
     # Финансовые предупреждения для баннера в профиле. Выплаты менторам — только для команды.
-    alerts = _compute_student_alerts(student.contracts, date.today())
+    due_override = None
+    if settings.FINANCE_VIEW_ONLY and student.contracts:
+        from app.services import finance_desk
+        latest = max(student.contracts, key=lambda c: c.created_at)
+        rows = await finance_desk.load_notion_items(db, today=date.today(), contract_id=latest.id)
+        due_override = {latest.id: rows[0].item.due_date if rows else None}
+    alerts = _compute_student_alerts(student.contracts, date.today(), due_override)
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor):
         alerts = [a for a in alerts if a["kind"] != "mentor_unpaid"]
     data["alerts"] = alerts

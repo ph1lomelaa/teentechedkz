@@ -252,6 +252,17 @@ class Settings(BaseSettings):
     # Письмо бухгалтеру о каждой правке денег (одно на договор). Шлётся, только
     # если почта настроена (SMTP_HOST и SMTP_FROM).
     FINANCE_EMAIL_NOTIFICATIONS: bool = False
+    # Строка графика «после оффера»: срок = дата оффера + столько дней.
+    FINANCE_AFTER_OFFER_DAYS: int = 5
+    # Режим «только просмотр» (решение 15.11.2026): финансист ничего не вносит,
+    # только смотрит и отмечает «Просмотрено»; «кто должен» — только из Notion
+    # (остаток и дата). Кнопки ввода скрыты, код сохранён. false — полный режим.
+    FINANCE_VIEW_ONLY: bool = True
+    # Регламент по долгам (задание 8): дни просрочки.
+    FINANCE_DEBT_REMIND_DAYS: int = 1       # МЗК получает напоминание
+    FINANCE_DEBT_MZK_SILENT_DAYS: int = 7   # без ответа МЗК — сигнал финансисту
+    FINANCE_DEBT_FINANCE_DAYS: int = 30     # долг ведёт финансист
+    FINANCE_DEBT_HEAD_DAYS: int = 60        # колокольчик руководителю
     # Сколько живёт ссылка из письма «Забыли пароль?».
     PASSWORD_RESET_TTL_HOURS: int = 2
 

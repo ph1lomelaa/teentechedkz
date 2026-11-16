@@ -7,13 +7,21 @@ import { useWsEvent } from '@/lib/ws'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
-function fmtWhen(iso: string) {
+function fmtWhen(iso: string, finance = false) {
+  if (finance) {
+    // Как в таблицах раздела: «14.11.2026, 12:37».
+    const d = new Date(iso)
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`
+  }
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 // countTone="danger" — красный счётчик в разделе «Финансы»: там непрочитанное
 // уведомление — это изменившиеся в Notion деньги, и пропускать его нельзя.
-export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal'; countTone?: 'brand' | 'danger' }> = ({ variant = 'crm', countTone = 'brand' }) => {
+// finance — вид раздела «Финансы» (задание 6): окно 400 px, суть первой
+// строкой, без метки «Важно» (срочное — точкой), время как в таблицах.
+export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal'; countTone?: 'brand' | 'danger'; finance?: boolean }> = ({ variant = 'crm', countTone = 'brand', finance = false }) => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
@@ -94,11 +102,12 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal'; countTone
 
       {open && (
         <div className={cn(
-          'absolute right-0 mt-2 w-80 max-w-[90vw] border z-50 overflow-hidden',
+          'absolute right-0 mt-2 max-w-[90vw] border z-50 overflow-hidden',
+          finance ? 'w-[400px]' : 'w-80',
           portal ? 'bg-w-panel border-w-line rounded-panel' : 'bg-white border-gray-200 rounded-panel shadow-lg'
         )}>
           <div className={cn('flex items-center justify-between px-3 py-2.5 border-b', portal ? 'border-w-line' : 'border-gray-100')}>
-            <span className={cn('text-xs font-bold uppercase tracking-wider', portal ? 'text-w-muted' : 'text-gray-500')}>Уведомления</span>
+            <span className={cn(finance ? 'text-sm font-semibold text-gray-900' : 'text-xs font-bold uppercase tracking-wider', !finance && (portal ? 'text-w-muted' : 'text-gray-500'))}>Уведомления</span>
             {unread > 0 && (
               <button onClick={markAll} className={cn('text-[11px] inline-flex items-center gap-1', portal ? 'text-w-muted hover:text-w-accentText' : 'text-gray-500 hover:text-black')}>
                 <Check className="w-3 h-3" /> Отметить все прочитанными
@@ -115,7 +124,7 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal'; countTone
                   className={cn(
                     'w-full text-left px-3 py-2.5 border-b flex items-start gap-2 group cursor-pointer',
                     portal ? 'border-w-line hover:bg-w-panel2' : 'border-gray-50 hover:bg-gray-50',
-                    !n.is_read && (portal ? 'bg-w-accent/10' : 'bg-brand/5')
+                    !n.is_read && (portal ? 'bg-w-accent/10' : finance ? 'bg-gray-50' : 'bg-brand/5')
                   )}
                   onClick={async () => {
                     if (!n.is_read) {
@@ -125,16 +134,25 @@ export const NotificationsBell: React.FC<{ variant?: 'crm' | 'portal'; countTone
                     if (n.link) navigate(n.link)
                   }}
                 >
-                  {!n.is_read && <span className={cn('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0', portal ? 'bg-w-accent' : 'bg-brand')} />}
+                  {finance
+                    ? <span aria-label={n.priority === 'high' ? 'срочно' : undefined} className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', n.priority === 'high' && !n.is_read ? 'bg-[#B42318]' : 'bg-transparent')} />
+                    : !n.is_read && <span className={cn('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0', portal ? 'bg-w-accent' : 'bg-brand')} />}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <div className={cn('min-w-0 flex-1 truncate text-sm font-medium', portal ? 'text-w-ink' : 'text-gray-900')}>{n.title}</div>
-                      {n.priority === 'high' && <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider', portal ? 'bg-w-accent text-black' : 'bg-brand text-brand-ink')}><Star className="h-2.5 w-2.5 fill-current" />Важно</span>}
+                      <div className={cn('min-w-0 flex-1 text-sm', finance ? (n.is_read ? 'font-normal' : 'font-semibold') : 'truncate font-medium', portal ? 'text-w-ink' : 'text-gray-900')}>{n.title}</div>
+                      {n.priority === 'high' && !finance && <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider', portal ? 'bg-w-accent text-black' : 'bg-brand text-brand-ink')}><Star className="h-2.5 w-2.5 fill-current" />Важно</span>}
                     </div>
                     {/* Правки денег из Notion приходят списком «поле: было → стало» —
                         показываем до трёх строк, остальные уведомления в одну. */}
-                    {n.body && <div className={cn('text-[12px]', n.kind === 'finance_change' ? 'line-clamp-3 whitespace-pre-line' : 'truncate', portal ? 'text-w-muted' : 'text-gray-500')}>{n.body}</div>}
-                    <div className={cn('text-[10.5px] mt-0.5', portal ? 'text-w-muted2' : 'text-gray-400')}>{fmtWhen(n.created_at)}</div>
+                    {finance ? (
+                      <div className="mt-0.5 text-[12px] text-gray-500">
+                        <span className="line-clamp-2 whitespace-pre-line">{n.body}</span>
+                        <span className="text-gray-400">{fmtWhen(n.created_at, true)}</span>
+                      </div>
+                    ) : <>
+                      {n.body && <div className={cn('text-[12px]', n.kind === 'finance_change' ? 'line-clamp-3 whitespace-pre-line' : 'truncate', portal ? 'text-w-muted' : 'text-gray-500')}>{n.body}</div>}
+                      <div className={cn('text-[10.5px] mt-0.5', portal ? 'text-w-muted2' : 'text-gray-400')}>{fmtWhen(n.created_at)}</div>
+                    </>}
                   </div>
                   <button
                     type="button"

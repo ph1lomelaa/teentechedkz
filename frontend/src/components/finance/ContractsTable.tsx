@@ -6,46 +6,45 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { financeApi, financeKeys, type FinanceContractRow } from '@/api/finance'
 import { DEGREE_LEVEL_LABELS, type DegreeLevel } from '@/types'
-import { ContractDocument } from './ContractDocument'
 import { NotionTable } from './NotionTable'
 import { FinBadge } from './ui'
-import { date, money, num, statusLabel } from './format'
+import { date, money, moneyTotals, num, statusLabel } from './format'
 
-const NEXT_LABEL = { overdue: 'Просрочен', today: 'Сегодня', planned: 'По графику', paid_full: 'Оплачен полностью', not_planned: 'Графика нет' } as const
+const NEXT_LABEL = { overdue: 'Просрочен', today: 'Сегодня', planned: 'По графику', paid_full: 'Оплачен полностью', not_planned: 'Графика нет', after_offer: 'После оффера' } as const
 const QUERY = { status: 'all', size: 2000 } as const
+// Работа по договору окончена: такие договоры — в «Закрытых», не в «Активных».
+const CLOSED = new Set(['completed_admitted', 'changed_mind', 'lost_applicant', 'refund', 'transferred_pipeline'])
+const closed = (r: FinanceContractRow) => !!r.pipeline_status && CLOSED.has(r.pipeline_status)
+const owes = (r: FinanceContractRow) => num(r.remaining) > 0
+/** «Договор №671» → «671»: номер виден в таблице и ищется. */
+/** В TrustMe у копий договоров номер бывает «UPL-UPL-…-№262»: показываем «UPL-№262». */
+export const cleanNumber = (n: string) => n.replace(/^(UPL-)+/i, 'UPL-')
+const numberOf = (r: FinanceContractRow) => r.number || (r.originals ?? []).map(d => d.label.match(/№\s*(.+)$/)?.[1]).filter((n): n is string => !!n).map(cleanNumber).join(', ')
+// Ближайший платёж первым; без даты — в конце.
+const nextKey = (r: FinanceContractRow) => r.next_payment.item?.due_date ?? '9999-12-31'
 
 function NextPayment({ row }: { row: FinanceContractRow }) {
   const { kind, item } = row.next_payment
-  if (kind === 'overdue') return <FinBadge tone="bad">Просрочен{item ? ` · ${date(item.due_date)}` : ''}</FinBadge>
-  if (kind === 'today') return <FinBadge tone="yellow">Сегодня</FinBadge>
+  if (kind === 'overdue') return <span className="whitespace-nowrap text-[var(--fin-bad)]">{date(item?.due_date)} · {money(item?.left, row.currency)}</span>
   if (kind === 'paid_full') return <FinBadge tone="ok">Оплачен полностью</FinBadge>
-  if (kind === 'not_planned') return <FinBadge tone="dashed">Графика нет</FinBadge>
+  if (kind === 'not_planned') return <span className="text-p-muted2">—</span>
+  if (kind === 'after_offer') return <span className="whitespace-nowrap">После оффера · {money(item?.left, row.currency)}</span>
   return <span className="whitespace-nowrap">{date(item?.due_date)} · {money(item?.left, row.currency)}</span>
 }
 
-function Paid({ row }: { row: FinanceContractRow }) {
-  const total = num(row.amount)
-  const pct = total > 0 ? Math.min(100, Math.round((num(row.paid) / total) * 100)) : 0
-  return (
-    <div className="flex min-w-36 items-center gap-2">
-      <div className="h-1.5 flex-1 rounded-full bg-p-panel2" aria-hidden="true"><div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
-      <span className="tabular-nums">{money(row.paid, row.currency)}</span>
-    </div>
-  )
-}
-
 const values = (row: FinanceContractRow, field: string): string[] => {
+  if (field === '№ договора') { const n = numberOf(row); return n ? [n] : [] }
   if (field === 'Статус') return row.pipeline_status ? [statusLabel(row.pipeline_status)] : []
-  if (field === 'Intake') return row.intake_year ? [String(row.intake_year)] : []
-  if (field === 'Degree') return row.degree ? [DEGREE_LEVEL_LABELS[row.degree as DegreeLevel] ?? row.degree] : []
+  if (field === 'Набор') return row.intake_year ? [String(row.intake_year)] : []
+  if (field === 'Степень') return row.degree ? [DEGREE_LEVEL_LABELS[row.degree as DegreeLevel] ?? row.degree] : []
   if (field === 'МЗК') return row.mzk_name ? [row.mzk_name] : []
   if (field === 'Сумма') return row.amount == null ? [] : [String(num(row.amount))]
   if (field === 'Оплачено') return [String(num(row.paid))]
   if (field === 'Остаток') return row.remaining == null ? [] : [String(num(row.remaining))]
-  if (field === 'Следующий платёж') return [NEXT_LABEL[row.next_payment.kind]]
-  if (field === 'Срок оплаты') return row.next_payment.item ? [row.next_payment.item.due_date] : []
-  if (field === 'График') return [row.next_payment.kind === 'not_planned' ? 'Графика нет' : row.schedule_mismatch ? 'Не совпадает с остатком' : 'Совпадает']
-  if (field === 'Договор') return (row.originals ?? []).map(d => d.label)
+  if (field === 'Следующий платёж') return [nextKey(row)]
+  if (field === 'График') return [row.next_payment.kind === 'not_planned' ? 'Графика нет' : row.schedule_mismatch ? 'Не совпадает с остатком' : 'Есть']
+  if (field === 'Документ') return (row.originals ?? []).length ? ['Есть'] : ['Нет документа']
+  if (field === 'Акты') return !row.services_total ? ['Услуг в договоре нет'] : (row.services_closed ?? 0) < row.services_total ? ['Нет акта'] : ['Все акты есть']
   return []
 }
 
@@ -57,12 +56,10 @@ export function ContractsTable() {
     queryFn: () => financeApi.contracts(QUERY),
     placeholderData: keepPreviousData,
   })
-  // Старые ссылки: ?schedule=none (плашка Notion) и ?documents=no_contract.
-  const initialQuick = [
-    params.get('schedule') === 'none' && 'no_schedule',
-    params.get('schedule') === 'mismatch' && 'mismatch',
-    params.get('documents') === 'no_contract' && 'no_document',
-  ].filter(Boolean) as string[]
+  // По умолчанию «Активные»; поиск из шапки ищет по всем; ?schedule=none — договоры без графика (ссылка из «Проверки»).
+  const initialQuick = [params.get('quick') || (params.get('q') ? 'all' : params.get('schedule') === 'none' ? 'no_schedule' : 'active')]
+  const sum = (rows: FinanceContractRow[], pick: (r: FinanceContractRow) => string | null) =>
+    moneyTotals(rows.map(r => ({ amount: pick(r) ?? '0', currency: r.currency })), 'amount')
 
   return (
     <NotionTable<FinanceContractRow>
@@ -71,38 +68,48 @@ export function ContractsTable() {
       error={error}
       onRetry={() => refetch()}
       rowKey={r => r.contract_id}
-      title={{ field: 'Ученик', text: r => r.student_name, onOpen: r => navigate(`/finance/contracts/${r.contract_id}`) }}
-      base={['МЗК', 'Сумма', 'Оплачено', 'Остаток', 'Следующий платёж', 'Договор']}
-      extra={['Статус', 'Intake', 'Degree', 'Срок оплаты', 'График']}
-      numeric={['Сумма', 'Оплачено', 'Остаток', 'Intake']}
-      dates={['Срок оплаты']}
+      title={{ field: 'Ученик', text: r => r.student_name, onOpen: r => navigate(`/finance/contracts/${r.contract_id}`), notion: r => r.notion_url }}
+      base={['№ договора', 'МЗК', 'Сумма', 'Оплачено', 'Остаток', 'Следующий платёж', 'Статус']}
+      extra={['Набор', 'Степень', 'График', 'Документ', 'Акты']}
+      numeric={['Сумма', 'Оплачено', 'Остаток', 'Набор']}
+      dates={['Следующий платёж']}
       values={values}
       cell={(row, field) => {
+        if (field === '№ договора') { const n = numberOf(row); return n ? <span className="block max-w-[200px] truncate" title={n}>{n}</span> : undefined }
         if (field === 'Сумма') return money(row.amount, row.currency)
-        if (field === 'Оплачено') return <Paid row={row} />
-        if (field === 'Остаток') return <span className="font-semibold">{money(row.remaining, row.currency)}</span>
+        if (field === 'Оплачено') return money(row.paid, row.currency)
+        if (field === 'Остаток') return (
+          <span className="inline-flex flex-col items-end">
+            <span className="font-semibold">{money(row.remaining, row.currency)}</span>
+            {row.by_payments != null && <span className="text-xs text-p-muted">по оплатам {money(row.by_payments, row.currency)}</span>}
+          </span>
+        )
         if (field === 'Следующий платёж') return <NextPayment row={row} />
-        if (field === 'Срок оплаты') return row.next_payment.item ? date(row.next_payment.item.due_date) : undefined
-        if (field === 'График' && row.schedule_mismatch) return <FinBadge tone="yellow">Не совпадает с остатком</FinBadge>
-        if (field === 'Договор') return <ContractDocument studentId={row.student_id} contractId={row.contract_id} documents={row.originals} />
         return undefined
       }}
+      exclusiveQuick
       quick={[
-        { key: 'overdue', label: 'Просрочен', test: r => r.next_payment.kind === 'overdue' },
-        { key: 'no_schedule', label: 'Графика нет', test: r => r.next_payment.kind === 'not_planned' },
-        { key: 'mismatch', label: 'Остаток не совпадает с графиком', test: r => !!r.schedule_mismatch },
-        { key: 'no_document', label: 'Договор не загружен', test: r => !(r.originals ?? []).length },
+        { key: 'active', label: 'Активные', test: r => !closed(r) && owes(r) },
+        { key: 'overdue', label: 'С просрочкой', test: r => r.next_payment.kind === 'overdue' },
+        { key: 'waiting_offer', label: 'Ждут оффера', test: r => !!r.waiting_offer },
+        { key: 'paid_full', label: 'Оплачены полностью', test: r => r.remaining != null && !owes(r) },
+        { key: 'mismatch', label: 'Не сходится с Notion', test: r => r.by_payments != null },
+        { key: 'closed', label: 'Закрытые', test: r => closed(r) },
+        { key: 'all', label: 'Все', test: () => true },
+        { key: 'no_schedule', label: 'Графика нет', test: r => r.next_payment.kind === 'not_planned', hidden: true },
       ]}
       initialQuick={initialQuick}
-      groupFields={['Статус', 'Intake', 'Degree', 'МЗК', 'Следующий платёж', 'График']}
-      defaultGroup="Статус"
-      searchText={r => [r.student_name, r.mzk_name ?? '', ...(r.originals ?? []).map(d => d.label)]}
+      groupFields={['Статус', 'МЗК', 'Набор']}
+      filterFields={['МЗК', 'Статус', 'Набор', 'Степень', 'График']}
+      defaultSort={{ field: 'Следующий платёж', direction: 'asc' }}
+      searchText={r => [r.student_name, r.mzk_name ?? '', numberOf(r)]}
       initialSearch={params.get('q') ?? ''}
-      storageKey="finance-contracts-fields"
+      storageKey="finance-contracts-fields-v2"
       countLabel="Договоров"
+      totals={rows => ({ 'Сумма': sum(rows, r => r.amount), 'Оплачено': sum(rows, r => r.paid), 'Остаток': sum(rows, r => r.remaining) })}
       exportName="договоры"
       exportValue={(r, f) => f === 'Сумма' ? money(r.amount, r.currency) : f === 'Оплачено' ? money(r.paid, r.currency)
-        : f === 'Остаток' ? money(r.remaining, r.currency) : f === 'Срок оплаты' ? date(r.next_payment.item?.due_date) : values(r, f).join(', ')}
+        : f === 'Остаток' ? money(r.remaining, r.currency) : f === 'Следующий платёж' ? (r.next_payment.item?.due_date ? `${date(r.next_payment.item.due_date)} ${money(r.next_payment.item.left, r.currency)}` : NEXT_LABEL[r.next_payment.kind]) : values(r, f).join(', ')}
       empty="По выбранным условиям договоров нет."
     />
   )

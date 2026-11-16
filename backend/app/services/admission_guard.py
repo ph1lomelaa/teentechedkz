@@ -19,8 +19,7 @@ GUARDED_STATUSES = frozenset({SubmissionStatus.offer_received, SubmissionStatus.
 
 PORTAL_CREDENTIALS_REQUIRED = HTTPException(
     status_code=422,
-    detail="Нельзя отметить оффер или зачисление без доступов к порталу вуза. "
-           "Добавьте ссылку, логин и пароль в «Доступы к порталам».",
+    detail="Чтобы отметить оффер, добавьте доступ к порталу вуза: название портала, логин, пароль.",
     headers={"X-Error-Code": "PORTAL_CREDENTIALS_REQUIRED"},
 )
 

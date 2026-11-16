@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { financeApi, financeKeys, type ReceivedPayment, type ScheduleItem } from '@/api/finance'
+import { financeApi, financeKeys, type OfferDue, type ReceivedPayment, type ScheduleItem } from '@/api/finance'
 import { FinBadge, FinButton, ItemStatus, StudentCell } from './ui'
 import { NotionTable } from './NotionTable'
 import { AttachReceiptButton } from './dialogs'
@@ -24,6 +24,8 @@ const MONTH = (iso: string) => {
   const d = parseIso(iso)
   return d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(' г.', '').replace(/^./, (c) => c.toUpperCase())
 }
+// Группа «Месяц» идёт по дате (2026-11 раньше 2026-12), а не по названию.
+const monthKey = (i: ScheduleItem, group: string) => group === 'Месяц' && i.due_date ? i.due_date.slice(0, 7) : undefined
 const AGE_BUCKET = (days: number) => days <= 30 ? 'До 30 дней' : days <= 60 ? '31–60 дней' : 'Более 60 дней'
 
 type ListProps = { canManage: boolean; onPay: (i: ScheduleItem) => void }
@@ -32,8 +34,9 @@ type ListProps = { canManage: boolean; onPay: (i: ScheduleItem) => void }
 function itemValues(i: ScheduleItem, field: string): string[] {
   if (field === 'МЗК') return i.mzk_name ? [i.mzk_name] : []
   if (field === 'За что') return [paymentTitle(i)]
-  if (field === 'Срок оплаты') return [i.due_date]
-  if (field === 'Месяц') return [MONTH(i.due_date)]
+  // В списках только строки со сроком: «после оффера» без даты сюда не попадают.
+  if (field === 'Срок оплаты') return i.due_date ? [i.due_date] : []
+  if (field === 'Месяц') return i.due_date ? [MONTH(i.due_date)] : []
   if (field === 'Сумма') return [String(num(i.left))]
   if (field === 'Просрочка, дн.') return [String(i.days_overdue)]
   if (field === 'Срок долга') return [AGE_BUCKET(i.days_overdue)]
@@ -73,11 +76,12 @@ export function ExpectedList({ canManage, onPay, extraControls }: ListProps & { 
       action={canManage ? (i => <FinButton size="sm" onClick={() => onPay(i)}>Отметить оплату</FinButton>) : undefined}
       quick={[
         { key: 'today', label: 'Сегодня', test: i => i.due_date === today },
-        { key: 'week', label: 'Ближайшие 7 дней', test: i => i.due_date <= addDays(today, 6) },
-        { key: 'month', label: 'До конца месяца', test: i => i.due_date <= monthEnd },
+        { key: 'week', label: 'Ближайшие 7 дней', test: i => !!i.due_date && i.due_date <= addDays(today, 6) },
+        { key: 'month', label: 'До конца месяца', test: i => !!i.due_date && i.due_date <= monthEnd },
       ]}
       extraControls={extraControls}
       groupFields={['МЗК', 'Месяц', 'Статус договора']} defaultGroup="Месяц"
+      groupSortKey={monthKey}
       defaultSort={{ field: 'Срок оплаты', direction: 'asc' }}
       searchText={i => [i.student_name, i.mzk_name ?? '']}
       storageKey="finance-expected-fields" countLabel="Платежей"
@@ -116,13 +120,74 @@ export function OverdueList({ canManage, onPay }: ListProps) {
         { key: 'b61', label: 'Более 60 дней', test: i => i.days_overdue > 60 },
         { key: 'no_mzk', label: 'МЗК не указан', test: i => !i.mzk_name },
       ]}
-      groupFields={['МЗК', 'Срок долга', 'Месяц', 'Статус договора']}
+      groupFields={['МЗК', 'Срок долга', 'Статус договора']}
+      groupSortKey={monthKey}
       defaultSort={{ field: 'Просрочка, дн.', direction: 'desc' }}
       searchText={i => [i.student_name, i.mzk_name ?? '']}
       storageKey="finance-overdue-fields" countLabel="Платежей"
       summary={rows => moneyTotals(rows)}
       exportName={`просрочены-${localIso()}`} exportValue={itemExport}
       empty="Просроченных платежей нет."
+    />
+  )
+}
+
+// ---------------------------------------------------------------- Оффер получен
+
+function offerValues(o: OfferDue, field: string): string[] {
+  if (field === 'Вуз') return [o.university]
+  if (field === 'Оффер от') return o.offer_at ? [o.offer_at.slice(0, 10)] : []
+  if (field === 'Договор') return o.amount ? [String(num(o.amount))] : []
+  if (field === 'Оплачено') return o.paid ? [String(num(o.paid))] : []
+  if (field === 'Остаток') return [String(num(o.remaining))]
+  if (field === 'Дата оплаты') return o.remaining_date ? [o.remaining_date] : []
+  if (field === 'Итог') return [o.enrolled ? 'Зачислен' : 'Оффер']
+  return []
+}
+
+/** Ученики с оффером, у которых по договору ещё остаток. Уходят сами, когда остаток 0. */
+export function OffersList({ rows, loading, error, onRetry }: { rows?: OfferDue[]; loading: boolean; error: unknown; onRetry: () => void }) {
+  const navigate = useNavigate()
+  return (
+    <NotionTable<OfferDue>
+      rows={rows} loading={loading} error={error} onRetry={onRetry}
+      rowKey={o => o.contract_id}
+      title={{ field: 'Ученик', text: o => o.student_name, onOpen: o => navigate(`/finance/contracts/${o.contract_id}`), notion: o => o.notion_url }}
+      base={['Вуз', 'Оффер от', 'Оплачено', 'Остаток']}
+      extra={['Договор', 'Дата оплаты', 'Итог']}
+      numeric={['Договор', 'Оплачено', 'Остаток']} dates={['Оффер от', 'Дата оплаты']}
+      values={offerValues}
+      cell={(o, field) => {
+        if (field === 'Вуз') return <span>{o.university}{o.offers > 1 && <span className="ml-2 text-p-muted2">+{o.offers - 1}</span>}{o.enrolled && <span className="ml-2"><FinBadge tone="neutral">зачислен</FinBadge></span>}</span>
+        if (field === 'Оффер от') return o.offer_at ? <span className="whitespace-nowrap">{date(o.offer_at.slice(0, 10))}</span> : <span className="text-p-muted2">раньше</span>
+        if (field === 'Договор') return o.amount ? money(o.amount, o.currency) : '—'
+        if (field === 'Оплачено') return o.paid ? money(o.paid, o.currency) : '—'
+        if (field === 'Остаток') return (
+          <span className="inline-flex flex-col items-end">
+            <span className="font-semibold">{money(o.remaining, o.currency)}</span>
+            {o.by_payments != null && (
+              <span className="whitespace-nowrap text-xs text-p-muted">
+                В Notion остаток {money(o.remaining, o.currency)}, по оплатам {money(o.by_payments, o.currency)}
+              </span>
+            )}
+          </span>
+        )
+        if (field === 'Дата оплаты') return o.remaining_date ? date(o.remaining_date) : '—'
+        return undefined
+      }}
+      action={o => <FinButton size="sm" onClick={() => navigate(`/finance/contracts/${o.contract_id}`)}>Открыть договор</FinButton>}
+      quick={[
+        { key: 'week', label: 'Оффер за 7 дней', test: o => !!o.offer_at && o.offer_at.slice(0, 10) >= addDays(localIso(), -6) },
+        { key: 'no_date', label: 'Без даты оплаты', test: o => !o.remaining_date },
+        { key: 'mismatch', label: 'Не сходится с Notion', test: o => o.by_payments != null },
+      ]}
+      groupFields={['Итог']}
+      defaultSort={{ field: 'Оффер от', direction: 'desc' }}
+      searchText={o => [o.student_name, o.university]}
+      storageKey="finance-offers-fields" countLabel="Учеников"
+      summary={rows => moneyTotals(rows.map(o => ({ amount: o.remaining, currency: o.currency })))}
+      exportName={`оффер-остаток-${localIso()}`} exportValue={(o, field) => field === 'Остаток' ? money(o.remaining, o.currency) : offerValues(o, field).join(', ')}
+      empty="Учеников с оффером и неоплаченным остатком нет."
     />
   )
 }
@@ -180,7 +245,7 @@ export function ReceivedList({ canManage }: { canManage: boolean }) {
       cell={(p, field) => {
         if (field === 'Дата оплаты') return date(p.paid_at)
         if (field === 'Сумма') return <span className="font-semibold">{money(p.amount, p.currency)}</span>
-        if (field === 'Чек') return p.has_receipt ? <FinBadge tone="ok">Есть</FinBadge> : (
+        if (field === 'Чек') return p.has_receipt ? <FinBadge tone="neutral">Есть</FinBadge> : (
           <span className="inline-flex items-center gap-2"><FinBadge tone="yellow">Нет чека</FinBadge>{canManage && <AttachReceiptButton paymentId={p.id} />}</span>
         )
         return undefined
@@ -192,7 +257,7 @@ export function ReceivedList({ canManage }: { canManage: boolean }) {
         { key: 'cash', label: METHOD_LABELS.cash, test: p => p.method === 'cash' },
       ]}
       extraControls={periodControls}
-      groupFields={['Способ', 'Чек', 'Отметил', 'Дата оплаты']}
+      groupFields={['Способ', 'Чек', 'Отметил']}
       defaultSort={{ field: 'Дата оплаты', direction: 'desc' }}
       searchText={p => [p.student_name, p.recorded_by ?? '']}
       storageKey="finance-received-fields" countLabel="Оплат"
@@ -228,6 +293,7 @@ export function PaymentsCalendar({ canManage, onPay }: ListProps) {
     const map = new Map<string, { got: number; wait: number; late: number; items: ScheduleItem[]; payments: ReceivedPayment[] }>()
     const at = (k: string) => map.get(k) ?? map.set(k, { got: 0, wait: 0, late: 0, items: [], payments: [] }).get(k)!
     items.forEach((i) => {
+      if (!i.due_date) return
       const d = at(i.due_date)
       d.items.push(i)
       if (i.state === 'overdue') d.late += num(i.left)
@@ -237,7 +303,7 @@ export function PaymentsCalendar({ canManage, onPay }: ListProps) {
     return map
   }, [items, received])
 
-  const inMonth = (iso: string) => iso >= monthFrom && iso <= monthTo
+  const inMonth = (iso: string | null) => !!iso && iso >= monthFrom && iso <= monthTo
   const plan = moneyTotals(items.filter((i) => inMonth(i.due_date)), 'amount')
   const got = moneyTotals(received.filter((p) => p.paid_at && inMonth(p.paid_at)), 'amount')
   const wait = moneyTotals(items.filter((i) => inMonth(i.due_date) && i.state !== 'paid'))

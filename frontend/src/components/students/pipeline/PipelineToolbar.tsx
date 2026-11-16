@@ -46,6 +46,8 @@ interface PipelineToolbarProps {
   visibleFields: string[]
   onVisibleFields: (fields: string[]) => void
   onReset: () => void
+  /** Подписи для бухгалтера (раздел «Финансы»): без «Поле Notion», «По:», «Поля». */
+  plainLabels?: boolean
 }
 
 export function PipelineToolbar(props: PipelineToolbarProps) {
@@ -103,7 +105,7 @@ export function PipelineToolbar(props: PipelineToolbarProps) {
         </Popover>
       ))}
 
-      <AddFilterButton fields={props.fields.filter((field) => !filters[field])} onPick={addFilter} />
+      <AddFilterButton fields={props.fields.filter((field) => !filters[field])} onPick={addFilter} plain={props.plainLabels} />
 
       {hasFilters && (
         <button type="button" onClick={props.onReset} className={`h-8 rounded-ctl px-2 text-sm font-medium text-p-text underline underline-offset-4 hover:text-p-muted ${FOCUS}`}>
@@ -112,9 +114,9 @@ export function PipelineToolbar(props: PipelineToolbarProps) {
       )}
 
       <div className="ml-auto flex items-center gap-1">
-        <GroupButton view={props.view} group={props.group} fields={props.groupFields} onGroup={props.onGroup} />
+        <GroupButton view={props.view} group={props.group} fields={props.groupFields} onGroup={props.onGroup} plain={props.plainLabels} />
         <SortButton fields={props.fields} sort={props.sort} direction={props.direction} onSort={props.onSort} />
-        <FieldsButton fields={props.toggleableFields} visible={props.visibleFields} onChange={props.onVisibleFields} />
+        <FieldsButton fields={props.toggleableFields} visible={props.visibleFields} onChange={props.onVisibleFields} plain={props.plainLabels} />
       </div>
     </div>
   )
@@ -277,7 +279,7 @@ function FieldPicker({ fields, onPick, selected, placeholder, extra }: {
   )
 }
 
-function AddFilterButton({ fields, onPick }: { fields: string[]; onPick: (field: string) => void }) {
+function AddFilterButton({ fields, onPick, plain }: { fields: string[]; onPick: (field: string) => void; plain?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -286,20 +288,23 @@ function AddFilterButton({ fields, onPick }: { fields: string[]; onPick: (field:
         Фильтр
       </PopoverTrigger>
       <PopoverContent>
-        <FieldPicker fields={fields} placeholder="Поле Notion" onPick={(field) => { setOpen(false); onPick(field) }} />
+        <FieldPicker fields={fields} placeholder={plain ? 'Выберите поле' : 'Поле Notion'} onPick={(field) => { setOpen(false); onPick(field) }} />
       </PopoverContent>
     </Popover>
   )
 }
 
-function GroupButton({ view, group, fields, onGroup }: {
+function GroupButton({ view, group, fields, onGroup, plain }: {
+  plain?: boolean
   view: PipelineView
   group: string
   fields: string[]
   onGroup: (field: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const label = group === 'Статус выплат' ? 'По статусу' : group === NO_GROUP ? 'Без группы' : `По: ${fieldLabel(group)}`
+  const label = plain
+    ? (group === NO_GROUP ? 'Группировка' : `Группировка: ${fieldLabel(group)}`)
+    : group === 'Статус выплат' ? 'По статусу' : group === NO_GROUP ? 'Без группы' : `По: ${fieldLabel(group)}`
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={QUIET} aria-label={`Группировка: ${label}`}>
@@ -356,7 +361,8 @@ function SortButton({ fields, sort, direction, onSort }: {
 }
 
 /** Видимость и порядок полей — как Property visibility в Notion. */
-function FieldsButton({ fields, visible, onChange }: {
+function FieldsButton({ fields, visible, onChange, plain }: {
+  plain?: boolean
   fields: string[]
   visible: string[]
   onChange: (fields: string[]) => void
@@ -375,9 +381,9 @@ function FieldsButton({ fields, visible, onChange }: {
   }
   return (
     <Popover>
-      <PopoverTrigger className={QUIET} aria-label={`Поля: показано ${visible.length}`}>
+      <PopoverTrigger className={QUIET} aria-label={`${plain ? 'Колонки' : 'Поля'}: показано ${visible.length}`}>
         <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-        <span className="hidden md:inline">Поля {visible.length}</span>
+        <span className="hidden md:inline">{plain ? 'Колонки' : 'Поля'} {visible.length}</span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <div className="border-b border-p-line p-2">

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
-from pydantic import field_validator, BaseModel, ConfigDict
+from pydantic import field_validator, BaseModel, ConfigDict, Field
 
 from app.models.contract import PipelineStatus, PaymentPlan
 
@@ -30,6 +30,7 @@ class ContractCreate(BaseModel):
     _v_currency = field_validator("currency")(_only_kzt)
     pipeline_status: PipelineStatus = PipelineStatus.no_status
     mzk_manager_id: uuid.UUID | None = None
+    number: str | None = Field(default=None, max_length=100)
     ielts_payment_included: bool = False
     english_sum: Decimal | None = None
     english_paid: Decimal | None = None
@@ -55,6 +56,7 @@ class ContractUpdate(BaseModel):
     _v_currency = field_validator("currency")(_only_kzt)
     pipeline_status: PipelineStatus | None = None
     mzk_manager_id: uuid.UUID | None = None
+    number: str | None = Field(default=None, max_length=100)
     ielts_payment_included: bool | None = None
     english_sum: Decimal | None = None
     english_paid: Decimal | None = None
@@ -83,6 +85,7 @@ class ContractResponse(BaseModel):
     pipeline_status: PipelineStatus
     mzk_manager_id: uuid.UUID | None = None
     mzk_manager_name: str | None = None  # resolved from join / eager-loaded relation
+    number: str | None = None
     ielts_payment_included: bool
     english_sum: Decimal | None = None
     english_paid: Decimal | None = None

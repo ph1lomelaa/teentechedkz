@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date, timezone
 from decimal import Decimal
-from sqlalchemy import String, Numeric, Date, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Numeric, Date, DateTime, ForeignKey, Text, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -11,12 +11,17 @@ class PaymentType(str, enum.Enum):
     client_payment = "client_payment"
     mentor_payout = "mentor_payout"
     english_payment = "english_payment"
+    # Выплата возврата клиенту (миграция 145): минус в «по оплатам» и «Поступило».
+    client_refund = "client_refund"
 
 
 class PaymentStatus(str, enum.Enum):
     paid = "paid"
     pending = "pending"
     to_be_paid = "to_be_paid"
+    # Отменённая оплата (миграция 141): остаётся в истории зачёркнутой, ни в
+    # какие суммы не входит — везде считаются только status == paid.
+    cancelled = "cancelled"
 
 
 class PaymentMethod(str, enum.Enum):
@@ -45,6 +50,15 @@ class Payment(Base):
         ForeignKey("payment_schedule_items.id", ondelete="SET NULL"), nullable=True, index=True
     )
     method: Mapped[PaymentMethod | None] = mapped_column(SAEnum(PaymentMethod, name="payment_method"), nullable=True)
+    # Отмена вместо удаления (миграция 141): кто, когда и почему.
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # «Сверено с выпиской» (миграция 146).
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reconciled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Кто платил: student / parent / other.
+    payer: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     contract: Mapped["Contract"] = relationship(back_populates="payments")
     mentor: Mapped["User | None"] = relationship(foreign_keys=[mentor_id])

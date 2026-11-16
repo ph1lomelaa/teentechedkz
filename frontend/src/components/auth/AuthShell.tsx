@@ -11,9 +11,12 @@ interface AuthShellProps {
   wide?: boolean
   /** Экраны-«ворота» (подпись регламента) уйти на главную не дают — там ссылка лишняя. */
   hideHomeLink?: boolean
+  /** Светлый вид (регистрация /join, решение 14.11): белая карточка на светлом
+   * фоне, без свечения и полупрозрачности, шрифт кабинета. */
+  light?: boolean
 }
 
-export function AuthShell({ eyebrow, title, description, children, wide = false, hideHomeLink = false }: AuthShellProps) {
+export function AuthShell({ eyebrow, title, description, children, wide = false, hideHomeLink = false, light = false }: AuthShellProps) {
   const glowRef = useRef<HTMLDivElement>(null)
   const [mounted, setMounted] = useState(false)
 
@@ -34,6 +37,31 @@ export function AuthShell({ eyebrow, title, description, children, wide = false,
     window.addEventListener('mousemove', onMouseMove, { passive: true })
     return () => window.removeEventListener('mousemove', onMouseMove)
   }, [])
+
+  if (light) {
+    return (
+      <main className="auth-light relative min-h-[100dvh] overflow-x-hidden bg-[#FAFAF7] text-[#141414]">
+        {!hideHomeLink && (
+          <Link to="/" className="absolute left-6 top-6 z-10 flex items-center gap-2 text-sm text-[#6B6F76] hover:text-[#141414] sm:left-8 sm:top-8">
+            <ArrowLeft className="h-4 w-4" />
+            На главную
+          </Link>
+        )}
+        <div className="flex min-h-[100dvh] items-center justify-center px-4 py-16 sm:px-6 sm:py-20">
+          <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-[440px]'}`}>
+            <div className="rounded-xl border border-[#E7E5DF] bg-white p-5 sm:p-8">
+              <div className="mb-6">
+                <p className="text-[13px] text-[#6B6F76]">{eyebrow}</p>
+                <h1 className="mt-1 text-2xl font-semibold text-[#141414]">{title}</h1>
+                {description && <div className="mt-2 text-sm leading-6 text-[#6B6F76]">{description}</div>}
+              </div>
+              {children}
+            </div>
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main className="auth-shell relative min-h-[100dvh] overflow-x-hidden bg-[#0A0A0A] text-white">

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
@@ -30,6 +31,8 @@ class User(Base):
     #: Куда слать служебные письма (финансисту — об изменениях денег), если
     #: это не адрес входа. Пусто — письма идут на `email`.
     notification_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Настройки писем финансов (миграция 143): {"urgent": [...], "summary_hour": 9, "summary": true}.
+    finance_prefs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, name="user_role"))
     telegram_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

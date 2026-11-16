@@ -14,6 +14,7 @@ class DocType(str, enum.Enum):
     id_scan = "id_scan"
     offer_letter = "offer_letter"
     contract_scan = "contract_scan"
+    addendum_scan = "addendum_scan"  # скан допсоглашения (миграция 142)
     transcript = "transcript"
     resume = "resume"
     onboarding = "onboarding"  # регламент МЗК п.2.2, п.3.5-3.6 — файл по онбордингу

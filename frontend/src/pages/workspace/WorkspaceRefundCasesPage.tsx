@@ -192,6 +192,7 @@ const RefundCaseDialog: React.FC<{ refundCase: RefundCase; onClose: () => void }
   const [summary, setSummary] = useState(refundCase.resolution_summary ?? '')
   const [decision, setDecision] = useState(refundCase.decision ?? '')
   const [approvalNote, setApprovalNote] = useState(refundCase.approval_note ?? '')
+  const [approvedAmount, setApprovedAmount] = useState(refundCase.approved_amount ?? (refundCase.amount != null ? String(refundCase.amount) : ''))
   const [executionConfirmation, setExecutionConfirmation] = useState(refundCase.execution_confirmation ?? '')
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['refund-cases'] })
@@ -208,7 +209,7 @@ const RefundCaseDialog: React.FC<{ refundCase: RefundCase; onClose: () => void }
     onError: () => toast({ title: 'Не удалось закрыть кейс', variant: 'destructive' }),
   })
   const approveMutation = useMutation({
-    mutationFn: () => refundCasesApi.approve(refundCase.id, decision.trim(), approvalNote.trim()),
+    mutationFn: () => refundCasesApi.approve(refundCase.id, decision.trim(), approvalNote.trim(), approvedAmount.replace(/\s/g, '') || null),
     onSuccess: invalidate,
     onError: () => toast({ title: 'Не удалось утвердить решение', variant: 'destructive' }),
   })
@@ -245,6 +246,9 @@ const RefundCaseDialog: React.FC<{ refundCase: RefundCase; onClose: () => void }
             <>
               <textarea value={decision} onChange={(e) => setDecision(e.target.value)} placeholder="Решение" rows={2} className="w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" />
               <textarea value={approvalNote} onChange={(e) => setApprovalNote(e.target.value)} placeholder="Письменное согласование администратора" rows={2} className="w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" />
+              <label className="block text-xs text-w-muted">Сумма к возврату, ₸ (может отличаться от запрошенной)
+                <input inputMode="decimal" value={approvedAmount} disabled={!!refundCase.approved_at} onChange={(e) => setApprovedAmount(e.target.value)} className="mt-1 w-full rounded-ctl border border-w-line bg-w-panel2 px-3 py-2 text-sm text-w-ink" />
+              </label>
               {!refundCase.approved_at && <AppButton colorPrefix="w" className="w-full" disabled={!decision.trim() || !approvalNote.trim() || approveMutation.isPending} onClick={() => approveMutation.mutate()}>Утвердить решение</AppButton>}
               <textarea
                 value={summary}

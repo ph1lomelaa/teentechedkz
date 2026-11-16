@@ -49,6 +49,7 @@ async def create_contract(
         up_sum=body.up_sum, up_paid=body.up_paid, proforientation_sum=body.proforientation_sum,
         ielts_exam_fee=body.ielts_exam_fee, mentor_paid=body.mentor_paid,
         notes=body.notes,
+        number=(body.number or "").strip() or None,
     )
     db.add(contract)
     await db.flush()
@@ -96,6 +97,13 @@ async def update_contract(
                   "up_sum", "up_paid", "proforientation_sum", "ielts_exam_fee", "mentor_paid"]:
         if field in updates:
             setattr(contract, field, updates[field])
+
+    # Номер договора (миграция 142): только в платформе, в Notion не уходит.
+    if "number" in updates:
+        new_number = (updates["number"] or "").strip() or None
+        if new_number != contract.number:
+            await log_change(db, "contract", contract.id, "number", contract.number, new_number, str(current_user.id))
+            contract.number = new_number
 
     # Событийное уведомление менторам+МЗК, если поменялась сумма к выплате менторам.
     if "mentor_total_owed" in updates and contract.mentor_total_owed != old_mentor_total:
@@ -175,6 +183,7 @@ def _contract_to_dict(c: Contract) -> dict:
         "currency": c.currency,
         "payment_plan": c.payment_plan.value if c.payment_plan else None,
         "pipeline_status": c.pipeline_status.value if c.pipeline_status else None,
+        "number": c.number,
         "mzk_manager_id": str(c.mzk_manager_id) if c.mzk_manager_id else None,
         "mzk_manager_name": c.mzk_manager.name if c.mzk_manager else None,
         "ielts_payment_included": c.ielts_payment_included,
