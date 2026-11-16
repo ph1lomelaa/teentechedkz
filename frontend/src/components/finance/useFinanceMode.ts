@@ -12,5 +12,7 @@ export function useFinanceMode() {
   const { data } = useQuery({ queryKey: financeKeys.counters(), queryFn: financeApi.counters, staleTime: 60_000 })
   const viewOnly = data?.view_only ?? true
   const manage = can('finance_desk', 'manage')
-  return { viewOnly, canEdit: manage && !viewOnly, canMarkSeen: manage }
+  // 16.11: оффер срок не ставит — просрочки «после оффера» не бывает.
+  const offerDeadline = data?.offer_deadline ?? false
+  return { viewOnly, offerDeadline, canEdit: manage && !viewOnly, canMarkSeen: manage }
 }

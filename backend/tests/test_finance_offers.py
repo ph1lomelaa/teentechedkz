@@ -9,6 +9,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from app.core.config import settings
+from unittest.mock import patch
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
@@ -32,7 +34,9 @@ URL = os.getenv('FINANCE_TEST_DATABASE_URL', '')
 @pytest.mark.skipif(not URL, reason='Requires an isolated finance test database')
 def test_offer_tells_finance_to_close_remaining():
     assert '/tte_finance_check_' in URL, 'Refusing to run against a non-disposable database'
-    asyncio.run(run())
+    # Срок «день оффера + N дней» включается настройкой (16.11 по умолчанию выключен).
+    with patch.object(settings, 'FINANCE_OFFER_DEADLINE', True):
+        asyncio.run(run())
 
 
 async def run():

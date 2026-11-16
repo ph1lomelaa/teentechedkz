@@ -351,7 +351,8 @@ async def record_offer(
         db, student=student, contract=contract, field=OFFER_FIELD if entering else OFFER_CANCEL_FIELD,
         old=None, new=where or "вуз не указан", source="platform", actor=actor, source_ref=ref,
     )
-    if entering:
+    from app.core.config import settings as _settings
+    if entering and _settings.FINANCE_OFFER_DEADLINE:
         from zoneinfo import ZoneInfo
         await set_after_offer_due(db, contract, datetime.now(ZoneInfo("Asia/Almaty")).date())
     if event is not None and await _other_active_offer(db, application):
@@ -386,7 +387,8 @@ async def _notify_offer_team(db: AsyncSession, student: Student, contract: Contr
         return
     remaining = contract.client_remaining_amount if contract is not None else None
     due = datetime.now(ZoneInfo("Asia/Almaty")).date() + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS)
-    tail = (f" Остаток {_money(remaining)} к оплате до {due:%d.%m.%Y}." if remaining and remaining > 0
+    pay = f" к оплате до {due:%d.%m.%Y}" if settings.FINANCE_OFFER_DEADLINE else " оплачивается после оффера"
+    tail = (f" Остаток {_money(remaining)}{pay}." if remaining and remaining > 0
             else " Остатка по договору нет." if remaining is not None else " Остаток в Notion не заполнен.")
     who = f" Отметил: {actor_label(actor)}." if actor is not None else ""
     for uid in ids:
@@ -805,7 +807,9 @@ def next_steps(group: ChangeGroup) -> list[str]:
             steps.append("Остаток по договору не заполнен. Уточните у менеджера, сколько клиент должен после оффера.")
         elif group.remaining > 0:
             offer_at = max((e.created_at for e in group.events if e.field == OFFER_FIELD and e.created_at), default=None)
-            if offer_at is not None:
+            if not settings.FINANCE_OFFER_DEADLINE:
+                steps.append(f"Свяжитесь с клиентом: остаток {_money(group.remaining)} по договору оплачивается после оффера.")
+            elif offer_at is not None:
                 from zoneinfo import ZoneInfo
                 due = offer_at.astimezone(ZoneInfo("Asia/Almaty")).date() + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS)
                 steps.append(f"Свяжитесь с клиентом: остаток {_money(group.remaining)} по договору оплачивается после оффера, "
@@ -1183,17 +1187,23 @@ async def load_notion_items(
         offer_day = offers.get(contract.student_id)
         if offer_day is None and status in NOTION_OFFER_STATUSES:
             offer_day = today  # оффер был, день неизвестен — к оплате сейчас
-        due = offer_day + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS) if offer_day else None
+        deadline = settings.FINANCE_OFFER_DEADLINE
+        due = offer_day + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS) if offer_day and deadline else None
         item = PaymentScheduleItem(
             id=contract.id, contract_id=contract.id, student_id=contract.student_id, kind=ScheduleKind.main,
-            label="Остаток после оффера" if offer_day else "Остаток, ждёт оффера",
+            label=("Остаток после оффера" if deadline else "Остаток, оффер получен") if offer_day else "Остаток, ждёт оффера",
             amount=contract.client_remaining_amount, currency=contract.currency or "KZT",
-            due_date=due, after_offer=due is None, note=None, created_at=contract.created_at,
+            due_date=due, after_offer=offer_day is None, note=None, created_at=contract.created_at,
         )
         if not all(_matches(item, cond) for cond in where or []):
             continue
-        state = ItemState.after_offer if due is None else item_state(
-            amount=item.amount, paid=Decimal("0"), due=due, today=today)
+        # Без срока (16.11): оффер есть — остаток ждём без даты и без просрочки; оффера нет — «ждёт оффера».
+        if offer_day is None:
+            state = ItemState.after_offer
+        elif due is None:
+            state = ItemState.upcoming
+        else:
+            state = item_state(amount=item.amount, paid=Decimal("0"), due=due, today=today)
         out.append(ItemRow(item=item, paid=Decimal("0"), state=state, student_name=student_name, mzk_name=mzk_name,
                            pipeline_status=status, has_receipt=True))
     out.sort(key=lambda r: (r.item.due_date is None, r.item.due_date or date.max, r.student_name))

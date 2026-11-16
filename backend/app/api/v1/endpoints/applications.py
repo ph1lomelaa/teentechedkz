@@ -118,7 +118,7 @@ async def student_offers(
                                  .order_by(Contract.created_at.desc()).limit(1))).scalar_one_or_none()
     # Срок оплаты — от первого оффера: остаток платят после любого из них.
     first = min((at for at, _ in marks.values()), default=None)
-    due = (first.astimezone(almaty).date() + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS)) if first else None
+    due = (first.astimezone(almaty).date() + timedelta(days=settings.FINANCE_AFTER_OFFER_DAYS)) if first and settings.FINANCE_OFFER_DEADLINE else None
     remaining = contract.client_remaining_amount if contract is not None else None
     return {
         "items": items,

@@ -60,7 +60,8 @@ function SectionTitle({ id, children }: { id: string; children: ReactNode }) {
  * Адрес /finance прежний: на него ведут ссылки из писем.
  */
 export function FinanceTodayPage() {
-  const { canEdit: canManage, viewOnly, canMarkSeen } = useFinanceMode()
+  const { canEdit: canManage, viewOnly, canMarkSeen, offerDeadline } = useFinanceMode()
+  const showOverdue = !viewOnly || offerDeadline
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
@@ -140,14 +141,14 @@ export function FinanceTodayPage() {
       {data && (
         <div className="grid gap-8">
           {/* Четыре цифры — отдельными плитками, по нажатию ведут к списку. */}
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className={`grid gap-3 sm:grid-cols-2 ${showOverdue ? 'xl:grid-cols-4' : 'lg:grid-cols-3'}`}>
             {viewOnly
               ? <Metric label="Ждут оффера" hint="остаток оплатят после оффера"
                 value={data.waiting_offer_count ? `${plural(data.waiting_offer_count, ['ученик', 'ученика', 'учеников'])} на ${money(data.waiting_offer_total ?? '0')}` : 'нет'}
                 onClick={data.waiting_offer_count ? () => navigate('/finance/contracts?quick=waiting_offer') : undefined} />
               : <Metric label="Ждём сегодня" value={waiting.length ? `${payments(waiting.length)} на ${money(data.due_today_total ?? '0')}` : 'нет'} />}
-            <Metric label={viewOnly ? 'Просрочено после оффера' : 'Просрочено'} bad={data.overdue_count > 0} value={data.overdue_count ? `${payments(data.overdue_count)} на ${money(data.overdue_total)}` : 'нет'}
-              onClick={data.overdue_count ? () => reveal('overdue') : undefined} />
+            {showOverdue && <Metric label={viewOnly ? 'Просрочено после оффера' : 'Просрочено'} bad={data.overdue_count > 0} value={data.overdue_count ? `${payments(data.overdue_count)} на ${money(data.overdue_total)}` : 'нет'}
+              onClick={data.overdue_count ? () => reveal('overdue') : undefined} />}
             <Metric label="Оффер получен" value={toIssue.length ? plural(toIssue.length, ['ученик', 'ученика', 'учеников']) : 'нет'}
               onClick={toIssue.length ? () => reveal('offers') : undefined} />
             {viewOnly
@@ -226,7 +227,7 @@ export function FinanceTodayPage() {
                         <Td><StudentCell name={r.student_name ?? '—'} onOpen={r.contract_id ? () => open(r.contract_id!) : undefined} /></Td>
                         <Td className="text-[13px]">{r.decision ?? '—'}</Td>
                         <Td right className="font-semibold">{money(r.approved ?? r.requested)}</Td>
-                        <Td right><FinButton size="sm" onClick={() => navigate('/finance/refunds')}>Выплатить</FinButton></Td>
+                        <Td right>{r.contract_id && <FinButton size="sm" onClick={() => open(r.contract_id!)}>Открыть</FinButton>}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -253,8 +254,7 @@ export function FinanceTodayPage() {
             )}
 
             {data.overdue_count > 0 && (
-              <FinCard title="Просрочено" meta={`${payments(data.overdue_count)} на ${money(data.overdue_total)}${data.overdue_count > data.overdue.length ? ` · показаны ${data.overdue.length} самых давних` : ''}`}
-                actions={<FinButton size="sm" onClick={() => navigate('/finance/debts')}>Все долги</FinButton>}>
+              <FinCard title="Просрочено" meta={`${payments(data.overdue_count)} на ${money(data.overdue_total)}${data.overdue_count > data.overdue.length ? ` · показаны ${data.overdue.length} самых давних` : ''}`}>
                 <FinTable minWidth={760}>
                   <thead><tr><Th>Ученик</Th><Th>Срок оплаты</Th><Th right>Просрочка</Th><Th right>Сумма</Th><Th>Последнее действие</Th><Th right> </Th></tr></thead>
                   <tbody>
@@ -280,12 +280,13 @@ export function FinanceTodayPage() {
 
           <section aria-labelledby="fin-h-lists" className="grid gap-4">
             <SectionTitle id="fin-h-lists">Все списки</SectionTitle>
-            <div id="fin-overdue">
+            {/* Без срока после оффера (16.11) просрочки не бывает — пустой список не показываем. */}
+            {(showOverdue || data.overdue_count > 0) && <div id="fin-overdue">
               <FinCard title="Просроченные платежи" meta={data.overdue_count ? `${payments(data.overdue_count)} на ${money(data.overdue_total)}` : 'просрочек нет'}
                 actions={data.overdue_count > 0 && <ToggleButton open={opened.has('overdue')} onClick={() => toggle('overdue')}>Показать</ToggleButton>}>
                 {opened.has('overdue') && <div className="py-4"><OverdueList canManage={canManage} onPay={setPaying} /></div>}
               </FinCard>
-            </div>
+            </div>}
 
             <div id="fin-expected">
               <FinCard

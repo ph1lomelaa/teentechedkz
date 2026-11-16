@@ -143,6 +143,9 @@ def _next_payment(money: ContractMoney, today: date) -> dict:
         state = money.next_item["state"]
         if state == ItemState.after_offer.value:
             return {"kind": "after_offer", "item": money.next_item}
+        if not money.next_item.get("due_date"):
+            # Оффер получен, срока нет (FINANCE_OFFER_DEADLINE выключен).
+            return {"kind": "offer_received", "item": money.next_item}
         kind = "overdue" if state == "overdue" else "today" if state == "today" else "planned"
         return {"kind": kind, "item": money.next_item}
     if money.remaining is not None and money.remaining <= 0:
@@ -344,11 +347,11 @@ async def today_view(db: Db, current_user: CurrentUser):
         .where(Student.is_archived.is_(False), Payment.type == PaymentType.client_payment,
                Payment.status == PaymentStatus.paid, Payment.paid_at >= month_start, Payment.paid_at < month_end)
         .group_by(Payment.currency))).all())
-    planned_by_currency = dict((await db.execute(
-        select(PaymentScheduleItem.currency, func.sum(PaymentScheduleItem.amount))
-        .join(Student, Student.id == PaymentScheduleItem.student_id)
-        .where(Student.is_archived.is_(False), finance_desk.ACTIVE_ITEM, PaymentScheduleItem.due_date >= month_start,
-               PaymentScheduleItem.due_date < month_end).group_by(PaymentScheduleItem.currency))).all())
+    # План месяца — из тех же строк, что «Ожидаются» и «Календарь». В режиме «только просмотр»
+    # строки собираются из Notion на лету и в таблице графика их нет: прямой SQL давал 0 ₸ (16.11).
+    planned_by_currency: dict[str, Decimal] = {}
+    for i in await _items(db, today, PaymentScheduleItem.due_date >= month_start, PaymentScheduleItem.due_date < month_end):
+        planned_by_currency[i["currency"]] = planned_by_currency.get(i["currency"], Decimal("0")) + Decimal(i["amount"])
     received = received_by_currency.get('KZT', Decimal('0'))
     planned = planned_by_currency.get('KZT', Decimal('0'))
     changes = (await db.execute(
@@ -469,6 +472,7 @@ async def counters(db: Db, current_user: CurrentUser):
         "today_tasks": due_today + offers_waiting + (0 if settings.FINANCE_VIEW_ONLY else await _refunds_to_pay_count(db)),
         # Режим «только просмотр» (15.11): фронт скрывает кнопки ввода.
         "view_only": settings.FINANCE_VIEW_ONLY,
+        "offer_deadline": settings.FINANCE_OFFER_DEADLINE,
         "offers_waiting": offers_waiting,
         "due_today": due_today,
         "overdue": sum(1 for r in rows if r.state is ItemState.overdue),
@@ -2008,6 +2012,28 @@ async def accept_change(event_id: uuid.UUID, db: Db, current_user: CurrentUser, 
         await db.flush()
     await db.commit()
     return {"ok": True, "moved_item_id": str(moved.id) if moved else None}
+
+
+class AcceptManyIn(BaseModel):
+    ids: list[uuid.UUID] = Field(default_factory=list, max_length=2000)
+
+
+@router.post("/changes/accept-many")
+async def accept_many_changes(body: AcceptManyIn, db: Db, current_user: CurrentUser):
+    """«Просмотрено все» (16.11): то же, что «Просмотрено» по каждому событию из списка.
+    Уже проверенные пропускаются; график не переносится."""
+    require_access(current_user, "finance_desk", Action.manage)
+    if not body.ids:
+        return {"ok": True, "accepted": 0}
+    events = (await db.execute(
+        select(FinanceChangeEvent)
+        .where(FinanceChangeEvent.id.in_(body.ids), FinanceChangeEvent.status == FinanceChangeStatus.new)
+        .with_for_update()
+    )).scalars().all()
+    for event in events:
+        await finance_desk.apply_accepted_change(db, event, user=current_user, today=_today(), move_schedule=False)
+    await db.commit()
+    return {"ok": True, "accepted": len(events)}
 
 
 @router.post("/changes/{event_id}/reject")

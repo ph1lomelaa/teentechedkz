@@ -321,7 +321,7 @@ export function FinanceContractPage() {
           </FinCard>
         )}
         {tab === 'debt' && (
-          <FinCard title="Работа с долгом" actions={<Link to="/finance/debts" className="text-sm text-[#1D4ED8] underline">Все долги</Link>}>
+          <FinCard title="Работа с долгом">
             <FinTable minWidth={720}>
               <thead><tr><Th>Когда</Th><Th>Что</Th><Th>Кто</Th></tr></thead>
               <tbody>

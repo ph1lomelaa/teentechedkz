@@ -35,6 +35,8 @@ export interface NotionTableProps<T> {
   /** Кнопка в конце строки («Отметить оплату»). */
   action?: (row: T) => ReactNode
   quick?: QuickFilter<T>[]
+  /** Кнопка рядом с «Экспортом», получает строки, видимые сейчас (с учётом фильтров). */
+  bulkAction?: (visible: T[]) => ReactNode
   /** Вкладки сверху: по умолчанию выбрана одна. false — можно включить несколько. */
   exclusiveQuick?: boolean
   /** Поля с выпадающим фильтром «МЗК: все» в строке поиска (по умолчанию — поля группировки). */
@@ -106,7 +108,8 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
   const quickTests = (props.quick ?? []).filter(q => quick.has(q.key))
   const filtered = useMemo(() => all.filter(row =>
     (!needle || props.searchText(row).some(v => v.toLocaleLowerCase().includes(needle)))
-    && quickTests.every(q => q.test(row))
+    // Несколько видов сразу (16.11): строка подходит хотя бы под один выбранный.
+    && (!quickTests.length || quickTests.some(q => q.test(row)))
     && matches(row),
   ).sort((a, b) => {
     const [x, y] = [valuesOf(a, sort)[0] ?? '', valuesOf(b, sort)[0] ?? '']
@@ -163,7 +166,8 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
           className="h-9 w-full rounded-ctl border border-p-line bg-p-panel pl-8 pr-2 text-sm text-p-text placeholder:text-p-muted2" />
       </div>
       {tabs.length > 0 && <ViewSelect options={tabs.filter(q => !q.hidden || quick.has(q.key)).map(q => ({ key: q.key, label: q.label, count: props.rows ? tabCount(q) : undefined }))}
-        value={tabs.find(q => isOn(q.key))?.key ?? 'all'} onChange={key => setQuick(new Set([key]))} />}
+        value={tabs.filter(q => isOn(q.key)).map(q => q.key)} total={props.rows ? filtered.length : undefined}
+        onChange={keys => setQuick(new Set(keys.filter(k => k !== 'all')))} />}
       {filterFields.map(field => <MultiFilter key={field} label={field} value={chosen(field)} onChange={list => setChosen(field, list)}
         options={optionCounts(field).options.map(o => ({ value: o.value, label: o.value, count: o.count }))} />)}
       {props.extraControls}
@@ -178,6 +182,7 @@ export function NotionTable<T>(props: NotionTableProps<T>) {
           </div>
         </>}
         {toggleable.length > shown.length || (props.extra ?? []).length > 0 ? <ColumnsMenu fields={toggleable} shown={shown} onChange={setVisible} /> : null}
+        {props.bulkAction?.(filtered)}
         <FinButton size="sm" disabled={!rows.length} onClick={exportCsv}><Download className="h-4 w-4" aria-hidden="true" />Экспорт</FinButton>
       </div>
     </div>
@@ -256,7 +261,8 @@ function ColumnsMenu({ fields, shown, onChange }: { fields: string[]; shown: str
 }
 
 /** Вид списка («Активные», «С просрочкой», «Все») — одной выпадашкой в строке фильтров. */
-function ViewSelect({ options, value, onChange }: { options: { key: string; label: string; count?: number }[]; value: string; onChange: (key: string) => void }) {
+/** «Показать»: можно выбрать несколько видов; «Все» снимает выбор. */
+function ViewSelect({ options, value, total, onChange }: { options: { key: string; label: string; count?: number }[]; value: string[]; total?: number; onChange: (keys: string[]) => void }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -266,20 +272,34 @@ function ViewSelect({ options, value, onChange }: { options: { key: string; labe
     document.addEventListener('keydown', escape)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [])
-  const current = options.find(o => o.key === value) ?? options[0]
-  const isAll = current?.key === 'all'
+  const picked = value.filter(k => k !== 'all')
+  const isAll = picked.length === 0
+  const chosen = options.filter(o => picked.includes(o.key))
+  const allOption = options.find(o => o.key === 'all')
+  const label = isAll ? (allOption?.label ?? 'Все') : chosen.length === 1 ? chosen[0].label : `${chosen.length} ${chosen.length < 5 ? 'вида' : 'видов'}`
+  const count = isAll ? allOption?.count : chosen.length === 1 ? chosen[0].count : total
+  const toggle = (key: string) => {
+    if (key === 'all') { onChange([]); return }
+    onChange(picked.includes(key) ? picked.filter(k => k !== key) : [...picked, key])
+  }
   return <div ref={root} className="relative">
     <button type="button" aria-label="Показать" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}
+      title={chosen.length > 1 ? chosen.map(o => o.label).join(', ') : undefined}
       className={`flex min-h-9 items-center gap-2 rounded-ctl border px-3 text-xs ${isAll ? 'border-p-line bg-p-panel text-p-text' : 'border-p-accent-dim bg-p-chip text-p-chip-text'}`}>
-      <span>Показать: <b className="font-semibold">{current?.label}</b>{current?.count != null && <span className="ml-1 tabular-nums opacity-70">{current.count}</span>}</span>
+      <span>Показать: <b className="font-semibold">{label}</b>{count != null && <span className="ml-1 tabular-nums opacity-70">{count}</span>}</span>
       <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     </button>
-    {open && <div role="listbox" aria-label="Показать" className="absolute left-0 top-full z-40 mt-2 w-64 rounded-xl border border-p-line bg-white p-1.5 text-sm text-p-text shadow-lg">
-      {options.map(o => <button key={o.key} type="button" role="option" aria-selected={o.key === current?.key} onClick={() => { onChange(o.key); setOpen(false) }}
-        className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left hover:bg-p-panel2 ${o.key === current?.key ? 'font-semibold' : ''}`}>
-        <Check className={`h-3.5 w-3.5 shrink-0 ${o.key === current?.key ? '' : 'invisible'}`} aria-hidden="true" />
-        <span className="flex-1">{o.label}</span>{o.count != null && <span className="text-xs tabular-nums text-p-muted">{o.count}</span>}
-      </button>)}
+    {open && <div role="listbox" aria-label="Показать" aria-multiselectable="true" className="absolute left-0 top-full z-40 mt-2 w-72 rounded-xl border border-p-line bg-white p-1.5 text-sm text-p-text shadow-lg">
+      <p className="px-2.5 pb-1 pt-1.5 text-xs text-p-muted">Можно выбрать несколько</p>
+      {options.map(o => {
+        const on = o.key === 'all' ? isAll : picked.includes(o.key)
+        return <button key={o.key} type="button" role="option" aria-selected={on} onClick={() => toggle(o.key)}
+          className={`flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left hover:bg-p-panel2 ${on ? 'font-semibold' : ''}`}>
+          <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-p-text bg-p-text text-p-bg' : 'border-p-line'}`}>{on && <Check className="h-3 w-3" aria-hidden="true" />}</span>
+          <span className="flex-1">{o.label}</span>{o.count != null && <span className="text-xs tabular-nums text-p-muted">{o.count}</span>}
+        </button>
+      })}
+      {!isAll && <button type="button" onClick={() => setOpen(false)} className="mt-1 w-full rounded-lg bg-p-text px-2.5 py-2 text-center text-xs font-semibold text-p-bg">Готово</button>}
     </div>}
   </div>
 }

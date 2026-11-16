@@ -241,6 +241,8 @@ export interface FinanceCounters {
   today_tasks?: number
   /** Режим «только просмотр» (15.11): кнопки ввода скрыты. */
   view_only?: boolean
+  /** Отметка оффера ставит срок оплаты (16.11: по умолчанию нет). */
+  offer_deadline?: boolean
   offers_waiting?: number
   due_today: number
   overdue: number
@@ -249,7 +251,7 @@ export interface FinanceCounters {
   review: number
 }
 
-export type NextPaymentKind = 'overdue' | 'today' | 'planned' | 'not_planned' | 'paid_full' | 'after_offer'
+export type NextPaymentKind = 'overdue' | 'today' | 'planned' | 'not_planned' | 'paid_full' | 'after_offer' | 'offer_received'
 
 export interface OriginalDocument { kind: 'trustme' | 'scan'; id: string; label: string }
 
@@ -523,6 +525,8 @@ export const financeApi = {
     (await apiClient.post(`/finance/schedule/${id}/remind`)).data,
   acceptChange: async (id: string, moveSchedule = false): Promise<{ ok: boolean; moved_item_id: string | null }> =>
     (await apiClient.post(`/finance/changes/${id}/accept`, { move_schedule: moveSchedule })).data,
+  acceptChanges: async (ids: string[]): Promise<{ ok: boolean; accepted: number }> =>
+    (await apiClient.post('/finance/changes/accept-many', { ids })).data,
   notionImportPreview: async (): Promise<{ count: number; total: string }> => (await apiClient.get('/finance/notion-import')).data,
   notionImport: async (): Promise<{ created: number }> => (await apiClient.post('/finance/notion-import')).data,
   rejectChange: async (id: string): Promise<{ ok: boolean }> => (await apiClient.post(`/finance/changes/${id}/reject`)).data,

@@ -65,6 +65,11 @@ export function FinanceReviewPage() {
     onSuccess: () => { done(); toast({ title: 'Оставлено как есть' }) },
     onError: (err) => toast({ title: 'Не сохранено', description: getErrorMessage(err), variant: 'destructive' }),
   })
+  const acceptMany = useMutation({
+    mutationFn: (ids: string[]) => financeApi.acceptChanges(ids),
+    onSuccess: (res) => { done(); toast({ title: `Отмечено как просмотренное: ${res.accepted}` }) },
+    onError: (err) => toast({ title: 'Не сохранено', description: getErrorMessage(err), variant: 'destructive' }),
+  })
   const remindAct = useMutation({
     mutationFn: (contractId: string) => financeApi.remindAct(contractId),
     onSuccess: (res) => toast({ title: res.already ? 'Сегодня МЗК уже напоминали' : 'МЗК получил напоминание про акт' }),
@@ -163,6 +168,16 @@ export function FinanceReviewPage() {
           return undefined
         }}
         action={(r) => <span className="inline-flex flex-wrap justify-end gap-2">{actions(r)}</span>}
+        bulkAction={(visible) => {
+          // «Просмотрено все»: только изменения и офферы, которые сейчас видны (с учётом фильтров).
+          if (history || !(canManage || (viewOnly && canMarkSeen))) return null
+          const ids = visible.flatMap((r) => 'change' in r && r.change.status === 'new' ? [r.change.id] : [])
+          if (!ids.length) return null
+          return <FinButton size="sm" variant="primary" disabled={acceptMany.isPending}
+            onClick={() => { if (window.confirm(`Отметить просмотренными ${ids.length}? Отменить это нельзя.`)) acceptMany.mutate(ids) }}>
+            {acceptMany.isPending ? 'Отмечаю…' : `Просмотрено все · ${ids.length}`}
+          </FinButton>
+        }}
         exclusiveQuick
         quick={(['all', 'offer', 'amount', 'date', 'notion', 'schedule', 'act', 'receipt', 'other'] as const)
           .filter((k) => k === 'all' || counts.get(k))

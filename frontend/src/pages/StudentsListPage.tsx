@@ -82,7 +82,10 @@ const SOURCE_LABELS: Record<string, string> = {
 
 type ScopeFilter = 'all' | 'mine' | 'assigned' | 'unassigned'
 type StatusFilterOperator = PipelineStatusOperator
-type BaseView = 'all' | 'needs_assignment' | 'diff' | 'mine' | 'active' | 'completed' | 'no_status'
+type BaseView = 'all' | 'needs_assignment' | 'diff' | 'mine' | 'active' | 'completed' | 'no_status' | 'with_offer' | 'no_offer'
+// «Без оффера» — только в активной работе: у завершённых оффер уже не ждут.
+const hasOffer = (s: { offers?: unknown[] }) => (s.offers?.length ?? 0) > 0
+const waitsOffer = (s: { offers?: unknown[]; pipeline_status?: string | null }) => !hasOffer(s) && s.pipeline_status === 'active_work'
 type BaseGrouping = 'intake' | 'responsible' | 'status'
 
 function needsAssignment(student: StudentListItem): boolean {
@@ -922,6 +925,7 @@ const CrmStudentsListView: React.FC = () => {
   const [sortAscending, setSortAscending] = useLocalState(viewKey('sortAscending'), true)
   const [showCountries, setShowCountries] = useLocalState(viewKey('columnCountries'), true)
   const [showForms, setShowForms] = useLocalState(viewKey('columnForms'), true)
+  const [showOffer, setShowOffer] = useLocalState(viewKey('columnOffer'), true)
   const [columnsOpen, setColumnsOpen] = useState(false)
   useEffect(() => {
     if (!canSeeNotion && (baseView === 'needs_assignment' || baseView === 'diff')) setBaseView('all')
@@ -1400,16 +1404,18 @@ const CrmStudentsListView: React.FC = () => {
     active: students.filter(s => s.pipeline_status === 'active_work').length,
     completed: students.filter(s => ['completed_admitted', 'changed_mind'].includes(s.pipeline_status ?? '')).length,
     no_status: students.filter(s => !s.pipeline_status || s.pipeline_status === 'no_status').length,
+    with_offer: students.filter(hasOffer).length,
+    no_offer: students.filter(waitsOffer).length,
   }
   const viewedStudents = useMemo(() => {
     const filtered = students.filter((student) =>
-      baseView === 'active' ? student.pipeline_status === 'active_work' : baseView === 'completed' ? ['completed_admitted', 'changed_mind'].includes(student.pipeline_status ?? '') : baseView === 'no_status' ? !student.pipeline_status || student.pipeline_status === 'no_status' : baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
+      baseView === 'active' ? student.pipeline_status === 'active_work' : baseView === 'completed' ? ['completed_admitted', 'changed_mind'].includes(student.pipeline_status ?? '') : baseView === 'no_status' ? !student.pipeline_status || student.pipeline_status === 'no_status' : baseView === 'with_offer' ? hasOffer(student) : baseView === 'no_offer' ? waitsOffer(student) : baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student) : baseView === 'diff' ? reportDiffIds.has(student.id) : true,
     )
     return [...filtered].sort((a, b) => sortAscending
       ? a.full_name.localeCompare(b.full_name, 'ru')
       : b.full_name.localeCompare(a.full_name, 'ru'))
   }, [students, baseView, sortAscending, reportDiffIds])
-  const viewLabel: Record<BaseView, string> = { all: 'Все', mine: 'Мои', diff: 'Расхождения с Notion', needs_assignment: 'Требуют назначения', active: 'В работе', completed: 'Завершённые', no_status: 'Без статуса' }
+  const viewLabel: Record<BaseView, string> = { all: 'Все', mine: 'Мои', diff: 'Расхождения с Notion', needs_assignment: 'Требуют назначения', active: 'В работе', completed: 'Завершённые', no_status: 'Без статуса', with_offer: 'С оффером', no_offer: 'Без оффера' }
   const countCatalog = catalog.filter(student => {
     const active = (student.responsibles ?? []).filter(person => person.is_active)
     if (scope === 'mine' && !student.is_mine || scope === 'assigned' && !active.length || scope === 'unassigned' && active.length) return false
@@ -1419,6 +1425,7 @@ const CrmStudentsListView: React.FC = () => {
     return baseView === 'active' ? student.pipeline_status === 'active_work'
       : baseView === 'completed' ? ['completed_admitted', 'changed_mind'].includes(student.pipeline_status ?? '')
       : baseView === 'no_status' ? !student.pipeline_status || student.pipeline_status === 'no_status'
+      : baseView === 'with_offer' ? hasOffer(student) : baseView === 'no_offer' ? waitsOffer(student)
       : baseView === 'mine' ? student.is_mine : baseView === 'needs_assignment' ? needsAssignment(student)
       : baseView === 'diff' ? reportDiffIds.has(student.id) : true
   })
@@ -1689,7 +1696,7 @@ const CrmStudentsListView: React.FC = () => {
       </div>}
 
       <nav aria-label="Виды общей базы" className="flex flex-wrap gap-1 border-b border-ds-line">
-        {([{ value: 'all', label: 'Все' }, { value: 'active', label: 'Активная работа' }, { value: 'completed', label: 'Работа окончена' }, { value: 'no_status', label: 'Нет статуса' }, ...(canSeeNotion ? [{ value: 'needs_assignment', label: 'Требуют назначения' } as const, { value: 'diff', label: 'Расхождения с Notion' } as const] : []), { value: 'mine', label: 'Мои' }] as const).map((view) =>
+        {([{ value: 'all', label: 'Все' }, { value: 'active', label: 'Активная работа' }, { value: 'completed', label: 'Работа окончена' }, { value: 'no_status', label: 'Нет статуса' }, { value: 'with_offer', label: 'С оффером' }, { value: 'no_offer', label: 'Без оффера' }, ...(canSeeNotion ? [{ value: 'needs_assignment', label: 'Требуют назначения' } as const, { value: 'diff', label: 'Расхождения с Notion' } as const] : []), { value: 'mine', label: 'Мои' }] as const).map((view) =>
           <button key={view.value} type="button" title={view.value === 'needs_assignment' ? 'Активные ученики без команды или с незакрытыми назначениями по услугам' : undefined} aria-current={baseView === view.value ? 'page' : undefined} onClick={() => setBaseView(view.value)} className={`min-h-10 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ds-accent ${baseView === view.value ? 'border-ds-accent text-ds-ink' : 'border-transparent text-ds-muted hover:text-ds-ink'}`}>
             {view.label} <span className="ml-1 rounded-full bg-ds-panel2 px-2 py-0.5 text-xs tabular-nums">{view.value === 'diff' ? (isReportLoading ? '…' : viewCounts.diff) : view.value === 'needs_assignment' && (isNotionLoading || isNotionError) ? '—' : incompleteResult ? `${viewCounts[view.value]}+` : viewCounts[view.value]}</span>
           </button>)}
@@ -1805,8 +1812,8 @@ const CrmStudentsListView: React.FC = () => {
           </div>
           {baseGrouping === 'responsible' && <Select value={groupRole} onValueChange={setGroupRole}><SelectTrigger className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger><SelectContent>{ASSIGNABLE_MENTOR_ROLES.map((role) => <SelectItem key={role} value={role}>{MENTOR_ROLE_LABELS[role]}</SelectItem>)}</SelectContent></Select>}
           <div ref={columnsRef} className="relative">
-            <Button type="button" variant="outline" size="sm" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(!columnsOpen)}>Столбцы · {7 + Number(showCountries) + Number(showForms)}</Button>
-            {columnsOpen && <div className="absolute right-0 top-full z-30 mt-2 w-44 rounded-xl border border-ds-line bg-ds-panel p-3 text-sm text-ds-ink shadow-lg"><p className="mb-2 text-xs font-bold text-ds-muted">Дополнительные столбцы</p><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showCountries} onChange={(event) => setShowCountries(event.target.checked)} />Страны</label><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showForms} onChange={(event) => setShowForms(event.target.checked)} />Анкеты</label></div>}
+            <Button type="button" variant="outline" size="sm" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(!columnsOpen)}>Столбцы · {7 + Number(showCountries) + Number(showOffer) + Number(showForms)}</Button>
+            {columnsOpen && <div className="absolute right-0 top-full z-30 mt-2 w-44 rounded-xl border border-ds-line bg-ds-panel p-3 text-sm text-ds-ink shadow-lg"><p className="mb-2 text-xs font-bold text-ds-muted">Дополнительные столбцы</p><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showCountries} onChange={(event) => setShowCountries(event.target.checked)} />Страны</label><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showOffer} onChange={(event) => setShowOffer(event.target.checked)} />Оффер</label><label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={showForms} onChange={(event) => setShowForms(event.target.checked)} />Анкеты</label></div>}
           </div>
         </div>
       </div>
@@ -1930,6 +1937,7 @@ const CrmStudentsListView: React.FC = () => {
         onRetry={() => refetch()}
         selfPending={assignSelfMutation.isPending || unassignSelfMutation.isPending}
         showCountries={showCountries}
+        showOffer={showOffer || baseView === 'with_offer'}
         showForms={showForms}
         notionStatuses={notionStatuses}
         notionStatusColors={notionStatusColors}

@@ -992,11 +992,6 @@ export const StudentCardPage: React.FC = () => {
   const nextMeeting = meetings.filter((meeting) => meeting.status === 'scheduled' && new Date(meeting.ends_at || meeting.starts_at).getTime() >= Date.now()).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
   const contract = student.contracts?.[0]
   const portfolio = student.portfolio_progress
-  const intakeMismatchCount = intake?.comparison?.filter((row) => (
-    (row.mismatch && row.ai_same_meaning !== true) ||
-    (row.crm_matches === false && !row.human_only && row.crm_ai_same_meaning !== true)
-  )).length ?? 0
-  const notionMismatchCount = notion?.comparison?.filter((row) => row.matches === false).length ?? 0
   const fallbackTimeline: StudentTimelineItem[] = [
     ...(student.documents || []).map((doc) => ({
       id: `doc-${doc.id}`,
@@ -1152,7 +1147,7 @@ export const StudentCardPage: React.FC = () => {
         />
       )}
 
-      {(showOffer || (student.alerts?.length ?? 0) > 0 || nextMeeting || (hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0)) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {(showOffer || (student.alerts?.length ?? 0) > 0 || nextMeeting) && <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {showOffer && <OfferBlock studentId={student.id} />}
         {(student.alerts ?? []).map((a, i) => {
           const tone = a.level === 'danger'
@@ -1167,6 +1162,8 @@ export const StudentCardPage: React.FC = () => {
               ? `через ${a.days ?? 0} дн.${a.due_date ? ` · срок ${formatDate(a.due_date)}` : ''}`
               : a.kind === 'payment_after_offer'
                 ? 'оплатят после оффера'
+                : a.kind === 'payment_offer_received'
+                  ? 'оффер получен, остаток к оплате'
                 : 'осталось выплатить'
           return (
             <div key={`${a.kind}-${i}`} className="rounded-panel border border-p-line bg-p-bg px-4 py-3">
@@ -1183,26 +1180,6 @@ export const StudentCardPage: React.FC = () => {
           <span className="mt-1 block text-sm font-semibold text-p-text">{nextMeeting.title}</span>
           <span className="mt-1 block text-xs text-p-muted">{new Date(nextMeeting.starts_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
         </button>}
-        {hasRole('admin', 'mzk_manager', 'academic_head') && intakeMismatchCount + notionMismatchCount > 0 && <div className="rounded-panel border border-p-line bg-p-panel px-4 py-3">
-          <p className="student-detail-summary-label text-2xs uppercase tracking-[0.18em] text-p-muted2">Требует сверки</p>
-          {intakeMismatchCount + notionMismatchCount > 0 ? (
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-amber-700">
-              <span>{intakeMismatchCount + notionMismatchCount} расхожд.</span>
-              {notionMismatchCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => navigate({ ...location, hash: 'notion' }, { replace: true })}
-                  className="inline-flex items-center gap-1 rounded-pill border border-amber-200 bg-amber-50 px-2 py-0.5 text-2xs font-medium text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
-                  title="Перейти к сверке с Notion"
-                >
-                  ⇆ {notionMismatchCount} с Notion
-                </button>
-              )}
-            </div>
-          ) : (
-            <p className="mt-1 text-sm font-semibold text-emerald-700">Расхождений нет</p>
-          )}
-        </div>}
       </div>}
 
       {/* Старые ссылки кабинета вели #notes в закрытые заметки; конспекты там живут под #meeting-notes. */}

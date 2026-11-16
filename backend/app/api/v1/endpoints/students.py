@@ -824,6 +824,20 @@ async def list_students(
     # разделение main/доп. уже есть в данных (Application.is_primary), просто
     # не было отдано наружу (country_map схлопывал до одной строки).
     countries_by_student: dict[uuid.UUID, list[dict]] = {}
+    # Колонка «Оффер» и виды «С оффером» / «Без оффера» (16.11.2026): заявки в
+    # статусе «Оффер»/«Зачислен» и день последней отметки оффера.
+    offers_by_student: dict[uuid.UUID, list[dict]] = {}
+    offer_day_by_student: dict = {}
+    if student_ids:
+        from app.services import finance_desk as _fd
+        from app.services.admission_guard import GUARDED_STATUSES
+        for sid, uni, app_country, st in (await db.execute(
+            select(Application.student_id, Application.university, Application.country, Application.submission_status)
+            .where(Application.student_id.in_(student_ids), Application.submission_status.in_(tuple(GUARDED_STATUSES)))
+            .order_by(Application.is_primary.desc(), Application.id)
+        )).all():
+            offers_by_student.setdefault(sid, []).append({"university": uni, "country": app_country, "status": st.value})
+        offer_day_by_student = await _fd.offer_days(db, set(offers_by_student))
     if student_ids:
         app_result = await db.execute(
             select(Application.student_id, Application.country, Application.is_primary)
@@ -1141,6 +1155,8 @@ async def list_students(
             "is_mine": is_mine,
             "country": country_map.get(s.id),
             "countries": countries_by_student.get(s.id, []),
+            "offers": offers_by_student.get(s.id, []),
+            "offer_date": offer_day_by_student[s.id].isoformat() if s.id in offer_day_by_student else None,
             "mentors": people.student_mentor_labels.get(s.id, []),
             "notion_people_keys": [key for key in people.mentor_students.keys() | people.manager_students.keys() if s.id in people.mentor_students.get(key, set()) or s.id in people.manager_students.get(key, set())],
             "notion_responsible_ids": [str(uid) for uid, ids in people.linked_user_students.items() if s.id in ids],
@@ -1578,7 +1594,8 @@ async def get_student_timeline(
     return {"items": events[offset:offset + limit], "total": len(events), "limit": limit, "offset": offset}
 
 
-def _compute_student_alerts(contracts: list[Contract], today: date, due_override: "dict | None" = None) -> list[dict]:
+def _compute_student_alerts(contracts: list[Contract], today: date, due_override: "dict | None" = None,
+                            offer_received: bool = False) -> list[dict]:
     """Активные финансовые предупреждения по студенту для баннера в профиле.
     Считаем по последнему договору из фактических платежей (contract_finance):
     - оплата клиента близко/просрочена (по client_remaining_date + остаток > 0);
@@ -1604,7 +1621,10 @@ def _compute_student_alerts(contracts: list[Contract], today: date, due_override
     # Режим «только просмотр» (15.11): срок — после оффера, а не «Остаток клиента
     # (дата)» из Notion (там одна дата на всех). Без оффера — «оплата после оффера».
     due = due_override[contract.id] if due_override is not None and contract.id in due_override else contract.client_remaining_date
-    if due_override is not None and remaining is not None and remaining > 0 and due is None:
+    if due_override is not None and remaining is not None and remaining > 0 and due is None and offer_received:
+        alerts.append({"level": "info", "kind": "payment_offer_received", "title": "Оффер получен, остаток к оплате",
+                       "amount": float(remaining), "currency": currency, "due_date": None, "days": None})
+    elif due_override is not None and remaining is not None and remaining > 0 and due is None:
         alerts.append({"level": "info", "kind": "payment_after_offer", "title": "Остаток оплатят после оффера",
                        "amount": float(remaining), "currency": currency, "due_date": None, "days": None})
     if remaining is not None and remaining > 0 and due is not None:
@@ -1766,7 +1786,10 @@ async def get_student(
         latest = max(student.contracts, key=lambda c: c.created_at)
         rows = await finance_desk.load_notion_items(db, today=date.today(), contract_id=latest.id)
         due_override = {latest.id: rows[0].item.due_date if rows else None}
-    alerts = _compute_student_alerts(student.contracts, date.today(), due_override)
+        offer_received = bool(rows) and rows[0].state.value == "upcoming" and rows[0].item.due_date is None
+    else:
+        offer_received = False
+    alerts = _compute_student_alerts(student.contracts, date.today(), due_override, offer_received=offer_received)
     if current_user.role not in (UserRole.admin, UserRole.mzk_manager, UserRole.academic_head, UserRole.mentor):
         alerts = [a for a in alerts if a["kind"] != "mentor_unpaid"]
     data["alerts"] = alerts

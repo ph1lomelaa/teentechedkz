@@ -87,14 +87,15 @@ export function FinanceReportsPage() {
         <FinCard title="Сводка по действующим договорам" meta={`${summary.data.contracts} договоров${Number(summary.data.without_amount) ? `, без суммы: ${summary.data.without_amount}` : ''}`}>
           <FinTable minWidth={560}>
             <tbody>
+              {/* В режиме «только просмотр» оплаты в платформе не вносят — строка всегда 0 ₸, её не показываем. */}
               {([
                 ['Сумма договоров', summary.data.amount],
                 ['Оплачено (сумма минус остаток в Notion)', summary.data.paid_by_notion],
-                ['Отмечено оплат в платформе (минус возвраты)', summary.data.recorded_paid],
+                ...(viewOnly ? [] : [['Отмечено оплат в платформе (минус возвраты)', summary.data.recorded_paid]]),
                 ['Остаток по Notion', summary.data.remaining_notion],
-                ['в том числе просрочено по графику', summary.data.overdue],
+                [viewOnly ? 'в том числе просрочено после оффера' : 'в том числе просрочено по графику', summary.data.overdue],
                 ['в том числе ждёт оффера', summary.data.after_offer],
-              ] as const).map(([label, value]) => (
+              ] as [string, string | number][]).map(([label, value]) => (
                 <tr key={label}><Td className={label.startsWith('в том') ? 'pl-8 text-p-muted' : undefined}>{label}</Td><Td right className="font-semibold">{money(String(value))}</Td></tr>
               ))}
             </tbody>

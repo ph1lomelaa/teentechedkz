@@ -104,6 +104,9 @@ export interface StudentListItem {
     flag_emoji?: string
     flag_url?: string
   }>
+  /** Заявки в статусе «Оффер»/«Зачислен» и день отметки оффера (16.11.2026). */
+  offers?: Array<{ university: string | null; country: string | null; status: string }>
+  offer_date?: string | null
   mentors?: string[]
   notion_people_keys?: string[]
   notion_responsible_ids?: string[]
@@ -956,7 +959,7 @@ export interface StudentFull extends StudentListItem {
 
 export interface StudentAlert {
   level: 'danger' | 'warning' | 'info'
-  kind: 'payment_due' | 'payment_overdue' | 'payment_after_offer' | 'mentor_unpaid'
+  kind: 'payment_due' | 'payment_overdue' | 'payment_after_offer' | 'payment_offer_received' | 'mentor_unpaid'
   title: string
   amount: number | null
   currency: string

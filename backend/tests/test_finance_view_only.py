@@ -35,7 +35,7 @@ URL = os.getenv('FINANCE_TEST_DATABASE_URL', '')
 @pytest.mark.skipif(not URL, reason='Requires an isolated finance test database')
 def test_view_only():
     assert '/tte_finance_check_' in URL, 'Refusing to run against a non-disposable database'
-    with patch.object(settings, 'FINANCE_VIEW_ONLY', True):
+    with patch.object(settings, 'FINANCE_VIEW_ONLY', True), patch.object(settings, 'FINANCE_OFFER_DEADLINE', True):
         asyncio.run(run())
 
 
@@ -130,6 +130,13 @@ async def run():
         await call('POST', f"finance/changes/{change['id']}/accept", json={})
         rv = await call('GET', 'finance/review', params={'status': 'new'})
         assert all(c['id'] != change['id'] for c in rv['changes']), '«Просмотрено» убирает событие'
+        # «Просмотрено все»: отмечает переданные события разом; повтор и уже проверенные пропускаются.
+        mine = [c['id'] for c in rv['changes'] if c['student_name'].endswith(s)]
+        assert len(mine) >= 2, mine
+        assert (await call('POST', 'finance/changes/accept-many', json={'ids': mine + [change['id']]}))['accepted'] == len(mine)
+        assert (await call('POST', 'finance/changes/accept-many', json={'ids': mine}))['accepted'] == 0
+        rv = await call('GET', 'finance/review', params={'status': 'new'})
+        assert not [c for c in rv['changes'] if c['student_name'].endswith(s)]
         assert (await call('GET', 'finance/prefs'))['summary'] is False, 'сводка по умолчанию выключена'
     _ = datetime, timezone
     await engine.dispose()

@@ -156,12 +156,6 @@ const FinanceContractPage = lazyRoute(() =>
 const FinanceReportsPage = lazyRoute(() =>
   import('@/pages/finance/FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage }))
 )
-const FinanceRefundsPage = lazyRoute(() =>
-  import('@/pages/finance/FinanceRefundsPage').then((m) => ({ default: m.FinanceRefundsPage }))
-)
-const FinanceDebtsPage = lazyRoute(() =>
-  import('@/pages/finance/FinanceDebtsPage').then((m) => ({ default: m.FinanceDebtsPage }))
-)
 const FinanceSettingsPage = lazyRoute(() =>
   import('@/pages/finance/FinanceSettingsPage').then((m) => ({ default: m.FinanceSettingsPage }))
 )
@@ -758,7 +752,7 @@ function AppRoutes() {
       {/* Адреса первой версии кабинета ведут на новые разделы: ссылки в
           уведомлениях и закладках продолжают работать. */}
       <Route path="/finance/calendar" element={<Navigate to="/finance?open=expected&view=calendar" replace />} />
-      <Route path="/finance/debtors" element={<Navigate to="/finance/debts" replace />} />
+      <Route path="/finance/debtors" element={<Navigate to="/finance?open=overdue" replace />} />
       <Route
         path="/finance/reports"
         element={
@@ -771,30 +765,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/finance/refunds"
-        element={
-          <ProtectedRoute permission={['finance_desk', 'view']}>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <FinanceRefundsPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/finance/debts"
-        element={
-          <ProtectedRoute permission={['finance_desk', 'view']}>
-            <AppLayout>
-              <React.Suspense fallback={<div className="p-6">Загрузка...</div>}>
-                <FinanceDebtsPage />
-              </React.Suspense>
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/finance/refunds" element={<Navigate to="/finance" replace />} />
+      <Route path="/finance/debts" element={<Navigate to="/finance?open=overdue" replace />} />
       <Route path="/finance/incoming" element={<Navigate to="/finance?open=received" replace />} />
       <Route path="/finance/changes" element={<Navigate to="/finance/review" replace />} />
 

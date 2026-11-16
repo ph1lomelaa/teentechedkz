@@ -7,7 +7,7 @@ export function FinanceContractsPage() {
     <div>
       <FinPageHeader
         title="Договоры"
-        description="Сумма договора, оплаты, следующий платёж и сам договор. Нажмите на имя — откроется карточка договора."
+        description="Сумма договора, оплаты, следующий платёж и сам договор. Имя — карточка договора, номер — сам договор (PDF)."
       />
       <ContractsTable />
     </div>

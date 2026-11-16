@@ -29,8 +29,6 @@ import {
   UserPlus,
   CalendarDays,
   FileText,
-  AlertCircle,
-  RotateCcw,
   Mail,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -139,8 +137,7 @@ const FINANCE_ITEMS: NavItem[] = [
   // дела на сегодня сверху, полные списки ниже. Счётчик — дел на сегодня.
   { label: 'Платежи', path: '/finance', exact: true, icon: <CalendarDays className="w-4 h-4" />, permission: ['finance_desk', 'view'], badge: 'finance_today' },
   { label: 'Договоры', path: '/finance/contracts', icon: <FileText className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
-  { label: 'Долги', path: '/finance/debts', icon: <AlertCircle className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
-  { label: 'Возвраты', path: '/finance/refunds', icon: <RotateCcw className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
+  // «Долги» и «Возвраты» убраны 16.11.2026: на проде пустые, просрочка видна на «Платежах».
   { label: 'Отчёты', path: '/finance/reports', icon: <BarChart3 className="w-4 h-4" />, permission: ['finance_desk', 'view'] },
   // Счётчик — непроверенные правки из Notion + оплаты без чека + расхождения.
   // «финансов» — потому что в кабинете уже есть «Проверка» (задач), а одно
@@ -251,8 +248,6 @@ function getBreadcrumb(pathname: string, role: string): string {
     '/finances': 'Финансы',
     '/finance': 'Платежи',
     '/finance/contracts': 'Договоры',
-    '/finance/debts': 'Долги',
-    '/finance/refunds': 'Возвраты',
     '/finance/reports': 'Отчёты',
     '/finance/settings': 'Настройки писем',
     '/finance/review': 'Проверка финансов',

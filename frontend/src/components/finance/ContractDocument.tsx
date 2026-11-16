@@ -14,10 +14,10 @@ import { downloadBlob } from '@/lib/utils'
 const LINK_BTN = 'inline-flex items-center gap-1 whitespace-nowrap text-[13px] font-semibold text-p-text underline-offset-2 hover:underline disabled:opacity-50'
 const fileName = (label: string) => (/\.[a-z0-9]{2,5}$/i.test(label) ? label : `${label}.pdf`)
 
-export function ContractDocument({ studentId, contractId, documents }: { studentId: string; contractId: string; documents?: OriginalDocument[] }) {
+/** Открыть или скачать файл договора. Общая логика для карточки и для номера в таблице «Договоры». */
+export function useContractFile(studentId: string, contractId: string) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  if (!documents?.length) return <span className="text-[13px] text-[var(--fin-text-3)]">Договор не загружен</span>
 
   const fetchFile = (doc: OriginalDocument) =>
     doc.kind === 'scan' ? financeApi.contractScan(contractId, doc.id) : actsApi.contractPdf(studentId, doc.id)
@@ -45,6 +45,12 @@ export function ContractDocument({ studentId, contractId, documents }: { student
       setBusy(null)
     }
   }
+  return { busy, error, run }
+}
+
+export function ContractDocument({ studentId, contractId, documents }: { studentId: string; contractId: string; documents?: OriginalDocument[] }) {
+  const { busy, error, run } = useContractFile(studentId, contractId)
+  if (!documents?.length) return <span className="text-[13px] text-[var(--fin-text-3)]">Договор не загружен</span>
 
   return (
     <div className="flex min-w-[140px] flex-col gap-2">

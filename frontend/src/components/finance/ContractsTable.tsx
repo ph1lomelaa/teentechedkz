@@ -3,14 +3,16 @@
  * строка — договор, фильтры по статусу, году, МЗК, графику, документу.
  */
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ExternalLink } from 'lucide-react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { financeApi, financeKeys, type FinanceContractRow } from '@/api/finance'
 import { DEGREE_LEVEL_LABELS, type DegreeLevel } from '@/types'
 import { NotionTable } from './NotionTable'
 import { FinBadge } from './ui'
+import { useContractFile } from './ContractDocument'
 import { date, money, moneyTotals, num, statusLabel } from './format'
 
-const NEXT_LABEL = { overdue: 'Просрочен', today: 'Сегодня', planned: 'По графику', paid_full: 'Оплачен полностью', not_planned: 'Графика нет', after_offer: 'После оффера' } as const
+const NEXT_LABEL = { overdue: 'Просрочен', today: 'Сегодня', planned: 'По графику', paid_full: 'Оплачен полностью', not_planned: 'Графика нет', after_offer: 'После оффера', offer_received: 'Оффер получен' } as const
 const QUERY = { status: 'all', size: 2000 } as const
 // Работа по договору окончена: такие договоры — в «Закрытых», не в «Активных».
 const CLOSED = new Set(['completed_admitted', 'changed_mind', 'lost_applicant', 'refund', 'transferred_pipeline'])
@@ -28,8 +30,26 @@ function NextPayment({ row }: { row: FinanceContractRow }) {
   if (kind === 'overdue') return <span className="whitespace-nowrap text-[var(--fin-bad)]">{date(item?.due_date)} · {money(item?.left, row.currency)}</span>
   if (kind === 'paid_full') return <FinBadge tone="ok">Оплачен полностью</FinBadge>
   if (kind === 'not_planned') return <span className="text-p-muted2">—</span>
+  if (kind === 'offer_received') return <span className="whitespace-nowrap">Оффер получен · {money(item?.left, row.currency)}</span>
   if (kind === 'after_offer') return <span className="whitespace-nowrap">После оффера · {money(item?.left, row.currency)}</span>
   return <span className="whitespace-nowrap">{date(item?.due_date)} · {money(item?.left, row.currency)}</span>
+}
+
+/** Номер договора: по клику открывается сам договор (PDF) в новой вкладке. */
+function ContractNumber({ row }: { row: FinanceContractRow }) {
+  const { busy, error, run } = useContractFile(row.student_id, row.contract_id)
+  const n = numberOf(row)
+  const doc = row.originals?.[0]
+  if (!doc) return n ? <span className="block max-w-[200px] truncate" title={`${n} · файла договора нет`}>{n}</span> : <span className="text-p-muted2">—</span>
+  return (
+    <span className="inline-flex flex-col">
+      <button type="button" disabled={!!busy} onClick={() => run(doc, 'open')} title="Открыть договор в новой вкладке"
+        className="inline-flex max-w-[200px] items-center gap-1 truncate text-left underline decoration-p-line underline-offset-4 hover:decoration-p-text disabled:opacity-50">
+        <span className="truncate">{busy ? 'Открываю…' : n || 'Открыть'}</span><ExternalLink className="h-3.5 w-3.5 shrink-0 text-p-muted" aria-hidden="true" />
+      </button>
+      {error && <span role="alert" className="text-xs text-[var(--fin-bad)]">{error}</span>}
+    </span>
+  )
 }
 
 const values = (row: FinanceContractRow, field: string): string[] => {
@@ -75,7 +95,7 @@ export function ContractsTable() {
       dates={['Следующий платёж']}
       values={values}
       cell={(row, field) => {
-        if (field === '№ договора') { const n = numberOf(row); return n ? <span className="block max-w-[200px] truncate" title={n}>{n}</span> : undefined }
+        if (field === '№ договора') return <ContractNumber row={row} />
         if (field === 'Сумма') return money(row.amount, row.currency)
         if (field === 'Оплачено') return money(row.paid, row.currency)
         if (field === 'Остаток') return (
