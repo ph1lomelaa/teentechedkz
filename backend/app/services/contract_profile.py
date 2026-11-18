@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from datetime import date
-from app.services.contract_services import extract_services, signature_available, with_default_services
+from app.services.contract_services import apply_company_defaults, extract_services, signature_available, with_default_services
 from app.services.contract_discovery import fuzzy_overlap, same_person
 from app.core.encryption import decrypt, encrypt
 
@@ -36,7 +36,7 @@ def cached_profile(link):
     if not value: return None
     try:
         profile = json.loads(decrypt(value))
-        return with_default_services(profile) if profile.get('parser_version') == VERSION else None
+        return apply_company_defaults(with_default_services(profile)) if profile.get('parser_version') == VERSION else None
     except Exception:
         return None
 
@@ -205,10 +205,10 @@ def extract_profile(pages, info, content):
             unique = {(p['amount'],p['currency']) for p in prices}
             if len(unique)==1: hints[template]['confirmed_price'] = prices[0]
     required = ('student_name','customer_name','executor_name','executor_representative','executor_basis','contract_number','contract_date','city')
-    return with_default_services({'parser_version':VERSION, 'extractor':EXTRACTOR, 'fingerprint':hashlib.sha256(content).hexdigest(), 'fields':fields,
+    return apply_company_defaults(with_default_services({'parser_version':VERSION, 'extractor':EXTRACTOR, 'fingerprint':hashlib.sha256(content).hexdigest(), 'fields':fields,
             'sources':sources, 'conflicts':conflicts, 'service_hints':hints,
             'service_policy':3, 'services':extract_services(pages, hashlib.sha256(content).hexdigest()),
             'source_pages':[{'page':p['page'],'text':clean(p['text'])} for p in pages],
             'company_signature_available':signature_available(pages, fields),
             'company_signature_identity':{key:fields.get(key) for key in ('executor_name','executor_representative')},
-            'missing':[key for key in required if not fields.get(key)], 'reviewed':False})
+            'missing':[key for key in required if not fields.get(key)], 'reviewed':False}))

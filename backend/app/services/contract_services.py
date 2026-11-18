@@ -219,9 +219,52 @@ def validate_service_lines(data, profile):
         raise ValueError('Общее количество встреч не подтверждает объём выбранной услуги')
 
 
+COMPANY_BIN = '210240033224'
+COMPANY_NAME = 'ТОО «ТинТэкЭд»'
+COMPANY_REPRESENTATIVE = 'директора Жұман Ботагөз Бақытжанқызы'
+DEFAULT_NOTE = 'Подставлено автоматически: в договоре не найдено'
+
+
+def _is_company(name):
+    return bool(re.search(r'т[иі]нт[эе]к[эе]д|teen\s*tech', name or '', re.I))
+
+
+def _is_director(representative):
+    return bool(re.search(r'Ж[ұуү]ман', representative or '', re.I))
+
+
 def signature_available(pages, fields):
     text = ' '.join(page['text'] for page in pages)
-    return bool(re.search(r'(?<!\d)210240033224(?!\d)', text) and re.search(r'Ж[ұу]ман', fields.get('executor_representative', ''), re.I))
+    return bool(re.search(rf'(?<!\d){COMPANY_BIN}(?!\d)', text) and _is_director(fields.get('executor_representative', '')))
+
+
+def apply_company_defaults(profile):
+    """Исполнитель у всех договоров один. Чего нет в тексте (скан, OCR), подставляем
+    с пометкой kind='default'; договор с чужим исполнителем не трогаем."""
+    if not profile:
+        return profile
+    fields = profile.setdefault('fields', {})
+    sources = profile.setdefault('sources', {})
+    conflicts = profile.setdefault('conflicts', {})
+    if fields.get('executor_name') and not _is_company(fields['executor_name']):
+        profile['company_signature_available'] = False
+        profile['company_defaults'] = []
+        return profile
+    for key, value in (('executor_name', COMPANY_NAME), ('executor_representative', COMPANY_REPRESENTATIVE)):
+        if not fields.get(key) and key not in conflicts:
+            fields[key] = value
+            sources[key] = {'kind': 'default', 'page': None, 'excerpt': DEFAULT_NOTE}
+    text = ' '.join(page.get('text', '') for page in profile.get('source_pages') or [])
+    labels = {'executor_name': 'исполнитель', 'executor_representative': 'представитель исполнителя'}
+    defaults = [f'{labels[key]} — {fields[key]}' for key in labels if (sources.get(key) or {}).get('kind') == 'default']
+    if not re.search(rf'(?<!\d){COMPANY_BIN}(?!\d)', text):
+        defaults.append(f'БИН исполнителя — {COMPANY_BIN}')
+    profile['company_defaults'] = defaults
+    profile['company_signature_available'] = _is_director(fields.get('executor_representative'))
+    profile['company_signature_identity'] = {key: fields.get(key) for key in ('executor_name', 'executor_representative')}
+    if 'missing' in profile:
+        profile['missing'] = [key for key in profile['missing'] if not fields.get(key)]
+    return profile
 
 
 def validate_company_signature(data, profile):

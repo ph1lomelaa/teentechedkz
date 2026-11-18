@@ -2,7 +2,7 @@ import copy
 from decimal import Decimal
 from types import SimpleNamespace
 import unittest
-from app.services.contract_services import strip_quantities, extract_services, validate_service_lines, validate_company_signature, signature_available, normalized
+from app.services.contract_services import strip_quantities, extract_services, validate_service_lines, validate_company_signature, signature_available, normalized, apply_company_defaults
 from app.services.contract_profile import extract_profile
 from app.schemas.service_act import ActInput
 from test_service_acts import payload
@@ -181,3 +181,32 @@ class BrokenWordsTests(unittest.TestCase):
   self.assertTrue(render_act(data).startswith(b'%PDF'))
   # Повторное применение каталога не меняет идентификаторы: готовые акты не теряют услуги.
   self.assertEqual([s['id'] for s in with_default_services(copy.deepcopy(p))['services']],[s['id'] for s in p['services']])
+
+
+class CompanyDefaultsTests(unittest.TestCase):
+ def test_scan_without_bin_gets_company_defaults_and_signature_with_note(self):
+  p=apply_company_defaults({'fields':{},'sources':{},'conflicts':{},'missing':['executor_name','executor_representative','city'],'source_pages':[{'page':1,'text':'скан без реквизитов'}]})
+  self.assertEqual(p['fields']['executor_name'],'ТОО «ТинТэкЭд»')
+  self.assertEqual(p['sources']['executor_representative']['kind'],'default')
+  self.assertTrue(p['company_signature_available'])
+  self.assertTrue(any('210240033224' in x for x in p['company_defaults']))
+  self.assertEqual(p['missing'],['city'])
+
+ def test_found_values_are_kept_and_only_missing_bin_is_noted(self):
+  p=apply_company_defaults({'fields':{'executor_name':'ТОО «ТинТэкЭд»','executor_representative':'директора Жуман Ботагөз'},'sources':{'executor_name':{'kind':'ocr'},'executor_representative':{'kind':'ocr'}},'conflicts':{},'source_pages':[{'text':'договор'}]})
+  self.assertEqual(p['fields']['executor_representative'],'директора Жуман Ботагөз')
+  self.assertEqual(p['company_defaults'],['БИН исполнителя — 210240033224'])
+  self.assertTrue(p['company_signature_available'])
+  p=apply_company_defaults({'fields':{'executor_name':'ТОО «ТинТэкЭд»','executor_representative':'директора Жұман Б.'},'sources':{},'conflicts':{},'source_pages':[{'text':'БИН 210240033224'}]})
+  self.assertEqual(p['company_defaults'],[])
+
+ def test_manual_representative_enables_signature_and_identity_follows_fields(self):
+  p=apply_company_defaults({'fields':{'executor_name':'ТОО «ТинТэкЭд»','executor_representative':'директора Жұман Ботагөз Бақытжанқызы'},'sources':{'executor_representative':{'kind':'manual'}},'conflicts':{},'source_pages':[{'text':'БИН 210240033224'}],'company_signature_identity':{'executor_representative':None}})
+  self.assertTrue(p['company_signature_available'])
+  self.assertEqual(p['company_signature_identity']['executor_representative'],'директора Жұман Ботагөз Бақытжанқызы')
+
+ def test_other_company_or_other_representative_gets_no_signature(self):
+  p=apply_company_defaults({'fields':{'executor_name':'ТОО «Другая»'},'sources':{},'conflicts':{},'source_pages':[]})
+  self.assertFalse(p['company_signature_available']);self.assertNotIn('executor_representative',p['fields'])
+  p=apply_company_defaults({'fields':{'executor_representative':'директора Иванова И.'},'sources':{},'conflicts':{},'source_pages':[]})
+  self.assertFalse(p['company_signature_available'])

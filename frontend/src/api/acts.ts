@@ -40,7 +40,7 @@ export interface ContractService { source_kind?: 'standard'; id: string; name: s
 export interface ContractInspection {
   warning?: string | null
   applications?: { id: string; university: string | null; program: string | null; status: string }[]
-  fingerprint?: string; services?: ContractService[]; company_signature_available?: boolean
+  fingerprint?: string; services?: ContractService[]; company_signature_available?: boolean; company_defaults?: string[]
   contract_amount?: string | null; contract_currency?: string | null
   signed_date?: string | null; signed_date_source?: string | null
   status: number

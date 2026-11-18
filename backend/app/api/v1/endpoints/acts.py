@@ -34,7 +34,7 @@ from app.models.user import User, UserRole
 from app.schemas.service_act import ActInput, ActDraftInput, ActMailInput, ActMailResolution
 from app.services import mailer
 from app.services.act_pdf import render_act
-from app.services.contract_services import validate_service_lines, validate_company_signature, extract_services, with_default_services
+from app.services.contract_services import apply_company_defaults, validate_service_lines, validate_company_signature, extract_services, with_default_services
 from app.services.contract_documents import read_pages, signing_date, apply_document_signing_date
 from app.services.contract_discovery import same_person
 from app.services.contract_profile import cached_profile, extract_profile, store_profile, FIELDS, EXTRACTOR
@@ -399,6 +399,7 @@ async def inspect_contract(student_id: uuid.UUID, link_id: uuid.UUID, db: Db, cu
         logging.getLogger(__name__).exception("Contract inspection failed for link %s", link.id)
         profile, warning = _inspection_fallback(previous, link)
         store_profile(link, profile)
+    apply_company_defaults(profile)
     fields = profile["fields"]
     if not fields.get("student_name") and fields.get("customer_name") and same_person(fields["customer_name"], student.full_name):
         # Договор заключён самим студентом: отдельной строки «Абитуриент» нет.
@@ -456,6 +457,7 @@ async def save_contract_profile(student_id: uuid.UUID, link_id: uuid.UUID, body:
             profile["conflicts"].pop(key, None)
             changed.append(key)
     profile["missing"] = [key for key in profile.get("missing", []) if not profile["fields"].get(key)]
+    apply_company_defaults(profile)
     store_profile(link, profile)
     if changed:
         await log_change(db, "student", student_id, "contract_requisites_updated", None,
